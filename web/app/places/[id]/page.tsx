@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getExperiencesForPlace } from "@/lib/experiences";
 import { getPlaceById, places } from "@/lib/places";
 
 export function generateStaticParams() {
@@ -17,6 +18,8 @@ export default async function PlaceDetailPage({
   if (!place) {
     notFound();
   }
+
+  const placeExperiences = getExperiencesForPlace(place.id);
 
   return (
     <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
@@ -51,6 +54,31 @@ export default async function PlaceDetailPage({
               <dd className="mt-1 text-sm font-semibold">{place.producer?.displayName ?? "Belum ditautkan"}</dd>
             </div>
           </dl>
+
+          <section className="mt-10 border-t border-black/10 pt-8" aria-labelledby="experiences-heading">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Experience di Place ini</p>
+            <h2 id="experiences-heading" className="mt-2 text-2xl font-black tracking-tight">
+              Kalau datang, kamu akan melakukan apa?
+            </h2>
+            <div className="mt-5 grid gap-4">
+              {placeExperiences.length > 0 ? (
+                placeExperiences.map((experience) => (
+                  <article key={experience.id} className="rounded-2xl border border-black/10 bg-[#f7f5ef] p-5">
+                    <h3 className="text-lg font-black">{experience.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-black/65">{experience.shortDescription}</p>
+                    <Link
+                      className="mt-4 inline-flex rounded-full bg-[#20231f] px-4 py-2 text-sm font-bold text-white"
+                      href={`/places/${place.id}/experiences/${experience.id}`}
+                    >
+                      Lihat Experience
+                    </Link>
+                  </article>
+                ))
+              ) : (
+                <p className="text-sm text-black/60">Experience di Place ini belum tersedia.</p>
+              )}
+            </div>
+          </section>
         </article>
       </div>
     </main>
