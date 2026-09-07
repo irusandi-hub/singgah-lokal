@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { createVisitIntent, type VisitIntent } from "@/lib/visit-intents";
+import { FormEvent, useRef, useState } from "react";
+import type { VisitIntent } from "@/lib/visit-intents";
 import type { Experience } from "@/lib/experiences";
 import type { Place } from "@/lib/places";
 
@@ -24,28 +24,24 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
   const [optionalNote, setOptionalNote] = useState("");
   const [intent, setIntent] = useState<VisitIntent | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
 
     try {
-      setIntent(
-        createVisitIntent(
-          {
-            userId: "local-demo-user",
-            placeId: place.id,
-            experienceId: experience.id,
-            requestedDate,
-            requestedStartTime,
-            requestedEndTime,
-            partySize,
-            optionalNote,
-          },
-          place,
-          experience,
-        ),
-      );
+      idempotencyKeyRef.current ??= crypto.randomUUID();
+      const response = await fetch("/api/visit-intents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKeyRef.current },
+        body: JSON.stringify({ placeId: place.id, experienceId: experience.id, requestedDate, requestedStartTime, requestedEndTime, partySize, optionalNote }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error ?? "Visit Intent belum dapat dikirim.");
+      }
+      setIntent(result as VisitIntent);
     } catch (submissionError) {
       setIntent(null);
       setError(submissionError instanceof Error ? submissionError.message : "Visit Intent belum dapat dikirim.");
@@ -58,7 +54,7 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Visit Intent dibuat</p>
         <h2 className="mt-2 text-xl font-black">Niat berkunjung siap diteruskan ke Producer.</h2>
         <p className="mt-3 text-sm leading-6 text-black/70">
-          Status: <strong>pending</strong>. Ini bukan konfirmasi reservasi. Waktu mengikuti {intent.timezone} dan masih perlu respons Producer. Pengiriman server akan tersedia saat endpoint Visit Intent ditambahkan.
+          Status: <strong>pending</strong>. Ini bukan konfirmasi reservasi. Waktu mengikuti {intent.timezone} dan masih perlu respons Producer. Visit Intent telah tercatat di server.
         </p>
       </div>
     );

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getExperienceById, experiences } from "@/lib/experiences";
-import { getPlaceById } from "@/lib/places";
+import { experiences } from "@/lib/experiences";
+import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 import VisitIntentForm from "./VisitIntentForm";
 
 export function generateStaticParams() {
@@ -14,8 +14,9 @@ export default async function ExperienceDetailPage({
   params: Promise<{ id: string; experienceId: string }>;
 }) {
   const { id, experienceId } = await params;
-  const place = getPlaceById(id);
-  const experience = getExperienceById(experienceId);
+  const repository = await getServerPlaceExperienceRepository();
+  const place = await repository.getPublishedPlaceById(id);
+  const experience = await repository.getPublishedExperienceById(experienceId);
 
   if (!place || !experience || experience.placeId !== place.id || experience.status !== "published") {
     notFound();

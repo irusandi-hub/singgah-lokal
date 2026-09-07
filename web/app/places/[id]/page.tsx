@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getExperiencesForPlace } from "@/lib/experiences";
-import { getPlaceById, places } from "@/lib/places";
+import { places } from "@/lib/places";
+import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 
 export function generateStaticParams() {
   return places.map((place) => ({ id: place.id }));
@@ -13,13 +13,14 @@ export default async function PlaceDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const place = getPlaceById(id);
+  const repository = await getServerPlaceExperienceRepository();
+  const place = await repository.getPublishedPlaceById(id);
 
   if (!place) {
     notFound();
   }
 
-  const placeExperiences = getExperiencesForPlace(place.id);
+  const placeExperiences = await repository.listPublishedExperiencesForPlace(place.id);
 
   return (
     <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">

@@ -1,5 +1,6 @@
 import type { Experience } from "@/lib/experiences";
 import type { Place } from "@/lib/places";
+import { canManagePlace, canRespondToVisitIntent, type ProducerAccess } from "@/lib/producer";
 
 export type VisitIntentStatus = "pending" | "accepted" | "declined" | "requires_confirmation" | "cancelled" | "expired";
 
@@ -119,11 +120,39 @@ export function createVisitIntent(input: VisitIntentInput, place: Place, experie
   return {
     ...input,
     optionalNote: input.optionalNote?.trim() || undefined,
-    id: `visit-intent-${now.getTime()}`,
+    id: `visit-intent-${globalThis.crypto.randomUUID()}`,
     timezone: place.timezone,
     status: "pending",
     producerResponseNote: null,
     createdAt: timestamp,
     updatedAt: timestamp,
+  };
+}
+
+export function respondToVisitIntent(
+  intent: VisitIntent,
+  place: Place,
+  access: ProducerAccess,
+  nextStatus: Extract<VisitIntentStatus, "accepted" | "declined" | "requires_confirmation">,
+  producerResponseNote: string,
+  now = new Date(),
+): VisitIntent {
+  if (!canManagePlace(place, access)) {
+    throw new Error("Producer is not authorized to manage this Place");
+  }
+
+  if (!canRespondToVisitIntent(intent.status, nextStatus)) {
+    throw new Error(`Cannot change Visit Intent from ${intent.status} to ${nextStatus}`);
+  }
+
+  if (producerResponseNote.length > 1000) {
+    throw new Error("Producer response note must be 1000 characters or fewer");
+  }
+
+  return {
+    ...intent,
+    status: nextStatus,
+    producerResponseNote: producerResponseNote.trim() || null,
+    updatedAt: now.toISOString(),
   };
 }
