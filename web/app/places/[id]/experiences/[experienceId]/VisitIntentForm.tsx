@@ -4,6 +4,7 @@ import { FormEvent, useRef, useState } from "react";
 import type { VisitIntent } from "@/lib/visit-intents";
 import type { Experience } from "@/lib/experiences";
 import type { Place } from "@/lib/places";
+import { getVisitIntentErrorMessage } from "@/lib/visit-intent-error";
 
 type VisitIntentFormProps = {
   place: Place;
@@ -39,12 +40,13 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
       });
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result.error ?? "Visit Intent belum dapat dikirim.");
+        setError(getVisitIntentErrorMessage(response.status, result.error));
+        return;
       }
       setIntent(result as VisitIntent);
-    } catch (submissionError) {
+    } catch {
       setIntent(null);
-      setError(submissionError instanceof Error ? submissionError.message : "Visit Intent belum dapat dikirim.");
+      setError("Visit Intent belum dapat dikirim. Silakan coba lagi.");
     }
   }
 

@@ -1,12 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { experiences } from "@/lib/experiences";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 import VisitIntentForm from "./VisitIntentForm";
 
-export function generateStaticParams() {
-  return experiences.map((experience) => ({ id: experience.placeId, experienceId: experience.id }));
-}
+export const dynamic = "force-dynamic";
 
 export default async function ExperienceDetailPage({
   params,
@@ -18,7 +15,13 @@ export default async function ExperienceDetailPage({
   const place = await repository.getPublishedPlaceById(id);
   const experience = await repository.getPublishedExperienceById(experienceId);
 
-  if (!place || !experience || experience.placeId !== place.id || experience.status !== "published") {
+  if (
+    !place ||
+    !experience ||
+    experience.placeId !== place.id ||
+    experience.status !== "published" ||
+    experience.publicationStatus !== "published"
+  ) {
     notFound();
   }
 

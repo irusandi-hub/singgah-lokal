@@ -53,7 +53,7 @@ export const experiences: Experience[] = [
     publicationStatus: "published",
     schedules: [
       {
-        dayOfWeek: "Hari operasional mengikuti konfirmasi Producer",
+        dayOfWeek: "Sunday",
         startTime: "09:00",
         endTime: "15:00",
         timezone: "Asia/Jakarta",

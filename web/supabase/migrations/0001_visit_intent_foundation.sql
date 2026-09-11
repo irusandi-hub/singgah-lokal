@@ -185,7 +185,7 @@ values (
 ) on conflict (id) do nothing;
 
 insert into public.experience_schedules (experience_id, day_of_week, start_time, end_time, timezone, status)
-select 'kunjungan-pengenalan-rumah-teh', 'Hari operasional mengikuti konfirmasi Producer', '09:00', '15:00', 'Asia/Jakarta', 'requires_confirmation'
+select 'kunjungan-pengenalan-rumah-teh', 'Sunday', '09:00', '15:00', 'Asia/Jakarta', 'requires_confirmation'
 where not exists (select 1 from public.experience_schedules where experience_id = 'kunjungan-pengenalan-rumah-teh');
 
 alter table public.users enable row level security;

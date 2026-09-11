@@ -75,7 +75,7 @@ export async function respondAsProducer(
 
   const place = await dataRepository.getPlaceById(intent.placeId);
   const experience = await dataRepository.getExperienceById(intent.experienceId);
-  if (!place || !experience || !canManagePlace(place, access)) {
+  if (!place || !experience || experience.placeId !== intent.placeId || !canManagePlace(place, access)) {
     throw new VisitIntentNotFoundError();
   }
 

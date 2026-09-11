@@ -19,7 +19,15 @@ export async function GET(request: Request) {
     }
 
     const repository = await getServerVisitIntentRepository();
-    const intents = (await Promise.all(memberships.map(({ place_id }) => repository.listForPlace(String(place_id))))).flat();
+    const placeIds = [...new Set(memberships.map(({ place_id }) => String(place_id)))];
+    const intents = (await Promise.all(placeIds.map(async (placeId) => {
+      const placeIntents = await repository.listForPlace(placeId);
+      const validIntents = await Promise.all(placeIntents.map(async (intent) => {
+        const experience = await repository.getExperienceById(intent.experienceId);
+        return experience?.placeId === intent.placeId ? intent : null;
+      }));
+      return validIntents.filter((intent): intent is NonNullable<typeof intent> => intent !== null);
+    }))).flat();
     return NextResponse.json(intents);
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {

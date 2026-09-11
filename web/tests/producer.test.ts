@@ -9,7 +9,11 @@ const place: Place = {
   ...places[0],
   producer: { id: "producer-1", displayName: "Producer 1" },
 };
-const experience = { ...experiences[0], placeId: place.id };
+const experience = {
+  ...experiences[0],
+  placeId: place.id,
+  schedules: [{ ...experiences[0].schedules[0], dayOfWeek: "Sunday" }],
+};
 const access: ProducerAccess = { producerId: "producer-1", role: "owner" };
 const now = new Date("2026-09-05T00:00:00.000Z");
 
@@ -36,6 +40,21 @@ test("Producer inbox filters Visit Intents by Place authorization", () => {
   assert.equal(visible.length, 1);
   assert.equal(visible[0].experience?.id, experience.id);
   assert.equal(getProducerVisitIntents([intent], [place], [experience], { producerId: "other", role: "owner" }).length, 0);
+});
+
+test("Producer inbox rejects an Experience that does not belong to the intent Place", () => {
+  const intent = createVisitIntent(intentInput, place, experience, now);
+  const mismatchedExperience = { ...experience, placeId: "another-place" };
+
+  assert.equal(
+    getProducerVisitIntents(
+      [{ ...intent, experienceId: mismatchedExperience.id }],
+      [place],
+      [mismatchedExperience],
+      access,
+    ).length,
+    0,
+  );
 });
 
 test("Producer can respond to pending Visit Intent with authorization", () => {

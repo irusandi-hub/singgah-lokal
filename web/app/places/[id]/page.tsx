@@ -1,11 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { places } from "@/lib/places";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 
-export function generateStaticParams() {
-  return places.map((place) => ({ id: place.id }));
-}
+export const dynamic = "force-dynamic";
 
 export default async function PlaceDetailPage({
   params,

@@ -46,10 +46,15 @@ export function getProducerVisitIntents(
       return [];
     }
 
+    const experience = experiences.find((candidate) => candidate.id === intent.experienceId && candidate.placeId === place.id);
+    if (!experience) {
+      return [];
+    }
+
     return [{
       intent,
       place,
-      experience: experiences.find((candidate) => candidate.id === intent.experienceId && candidate.placeId === place.id) ?? null,
+      experience,
     }];
   });
 }

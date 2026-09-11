@@ -26,6 +26,34 @@ export type VisitIntent = VisitIntentInput & {
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+const weekdayNames = [
+  { english: "sunday", indonesian: "minggu" },
+  { english: "monday", indonesian: "senin" },
+  { english: "tuesday", indonesian: "selasa" },
+  { english: "wednesday", indonesian: "rabu" },
+  { english: "thursday", indonesian: "kamis" },
+  { english: "friday", indonesian: "jumat" },
+  { english: "saturday", indonesian: "sabtu" },
+];
+
+function getRequestedWeekday(requestedDate: string): { english: string; indonesian: string } {
+  const [year, month, day] = requestedDate.split("-").map(Number);
+  return weekdayNames[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+}
+
+function scheduleMatchesDate(scheduleDay: string, requestedDate: string): boolean {
+  const normalizedScheduleDay = scheduleDay.trim().toLowerCase();
+  const requestedWeekday = getRequestedWeekday(requestedDate);
+  const matchingDay = weekdayNames.find(
+    ({ english, indonesian }) =>
+      normalizedScheduleDay === english ||
+      normalizedScheduleDay === english.slice(0, 3) ||
+      normalizedScheduleDay === indonesian ||
+      normalizedScheduleDay === indonesian.slice(0, 3),
+  );
+
+  return matchingDay?.english === requestedWeekday.english || matchingDay?.indonesian === requestedWeekday.indonesian;
+}
 
 function getTimezoneParts(date: Date, timezone: string): Record<string, string> {
   return Object.fromEntries(
@@ -101,6 +129,7 @@ export function validateVisitIntent(input: VisitIntentInput, place: Place, exper
     (schedule) =>
       schedule.timezone === place.timezone &&
       schedule.status !== "not_available" &&
+      scheduleMatchesDate(schedule.dayOfWeek, input.requestedDate) &&
       input.requestedStartTime >= schedule.startTime &&
       input.requestedEndTime <= schedule.endTime,
   );

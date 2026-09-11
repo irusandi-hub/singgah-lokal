@@ -3,6 +3,33 @@ import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requir
 import { getServerVisitIntentRepository } from "@/lib/visit-intent-repository";
 import { respondAsProducer } from "@/lib/visit-intent-service";
 
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params;
+    const repository = await getServerVisitIntentRepository();
+    const existing = await repository.findById(id);
+    if (!existing) {
+      return NextResponse.json({ error: "visit_intent_not_found" }, { status: 404 });
+    }
+
+    await requireProducerAccess(request, existing.placeId);
+    const experience = await repository.getExperienceById(existing.experienceId);
+    if (!experience || experience.placeId !== existing.placeId) {
+      return NextResponse.json({ error: "visit_intent_not_found" }, { status: 404 });
+    }
+
+    return NextResponse.json(existing);
+  } catch (error) {
+    if (error instanceof AuthenticationRequiredError) {
+      return NextResponse.json({ error: "authentication_required" }, { status: 401 });
+    }
+    if (error instanceof ProducerAuthorizationRequiredError) {
+      return NextResponse.json({ error: "producer_authorization_required" }, { status: 403 });
+    }
+    return NextResponse.json({ error: "Visit Intent could not be loaded" }, { status: 400 });
+  }
+}
+
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -22,6 +49,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (error instanceof ProducerAuthorizationRequiredError) {
       return NextResponse.json({ error: "producer_authorization_required" }, { status: 403 });
     }
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Visit Intent could not be updated" }, { status: 400 });
+    if (error instanceof Error && error.message === "Producer response note must be 1000 characters or fewer") {
+      return NextResponse.json({ error: "producer_response_note_invalid" }, { status: 400 });
+    }
+    if (error instanceof Error && error.message.startsWith("Cannot change Visit Intent from")) {
+      return NextResponse.json({ error: "visit_intent_status_invalid" }, { status: 400 });
+    }
+    return NextResponse.json({ error: "visit_intent_unavailable" }, { status: 500 });
   }
 }
