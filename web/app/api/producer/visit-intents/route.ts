@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getServerVisitIntentRepository } from "@/lib/visit-intent-repository";
+import { listProducerVisitIntents } from "@/lib/visit-intent-service";
+import type { VisitIntentStatus } from "@/lib/visit-intents";
+
+const visitIntentStatuses: VisitIntentStatus[] = ["pending", "accepted", "declined", "requires_confirmation", "cancelled", "expired"];
 
 export async function GET(request: Request) {
   try {
@@ -18,17 +21,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "producer_authorization_required" }, { status: 403 });
     }
 
-    const repository = await getServerVisitIntentRepository();
     const placeIds = [...new Set(memberships.map(({ place_id }) => String(place_id)))];
-    const intents = (await Promise.all(placeIds.map(async (placeId) => {
-      const placeIntents = await repository.listForPlace(placeId);
-      const validIntents = await Promise.all(placeIntents.map(async (intent) => {
-        const experience = await repository.getExperienceById(intent.experienceId);
-        return experience?.placeId === intent.placeId ? intent : null;
-      }));
-      return validIntents.filter((intent): intent is NonNullable<typeof intent> => intent !== null);
-    }))).flat();
-    return NextResponse.json(intents);
+    const searchParams = new URL(request.url).searchParams;
+    const placeId = searchParams.get("placeId") ?? undefined;
+    const status = searchParams.get("status") ?? undefined;
+    if (placeId && !placeIds.includes(placeId)) {
+      return NextResponse.json({ error: "producer_authorization_required" }, { status: 403 });
+    }
+    if (status && !visitIntentStatuses.includes(status as VisitIntentStatus)) {
+      return NextResponse.json({ error: "visit_intent_status_invalid" }, { status: 400 });
+    }
+    return NextResponse.json(await listProducerVisitIntents(placeIds, {
+      placeId,
+      status: status as VisitIntentStatus | undefined,
+    }));
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
       return NextResponse.json({ error: "authentication_required" }, { status: 401 });

@@ -3,7 +3,7 @@ import test from "node:test";
 import { experiences } from "../lib/experiences";
 import { places } from "../lib/places";
 import { InMemoryVisitIntentRepository } from "../lib/visit-intent-repository";
-import { getUserVisitIntent, respondAsProducer, submitVisitIntent, VisitIntentConflictError } from "../lib/visit-intent-service";
+import { getProducerVisitIntentRecord, getUserVisitIntent, listProducerVisitIntents, respondAsProducer, submitVisitIntent, VisitIntentConflictError } from "../lib/visit-intent-service";
 
 const place = places.find((candidate) => candidate.id === "rumah-teh-lokal");
 const experience = {
@@ -78,6 +78,32 @@ test("Producer response rejects an Experience from another Place", async () => {
 
   await assert.rejects(
     () => respondAsProducer(intent.id, { producerId: "producer-1", role: "owner", placeId: place.id }, "accepted", "", now, mismatchedRepository),
+    /not found/,
+  );
+});
+
+test("Producer inbox returns canonical Place and Experience data with filters", async () => {
+  const repository = new TestVisitIntentRepository();
+  const intent = await submitVisitIntent(input, "user-1", "request-1", now, repository);
+
+  const pending = await listProducerVisitIntents([place.id], { placeId: place.id, status: "pending" }, repository);
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].intent.id, intent.id);
+  assert.equal(pending[0].place.id, place.id);
+  assert.equal(pending[0].experience?.placeId, place.id);
+  assert.equal((await listProducerVisitIntents([place.id], { status: "accepted" }, repository)).length, 0);
+  assert.equal((await listProducerVisitIntents(["other-place"], {}, repository)).length, 0);
+});
+
+test("Producer inbox detail is canonical and editor cannot respond", async () => {
+  const repository = new TestVisitIntentRepository();
+  const intent = await submitVisitIntent(input, "user-1", "request-1", now, repository);
+  const detail = await getProducerVisitIntentRecord(intent.id, repository);
+
+  assert.equal(detail.intent.id, intent.id);
+  assert.equal(detail.place.timezone, intent.timezone);
+  await assert.rejects(
+    () => respondAsProducer(intent.id, { producerId: "producer-1", role: "editor", placeId: place.id }, "accepted", "", now, repository),
     /not found/,
   );
 });

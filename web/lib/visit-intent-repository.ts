@@ -11,6 +11,7 @@ export type VisitIntentRepository = {
   insert(intent: VisitIntent, idempotencyKey: string): Promise<VisitIntent>;
   update(intent: VisitIntent): Promise<VisitIntent>;
   listForPlace(placeId: string): Promise<VisitIntent[]>;
+  listForPlaces(placeIds: readonly string[], status?: VisitIntent["status"]): Promise<VisitIntent[]>;
   getPlaceById(id: string): Promise<Place | undefined>;
   getExperienceById(id: string): Promise<Experience | undefined>;
 };
@@ -62,7 +63,12 @@ export class InMemoryVisitIntentRepository implements VisitIntentRepository {
   }
 
   async listForPlace(placeId: string): Promise<VisitIntent[]> {
-    return [...this.intents.values()].filter((intent) => intent.placeId === placeId);
+    return this.listForPlaces([placeId]);
+  }
+
+  async listForPlaces(placeIds: readonly string[], status?: VisitIntent["status"]): Promise<VisitIntent[]> {
+    const authorizedPlaceIds = new Set(placeIds);
+    return [...this.intents.values()].filter((intent) => authorizedPlaceIds.has(intent.placeId) && (!status || intent.status === status));
   }
 
   async listForUser(userId: string): Promise<VisitIntent[]> {
@@ -209,7 +215,14 @@ export class SupabaseVisitIntentRepository implements VisitIntentRepository {
   }
 
   async listForPlace(placeId: string): Promise<VisitIntent[]> {
-    const { data, error } = await this.client.from("visit_intents").select("*").eq("place_id", placeId).order("created_at", { ascending: false });
+    return this.listForPlaces([placeId]);
+  }
+
+  async listForPlaces(placeIds: readonly string[], status?: VisitIntent["status"]): Promise<VisitIntent[]> {
+    if (placeIds.length === 0) return [];
+    let query = this.client.from("visit_intents").select("*").in("place_id", placeIds).order("created_at", { ascending: false });
+    if (status) query = query.eq("status", status);
+    const { data, error } = await query;
     if (error) throw error;
     return (data ?? []).map(mapIntent);
   }

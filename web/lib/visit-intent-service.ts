@@ -1,5 +1,7 @@
 import { canManagePlace, type ProducerAccess } from "@/lib/producer";
 import { createVisitIntent, respondToVisitIntent, type VisitIntentInput, type VisitIntent } from "@/lib/visit-intents";
+import type { Experience } from "@/lib/experiences";
+import type { Place } from "@/lib/places";
 import { getServerVisitIntentRepository, type VisitIntentRepository } from "@/lib/visit-intent-repository";
 
 export class VisitIntentNotFoundError extends Error {
@@ -13,6 +15,17 @@ export class VisitIntentConflictError extends Error {
     super("An equivalent active Visit Intent already exists");
   }
 }
+
+export type ProducerVisitIntentFilters = {
+  placeId?: string;
+  status?: VisitIntent["status"];
+};
+
+export type CanonicalProducerVisitIntent = {
+  intent: VisitIntent;
+  place: Place;
+  experience: Experience;
+};
 
 async function getRepository(repository?: VisitIntentRepository): Promise<VisitIntentRepository> {
   return repository ?? getServerVisitIntentRepository();
@@ -57,6 +70,33 @@ export async function getUserVisitIntent(id: string, userId: string, repository?
     throw new VisitIntentNotFoundError();
   }
   return intent;
+}
+
+export async function listProducerVisitIntents(
+  authorizedPlaceIds: readonly string[],
+  filters: ProducerVisitIntentFilters = {},
+  repository?: VisitIntentRepository,
+): Promise<CanonicalProducerVisitIntent[]> {
+  const placeIds = filters.placeId ? authorizedPlaceIds.filter((placeId) => placeId === filters.placeId) : authorizedPlaceIds;
+  const dataRepository = await getRepository(repository);
+  const intents = await dataRepository.listForPlaces(placeIds, filters.status);
+  const records = await Promise.all(intents.map(async (intent) => {
+    const place = await dataRepository.getPlaceById(intent.placeId);
+    const experience = await dataRepository.getExperienceById(intent.experienceId);
+    if (!place || !experience || experience.placeId !== intent.placeId) return null;
+    return { intent, place, experience };
+  }));
+  return records.filter((record): record is CanonicalProducerVisitIntent => record !== null);
+}
+
+export async function getProducerVisitIntentRecord(id: string, repository?: VisitIntentRepository): Promise<CanonicalProducerVisitIntent> {
+  const dataRepository = await getRepository(repository);
+  const intent = await dataRepository.findById(id);
+  if (!intent) throw new VisitIntentNotFoundError();
+  const place = await dataRepository.getPlaceById(intent.placeId);
+  const experience = await dataRepository.getExperienceById(intent.experienceId);
+  if (!place || !experience || experience.placeId !== intent.placeId) throw new VisitIntentNotFoundError();
+  return { intent, place, experience };
 }
 
 export async function respondAsProducer(

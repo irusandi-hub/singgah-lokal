@@ -1,30 +1,27 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requireProducerAccess } from "@/lib/auth/server";
 import { getServerVisitIntentRepository } from "@/lib/visit-intent-repository";
-import { respondAsProducer } from "@/lib/visit-intent-service";
+import { getProducerVisitIntentRecord, respondAsProducer, VisitIntentNotFoundError } from "@/lib/visit-intent-service";
+import type { VisitIntentStatus } from "@/lib/visit-intents";
+
+const producerResponseStatuses: Extract<VisitIntentStatus, "accepted" | "declined" | "requires_confirmation">[] = ["accepted", "declined", "requires_confirmation"];
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const repository = await getServerVisitIntentRepository();
-    const existing = await repository.findById(id);
-    if (!existing) {
-      return NextResponse.json({ error: "visit_intent_not_found" }, { status: 404 });
-    }
-
-    await requireProducerAccess(request, existing.placeId);
-    const experience = await repository.getExperienceById(existing.experienceId);
-    if (!experience || experience.placeId !== existing.placeId) {
-      return NextResponse.json({ error: "visit_intent_not_found" }, { status: 404 });
-    }
-
-    return NextResponse.json(existing);
+    const record = await getProducerVisitIntentRecord(id, repository);
+    await requireProducerAccess(request, record.intent.placeId, ["owner", "manager"]);
+    return NextResponse.json(record);
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
       return NextResponse.json({ error: "authentication_required" }, { status: 401 });
     }
     if (error instanceof ProducerAuthorizationRequiredError) {
       return NextResponse.json({ error: "producer_authorization_required" }, { status: 403 });
+    }
+    if (error instanceof VisitIntentNotFoundError) {
+      return NextResponse.json({ error: "visit_intent_not_found" }, { status: 404 });
     }
     return NextResponse.json({ error: "Visit Intent could not be loaded" }, { status: 400 });
   }
@@ -40,14 +37,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "visit_intent_not_found" }, { status: 404 });
     }
     const access = await requireProducerAccess(request, existing.placeId);
-    const intent = await respondAsProducer(id, access, body.status, body.producerResponseNote ?? "", new Date(), repository);
-    return NextResponse.json(intent);
+    if (!producerResponseStatuses.includes(body.status as typeof producerResponseStatuses[number])) {
+      return NextResponse.json({ error: "visit_intent_status_invalid" }, { status: 400 });
+    }
+    if (body.producerResponseNote !== undefined && typeof body.producerResponseNote !== "string") {
+      return NextResponse.json({ error: "producer_response_note_invalid" }, { status: 400 });
+    }
+    await respondAsProducer(id, access, body.status, body.producerResponseNote ?? "", new Date(), repository);
+    return NextResponse.json(await getProducerVisitIntentRecord(id, repository));
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
       return NextResponse.json({ error: "authentication_required" }, { status: 401 });
     }
     if (error instanceof ProducerAuthorizationRequiredError) {
       return NextResponse.json({ error: "producer_authorization_required" }, { status: 403 });
+    }
+    if (error instanceof VisitIntentNotFoundError) {
+      return NextResponse.json({ error: "visit_intent_not_found" }, { status: 404 });
     }
     if (error instanceof Error && error.message === "Producer response note must be 1000 characters or fewer") {
       return NextResponse.json({ error: "producer_response_note_invalid" }, { status: 400 });
