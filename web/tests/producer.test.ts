@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { experiences } from "../lib/experiences";
+import { resolveOwnerMembership } from "../lib/auth/server";
 import { places, type Place } from "../lib/places";
 import { canEditPlace, canManagePlace, canPublishPlace, getProducerPlaces, getProducerVisitIntents, type ProducerAccess } from "../lib/producer";
 import { createVisitIntent, respondToVisitIntent, type VisitIntentInput } from "../lib/visit-intents";
@@ -38,6 +39,27 @@ test("Place role permissions distinguish editing from publication", () => {
   assert.equal(canPublishPlace("editor"), false);
   assert.equal(canPublishPlace("manager"), true);
   assert.equal(canPublishPlace("owner"), true);
+});
+
+test("owner resolution ignores the first non-owner membership", () => {
+  assert.equal(
+    resolveOwnerMembership([
+      { producer_id: "producer-manager", role: "manager" },
+      { producer_id: "producer-editor", role: "editor" },
+      { producer_id: "producer-owner", role: "owner" },
+    ])?.producer_id,
+    "producer-owner",
+  );
+});
+
+test("non-owner memberships cannot create a Place", () => {
+  assert.equal(resolveOwnerMembership([{ producer_id: "producer-manager", role: "manager" }]), undefined);
+  assert.equal(resolveOwnerMembership([{ producer_id: "producer-editor", role: "editor" }]), undefined);
+});
+
+test("owner resolution cannot authorize a different producer target", () => {
+  const owner = resolveOwnerMembership([{ producer_id: "producer-owner", role: "owner" }]);
+  assert.equal(owner?.producer_id === "producer-other", false);
 });
 
 test("Producer inbox filters Visit Intents by Place authorization", () => {

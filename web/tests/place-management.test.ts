@@ -11,6 +11,7 @@ const validInput = {
 
 test("Place mutation validates required fields, coordinates, timezone, and currency", () => {
   assert.equal(parsePlaceMutation(validInput).currency, "IDR");
+  assert.throws(() => parsePlaceMutation({ ...validInput, producerId: "producer-other" }), /producer_id_not_allowed/);
   assert.throws(() => parsePlaceMutation({ ...validInput, latitude: 91 }), PlaceInputError);
   assert.throws(() => parsePlaceMutation({ ...validInput, timezone: "Not/AZone" }), PlaceInputError);
   assert.throws(() => parsePlaceMutation({ ...validInput, currency: "US" }), PlaceInputError);

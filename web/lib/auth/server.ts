@@ -11,6 +11,11 @@ export type ServerAuthProvider = {
   authenticate(request: Request): Promise<AuthenticatedActor | null>;
 };
 
+type ProducerMembership = {
+  producer_id: string;
+  role: ProducerRole;
+};
+
 export class AuthenticationRequiredError extends Error {
   constructor() {
     super("Authenticated user is required");
@@ -88,6 +93,28 @@ export async function requireProducerAccess(request: Request, placeId: string, r
 
 export async function requireProducerOwner(request: Request): Promise<AuthenticatedActor> {
   const actor = await requireAuthenticatedActor(request);
-  if (actor.producerRole !== "owner" || !actor.producerId) throw new ProducerAuthorizationRequiredError();
-  return actor;
+  const supabase = await createSupabaseServerClient();
+  const { data: membership, error } = await supabase
+    .from("producer_memberships")
+    .select("producer_id, role")
+    .eq("user_id", actor.userId)
+    .eq("role", "owner")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !membership) throw new ProducerAuthorizationRequiredError();
+
+  const ownerMembership = resolveOwnerMembership([membership as ProducerMembership]);
+  if (!ownerMembership) throw new ProducerAuthorizationRequiredError();
+
+  return {
+    ...actor,
+    producerId: ownerMembership.producer_id,
+    producerRole: "owner",
+  };
+}
+
+export function resolveOwnerMembership(memberships: readonly ProducerMembership[]): ProducerMembership | undefined {
+  return memberships.find((membership) => membership.role === "owner" && membership.producer_id.trim());
 }

@@ -9,6 +9,7 @@ export class PlaceInputError extends Error {}
 export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
   if (!raw || typeof raw !== "object") throw new PlaceInputError("place_input_invalid");
   const body = raw as Record<string, unknown>;
+  if ("producerId" in body) throw new PlaceInputError("producer_id_not_allowed");
   const text = (key: string): string => {
     const value = body[key];
     if (typeof value !== "string" || !value.trim()) throw new PlaceInputError("place_required_field_invalid");
