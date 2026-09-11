@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
+import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export default async function PlaceDetailPage({
   }
 
   const placeExperiences = await repository.listPublishedExperiencesForPlace(place.id);
+  const productionStages = await (await getServerProductionStoryRepository()).listForPlace(place.id, true);
 
   return (
     <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
@@ -75,6 +77,20 @@ export default async function PlaceDetailPage({
               ) : (
                 <p className="text-sm text-black/60">Experience di Place ini belum tersedia.</p>
               )}
+            </div>
+          </section>
+
+          <section className="mt-10 border-t border-black/10 pt-8" aria-labelledby="story-heading">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Dari Sini</p>
+            <h2 id="story-heading" className="mt-2 text-2xl font-black tracking-tight">Dari sumber sampai menjadi pengalaman</h2>
+            <div className="mt-5 grid gap-4">
+              {productionStages.length > 0 ? productionStages.map((stage) => (
+                <article key={stage.id} className="rounded-2xl border border-black/10 bg-[#f7f5ef] p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#7b5b38]">Tahap {stage.sortOrder + 1}</p>
+                  <h3 className="mt-1 text-lg font-black">{stage.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-black/65">{stage.description}</p>
+                </article>
+              )) : <p className="text-sm text-black/60">Cerita produksi Place ini belum tersedia.</p>}
             </div>
           </section>
         </article>
