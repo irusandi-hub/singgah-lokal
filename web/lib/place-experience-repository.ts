@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { experiences, type Experience, validateExperience } from "@/lib/experiences";
+import { experiences, type Experience, type ExperienceSchedule, validateExperience } from "@/lib/experiences";
 import { places, type Place, validatePlace } from "@/lib/places";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -172,6 +172,8 @@ export class SupabasePlaceExperienceRepository implements PlaceExperienceReposit
 
 export type PlaceMutation = Pick<Place, "id" | "name" | "shortDescription" | "category" | "type" | "area" | "address" | "contactInformation" | "timezone" | "currency" | "latitude" | "longitude">;
 
+export type ExperienceMutation = Omit<Experience, "placeId" | "status" | "publicationStatus">;
+
 export class SupabasePlaceManagementRepository {
   constructor(private readonly client: SupabaseClient) {}
 
@@ -223,10 +225,95 @@ export class SupabasePlaceManagementRepository {
   }
 }
 
+export class SupabaseExperienceManagementRepository {
+  constructor(private readonly client: SupabaseClient) {}
+
+  async listForPlace(placeId: string): Promise<Experience[]> {
+    const place = await this.getPlace(placeId);
+    if (!place) return [];
+    const { data, error } = await this.client.from("experiences").select("*").eq("place_id", placeId).order("id");
+    if (error) throw error;
+    return Promise.all((data ?? []).map(async (row) => mapExperience(row, await this.getSchedules(String(row.id)), place)));
+  }
+
+  async getById(id: string): Promise<Experience | undefined> {
+    const { data, error } = await this.client.from("experiences").select("*").eq("id", id).maybeSingle();
+    if (error) throw error;
+    if (!data) return undefined;
+    const place = await this.getPlace(String(data.place_id));
+    if (!place) return undefined;
+    return mapExperience(data, await this.getSchedules(id), place);
+  }
+
+  async create(input: ExperienceMutation, placeId: string): Promise<Experience> {
+    const { data, error } = await this.client.from("experiences").insert({
+      id: input.id, place_id: placeId, title: input.title, short_description: input.shortDescription,
+      description: input.description, duration_minutes: input.durationMinutes, capacity: input.capacity,
+      min_party_size: input.minPartySize, max_party_size: input.maxPartySize, age_requirement: input.ageRequirement,
+      prerequisites: input.prerequisites, meeting_point: input.meetingPoint, highlights: input.highlights,
+      status: "draft", publication_status: "draft",
+    }).select("*").single();
+    if (error) throw error;
+    await this.replaceSchedules(input.id, input.schedules);
+    const result = await this.getById(String(data.id));
+    if (!result) throw new Error("Experience could not be loaded after creation");
+    return result;
+  }
+
+  async update(id: string, input: ExperienceMutation, updateSchedules = true): Promise<Experience> {
+    const { error } = await this.client.from("experiences").update({
+      title: input.title, short_description: input.shortDescription, description: input.description,
+      duration_minutes: input.durationMinutes, capacity: input.capacity, min_party_size: input.minPartySize,
+      max_party_size: input.maxPartySize, age_requirement: input.ageRequirement, prerequisites: input.prerequisites,
+      meeting_point: input.meetingPoint, highlights: input.highlights, updated_at: new Date().toISOString(),
+    }).eq("id", id);
+    if (error) throw error;
+    if (updateSchedules) await this.replaceSchedules(id, input.schedules);
+    const result = await this.getById(id);
+    if (!result) throw new Error("Experience could not be loaded after update");
+    return result;
+  }
+
+  async updateStatus(id: string, status: Experience["status"], publicationStatus: Experience["publicationStatus"]): Promise<Experience> {
+    const { error } = await this.client.from("experiences").update({ status, publication_status: publicationStatus, updated_at: new Date().toISOString() }).eq("id", id);
+    if (error) throw error;
+    const result = await this.getById(id);
+    if (!result) throw new Error("Experience could not be loaded after status update");
+    return result;
+  }
+
+  private async getPlace(placeId: string): Promise<Place | undefined> {
+    const { data, error } = await this.client.from("places").select("*, producers(display_name)").eq("id", placeId).maybeSingle();
+    if (error) throw error;
+    return data ? mapPlace({ ...data, producer_display_name: data.producers?.display_name }) : undefined;
+  }
+
+  private async getSchedules(experienceId: string): Promise<Record<string, unknown>[]> {
+    const { data, error } = await this.client.from("experience_schedules").select("*").eq("experience_id", experienceId).order("id");
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  private async replaceSchedules(experienceId: string, schedules: readonly ExperienceSchedule[]): Promise<void> {
+    const { error: deleteError } = await this.client.from("experience_schedules").delete().eq("experience_id", experienceId);
+    if (deleteError) throw deleteError;
+    if (schedules.length === 0) return;
+    const { error } = await this.client.from("experience_schedules").insert(schedules.map((schedule) => ({
+      experience_id: experienceId, day_of_week: schedule.dayOfWeek, start_time: schedule.startTime,
+      end_time: schedule.endTime, timezone: schedule.timezone, status: schedule.status,
+    })));
+    if (error) throw error;
+  }
+}
+
 export async function getServerPlaceExperienceRepository(): Promise<PlaceExperienceRepository> {
   return new SupabasePlaceExperienceRepository(await createSupabaseServerClient());
 }
 
 export async function getServerPlaceManagementRepository(): Promise<SupabasePlaceManagementRepository> {
   return new SupabasePlaceManagementRepository(await createSupabaseServerClient());
+}
+
+export async function getServerExperienceManagementRepository(): Promise<SupabaseExperienceManagementRepository> {
+  return new SupabaseExperienceManagementRepository(await createSupabaseServerClient());
 }

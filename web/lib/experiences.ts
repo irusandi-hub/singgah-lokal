@@ -11,6 +11,11 @@ export type ExperienceSchedule = {
   status: "available" | "not_available" | "requires_confirmation";
 };
 
+export const experienceStatuses: ExperienceStatus[] = ["draft", "published", "paused", "archived"];
+export const experiencePublicationStatuses: PublicationStatus[] = ["draft", "published"];
+export const experienceScheduleStatuses: ExperienceSchedule["status"][] = ["available", "not_available", "requires_confirmation"];
+export const experienceDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
+
 export type Experience = {
   id: string;
   placeId: string;
@@ -88,6 +93,14 @@ export function validateExperience(experience: Experience, place: Place): void {
     throw new Error(`Invalid capacity for Experience ${experience.id}`);
   }
 
+  if (experience.status === "published" && experience.publicationStatus !== "published") {
+    throw new Error(`Published Experience ${experience.id} must have published publication status`);
+  }
+
+  if (!experience.meetingPoint.trim() || experience.prerequisites.some((item) => !item.trim()) || experience.highlights.some((item) => !item.trim())) {
+    throw new Error(`Experience ${experience.id} contains invalid list or meeting point fields`);
+  }
+
   if (
     !Number.isInteger(experience.minPartySize) ||
     !Number.isInteger(experience.maxPartySize) ||
@@ -106,7 +119,31 @@ export function validateExperience(experience: Experience, place: Place): void {
     ) {
       throw new Error(`Invalid schedule for Experience ${experience.id}`);
     }
+    if (!experienceDays.includes(schedule.dayOfWeek as typeof experienceDays[number]) || !experienceScheduleStatuses.includes(schedule.status)) {
+      throw new Error(`Invalid schedule for Experience ${experience.id}`);
+    }
   }
+}
+
+export function isExperiencePublicationReady(experience: Experience): boolean {
+  return Boolean(
+    experience.title.trim() &&
+      experience.shortDescription.trim() &&
+      experience.description.trim() &&
+      experience.durationMinutes > 0 &&
+      experience.meetingPoint.trim() &&
+      experience.schedules.length > 0,
+  );
+}
+
+export function canTransitionExperienceStatus(current: ExperienceStatus, next: ExperienceStatus): boolean {
+  if (current === next) return true;
+  if (current === "archived") return false;
+  return {
+    draft: ["published", "paused", "archived"],
+    published: ["paused", "archived"],
+    paused: ["published", "archived"],
+  }[current].includes(next);
 }
 
 export function validateExperiences(experienceList: readonly Experience[], placeList: readonly Place[]): void {
