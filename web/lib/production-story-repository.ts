@@ -95,37 +95,28 @@ export class SupabaseProductionStoryRepository implements ProductionStoryReposit
   }
 
   async create(placeId: string, mutation: ProductionStageMutation): Promise<ProductionStage> {
-    await this.validateExperienceIds(placeId, mutation.experienceIds);
-    const { data: lastStage, error: orderError } = await this.client
-      .from("production_stages")
-      .select("sort_order")
-      .eq("place_id", placeId)
-      .order("sort_order", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (orderError) throw orderError;
-    const { data, error } = await this.client.from("production_stages").insert({
-      id: mutation.id,
-      place_id: placeId,
-      title: mutation.title,
-      description: mutation.description,
-      sort_order: Number(lastStage?.sort_order ?? -1) + 1,
-      status: "draft",
-    }).select("*").single();
+    const { error } = await this.client.rpc("create_production_stage", {
+      p_id: mutation.id,
+      p_place_id: placeId,
+      p_title: mutation.title,
+      p_description: mutation.description,
+      p_experience_ids: mutation.experienceIds,
+    });
     if (error) throw error;
-    await this.replaceExperiences(placeId, mutation.id, mutation.experienceIds);
-    return (await this.getById(placeId, String(data.id)))!;
+    const result = await this.getById(placeId, mutation.id);
+    if (!result) throw new Error("Production Stage could not be loaded after creation");
+    return result;
   }
 
   async update(placeId: string, id: string, mutation: ProductionStageMutation): Promise<ProductionStage> {
-    await this.validateExperienceIds(placeId, mutation.experienceIds);
-    const { error } = await this.client.from("production_stages").update({
-      title: mutation.title,
-      description: mutation.description,
-      updated_at: new Date().toISOString(),
-    }).eq("id", id).eq("place_id", placeId);
+    const { error } = await this.client.rpc("update_production_stage", {
+      p_id: id,
+      p_place_id: placeId,
+      p_title: mutation.title,
+      p_description: mutation.description,
+      p_experience_ids: mutation.experienceIds,
+    });
     if (error) throw error;
-    await this.replaceExperiences(placeId, id, mutation.experienceIds);
     const result = await this.getById(placeId, id);
     if (!result) throw new Error("Production Stage could not be loaded after update");
     return result;
@@ -146,26 +137,6 @@ export class SupabaseProductionStoryRepository implements ProductionStoryReposit
     const { error } = await this.client.rpc("reorder_production_stages", { p_place_id: placeId, p_stage_ids: stageIds });
     if (error) throw error;
     return this.listForPlace(placeId);
-  }
-
-  private async replaceExperiences(placeId: string, stageId: string, experienceIds: readonly string[]): Promise<void> {
-    await this.validateExperienceIds(placeId, experienceIds);
-    const { error: deleteError } = await this.client.from("production_stage_experiences").delete().eq("production_stage_id", stageId);
-    if (deleteError) throw deleteError;
-    if (experienceIds.length === 0) return;
-    const { error } = await this.client.from("production_stage_experiences").insert(experienceIds.map((experienceId) => ({
-      production_stage_id: stageId,
-      experience_id: experienceId,
-    })));
-    if (error) throw error;
-  }
-
-  private async validateExperienceIds(placeId: string, experienceIds: readonly string[]): Promise<void> {
-    if (experienceIds.length > 0) {
-      const { data, error } = await this.client.from("experiences").select("id").eq("place_id", placeId).in("id", experienceIds);
-      if (error) throw error;
-      if ((data ?? []).length !== experienceIds.length) throw new Error("Production Stage Experience does not belong to Place");
-    }
   }
 
   private async mapRows(rows: Record<string, unknown>[]): Promise<ProductionStage[]> {
