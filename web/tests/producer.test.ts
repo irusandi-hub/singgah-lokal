@@ -3,7 +3,7 @@ import test from "node:test";
 import { experiences } from "../lib/experiences";
 import { resolveOwnerMembership } from "../lib/auth/server";
 import { places, type Place } from "../lib/places";
-import { canEditPlace, canManagePlace, canPublishPlace, getProducerPlaces, getProducerVisitIntents, type ProducerAccess } from "../lib/producer";
+import { canEditPlace, canManagePlace, canPublishExperience, canPublishPlace, getProducerPlaces, getProducerVisitIntents, type ProducerAccess } from "../lib/producer";
 import { createVisitIntent, respondToVisitIntent, type VisitIntentInput } from "../lib/visit-intents";
 
 const place: Place = {
@@ -39,6 +39,19 @@ test("Place role permissions distinguish editing from publication", () => {
   assert.equal(canPublishPlace("editor"), false);
   assert.equal(canPublishPlace("manager"), true);
   assert.equal(canPublishPlace("owner"), true);
+});
+
+test("Experience publication allows only owner and manager for the assigned Place", () => {
+  for (const status of ["published", "paused", "archived"] as const) {
+    assert.equal(canPublishExperience({ producerId: "producer-1", role: "editor", placeId: place.id }, place.id, place.id, "producer-1"), false, status);
+    assert.equal(canPublishExperience({ producerId: "producer-1", role: "manager", placeId: place.id }, place.id, place.id, "producer-1"), true, status);
+    assert.equal(canPublishExperience({ producerId: "producer-1", role: "owner", placeId: place.id }, place.id, place.id, "producer-1"), true, status);
+  }
+  assert.equal(canPublishExperience({ producerId: "producer-1", role: "editor", placeId: place.id }, place.id, place.id, "producer-1"), false, "editor cannot publish, pause, or archive");
+  assert.equal(canPublishExperience(undefined, place.id, place.id, "producer-1"), false);
+  assert.equal(canPublishExperience({ producerId: "producer-1", role: "owner", placeId: place.id }, "other-place", place.id, "producer-1"), false);
+  assert.equal(canPublishExperience({ producerId: "producer-2", role: "owner", placeId: place.id }, place.id, place.id, "producer-1"), false);
+  assert.equal(canPublishExperience({ producerId: "producer-1", role: "owner", placeId: place.id }, place.id, "other-place", "producer-1"), false);
 });
 
 test("owner resolution ignores the first non-owner membership", () => {

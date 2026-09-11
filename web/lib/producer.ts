@@ -18,6 +18,22 @@ export function canPublishPlace(role: ProducerRole): boolean {
   return role === "owner" || role === "manager";
 }
 
+export function canPublishExperience(
+  access: ProducerAccess | null | undefined,
+  placeId: string,
+  experiencePlaceId: string,
+  placeProducerId: string | undefined,
+): boolean {
+  return Boolean(
+    access &&
+      canPublishPlace(access.role) &&
+      access.placeId === placeId &&
+      experiencePlaceId === placeId &&
+      placeProducerId &&
+      access.producerId === placeProducerId,
+  );
+}
+
 export type ProducerVisitIntent = {
   intent: VisitIntent;
   place: Place;

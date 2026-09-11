@@ -274,8 +274,8 @@ export class SupabaseExperienceManagementRepository {
     return result;
   }
 
-  async updateStatus(id: string, status: Experience["status"], publicationStatus: Experience["publicationStatus"]): Promise<Experience> {
-    const { error } = await this.client.from("experiences").update({ status, publication_status: publicationStatus, updated_at: new Date().toISOString() }).eq("id", id);
+  async updateStatus(id: string, placeId: string, status: Experience["status"], publicationStatus: Experience["publicationStatus"]): Promise<Experience> {
+    const { error } = await this.client.from("experiences").update({ status, publication_status: publicationStatus, updated_at: new Date().toISOString() }).eq("id", id).eq("place_id", placeId);
     if (error) throw error;
     const result = await this.getById(id);
     if (!result) throw new Error("Experience could not be loaded after status update");
