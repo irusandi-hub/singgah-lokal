@@ -26,6 +26,9 @@ function mapPlace(row: Record<string, unknown>): Place {
       ? { id: String(row.producer_id), displayName: String(row.producer_display_name ?? row.producer_id) }
       : null,
     claimStatus: row.claim_status as Place["claimStatus"],
+    publicationStatus: row.publication_status as Place["publicationStatus"],
+    address: String(row.address ?? ""),
+    contactInformation: String(row.contact_information ?? ""),
   };
   validatePlace(place);
   return place;
@@ -64,14 +67,14 @@ export class InMemoryPlaceExperienceRepository implements PlaceExperienceReposit
   async listPublishedPlaces(): Promise<Place[]> {
     return places.filter((place) => {
       validatePlace(place);
-      return true;
+      return place.publicationStatus === "published";
     });
   }
 
   async getPublishedPlaceById(id: string): Promise<Place | undefined> {
     const place = places.find((candidate) => candidate.id === id);
     if (place) validatePlace(place);
-    return place;
+    return place?.publicationStatus === "published" ? place : undefined;
   }
 
   async listPublishedExperiencesForPlace(placeId: string): Promise<Experience[]> {
@@ -167,6 +170,63 @@ export class SupabasePlaceExperienceRepository implements PlaceExperienceReposit
   }
 }
 
+export type PlaceMutation = Pick<Place, "id" | "name" | "shortDescription" | "category" | "type" | "area" | "address" | "contactInformation" | "timezone" | "currency" | "latitude" | "longitude">;
+
+export class SupabasePlaceManagementRepository {
+  constructor(private readonly client: SupabaseClient) {}
+
+  async listForProducer(producerId: string): Promise<Place[]> {
+    const { data, error } = await this.client.from("places").select("*, producers(display_name)").eq("producer_id", producerId).order("id");
+    if (error) throw error;
+    return (data ?? []).map((row) => mapPlace({ ...row, producer_display_name: row.producers?.display_name }));
+  }
+
+  async listForUser(userId: string): Promise<Place[]> {
+    const { data, error } = await this.client.from("producer_memberships").select("place_id").eq("user_id", userId).in("role", ["owner", "manager", "editor"]);
+    if (error) throw error;
+    const result = await Promise.all((data ?? []).map(({ place_id }) => this.getById(String(place_id))));
+    return result.filter((place): place is Place => Boolean(place));
+  }
+
+  async getById(id: string): Promise<Place | undefined> {
+    const { data, error } = await this.client.from("places").select("*, producers(display_name)").eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data ? mapPlace({ ...data, producer_display_name: data.producers?.display_name }) : undefined;
+  }
+
+  async create(input: PlaceMutation, producerId: string): Promise<Place> {
+    const { data, error } = await this.client.from("places").insert({
+      id: input.id, name: input.name, short_description: input.shortDescription, category: input.category,
+      type: input.type, area: input.area, address: input.address, contact_information: input.contactInformation,
+      timezone: input.timezone, currency: input.currency, latitude: input.latitude, longitude: input.longitude,
+      producer_id: producerId, publication_status: "draft",
+    }).select("*, producers(display_name)").single();
+    if (error) throw error;
+    return mapPlace({ ...data, producer_display_name: data.producers?.display_name });
+  }
+
+  async update(id: string, input: Omit<PlaceMutation, "id">): Promise<Place> {
+    const { data, error } = await this.client.from("places").update({
+      name: input.name, short_description: input.shortDescription, category: input.category, type: input.type,
+      area: input.area, address: input.address, contact_information: input.contactInformation,
+      timezone: input.timezone, currency: input.currency, latitude: input.latitude, longitude: input.longitude,
+      updated_at: new Date().toISOString(),
+    }).eq("id", id).select("*, producers(display_name)").single();
+    if (error) throw error;
+    return mapPlace({ ...data, producer_display_name: data.producers?.display_name });
+  }
+
+  async updatePublicationStatus(id: string, publicationStatus: Place["publicationStatus"]): Promise<Place> {
+    const { data, error } = await this.client.from("places").update({ publication_status: publicationStatus, updated_at: new Date().toISOString() }).eq("id", id).select("*, producers(display_name)").single();
+    if (error) throw error;
+    return mapPlace({ ...data, producer_display_name: data.producers?.display_name });
+  }
+}
+
 export async function getServerPlaceExperienceRepository(): Promise<PlaceExperienceRepository> {
   return new SupabasePlaceExperienceRepository(await createSupabaseServerClient());
+}
+
+export async function getServerPlaceManagementRepository(): Promise<SupabasePlaceManagementRepository> {
+  return new SupabasePlaceManagementRepository(await createSupabaseServerClient());
 }

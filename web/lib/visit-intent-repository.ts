@@ -86,12 +86,15 @@ function mapPlace(row: Record<string, unknown>): Place {
     category: row.category as Place["category"],
     type: row.type as Place["type"],
     area: String(row.area),
+    address: String(row.address ?? ""),
+    contactInformation: String(row.contact_information ?? ""),
     timezone: String(row.timezone),
     currency: String(row.currency),
     latitude: row.latitude as number | null,
     longitude: row.longitude as number | null,
     producer: row.producer_id ? { id: String(row.producer_id), displayName: String(row.producer_display_name ?? row.producer_id) } : null,
     claimStatus: row.claim_status as Place["claimStatus"],
+    publicationStatus: row.publication_status as Place["publicationStatus"],
   };
 }
 

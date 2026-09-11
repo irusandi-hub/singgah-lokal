@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { experiences } from "../lib/experiences";
 import { places, type Place } from "../lib/places";
-import { canManagePlace, getProducerPlaces, getProducerVisitIntents, type ProducerAccess } from "../lib/producer";
+import { canEditPlace, canManagePlace, canPublishPlace, getProducerPlaces, getProducerVisitIntents, type ProducerAccess } from "../lib/producer";
 import { createVisitIntent, respondToVisitIntent, type VisitIntentInput } from "../lib/visit-intents";
 
 const place: Place = {
@@ -31,6 +31,13 @@ test("Producer access is limited to linked Places", () => {
   assert.equal(canManagePlace(place, access), true);
   assert.equal(getProducerPlaces([place, places[1]], access).length, 1);
   assert.equal(getProducerPlaces([place], { producerId: "other", role: "owner" }).length, 0);
+});
+
+test("Place role permissions distinguish editing from publication", () => {
+  assert.equal(canEditPlace("editor"), true);
+  assert.equal(canPublishPlace("editor"), false);
+  assert.equal(canPublishPlace("manager"), true);
+  assert.equal(canPublishPlace("owner"), true);
 });
 
 test("Producer inbox filters Visit Intents by Place authorization", () => {

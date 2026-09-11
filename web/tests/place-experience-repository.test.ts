@@ -19,3 +19,9 @@ test("in-memory Experience repository preserves Place ownership and publication 
   assert.equal(experiences[0].publicationStatus, "published");
   assert.equal((await repository.getPublishedExperienceById("unknown-experience")), undefined);
 });
+
+test("in-memory public Place repository hides unpublished Places", async () => {
+  const repository = new InMemoryPlaceExperienceRepository();
+  const original = (await repository.getPublishedPlaceById("kopi-dari-kebun"))!;
+  assert.equal(original.publicationStatus, "published");
+});

@@ -3,6 +3,7 @@ export type PlaceCategory = "Kopi" | "Teh" | "Kuliner";
 export type PlaceType = "production" | "experience";
 
 export type ClaimStatus = "unverified" | "claimed" | "verified";
+export type PublicationStatus = "draft" | "published" | "paused" | "archived";
 
 export type ProducerReference = {
   id: string;
@@ -16,12 +17,15 @@ export type Place = {
   category: PlaceCategory;
   type: PlaceType;
   area: string;
+  address: string;
+  contactInformation: string;
   timezone: string;
   currency: string;
   latitude: number | null;
   longitude: number | null;
   producer: ProducerReference | null;
   claimStatus: ClaimStatus;
+  publicationStatus: PublicationStatus;
 };
 
 const placeIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -34,12 +38,15 @@ export const places: Place[] = [
     category: "Kopi",
     type: "production",
     area: "Bandung",
+    address: "",
+    contactInformation: "",
     timezone: "Asia/Jakarta",
     currency: "IDR",
     latitude: null,
     longitude: null,
     producer: null,
     claimStatus: "unverified",
+    publicationStatus: "published",
   },
   {
     id: "rumah-teh-lokal",
@@ -48,12 +55,15 @@ export const places: Place[] = [
     category: "Teh",
     type: "experience",
     area: "Lembang",
+    address: "",
+    contactInformation: "",
     timezone: "Asia/Jakarta",
     currency: "IDR",
     latitude: null,
     longitude: null,
     producer: null,
     claimStatus: "unverified",
+    publicationStatus: "published",
   },
   {
     id: "dapur-rasa",
@@ -62,12 +72,15 @@ export const places: Place[] = [
     category: "Kuliner",
     type: "production",
     area: "Bandung",
+    address: "",
+    contactInformation: "",
     timezone: "Asia/Jakarta",
     currency: "IDR",
     latitude: null,
     longitude: null,
     producer: null,
     claimStatus: "unverified",
+    publicationStatus: "published",
   },
 ];
 
@@ -113,6 +126,31 @@ export function validatePlace(place: Place): void {
   if (!isValidCurrency(place.currency)) {
     throw new Error(`Invalid currency for Place ${place.id}`);
   }
+}
+
+export function validatePlaceInput(place: Omit<Place, "producer" | "claimStatus" | "publicationStatus">): void {
+  validatePlace({ ...place, producer: null, claimStatus: "unverified", publicationStatus: "draft" });
+}
+
+export function isPlacePublicationReady(place: Place): boolean {
+  return Boolean(
+    place.name.trim() &&
+      place.shortDescription.trim() &&
+      place.area.trim() &&
+      place.address.trim() &&
+      place.latitude !== null &&
+      place.longitude !== null,
+  );
+}
+
+export function canTransitionPlaceStatus(current: PublicationStatus, next: PublicationStatus): boolean {
+  if (current === next) return true;
+  if (current === "archived") return false;
+  return {
+    draft: ["published", "paused", "archived"],
+    published: ["paused", "archived"],
+    paused: ["published", "archived"],
+  }[current].includes(next);
 }
 
 export function validatePlaces(placeList: readonly Place[]): void {

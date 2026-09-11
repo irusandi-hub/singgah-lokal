@@ -10,6 +10,14 @@ export type ProducerAccess = {
   placeId?: string;
 };
 
+export function canEditPlace(role: ProducerRole): boolean {
+  return ["owner", "manager", "editor"].includes(role);
+}
+
+export function canPublishPlace(role: ProducerRole): boolean {
+  return role === "owner" || role === "manager";
+}
+
 export type ProducerVisitIntent = {
   intent: VisitIntent;
   place: Place;

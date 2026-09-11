@@ -64,7 +64,7 @@ export async function requireAuthenticatedActor(request: Request): Promise<Authe
   return actor;
 }
 
-export async function requireProducerAccess(request: Request, placeId: string): Promise<ProducerAccess> {
+export async function requireProducerAccess(request: Request, placeId: string, roles: ProducerRole[] = ["owner", "manager"]): Promise<ProducerAccess> {
   const actor = await requireAuthenticatedActor(request);
   const supabase = await createSupabaseServerClient();
   const { data: membership } = await supabase
@@ -72,7 +72,7 @@ export async function requireProducerAccess(request: Request, placeId: string): 
     .select("producer_id, role, place_id")
     .eq("user_id", actor.userId)
     .eq("place_id", placeId)
-    .in("role", ["owner", "manager"])
+    .in("role", roles)
     .maybeSingle();
 
   if (!membership) {
@@ -84,4 +84,10 @@ export async function requireProducerAccess(request: Request, placeId: string): 
     role: membership.role as ProducerRole,
     placeId: String(membership.place_id),
   };
+}
+
+export async function requireProducerOwner(request: Request): Promise<AuthenticatedActor> {
+  const actor = await requireAuthenticatedActor(request);
+  if (actor.producerRole !== "owner" || !actor.producerId) throw new ProducerAuthorizationRequiredError();
+  return actor;
 }
