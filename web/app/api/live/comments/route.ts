@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { moderateLiveComment } from "@/lib/live/comment-moderation";
 import { admitLiveViewer, getLiveSession, postLiveComment } from "@/lib/live/session-service";
 import { LiveValidationError } from "@/lib/live/session-service";
 import { nextLiveCommentSequence } from "@/lib/live/sequence";
@@ -37,6 +38,14 @@ export async function POST(request: Request) {
     const session = await getLiveSession(sessionId);
     if (!session || session.status !== "live") {
       return NextResponse.json({ error: "live_session_not_live" }, { status: 400 });
+    }
+
+    // Comment moderation gate (PO item 12, tech §6): profanity/spam is
+    // rejected server-side BEFORE broadcast — a rejected comment never
+    // reaches other viewers.
+    const verdict = moderateLiveComment(comment);
+    if (!verdict.allowed) {
+      return NextResponse.json({ error: "live_comment_rejected" }, { status: 400 });
     }
 
     await admitLiveViewer({ sessionId, userId: userData.user.id });

@@ -212,3 +212,9 @@ Locked by explicit product-owner decision; implementation must follow these exac
 | --- | --- | --- |
 | 1 | LIVE card open status | Open status on LIVE cards reuses the **existing Place schedule/status source**. When that source is missing or has no data for a Place, the UI shows **no open status** — never an invented/default status (fail-closed display). No new open-status subsystem is created for Live. |
 | 2 | "Di sekitar saya" activation | Distance filtering via "Di sekitar saya" is **deferred until valid Place coordinates exist** (discovery data must be real, not invented). Until then the filter remains present but **inert/disabled** — it must not silently filter or hide results behind unavailable geolocation. The other four distance filters keep their locked radii. |
+
+### 12.4 Phase 4 architecture amendment (2026-09-19)
+
+| # | Decision | Rule |
+| --- | --- | --- |
+| 1 | Ingest protocol | **WebRTC/WHIP** replaces RTMPS/SRT for browser Producer ingest. Cloudflare Stream remains the provider (§12.1 item 1 stands). Playback follows provider support for WHIP inputs: **WHEP** (HLS/DASH is not provider-supported for WHIP-published inputs — provider limitation, not a policy choice). Recording OFF (§7), credentials server-side (§8), Supabase canonical Live state (§8), Realtime status/presence/comments only (§8) — all unchanged. | RESOLVED — product owner |

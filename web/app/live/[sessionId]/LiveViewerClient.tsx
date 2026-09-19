@@ -9,6 +9,7 @@ type Props = {
   processTitle: string;
   placeId: string;
   placeName: string;
+  whepUrl: string | null;
 };
 
 type ReportCategory = {
@@ -28,16 +29,19 @@ const REPORT_CATEGORIES: ReportCategory[] = [
   { value: "other", label: "Lainnya" },
 ];
 
-export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }: Props) {
+export function LiveViewerClient({ sessionId, processTitle, placeId, placeName, whepUrl }: Props) {
   const [comments, setComments] = useState<Array<{ id: string; body: string }>>([]);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [endedReason, setEndedReason] = useState<string | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportCategory, setReportCategory] = useState("other");
   const [reportNote, setReportNote] = useState("");
   const [reportDone, setReportDone] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
 
   // Comments are ephemeral: delivered over the session's Realtime broadcast
   // channel only, never persisted (policy §12.1 item 6; tech §6). B1 keeps
@@ -84,6 +88,69 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [comments]);
 
+  // WHEP playback (PO item 2, tech §5 amended): one admission attempt per
+  // mount. The server applies every gate (published Place, stream health,
+  // verified email + B1 fail-closed age gate, 100-concurrent cap) BEFORE this
+  // client receives anything playable — whepUrl is issued server-side only
+  // after admission succeeds; otherwise the gate state stays visible.
+  useEffect(() => {
+    if (!whepUrl || endedReason) return;
+
+    let cancelled = false;
+    let pc: RTCPeerConnection | null = null;
+
+    (async () => {
+      const admission = await fetch("/api/live/playback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (!admission.ok) {
+        const payload = (await admission.json().catch(() => ({}))) as { error?: string };
+        if (payload.error === "live_capacity_full") setPlaybackError("Live penuh (maksimal 100 penonton).");
+        else if (payload.error === "live_stream_unavailable") setPlaybackError("Streaming belum tersedia.");
+        else if (payload.error === "authentication_required") setPlaybackError("Masuk untuk menonton Live.");
+        else setPlaybackError("Akses Live memerlukan verifikasi (email terverifikasi + usia ≥ 18).");
+        return;
+      }
+      if (cancelled) return;
+
+      try {
+        pc = new RTCPeerConnection();
+        pcRef.current = pc;
+        pc.addTransceiver("video", { direction: "recvonly" });
+        pc.addTransceiver("audio", { direction: "recvonly" });
+        const stream = new MediaStream();
+        if (videoRef.current) videoRef.current.srcObject = stream;
+        pc.ontrack = (event) => stream.addTrack(event.track);
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        const response = await fetch(whepUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/sdp" },
+          body: offer.sdp ?? "",
+        });
+        if (!response.ok) {
+          setPlaybackError("Streaming tidak dapat diputar.");
+          return;
+        }
+        const answer = await response.text();
+        await pc.setRemoteDescription({ type: "answer", sdp: answer });
+      } catch {
+        setPlaybackError("Streaming tidak dapat diputar.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      const location = pc?.connectionState;
+      void location;
+      pc?.close();
+      pcRef.current = null;
+    };
+  }, [whepUrl, sessionId, endedReason]);
+
   async function submitComment() {
     const body = draft.trim();
     if (!body) return;
@@ -103,6 +170,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
     else if (payload.error === "live_capacity_full") setNotice("Live penuh (maksimal 100 penonton).");
     else if (payload.error === "live_session_not_live") setNotice("Live sudah berakhir.");
     else if (payload.error === "live_comment_rate_limited") setNotice("Tunggu sebentar sebelum berkomentar lagi.");
+    else if (payload.error === "live_comment_rejected") setNotice("Komentar ditolak moderator (tidak sesuai aturan komunitas).");
     else setNotice("Komentar tidak dapat dikirim.");
   }
 
@@ -143,6 +211,19 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
 
   return (
     <div className="mt-6 grid gap-4 sm:grid-cols-2">
+      {/* Video stage (WHEP playback; server-gated) */}
+      <section className="rounded-2xl border border-black/10 bg-[#20231f] p-5 shadow-sm" aria-label="Video Live">
+        <video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full rounded-xl bg-black object-cover" />
+        {playbackError && (
+          <p className="mt-3 text-xs font-semibold text-[#e8c47c]">{playbackError}</p>
+        )}
+        {!playbackError && !whepUrl && (
+          <p className="mt-3 text-xs text-white/60">
+            Menunggu verifikasi akses Live (email terverifikasi + usia ≥ 18).
+          </p>
+        )}
+      </section>
+
       {/* Comments (ephemeral) */}
       <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm" aria-label="Komentar Live">
         <div className="flex items-center justify-between">

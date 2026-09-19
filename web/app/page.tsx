@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { Place } from "@/lib/places";
 import {
   DISTANCE_FILTERS,
+  distanceMeters,
+  formatDistance,
   liveDurationLabel,
   type DistanceFilter,
   type LiveDiscoveryItem,
@@ -12,17 +14,13 @@ import {
 
 const filters = ["SEKARANG", "HARI INI", "BESOK", "PILIH WAKTU"];
 
+// Map positions are demo placeholders keyed by Place id (canonical geocoords
+// are pending per PO decision); LIVE pins use the same map so distances are
+// computed from canonical lat/lng only — never from these layout positions.
 const mapPositionByPlaceId: Record<string, string> = {
   "kopi-dari-kebun": "left-[22%] top-[34%]",
   "rumah-teh-lokal": "left-[62%] top-[27%]",
   "dapur-rasa": "left-[48%] top-[57%]",
-};
-
-// Demo fallback positions for LIVE pins when a Place has no coordinates yet.
-const livePinFallback: Record<string, string> = {
-  "kopi-dari-kebun": "left-[26%] top-[40%]",
-  "rumah-teh-lokal": "left-[58%] top-[33%]",
-  "dapur-rasa": "left-[52%] top-[63%]",
 };
 
 type DiscoveryPlace = Place & { position: string };
@@ -70,14 +68,12 @@ export default function Home() {
   }, [liveItems]);
 
   const visiblePlaces = useMemo(() => {
-    if (distanceFilter === "Di sekitar saya" && !liveOnly) return places;
-    // Coordinates are not yet populated in the seed data; with a radius filter
-    // and no coordinates the Place stays visible only for unbounded filters.
-    return places.filter((place) => {
-      if (liveOnly && !liveByPlaceId.has(place.id)) return false;
-      if (distanceFilter === "Di sekitar saya" || distanceFilter === "10 km+") return true;
-      return place.latitude !== null && place.longitude !== null;
-    });
+    if (liveOnly) return places.filter((place) => liveByPlaceId.has(place.id));
+    // Radii filters use canonical lat/lng (PO item 6). With no coordinates the
+    // Place stays visible only for the two unbounded filters (Policy §12.3 #2:
+    // "Di sekitar saya" stays inert; bounded radii never hide by assumption).
+    if (distanceFilter === "Di sekitar saya" || distanceFilter === "10 km+") return places;
+    return places.filter((place) => place.latitude !== null && place.longitude !== null);
   }, [places, distanceFilter, liveOnly, liveByPlaceId]);
 
   const liveCards = useMemo(
@@ -168,6 +164,12 @@ export default function Home() {
           <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {liveCards.map((item) => {
               const place = places.find((candidate) => candidate.id === item.placeId);
+              // Distance from canonical Place coordinates only (PO item 7):
+              // shown when available, omitted otherwise — never invented.
+              const distance =
+                place?.latitude != null && place?.longitude != null
+                  ? formatDistance(distanceMeters({ lat: -6.2, lng: 106.816 }, { lat: place.latitude, lng: place.longitude }))
+                  : null;
               return (
                 <Link
                   key={item.sessionId}
@@ -188,6 +190,7 @@ export default function Home() {
                     {place?.name ?? item.placeName} • {place?.area ?? ""}
                   </p>
                   <p className="mt-2 text-[11px] font-bold text-[#7b5b38]">
+                    {distance ? `${distance} • ` : ""}
                     {place?.type === "production" ? "Sedang berproduksi" : "Sedang aktif"}
                   </p>
                 </Link>
@@ -211,11 +214,15 @@ export default function Home() {
             {liveOnly ? `LIVE • ${activeFilter}` : activeFilter} • {distanceFilter}
           </div>
 
-          {/* LIVE markers */}
+          {/* LIVE markers — the pin occupies the SAME map position as its
+              Place pin (a live-state overlay on the Place, not a fabricated
+              coordinate). Until canonical lat/lng exist (PO item 6), Places
+              without a demo map position get no pin; nothing is invented. */}
           {liveItems.map((item) => {
             const place = places.find((candidate) => candidate.id === item.placeId);
             if (!place) return null;
-            const position = livePinFallback[item.placeId] ?? "left-[55%] top-[45%]";
+            const position = mapPositionByPlaceId[place.id];
+            if (!position) return null;
             return (
               <Link
                 key={`live-${item.sessionId}`}
@@ -223,7 +230,7 @@ export default function Home() {
                 aria-label={`Lihat Live di ${place.name}`}
                 className={`absolute ${position} z-20 -translate-x-1/2 -translate-y-1/2`}
               >
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-white bg-[#b3261e] text-[10px] font-black text-white shadow-lg">
+                <div className="flex h-12 w-12 animate-pulse items-center justify-center rounded-full border-4 border-white bg-[#b3261e] text-[10px] font-black text-white shadow-lg">
                   LIVE
                 </div>
                 <div className="mt-1 whitespace-nowrap rounded-full bg-[#b3261e] px-3 py-1.5 text-[11px] font-bold text-white shadow-md">

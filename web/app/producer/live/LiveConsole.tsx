@@ -22,6 +22,11 @@ type CameraCheck = {
   error?: string;
 };
 
+type Broadcast = {
+  pc: RTCPeerConnection;
+  sessionUrl: string | null;
+};
+
 /**
  * Per-attempt idempotency key (policy §8, tech §4.2): one fresh key per start
  * attempt, reused only across retries of that same attempt so replays return
@@ -47,8 +52,13 @@ export function LiveConsole({ places }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [broadcastLive, setBroadcastLive] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const broadcastRef = useRef<Broadcast | null>(null);
+  const startedAtRef = useRef<number | null>(null);
 
   const stages = useMemo(
     () => places.find((place) => place.id === placeId)?.stages ?? [],
@@ -60,6 +70,18 @@ export function LiveConsole({ places }: Props) {
   const effectiveStageId = stages.some((stage) => stage.id === stageId)
     ? stageId
     : stages[0]?.id ?? "";
+
+  // Duration guard display: the locked 60-minute cap is enforced server-side
+  // (self-healing cap); the console mirrors it so the Producer sees time left.
+  useEffect(() => {
+    if (step !== "live" || !startedAtRef.current) return;
+    const interval = window.setInterval(() => {
+      if (!startedAtRef.current) return;
+      const elapsed = Math.floor((Date.now() - startedAtRef.current) / 1000);
+      setElapsedSeconds(Math.min(elapsed, 3600));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [step]);
 
   const stopPreview = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -119,6 +141,7 @@ export function LiveConsole({ places }: Props) {
       });
       const payload = (await response.json().catch(() => ({}))) as {
         sessionId?: string;
+        webRtcPublishUrl?: string | null;
         error?: string;
       };
       if (!response.ok || !payload.sessionId) {
@@ -128,9 +151,85 @@ export function LiveConsole({ places }: Props) {
       setActiveSessionId(payload.sessionId);
       setStep("live");
       stopPreview();
+      // WHIP ingest (PO item 1): publish the camera to the session's live
+      // input immediately after the session starts. The publish URL is
+      // issued only in this authorized start response.
+      await publishToWhip(payload.sessionId, payload.webRtcPublishUrl ?? null);
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * WHIP broadcast (tech §5 amended): captures the checked camera, adds each
+   * track send-only to one peer connection, and POSTs the SDP offer to the
+   * server-issued WHIP URL. No encoder/relay is implemented — the browser's
+   * native WebRTC stack is the only publisher.
+   */
+  async function publishToWhip(sessionId: string, publishUrl: string | null) {
+    setPublishing(true);
+    try {
+      if (!publishUrl) {
+        // Re-issue from the server when the start replay path had no URL.
+        const urlResponse = await fetch(`/api/producer/live/sessions/${sessionId}/publish-url`);
+        if (!urlResponse.ok) {
+          setError("Sesi Live dibuat, tetapi layanan streaming belum tersedia.");
+          return;
+        }
+        const urlPayload = (await urlResponse.json()) as { publishUrl?: string };
+        if (!urlPayload.publishUrl) {
+          setError("Sesi Live dibuat, tetapi layanan streaming belum tersedia.");
+          return;
+        }
+        publishUrl = urlPayload.publishUrl;
+      }
+
+      const media = streamRef.current ?? await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+        audio: false,
+      });
+      streamRef.current = media;
+
+      const pc = new RTCPeerConnection();
+      media.getTracks().forEach((track) => {
+        pc.addTransceiver(track, { direction: "sendonly" });
+      });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      const response = await fetch(publishUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/sdp" },
+        body: offer.sdp ?? "",
+      });
+      if (!response.ok) {
+        pc.close();
+        setError("Sambungan streaming ke penyedia gagal. Coba akhiri dan mulai Live lagi.");
+        return;
+      }
+      const answer = await response.text();
+      await pc.setRemoteDescription({ type: "answer", sdp: answer });
+      const location = response.headers.get("Location");
+      broadcastRef.current = { pc, sessionUrl: location ? new URL(location, publishUrl).toString() : null };
+      startedAtRef.current = Date.now();
+      setBroadcastLive(true);
+      setElapsedSeconds(0);
+    } catch {
+      setError("Penerbitan video gagal. Izinkan kamera dan coba lagi.");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function stopBroadcast() {
+    const broadcast = broadcastRef.current;
+    broadcastRef.current = null;
+    startedAtRef.current = null;
+    setBroadcastLive(false);
+    if (broadcast?.sessionUrl) {
+      await fetch(broadcast.sessionUrl, { method: "DELETE" }).catch(() => undefined);
+    }
+    broadcast?.pc.close();
   }
 
   async function endLive() {
@@ -152,6 +251,7 @@ export function LiveConsole({ places }: Props) {
       setStep("choose");
       setAttested(false);
       setCamera(null);
+      await stopBroadcast();
       router.refresh();
     } finally {
       setBusy(false);
@@ -304,6 +404,18 @@ export function LiveConsole({ places }: Props) {
             Penonton maksimal 100 concurrent • durasi maksimal 60 menit • Live berakhir otomatis bila
             Proses ditarik dari published.
           </p>
+          <p className="mt-2 text-xs font-bold text-[#b3261e]">
+            {publishing
+              ? "Menyambungkan kamera ke streaming..."
+              : broadcastLive
+                ? `Berlangsung ${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, "0")} / 60:00`
+                : "Kamera belum tersambung ke streaming."}
+          </p>
+          {elapsedSeconds >= 3600 && (
+            <p className="mt-1 text-xs font-semibold text-[#b3261e]">
+              Batas 60 menit tercapai — Live akan diakhiri otomatis oleh server.
+            </p>
+          )}
           <button
             disabled={busy || !activeSessionId}
             onClick={endLive}

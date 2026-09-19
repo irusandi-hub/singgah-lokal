@@ -55,6 +55,9 @@ export async function POST(request: Request) {
       actorKey: placeId,
     });
 
+    // webRtcPublishUrl is secret-bearing (provider stream key). It is issued
+    // ONLY here, to the authorized Producer, over this authenticated response
+    // — never persisted, never logged, never exposed to viewers.
     return NextResponse.json(result);
   } catch (error) {
     return errorResponse(error);

@@ -707,6 +707,14 @@ grant execute on function public.start_live_session(text, text, text, text) to a
 grant execute on function public.end_live_session(text, text, text) to authenticated;
 grant execute on function public.apply_live_duration_cap(text) to authenticated;
 
+-- PO item 11: moderation capability is Platform Moderator only. The execute
+-- grant is issued to authenticated as the transport layer (the server route
+-- runs as the moderator's own auth context); the in-function platform-role
+-- check remains the authorization layer (fail closed, M42501 otherwise).
+grant execute on function public.moderate_live(text, text, text) to authenticated;
+grant execute on function public.grant_live_eligibility(text, text, numeric, integer) to authenticated;
+grant execute on function public.revoke_live_eligibility(text, text) to authenticated;
+
 -- B5: opportunistic self-heal — every RPC that observes a live session first
 -- applies the 60-minute duration cap (fail-closed, no scheduler invented).
 -- Applied inside start_live_session, assert_viewer_eligible,

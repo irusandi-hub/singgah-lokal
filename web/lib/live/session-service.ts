@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createLiveInput } from "@/lib/live/cloudflare";
+import { createLiveInput, deleteLiveInput } from "@/lib/live/cloudflare";
 import { broadcastLiveStatus } from "@/lib/live/realtime";
 import {
   LIVE_COMMENT_MAX_LENGTH,
@@ -58,12 +58,16 @@ function enforceCommentRateLimit(viewerKey: string): void {
 export type StartLiveSessionResult = {
   sessionId: string;
   replayed: boolean;
+  /** Secret-bearing WHIP publish URL — Producer-only start response. */
+  webRtcPublishUrl: string | null;
 };
 
 /**
- * Start a Live session (tech §4.2): fail-closed order is
- * membership -> eligibility -> published stage -> caps -> provider input ->
- * single-transaction RPC commit. Provider failure persists nothing.
+ * Start a Live session (tech §4.2, amended §5 for WebRTC/WHIP): fail-closed
+ * order is membership -> eligibility -> published stage -> caps -> provider
+ * input -> single-transaction RPC commit. Provider failure persists nothing.
+ * The WHIP publish URL is issued ONLY in the Producer's own start response —
+ * never persisted, never logged (secret-bearing per provider docs).
  */
 export async function startLiveSession(params: {
   placeId: string;
@@ -88,6 +92,9 @@ export async function startLiveSession(params: {
   });
 
   if (error) {
+    // Orphan handling (PO item 10): the provider input exists but no session
+    // committed — delete it so no orphaned inputs accumulate.
+    await deleteLiveInput(liveInput.liveInputId);
     if (String(error.message).includes("live_cap_denied")) throw new LiveValidationError("live_cap_denied");
     if (String(error.message).includes("live_place_busy")) throw new LiveValidationError("live_place_busy");
     if (String(error.message).includes("live_not_eligible")) throw new LiveValidationError("live_not_eligible");
@@ -99,10 +106,16 @@ export async function startLiveSession(params: {
 
   const result = data as { sessionId?: string; replayed?: boolean };
   if (!result?.sessionId) {
+    await deleteLiveInput(liveInput.liveInputId);
     throw new LiveValidationError("live_start_failed");
   }
 
-  return { sessionId: result.sessionId, replayed: Boolean(result.replayed) };
+  return {
+    sessionId: result.sessionId,
+    replayed: Boolean(result.replayed),
+    // Secret-bearing WHIP URL: Producer-only, this response only.
+    webRtcPublishUrl: result.replayed ? null : liveInput.webRtcPublishUrl,
+  };
 }
 
 export async function endLiveSession(params: {
@@ -130,6 +143,14 @@ export async function endLiveSession(params: {
     status: "ended",
     endedReason: (params.reason ?? "producer_ended") as LiveSessionEndReason,
   });
+
+  // Provider cleanup (PO item 10): delete the live input when the session
+  // ends. Best-effort — Supabase state stays canonical even if cleanup fails;
+  // the input is not reused across sessions so deletion never leaks keys.
+  const session = await getLiveSession(params.sessionId);
+  if (session?.live_input_id) {
+    await deleteLiveInput(session.live_input_id);
+  }
 
   return Boolean(data);
 }
