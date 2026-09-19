@@ -28,6 +28,20 @@ const REPORT_CATEGORIES: ReportCategory[] = [
   { value: "other", label: "Lainnya" },
 ];
 
+/**
+ * Signed playback URL (tech §5, Phase 5): the provider-documented mechanism
+ * is token-in-place-of-id — the short-lived RS256 token replaces the input
+ * UID in the WHEP playback URL. The customer-subdomain comes from the
+ * public config (non-secret); no credential is embedded client-side.
+ */
+function buildWhepUrl(token: string): string {
+  const customerCode = process.env.NEXT_PUBLIC_STREAM_CUSTOMER_CODE ?? "";
+  const host = customerCode
+    ? `customer-${customerCode}.cloudflarestream.com`
+    : "cloudflarestream.com";
+  return `https://${host}/${token}/webRTC/play`;
+}
+
 export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }: Props) {
   const [comments, setComments] = useState<Array<{ id: string; body: string }>>([]);
   const [draft, setDraft] = useState("");
@@ -113,14 +127,19 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
         else setPlaybackError("Akses Live memerlukan verifikasi (email terverifikasi + usia ≥ 18).");
         return;
       }
-      const payload = (await admission.json().catch(() => ({}))) as { whepUrl?: string };
-      if (!payload.whepUrl) {
+      const payload = (await admission.json().catch(() => ({}))) as { token?: string };
+      if (!payload.token) {
         setPlaybackError("Streaming tidak dapat diputar.");
         return;
       }
       if (cancelled) return;
 
       try {
+        // Signed playback (tech §5, Phase 5): the short-lived RS256 token
+        // replaces the input UID in the WHEP URL (provider-documented
+        // token-in-place-of-id). The server never exposes the raw URL, and
+        // the token is minted only after admission succeeds.
+        const whepUrl = buildWhepUrl(payload.token);
         pc = new RTCPeerConnection();
         pcRef.current = pc;
         pc.addTransceiver("video", { direction: "recvonly" });
@@ -131,7 +150,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        const response = await fetch(payload.whepUrl, {
+        const response = await fetch(whepUrl, {
           method: "POST",
           headers: { "Content-Type": "application/sdp" },
           body: offer.sdp ?? "",
@@ -142,7 +161,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
         }
         const answer = await response.text();
         await pc.setRemoteDescription({ type: "answer", sdp: answer });
-        setWhepUrl(payload.whepUrl);
+        setWhepUrl(whepUrl);
       } catch {
         setPlaybackError("Streaming tidak dapat diputar.");
       }

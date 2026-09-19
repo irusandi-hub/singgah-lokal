@@ -197,7 +197,8 @@ Policy §12.1 item 4: if the referenced stage leaves `published` (paused/archive
 Policy §12.1 item 1: provider = Cloudflare Stream. **Ingest: WebRTC/WHIP (amended 2026-09-19, PO decision — replaces the original RTMPS/SRT browser flow; Policy §12.4 #1). Playback: WHEP (WebRTC) — Cloudflare does not support HLS/DASH playback for WHIP-published inputs (provider limitation, verified against provider docs 2026-09-19). Recording disabled at provider.**
 
 - **Credentials:** `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` — **server runtime environment only (e.g. Vercel Environment); never in the repository, chat, or client code** (PO, 2026-09-18); server-side only (`process.env` in server-only modules; never `NEXT_PUBLIC_*`; never exposed via API responses).
-- **Boundary rule:** **only server-side code talks to Cloudflare.** Clients never receive stream keys/tokens — they receive only **short-lived session URLs** issued by the server: the Producer client receives the WHIP publish URL (secret-bearing, per-admission) and admitted viewers receive the WHEP playback URL (per-admission), both after server-side authorization (policy §8 "server-issued, scoped means"). The publish URL is never persisted, never logged, and never exposed outside the Producer's own start response.
+- **Boundary rule:** **only server-side code talks to Cloudflare.** Clients never receive stream keys/tokens. The Producer receives the WHIP publish URL (secret-bearing, per provider docs) **only in the authorized start response** — never persisted, never logged. Admitted viewers receive a **short-lived signed token** (mechanism below), not the raw WHEP URL (policy §8 "server-issued, scoped means").
+- **Signed access mechanism (resolved 2026-09-19, Phase 5; provider-documented behavior only):** live inputs are created with `requireSignedURLs: true`, so playback requires a **signed token**. Provider constraints verified from current docs: the `/token` endpoint **does not support Live WebRTC**; the provider-documented path for Live is **self-signed tokens via a Stream signing key** — `POST /accounts/{id}/stream/keys` (once, admin) returns `{id, pem, jwk}`; the server signs an RS256 JWT with header `{alg: "RS256", kid: <key id>}` and payload `{sub: <live_input_uid>, kid: <key id>, exp, nbf?}`; the **token replaces the input UID in the WHEP playback URL** (token-in-place-of-id, same as manifests/player). Token TTL is short (**TUNABLE**, default 60 s, ≤ provider max 24 h). The signing key is **server-side only** (env/storage, never repo, never client). Revoking the key invalidates all tokens signed with it (provider rotation path).
 - **Recording OFF at provider:** live input created with `recording: false` (provider-level hard-disable; policy requires recording to be impossible, not merely not-saved). Provider-level recording-off is verified in Phase 2.1 verification step (BLOCKED until credentials exist).
 - **Mode:** the integration uses **long-lived live inputs** created per session (created by `start_live_session`), not reused inputs — avoids cross-session key leakage.
 - **Live-phase guard:** player embed uses playback tokens issued per admission; ended sessions return 410-style denial server-side.
@@ -211,7 +212,7 @@ Policy §12.1 item 1: provider = Cloudflare Stream. **Ingest: WebRTC/WHIP (amend
 |---|---|
 | Stream key/token custody | Server only |
 | Live input creation (recording: false) | start RPC (server) |
-| Playback token issuance | Server, per admitted viewer, short TTL |
+| Playback token issuance | Server, per admitted viewer, RS256 signing-key token (Phase 5) |
 | Playback token TTL | TUNABLE (default 60 s) |
 | Provider-side recording-off verification | Phase 2.1 (needs credentials) |
 | Client possession of keys | Never |
@@ -284,7 +285,8 @@ All tunables are **server-side configuration, not hardcoded policy values**; def
 | RATING threshold + min count | none yet (**BLOCKED** — no rating subsystem exists in repo) | `live_eligibility` evaluation in start RPC |
 | Comment length | 300 chars | post_live_comment RPC |
 | Comment rate | ≈1 per 5 s per viewer | post_live_comment RPC (mechanism TUNABLE) |
-| Playback token TTL | 60 s | server token issuance |
+| Playback token TTL | 60 s (max 24 h per provider) | server signing-key token issuance (Phase 5) |
+| Signing-key custody | server env/secret storage only | boundary module (`lib/live/cloudflare.ts`) |
 | Presence re-admission grace | short window | admission RPC |
 | Duration-cap sweeper schedule | frequent enough to bound overage to minutes | sweeper (mechanism TUNABLE) |
 | Report note length | 500 chars | submit_live_report RPC |

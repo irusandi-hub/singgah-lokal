@@ -60,3 +60,5 @@ export const LIVE_DURATION_CAP_MINUTES = 60;
 export const LIVE_COMMENT_MAX_LENGTH = 300;
 export const LIVE_COMMENT_MIN_INTERVAL_MS = 5000;
 export const LIVE_REPORT_NOTE_MAX_LENGTH = 500;
+/** Tunable (tech §10, Phase 5): provider max is 24 h; we sign short. */
+export const LIVE_PLAYBACK_TOKEN_TTL_SECONDS = 60;
