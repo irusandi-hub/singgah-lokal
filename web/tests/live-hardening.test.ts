@@ -11,6 +11,7 @@ const placeStripSource = readFileSync(new URL("../app/places/[id]/PlaceLiveStatu
 const sequenceSource = readFileSync(new URL("../lib/live/sequence.ts", import.meta.url), "utf8");
 const realtimeSource = readFileSync(new URL("../lib/live/realtime.ts", import.meta.url), "utf8");
 const viewerSource = readFileSync(new URL("../app/live/[sessionId]/LiveViewerClient.tsx", import.meta.url), "utf8");
+const homeSource = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
 
 test("I1: producer start uses a fresh per-attempt idempotency key, never a constant", () => {
   assert.doesNotMatch(consoleSource, /const START_IDEMPOTENCY_KEY = "/);
@@ -25,6 +26,18 @@ test("I3: camera check enforces the locked 720p/30fps criteria", () => {
   assert.match(consoleSource, /frameRate >= 30/);
   // The old 24fps pass criterion is gone.
   assert.doesNotMatch(consoleSource, /frameRate >= 24/);
+});
+
+test("E2E: LIVE cards compute distance only from real viewer position + canonical Place coordinates", () => {
+  // The invented reference point is gone — a hardcoded viewer location would
+  // fabricate distance labels once Places gain real coordinates (PO item 7:
+  // distance "bila tersedia", never a fake position).
+  assert.doesNotMatch(homeSource, /lat: -6\.2/);
+  assert.doesNotMatch(homeSource, /106\.816/);
+  // Distance renders only when geolocation resolved AND Place coords exist.
+  assert.match(homeSource, /viewerPosition && place\?\.latitude != null && place\?\.longitude != null/);
+  // Geolocation is optional: denial/absence must never surface as an error.
+  assert.match(homeSource, /\(\) => undefined,/);
 });
 
 test("I4: comment sequencing is server-issued, monotonic; Date.now() payload is gone", () => {

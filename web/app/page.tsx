@@ -31,6 +31,10 @@ export default function Home() {
   const [liveOnly, setLiveOnly] = useState(false);
   const [places, setPlaces] = useState<DiscoveryPlace[]>([]);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
+  // Viewer position (card distance only — PO item 7: distance "bila
+  // tersedia"). Geolocation is optional and silently absent when denied;
+  // the "Di sekitar saya" filter stays inert per Policy §12.3 #2.
+  const [viewerPosition, setViewerPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     fetch("/api/places")
@@ -57,6 +61,19 @@ export default function Home() {
     load();
     const interval = window.setInterval(load, 15000);
     return () => window.clearInterval(interval);
+  }, []);
+
+  // Real viewer position when permission is granted; no fallback point is
+  // ever invented — without a position (or Place coordinates) no distance
+  // label is shown (PO: no fake positions).
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) =>
+        setViewerPosition({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      () => undefined,
+      { timeout: 8000 },
+    );
   }, []);
 
   const liveByPlaceId = useMemo(() => {
@@ -164,11 +181,12 @@ export default function Home() {
           <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {liveCards.map((item) => {
               const place = places.find((candidate) => candidate.id === item.placeId);
-              // Distance from canonical Place coordinates only (PO item 7):
-              // shown when available, omitted otherwise — never invented.
+              // Distance from the REAL viewer position to canonical Place
+              // coordinates only (PO item 7). Omitted when either side is
+              // unavailable — never computed from an invented reference point.
               const distance =
-                place?.latitude != null && place?.longitude != null
-                  ? formatDistance(distanceMeters({ lat: -6.2, lng: 106.816 }, { lat: place.latitude, lng: place.longitude }))
+                viewerPosition && place?.latitude != null && place?.longitude != null
+                  ? formatDistance(distanceMeters(viewerPosition, { lat: place.latitude, lng: place.longitude }))
                   : null;
               return (
                 <Link
