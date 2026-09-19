@@ -152,6 +152,30 @@ revoke all on public.live_viewers from authenticated;
 revoke all on public.live_reports from authenticated;
 revoke all on public.live_audit from authenticated;
 
+-- Reads are governed by the RLS SELECT policies above (public discovery,
+-- producer-scoped, reporter-scoped). The blanket revoke above strips SELECT
+-- from `authenticated`, which would break the discovery/status/Place surfaces
+-- for signed-in users (server routes query these tables in the caller's own
+-- auth context). Restore RLS-governed SELECT for anon + authenticated, and
+-- strip the implicit PUBLIC default so only explicit grants remain.
+-- live_audit stays revoked entirely: no SELECT policy exists (fail closed).
+revoke all on public.live_eligibility from public;
+revoke all on public.live_sessions from public;
+revoke all on public.live_viewers from public;
+revoke all on public.live_reports from public;
+revoke all on public.live_audit from public, anon, authenticated;
+grant select on public.live_sessions to anon, authenticated;
+grant select on public.live_viewers to anon, authenticated;
+grant select on public.live_reports to anon, authenticated;
+grant select on public.live_eligibility to anon, authenticated;
+
+-- Writes remain RPC-only (fail closed): no INSERT/UPDATE/DELETE anywhere.
+revoke insert, update, delete, truncate on public.live_sessions from anon, authenticated;
+revoke insert, update, delete, truncate on public.live_viewers from anon, authenticated;
+revoke insert, update, delete, truncate on public.live_reports from anon, authenticated;
+revoke insert, update, delete, truncate on public.live_eligibility from anon, authenticated;
+revoke insert, update, delete, truncate on public.live_audit from anon, authenticated;
+
 create policy live_sessions_public_read on public.live_sessions for select using (
   status = 'live' and exists (
     select 1 from public.places p
@@ -709,8 +733,18 @@ $$;
 -- Grant eligibility: Platform Admin/Moderator only (dev-seed never in prod)
 
 -- Realtime: status/comments payloads only; never video (policy §8)
-alter publication supabase_realtime add table public.live_sessions;
-alter publication supabase_realtime add table public.live_reports;
+-- Exception-guarded: re-running the migration must not fail because the
+-- tables are already members of the publication.
+do $$ begin
+  alter publication supabase_realtime add table public.live_sessions;
+exception
+  when duplicate_object then null;
+end $$;
+do $$ begin
+  alter publication supabase_realtime add table public.live_reports;
+exception
+  when duplicate_object then null;
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- CR3: RPC privilege hardening — functions default to EXECUTE for public.
