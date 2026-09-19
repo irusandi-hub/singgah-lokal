@@ -49,6 +49,39 @@ export async function sweepOrphanLiveInputs(): Promise<number> {
 }
 
 /**
+ * Ended-input sweep (gap fix 3): ends that happened OUTSIDE the service
+ * wrapper — duration-cap heal inside RPCs, the stage-unpublished trigger,
+ * moderate_live — leave their provider inputs alive because only Supabase
+ * state changed. This sweep releases and deletes those inputs. Supabase
+ * remains canonical: the RPC verifies each session is actually `ended`, and
+ * re-running is idempotent (released pointers vanish from the backlog).
+ */
+export async function sweepEndedLiveInputs(): Promise<number> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase.rpc("list_ended_live_inputs");
+  if (error || !Array.isArray(data)) {
+    return 0;
+  }
+
+  let deleted = 0;
+  for (const entry of data as Array<{ sessionId?: string; liveInputId?: string }>) {
+    if (!entry.sessionId || !entry.liveInputId) continue;
+    try {
+      const { data: inputId, error: releaseError } = await supabase.rpc("release_live_input", {
+        p_session_id: entry.sessionId,
+      });
+      if (releaseError || typeof inputId !== "string" || inputId.length === 0) continue;
+      if (await deleteLiveInput(inputId)) {
+        deleted += 1;
+      }
+    } catch {
+      // Best-effort; the pointer stays in the backlog for the next sweep.
+    }
+  }
+  return deleted;
+}
+
+/**
  * Applies the 60-minute self-healing duration cap (tech §7) by invoking the
  * security-definer RPC. Returns true when a session was ended by this call.
  */

@@ -110,10 +110,19 @@ export async function startLiveSession(params: {
     throw new LiveValidationError("live_start_failed");
   }
 
+  // Orphan handling on replay (gap fix 2): a replayed/concurrent replay of the
+  // same idempotency key keeps the ORIGINAL session's input — the input minted
+  // for this call would otherwise leak. Delete it; never overwrite the original
+  // session's pointer.
+  if (result.replayed) {
+    await deleteLiveInput(liveInput.liveInputId);
+  }
+
   return {
     sessionId: result.sessionId,
     replayed: Boolean(result.replayed),
-    // Secret-bearing WHIP URL: Producer-only, this response only.
+    // Secret-bearing WHIP URL: Producer-only, this response only. A replay
+    // intentionally returns null — re-issue via the publish-url route.
     webRtcPublishUrl: result.replayed ? null : liveInput.webRtcPublishUrl,
   };
 }
@@ -144,12 +153,19 @@ export async function endLiveSession(params: {
     endedReason: (params.reason ?? "producer_ended") as LiveSessionEndReason,
   });
 
-  // Provider cleanup (PO item 10): delete the live input when the session
-  // ends. Best-effort — Supabase state stays canonical even if cleanup fails;
-  // the input is not reused across sessions so deletion never leaks keys.
-  const session = await getLiveSession(params.sessionId);
-  if (session?.live_input_id) {
-    await deleteLiveInput(session.live_input_id);
+  // Provider cleanup (gap fix 3): delete the live input after the end commit.
+  // release_live_input verifies the session is ended (fail closed), nulls the
+  // pointer, and hands back the input id — Supabase stays canonical; provider
+  // deletion is best-effort and retried by the ended-input sweep on failure.
+  try {
+    const { data: inputId, error: releaseError } = await supabase.rpc("release_live_input", {
+      p_session_id: params.sessionId,
+    });
+    if (!releaseError && typeof inputId === "string" && inputId.length > 0) {
+      await deleteLiveInput(inputId);
+    }
+  } catch {
+    // Best-effort: the sweep covers any release/cleanup miss.
   }
 
   return Boolean(data);
@@ -160,6 +176,9 @@ export async function admitLiveViewer(params: {
   userId: string;
 }): Promise<boolean> {
   const supabase = await createSupabaseServerClient();
+  // Aligned with the migration (gap fix 1): the RPC takes only the session id.
+  // Idempotency is preserved inside the RPC (upsert on (live_session_id,
+  // user_id) refreshes the presence window without duplicating ledger rows).
   const { error } = await supabase.rpc("admit_live_viewer", {
     p_session_id: params.sessionId,
   });

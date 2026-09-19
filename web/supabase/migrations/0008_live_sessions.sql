@@ -238,7 +238,7 @@ begin
 end;
 $$;
 
-create or replace function public.admit_live_viewer(p_session_id text, p_idempotency_key text)
+create or replace function public.admit_live_viewer(p_session_id text)
 returns boolean
 language plpgsql
 security definer set search_path = public
@@ -718,7 +718,7 @@ alter publication supabase_realtime add table public.live_reports;
 -- remain the second layer (fail closed).
 -- ---------------------------------------------------------------------------
 revoke execute on function public.assert_viewer_eligible(text) from public, anon;
-revoke execute on function public.admit_live_viewer(text, text) from public, anon;
+revoke execute on function public.admit_live_viewer(text) from public, anon;
 revoke execute on function public.post_live_comment(text, text) from public, anon;
 revoke execute on function public.submit_live_report(text, text, text, text) from public, anon;
 revoke execute on function public.grant_live_eligibility(text, text, numeric, integer) from public, anon;
@@ -729,7 +729,7 @@ revoke execute on function public.apply_live_duration_cap(text) from public, ano
 revoke execute on function public.moderate_live(text, text, text) from public, anon;
 
 grant execute on function public.assert_viewer_eligible(text) to authenticated;
-grant execute on function public.admit_live_viewer(text, text) to authenticated;
+grant execute on function public.admit_live_viewer(text) to authenticated;
 grant execute on function public.post_live_comment(text, text) to authenticated;
 grant execute on function public.submit_live_report(text, text, text, text) to authenticated;
 grant execute on function public.start_live_session(text, text, text, text) to authenticated;
@@ -769,3 +769,65 @@ $$;
 
 revoke execute on function public.heal_live_duration_caps() from public, anon;
 grant execute on function public.heal_live_duration_caps() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Provider cleanup handoff (Phase 6 gap fixes): Supabase stays the canonical
+-- state; the provider boundary lives in lib/live/cloudflare.ts and needs the
+-- live_input_id AFTER the end commit has cleared access. Two RPCs, both
+-- authenticated-only (the server routes run as authenticated callers):
+--
+-- release_live_input: marks a just-ended session's input as released (input
+--   pointer nulled) and returns the id so the caller can delete it
+--   provider-side. Verifies the session is actually ended (fail closed).
+--
+-- list_ended_live_inputs: returns input ids of ended sessions that still hold
+--   an unreleased pointer — the sweep backlog for ends that happened outside
+--   the service wrapper (duration-cap heal inside RPCs, stage-unpublished
+--   trigger, moderate_live). Re-running is safe: released pointers vanish
+--   from the result (idempotent).
+-- ---------------------------------------------------------------------------
+create or replace function public.release_live_input(p_session_id text)
+returns text
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_input_id text;
+begin
+  select live_input_id into v_input_id
+  from public.live_sessions
+  where id = p_session_id and status = 'ended'
+  for update;
+
+  if not found then
+    raise exception 'live_session_not_ended' using errcode = 'P0001';
+  end if;
+
+  update public.live_sessions
+  set live_input_id = null
+  where id = p_session_id;
+
+  return v_input_id;
+end;
+$$;
+
+create or replace function public.list_ended_live_inputs()
+returns jsonb
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  return coalesce(
+    jsonb_agg(jsonb_build_object('sessionId', id, 'liveInputId', live_input_id)),
+    '[]'::jsonb
+  )
+  from public.live_sessions
+  where status = 'ended' and live_input_id is not null
+  limit 50;
+end;
+$$;
+
+revoke execute on function public.release_live_input(text) from public, anon;
+revoke execute on function public.list_ended_live_inputs() from public, anon;
+grant execute on function public.release_live_input(text) to authenticated;
+grant execute on function public.list_ended_live_inputs() to authenticated;

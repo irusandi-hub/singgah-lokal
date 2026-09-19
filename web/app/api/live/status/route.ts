@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { applyLiveDurationCap } from "@/lib/live/session-service-cap";
+import { applyLiveDurationCap, sweepEndedLiveInputs } from "@/lib/live/session-service-cap";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +36,13 @@ export async function GET() {
     if (expiredIds.length > 0) {
       await Promise.all(expiredIds.map((id) => applyLiveDurationCap(id)));
     }
+
+    // Gap fix 3: ends that happened OUTSIDE the service wrapper — duration-cap
+    // heal inside RPCs, the stage-unpublished trigger, moderation end — leave
+    // their provider inputs alive. Sweep the release backlog on every status
+    // poll (best-effort, idempotent; covers all three paths unconditionally).
+
+    await sweepEndedLiveInputs().catch(() => 0);
 
     const live = expiredIds.length
       ? rows.filter((row) => !expiredIds.includes(row.id))
