@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
+import { PlaceLiveStatus } from "./PlaceLiveStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,9 @@ export default async function PlaceDetailPage({
           <h1 className="mt-3 text-4xl font-black tracking-tight">{place.name}</h1>
           <p className="mt-2 text-sm text-black/55">{place.area}</p>
           <p className="mt-6 text-base leading-7 text-black/70">{place.shortDescription}</p>
+
+          {/* Live status (additive; policy §9). Renders nothing without an active Live. */}
+          <PlaceLiveStatus placeId={place.id} />
 
           <dl className="mt-8 grid gap-4 border-t border-black/10 pt-6 sm:grid-cols-2">
             <div>
