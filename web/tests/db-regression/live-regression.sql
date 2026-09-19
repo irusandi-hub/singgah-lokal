@@ -5,20 +5,29 @@
 -- Run AFTER migrations 0001..0008 are applied, via Supabase SQL Editor or:
 --   psql "$SUPABASE_DEV_DB_URL" -f tests/db-regression/live-regression.sql
 --
--- Design:
---   * Each check runs inside a SAVEPOINT and ROLLBACKs to it — the suite
+-- Design (PostgreSQL-valid harness):
+--   * Error expectations use plpgsql BEGIN...EXCEPTION blocks — a caught
+--     exception IS a subtransaction, so partial writes of a failed RPC are
+--     rolled back automatically. (SAVEPOINT inside a plpgsql function is
+--     not valid PostgreSQL — transaction control is only allowed at the
+--     top level, so the previous harness could never execute.)
+--   * Fixture isolation per check: the psql runner wraps each check in a
+--     top-level SAVEPOINT and ROLLBACKs to it after the check — the suite
 --     leaves NO persistent Live data behind (fixtures rolled back too).
 --   * Role switching uses SET LOCAL ROLE authenticated + request.jwt.claims
 --     (set_config) so RPC authorization runs exactly as in production.
---   * Failures raise exceptions with precise codes; the runner records PASS/
---     FAIL per check and re-raises on any FAIL.
---   * The whole file is wrapped in ONE explicit transaction and ends with a
---     teardown that drops the regression schema.
+--   * A session-scoped custom GUC counts FAILs across per-check rollbacks;
+--     the final verdict raises (suite exit non-zero) if any check failed.
 -- ============================================================================
 \set ON_ERROR_STOP on
 begin;
 
 create schema if not exists _live_regression;
+
+-- Helpers are called from within authenticated context (after act_as), so the
+-- role needs USAGE on this postgres-owned schema. Transactional grant: it
+-- disappears with the suite's final ROLLBACK.
+grant usage on schema _live_regression to authenticated;
 
 create table _live_regression.results (
   id serial primary key,
@@ -91,7 +100,9 @@ $func$;
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
--- Expect a failing call: compares SQLSTATE, rolls the attempt back either way.
+-- Expect a failing call: compares SQLSTATE; the BEGIN...EXCEPTION block is
+-- itself a subtransaction, so partial writes of the failed call are rolled
+-- back automatically when the exception is caught (no savepoint needed).
 create or replace function _live_regression.expect_error(p_sql text, p_state text, p_msg_like text default null)
 returns text
 language plpgsql
@@ -99,12 +110,10 @@ as $func$
 declare
   v_state text; v_msg text;
 begin
-  savepoint sp_expect;
   begin
     execute p_sql;
   exception when others then
     get stacked diagnostics v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
-    rollback to sp_expect;
     if v_state <> p_state then
       raise exception 'unexpected_sqlstate expected % got % (%): %', p_state, v_state, v_msg, p_sql;
     end if;
@@ -113,7 +122,6 @@ begin
     end if;
     return v_msg;
   end;
-  rollback to sp_expect;
   raise exception 'assertion_failed: expected sqlstate % but call succeeded: %', p_state, p_sql;
 end;
 $func$;
@@ -185,7 +193,6 @@ language plpgsql
 as $func$
 declare f record; v_start jsonb; v_replay jsonb;
 begin
-  savepoint sp_check;
   select * into f from _live_regression.fixture();
 
   -- Non-member (even verified) cannot start.
@@ -215,7 +222,6 @@ begin
 
   perform _live_regression.reset_actor();
   perform _live_regression.record('producer_authorization', true);
-  rollback to sp_check;
 end;
 $func$;
 
@@ -228,7 +234,6 @@ language plpgsql
 as $func$
 declare f record;
 begin
-  savepoint sp_check;
   select * into f from _live_regression.fixture();
   delete from public.live_eligibility where producer_id = f.producer_id;
 
@@ -263,7 +268,6 @@ begin
 
   perform _live_regression.reset_actor();
   perform _live_regression.record('eligibility_required', true);
-  rollback to sp_check;
 end;
 $func$;
 
@@ -276,7 +280,6 @@ language plpgsql
 as $func$
 declare f record; v_sid text;
 begin
-  savepoint sp_check;
   select * into f from _live_regression.fixture();
   perform _live_regression.act_as(f.user_a);
   v_sid := coalesce(_live_regression.expect_json(format(
@@ -285,6 +288,10 @@ begin
   -- Producer end succeeds and terminates the session exactly once.
   perform _live_regression.expect_ok(format(
     'select public.end_live_session(%L, %L, %L)', v_sid, 'producer_ended', 'regression'));
+
+  -- State assertions run as postgres: live_audit is dark to authenticated
+  -- and the ended session leaves the public-read policy by design.
+  perform _live_regression.reset_actor();
   if not exists (
     select 1 from public.live_sessions
     where id = v_sid and status = 'ended' and ended_reason = 'producer_ended' and ended_at is not null
@@ -297,15 +304,16 @@ begin
 
   -- Idempotent end: replaying end_live_session is a no-op that must not
   -- duplicate audit rows or change state.
+  perform _live_regression.act_as(f.user_a);
   perform _live_regression.expect_ok(format(
     'select public.end_live_session(%L, %L, %L)', v_sid, 'producer_ended', 'regression'));
+  perform _live_regression.reset_actor();
   if 1 <> (select count(*) from public.live_audit
            where live_session_id = v_sid and action = 'session_ended') then
     raise exception 'assertion_failed: repeated end duplicated the audit trail';
   end if;
 
   perform _live_regression.record('start_end_idempotency', true);
-  rollback to sp_check;
 end;
 $func$;
 
@@ -318,7 +326,6 @@ language plpgsql
 as $func$
 declare f record; i int; v_p text; v_s text; v_u uuid; v_pd text;
 begin
-  savepoint sp_check;
   select * into f from _live_regression.fixture();
 
   -- Per-Place: a second active session for the same Place is denied.
@@ -334,11 +341,13 @@ begin
     format('select public.start_live_session(%L, %L, %L, %L)', f.place_id, f.draft_stage_id, 'reg_cap_draft', 'input-draft'),
     'P0001', 'live_stage_not_published%');
 
-  -- Global: 5 concurrent lives allowed, the 6th denied. Fixtures for 5
-  -- additional producers/places (owned by user_a's producer? No — distinct
-  -- producers are required; build 5 independent producer/place/stage/owner
-  -- sets committed within this savepoint, rolled back with it).
-  for i in 1..5 loop
+  -- Global: 5 concurrent lives allowed, the 6th denied. The fixture Place
+  -- session above is live #1; build 4 more independent producer/place/stage
+  -- sets (live #2..#5) committed within this check, rolled back by the
+  -- runner. Fixture writes run as postgres — authenticated inserts are
+  -- RLS-blocked by design.
+  perform _live_regression.reset_actor();
+  for i in 1..4 loop
     v_pd := 'reg_cap_prod_' || i;
     v_p := 'reg_cap_place_' || i;
     v_s := 'reg_cap_stage_' || i;
@@ -357,19 +366,22 @@ begin
     insert into public.producer_memberships (user_id, producer_id, place_id, role)
     values (f.user_a, v_pd, v_p, 'owner')
       on conflict (user_id, place_id) do nothing;
+    -- Start as the owner, then return to postgres so the NEXT iteration's
+    -- fixture inserts are not RLS-blocked.
     perform _live_regression.act_as(f.user_a);
     perform _live_regression.expect_ok(format(
       'select public.start_live_session(%L, %L, %L, %L)', v_p, v_s, 'reg_cap_key_' || i, 'input-cap-' || i));
+    perform _live_regression.reset_actor();
   end loop;
-  -- 6 concurrent live (5 cap places + the fixture Place) — the 6th start must
-  -- hit the global cap.
+  -- Now 5 concurrent live (fixture Place + 4 cap places) — the 6th start
+  -- must hit the global cap.
+  perform _live_regression.act_as(f.user_a);
   perform _live_regression.expect_error(
     format('select public.start_live_session(%L, %L, %L, %L)', f.place_id, f.stage_id, 'reg_cap_6', 'input-6'),
     'P0001', 'live_cap_denied%');
 
   perform _live_regression.reset_actor();
   perform _live_regression.record('caps', true);
-  rollback to sp_check;
 end;
 $func$;
 
@@ -382,7 +394,6 @@ language plpgsql
 as $func$
 declare f record; v_sid text;
 begin
-  savepoint sp_check;
   select * into f from _live_regression.fixture();
   perform _live_regression.act_as(f.user_a);
   v_sid := coalesce(_live_regression.expect_json(format(
@@ -404,7 +415,6 @@ begin
     'P0001', 'live_viewer_denied%');
 
   perform _live_regression.record('viewer_admission_b1_fail_closed', true);
-  rollback to sp_check;
 end;
 $func$;
 
@@ -417,7 +427,6 @@ language plpgsql
 as $func$
 declare f record; v_sid text; v_state text;
 begin
-  savepoint sp_check;
   select * into f from _live_regression.fixture();
   perform _live_regression.act_as(f.user_a);
   v_sid := coalesce(_live_regression.expect_json(format(
@@ -431,6 +440,8 @@ begin
   -- Moderator end terminates the session with the moderation reason.
   perform _live_regression.act_as(f.moderator);
   perform _live_regression.expect_ok(format('select public.moderate_live(%L, %L, %L)', v_sid, 'end', 'regression'));
+  -- Ended sessions leave the public-read policy; assert as postgres.
+  perform _live_regression.reset_actor();
   if not exists (select 1 from public.live_sessions
                  where id = v_sid and status = 'ended' and ended_reason = 'moderation') then
     raise exception 'assertion_failed: moderation end did not terminate the session';
@@ -442,6 +453,7 @@ begin
     'select public.start_live_session(%L, %L, %L, %L)', f.place_id, f.stage_id, 'reg_key_mod2', 'input-mod2'))->>'sessionId', '');
   perform _live_regression.act_as(f.moderator);
   perform _live_regression.expect_ok(format('select public.moderate_live(%L, %L, null::text)', v_sid, 'suspend'));
+  perform _live_regression.reset_actor();
   if exists (select 1 from public.live_eligibility where producer_id = f.producer_id and active) then
     raise exception 'assertion_failed: suspension left eligibility active';
   end if;
@@ -455,17 +467,19 @@ begin
     'select public.start_live_session(%L, %L, %L, %L)', f.place_id, f.stage_id, 'reg_key_mod3', 'input-mod3'))->>'sessionId', '');
   perform _live_regression.act_as(f.moderator);
   perform _live_regression.expect_ok(format('select public.moderate_live(%L, %L, null::text)', v_sid, 'flag_review'));
+  perform _live_regression.reset_actor();
   select content_status into v_state from public.live_sessions where id = v_sid;
   if v_state is distinct from 'review' then
     raise exception 'assertion_failed: flag_review did not set content_status=review (got %)', v_state;
   end if;
   perform _live_regression.act_as(f.user_b);
+  -- Content gate fires before the age deny by design (tech §5 gate order):
+  -- either way the admission is fail-closed DENIED.
   perform _live_regression.expect_error(format('select public.admit_live_viewer(%L)', v_sid),
-    'P0001', 'live_viewer_denied%'); -- B1 still denies; content gate is defense-in-depth
+    'P0001', 'live_content_blocked%'); -- flag_review suspends admissions (defense-in-depth)
 
   perform _live_regression.reset_actor();
   perform _live_regression.record('moderation', true);
-  rollback to sp_check;
 end;
 $func$;
 
@@ -478,7 +492,6 @@ language plpgsql
 as $func$
 declare f record; v_sid text; v_reason text; v_status text;
 begin
-  savepoint sp_check;
   select * into f from _live_regression.fixture();
   perform _live_regression.act_as(f.user_a);
   v_sid := coalesce(_live_regression.expect_json(format(
@@ -494,7 +507,6 @@ begin
     raise exception 'assertion_failed: stage guard did not auto-end (status=%, reason=%)', v_status, v_reason;
   end if;
   perform _live_regression.record('stage_auto_end', true);
-  rollback to sp_check;
 end;
 $func$;
 
@@ -545,32 +557,116 @@ end;
 $func$;
 
 -- ---------------------------------------------------------------------------
--- Runner
+-- Runner: one psql-level SAVEPOINT per check. The DO wrapper records PASS/
+-- FAIL via NOTICE and a session-scoped GUC counter (survives the savepoint
+-- rollback); ROLLBACK TO then discards that check's fixtures. Transaction
+-- control at psql top level is valid; inside plpgsql functions it is not.
 -- ---------------------------------------------------------------------------
+savepoint sp_check_1;
 do $run$
-declare
-  r record;
-  v_failed int := 0;
 begin
   perform _live_regression.check_rls_baseline();
+  raise notice 'LIVE-REGRESSION PASS — rls_privilege_baseline';
+exception when others then
+  perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
+  raise notice 'LIVE-REGRESSION FAIL — rls_privilege_baseline: %', sqlerrm;
+end
+$run$;
+rollback to sp_check_1;
+
+savepoint sp_check_2;
+do $run$
+begin
   perform _live_regression.check_producer_authorization();
+  raise notice 'LIVE-REGRESSION PASS — producer_authorization';
+exception when others then
+  perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
+  raise notice 'LIVE-REGRESSION FAIL — producer_authorization: %', sqlerrm;
+end
+$run$;
+rollback to sp_check_2;
+
+savepoint sp_check_3;
+do $run$
+begin
   perform _live_regression.check_eligibility_required();
+  raise notice 'LIVE-REGRESSION PASS — eligibility_required';
+exception when others then
+  perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
+  raise notice 'LIVE-REGRESSION FAIL — eligibility_required: %', sqlerrm;
+end
+$run$;
+rollback to sp_check_3;
+
+savepoint sp_check_4;
+do $run$
+begin
   perform _live_regression.check_start_end_idempotency();
+  raise notice 'LIVE-REGRESSION PASS — start_end_idempotency';
+exception when others then
+  perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
+  raise notice 'LIVE-REGRESSION FAIL — start_end_idempotency: %', sqlerrm;
+end
+$run$;
+rollback to sp_check_4;
+
+savepoint sp_check_5;
+do $run$
+begin
   perform _live_regression.check_caps();
+  raise notice 'LIVE-REGRESSION PASS — caps';
+exception when others then
+  perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
+  raise notice 'LIVE-REGRESSION FAIL — caps: %', sqlerrm;
+end
+$run$;
+rollback to sp_check_5;
+
+savepoint sp_check_6;
+do $run$
+begin
   perform _live_regression.check_viewer_admission_b1();
+  raise notice 'LIVE-REGRESSION PASS — viewer_admission_b1_fail_closed';
+exception when others then
+  perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
+  raise notice 'LIVE-REGRESSION FAIL — viewer_admission_b1_fail_closed: %', sqlerrm;
+end
+$run$;
+rollback to sp_check_6;
+
+savepoint sp_check_7;
+do $run$
+begin
   perform _live_regression.check_moderation();
+  raise notice 'LIVE-REGRESSION PASS — moderation';
+exception when others then
+  perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
+  raise notice 'LIVE-REGRESSION FAIL — moderation: %', sqlerrm;
+end
+$run$;
+rollback to sp_check_7;
+
+savepoint sp_check_8;
+do $run$
+begin
   perform _live_regression.check_stage_auto_end();
+  raise notice 'LIVE-REGRESSION PASS — stage_auto_end';
+exception when others then
+  perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
+  raise notice 'LIVE-REGRESSION FAIL — stage_auto_end: %', sqlerrm;
+end
+$run$;
+rollback to sp_check_8;
 
-  for r in select check_name, outcome from _live_regression.results order by id loop
-    raise notice 'LIVE-REGRESSION % — %', r.outcome, r.check_name;
-    if r.outcome like 'FAIL%' then v_failed := v_failed + 1; end if;
-  end loop;
-
+do $verdict$
+declare
+  v_failed int := coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int;
+begin
   if v_failed > 0 then
     raise exception 'LIVE REGRESSION SUITE FAILED: % check(s) failed', v_failed;
   end if;
   raise notice 'LIVE REGRESSION SUITE: ALL CHECKS PASSED';
-end;
-$run$;
+end
+$verdict$;
 
 rollback; -- everything above is a dry run against the DEVELOPMENT database
