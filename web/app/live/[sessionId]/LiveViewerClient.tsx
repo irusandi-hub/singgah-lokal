@@ -9,7 +9,6 @@ type Props = {
   processTitle: string;
   placeId: string;
   placeName: string;
-  whepUrl: string | null;
 };
 
 type ReportCategory = {
@@ -29,12 +28,13 @@ const REPORT_CATEGORIES: ReportCategory[] = [
   { value: "other", label: "Lainnya" },
 ];
 
-export function LiveViewerClient({ sessionId, processTitle, placeId, placeName, whepUrl }: Props) {
+export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }: Props) {
   const [comments, setComments] = useState<Array<{ id: string; body: string }>>([]);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [endedReason, setEndedReason] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [whepUrl, setWhepUrl] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportCategory, setReportCategory] = useState("other");
   const [reportNote, setReportNote] = useState("");
@@ -90,11 +90,11 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName, 
 
   // WHEP playback (PO item 2, tech §5 amended): one admission attempt per
   // mount. The server applies every gate (published Place, stream health,
-  // verified email + B1 fail-closed age gate, 100-concurrent cap) BEFORE this
-  // client receives anything playable — whepUrl is issued server-side only
-  // after admission succeeds; otherwise the gate state stays visible.
+  // verified email + content gate + B1 fail-closed age gate, 100-concurrent
+  // cap) and issues the WHEP URL only inside the successful admission
+  // response — the client never receives anything playable beforehand.
   useEffect(() => {
-    if (!whepUrl || endedReason) return;
+    if (endedReason) return;
 
     let cancelled = false;
     let pc: RTCPeerConnection | null = null;
@@ -113,6 +113,11 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName, 
         else setPlaybackError("Akses Live memerlukan verifikasi (email terverifikasi + usia ≥ 18).");
         return;
       }
+      const payload = (await admission.json().catch(() => ({}))) as { whepUrl?: string };
+      if (!payload.whepUrl) {
+        setPlaybackError("Streaming tidak dapat diputar.");
+        return;
+      }
       if (cancelled) return;
 
       try {
@@ -126,7 +131,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName, 
 
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        const response = await fetch(whepUrl, {
+        const response = await fetch(payload.whepUrl, {
           method: "POST",
           headers: { "Content-Type": "application/sdp" },
           body: offer.sdp ?? "",
@@ -137,6 +142,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName, 
         }
         const answer = await response.text();
         await pc.setRemoteDescription({ type: "answer", sdp: answer });
+        setWhepUrl(payload.whepUrl);
       } catch {
         setPlaybackError("Streaming tidak dapat diputar.");
       }
@@ -144,12 +150,10 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName, 
 
     return () => {
       cancelled = true;
-      const location = pc?.connectionState;
-      void location;
       pc?.close();
       pcRef.current = null;
     };
-  }, [whepUrl, sessionId, endedReason]);
+  }, [sessionId, endedReason]);
 
   async function submitComment() {
     const body = draft.trim();

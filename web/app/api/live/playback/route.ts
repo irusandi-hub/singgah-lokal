@@ -9,25 +9,32 @@ type PlaybackBody = {
 };
 
 /**
- * Viewer playback admission (PO items 2, 3, 8; tech §5/§7).
+ * Viewer playback admission (PO items 2, 3, 8; tech §5 amended).
  *
  * Fail-closed gate order:
  * 1. Session must exist, be `live`, and belong to a published Place.
  * 2. Provider stream must be healthy (input connected) — otherwise
  *    `live_stream_unavailable` (PO item 4: no playback without a stream).
- * 3. Viewer admission RPC: verified email + B1 fail-closed age gate (DENY
- *    while the Phase 2.1 mechanism is absent) + 100-concurrent cap.
+ * 3. Admission RPC: verified email + content gate + B1 fail-closed age gate
+ *    (DENY while the Phase 2.1 mechanism is absent) + 100-concurrent cap.
  *
- * The WHEP playback URL is issued ONLY after every gate passes — never
- * persisted, never exposed before admission.
+ * The WHEP playback URL is issued ONLY in this response, only after every
+ * gate passes — never persisted, never exposed before admission. The B1 gate
+ * denies everyone today, so no URL can leak before Phase 2.1 by construction.
  */
 export async function POST(request: Request) {
   try {
+    const supabase = await createSupabaseServerClient();
     const body = (await request.json()) as PlaybackBody;
     const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
 
     if (!sessionId) {
       return NextResponse.json({ error: "session_id_required" }, { status: 400 });
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) {
+      return NextResponse.json({ error: "authentication_required" }, { status: 401 });
     }
 
     const session = await getLiveSession(sessionId);
@@ -47,11 +54,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "live_stream_unavailable" }, { status: 503 });
     }
 
-    // Admission gate: verified email + B1 age gate (DENY-all while absent) +
-    // 100-concurrent cap (PO item 8). Raises LiveValidationError when denied.
-    await admitLiveViewer({ sessionId, userId: (await requireUser()).id });
+    // Admission gate (PO item 8): verified email + content gate + B1 age gate
+    // (DENY-all while absent) + 100-concurrent cap. Raises when denied.
+    await admitLiveViewer({ sessionId, userId: userData.user.id });
 
-    return NextResponse.json({ admitted: true });
+    // Gates passed: issue the WHEP URL for THIS admitted viewer only.
+    // Requires `webRTCPlayback.requireSignedURLs` semantics to hold — the
+    // input was created with requireSignedURLs; per-viewer token scoping is
+    // the Phase 2.1 verification step (B4-adjacent, needs credentials).
+    const { getLiveInputPlaybackUrl } = await import("@/lib/live/cloudflare");
+    const whepUrl = await getLiveInputPlaybackUrl(session.live_input_id ?? "");
+    if (!whepUrl) {
+      return NextResponse.json({ error: "live_stream_unavailable" }, { status: 503 });
+    }
+
+    return NextResponse.json({ whepUrl });
   } catch (error) {
     if (error instanceof LiveValidationError) {
       const status = error.message === "live_capacity_full" ? 409 : 400;
@@ -59,13 +76,4 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: "live_playback_unavailable" }, { status: 500 });
   }
-}
-
-async function requireUser() {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) {
-    throw new LiveValidationError("authentication_required");
-  }
-  return data.user;
 }

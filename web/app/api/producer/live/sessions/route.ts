@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requireProducerAccess } from "@/lib/auth/server";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
+import { sweepOrphanLiveInputs } from "@/lib/live/session-service-cap";
 import { endLiveSession, LiveValidationError, startLiveSession } from "@/lib/live/session-service";
 
 type StartLiveBody = {
@@ -47,6 +48,10 @@ export async function POST(request: Request) {
     if (!stage || stage.status !== "published") {
       return NextResponse.json({ error: "live_stage_not_published" }, { status: 400 });
     }
+
+    // Orphan sweep (PO item 10): clean stale provider inputs from previously
+    // failed starts before minting a new one. Best-effort; never blocks start.
+    await sweepOrphanLiveInputs().catch(() => 0);
 
     const result = await startLiveSession({
       placeId,

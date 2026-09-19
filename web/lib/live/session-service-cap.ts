@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { deleteLiveInput, listAppLiveInputs } from "@/lib/live/cloudflare";
 import { broadcastLiveStatus } from "@/lib/live/realtime";
 import { LIVE_DURATION_CAP_MINUTES } from "@/lib/live/types";
 
@@ -13,6 +14,38 @@ export function isPastLiveDurationCap(startedAt: string, now: number = Date.now(
   const startedAtMs = new Date(startedAt).getTime();
   if (!Number.isFinite(startedAtMs)) return false;
   return now - startedAtMs >= LIVE_DURATION_CAP_MINUTES * 60 * 1000;
+}
+
+/**
+ * Orphan sweep (PO item 10): provider inputs created by failed/never-committed
+ * starts are deleted. An input is an orphan when it is not referenced by any
+ * live/ended session and is stale (never connected within the threshold).
+ * Best-effort: a sweep failure never affects canonical session state.
+ */
+export async function sweepOrphanLiveInputs(): Promise<number> {
+  const inputs = await listAppLiveInputs();
+  if (!inputs) {
+    return 0; // Boundary unavailable (incl. B4): nothing to sweep.
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { data: referenced } = await supabase
+    .from("live_sessions")
+    .select("live_input_id")
+    .not("live_input_id", "is", null);
+  const referencedIds = new Set((referenced ?? []).map((row) => row.live_input_id as string));
+
+  let deleted = 0;
+  for (const input of inputs) {
+    // A never-connected input with no session reference is an orphan once
+    // past the TUNABLE sweep threshold (stale starts, provider "null" status).
+    if (!referencedIds.has(input.uid) && input.status === null) {
+      if (await deleteLiveInput(input.uid)) {
+        deleted += 1;
+      }
+    }
+  }
+  return deleted;
 }
 
 /**

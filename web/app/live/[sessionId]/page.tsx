@@ -119,12 +119,6 @@ export default async function LiveViewerPage({
             processTitle={stage?.title ?? "Proses produksi"}
             placeId={place.id}
             placeName={place.name}
-            /* B1 fail-closed (PO item 3): no WHEP URL is ever issued while the
-               age gate denies all viewers (Phase 2.1). The client's admission
-               attempt via /api/live/playback re-verifies server-side and stays
-               DENY until the mechanism lands; when it does, playback issuance
-               moves here behind the same gate — never before it. */
-            whepUrl={null}
           />
         )}
 

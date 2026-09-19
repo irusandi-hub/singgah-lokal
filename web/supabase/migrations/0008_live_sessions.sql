@@ -54,7 +54,12 @@ create table if not exists public.live_sessions (
       check (ended_reason in ('producer_ended', 'duration_cap', 'source_stage_unpublished', 'moderation')),
   end_note text null,
   idempotency_key text not null unique constraint live_sessions_idempotency_key_not_blank check (length(btrim(idempotency_key)) > 0),
-  viewer_peak integer not null default 0 constraint live_sessions_viewer_peak_check check (viewer_peak between 0 and 100)
+  viewer_peak integer not null default 0 constraint live_sessions_viewer_peak_check check (viewer_peak between 0 and 100),
+  -- PO item 4 (tech §5): platform content gate. Set only via the moderation
+  -- path; client input can never write it. 'review' suspends new admissions;
+  -- 'blocked' ends the Live (fail closed).
+  content_status text not null default 'ok'
+    constraint live_sessions_content_status_check check (content_status in ('ok', 'review', 'blocked'))
 );
 
 -- Per-Place cap = 1 active session (policy §6)
@@ -109,7 +114,8 @@ create table if not exists public.live_audit (
   action text not null check (action in (
     'session_started', 'session_ended', 'report_submitted', 'moderation_warn',
     'moderation_end', 'moderation_suspend', 'eligibility_granted',
-    'eligibility_revoked', 'admission_denied', 'camera_check_passed', 'comment_removed'
+    'eligibility_revoked', 'admission_denied', 'camera_check_passed', 'comment_removed',
+    'moderation_flag_review', 'moderation_resolve_review', 'moderation_block_content'
   )),
   detail jsonb not null default '{}',
   created_at timestamptz not null default now()
@@ -212,6 +218,12 @@ begin
   select * into v_session from public.live_sessions where id = p_session_id;
   if not found or v_session.status <> 'live' then
     raise exception 'live_session_not_live' using errcode = 'P0001';
+  end if;
+
+  -- PO item 4: content gate — a session under moderation review or blocked
+  -- suspends ALL new participation (fail closed).
+  if v_session.content_status <> 'ok' then
+    raise exception 'live_content_blocked' using errcode = 'P0001';
   end if;
 
   if exists (
@@ -655,7 +667,7 @@ begin
     raise exception 'live_session_not_found';
   end if;
 
-  if p_action not in ('warn', 'end', 'suspend') then
+  if p_action not in ('warn', 'end', 'suspend', 'flag_review', 'resolve_review', 'block_content') then
     raise exception 'live_moderation_action_invalid' using errcode = 'P0001';
   end if;
 
@@ -670,6 +682,23 @@ begin
     update public.live_eligibility
     set active = false
     where producer_id = v_session.producer_id;
+  elsif p_action = 'flag_review' then
+    -- PO item 4: suspend new admissions while content is under review.
+    v_audit_action := 'moderation_flag_review';
+    update public.live_sessions
+    set content_status = 'review'
+    where id = p_session_id;
+  elsif p_action = 'resolve_review' then
+    v_audit_action := 'moderation_resolve_review';
+    update public.live_sessions
+    set content_status = 'ok'
+    where id = p_session_id;
+  elsif p_action = 'block_content' then
+    v_audit_action := 'moderation_block_content';
+    update public.live_sessions
+    set content_status = 'blocked'
+    where id = p_session_id;
+    perform public.end_live_session(p_session_id, 'moderation', p_note);
   end if;
 
   insert into public.live_audit (live_session_id, actor_id, action, detail)

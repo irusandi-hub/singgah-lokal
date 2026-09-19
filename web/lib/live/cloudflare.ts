@@ -143,6 +143,42 @@ export async function getLiveInputStatus(liveInputId: string): Promise<LiveInput
 }
 
 /**
+ * Re-reads the WHEP playback URL for an existing live input (issued per
+ * admitted viewer via the playback route, never persisted server-side).
+ * Returns null on any failure — callers fail closed.
+ */
+export async function getLiveInputPlaybackUrl(liveInputId: string): Promise<string | null> {
+  const config = getCloudflareStreamConfig();
+
+  if (!config) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `${STREAM_API_BASE}/accounts/${config.accountId}/stream/live_inputs/${liveInputId}`,
+      {
+        headers: { "Authorization": `Bearer ${config.apiToken}` },
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as CloudflareLiveInputResponse;
+    if (!payload.success || !payload.result) {
+      return null;
+    }
+
+    return payload.result.webRTCPlayback?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Re-reads the WHIP publish URL for an existing live input (issued per start,
  * never persisted server-side). Returns null on any failure.
  */
@@ -172,6 +208,55 @@ export async function getLiveInputPublishUrl(liveInputId: string): Promise<strin
     }
 
     return payload.result.webRTC?.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deletes a live input (cleanup / orphan handling, PO item 10). Best-effort:
+ * returns false on failure without throwing — session state in Supabase stays
+ * canonical regardless of provider cleanup outcome.
+ */
+export type LiveInputSummary = { uid: string; status: string | null };
+
+/**
+ * Lists live inputs marked with this app's metadata purpose (PO item 10
+ * orphan sweep). Returns null on failure — callers fail closed and treat
+ * null as "cannot sweep".
+ */
+export async function listAppLiveInputs(): Promise<LiveInputSummary[] | null> {
+  const config = getCloudflareStreamConfig();
+
+  if (!config) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `${STREAM_API_BASE}/accounts/${config.accountId}/stream/live_inputs?per_page=100`,
+      {
+        headers: { "Authorization": `Bearer ${config.apiToken}` },
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as {
+      success?: boolean;
+      result?: Array<{ uid?: string; status?: string | null; meta?: Record<string, string> | null }>;
+    };
+
+    if (!payload.success || !Array.isArray(payload.result)) {
+      return null;
+    }
+
+    return payload.result
+      .filter((input) => input.uid && input.meta?.purpose === "singgah-lokal-live")
+      .map((input) => ({ uid: input.uid as string, status: input.status ?? null }));
   } catch {
     return null;
   }
