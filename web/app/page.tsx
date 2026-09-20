@@ -293,6 +293,83 @@ export default function Home() {
           )}
         </section>
 
+        {/* Place results — same canonical visiblePlaces used by map and filters. */}
+        <section className="mt-6" aria-labelledby="place-results-heading">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">
+                Hasil
+              </p>
+              <h2 id="place-results-heading" className="mt-1 text-xl font-black">
+                {searchQuery.trim() ? `Hasil untuk “${searchQuery.trim()}”` : "Tempat di sekitar"}
+              </h2>
+            </div>
+            <span className="text-xs font-bold text-black/45">
+              {visiblePlaces.length} Place
+            </span>
+          </div>
+
+          {visiblePlaces.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {visiblePlaces.map((place) => {
+                const live = liveByPlaceId.get(place.id);
+                const distance =
+                  viewerPosition && place.latitude != null && place.longitude != null
+                    ? formatDistance(
+                        distanceMeters(viewerPosition, {
+                          lat: place.latitude,
+                          lng: place.longitude,
+                        }),
+                      )
+                    : null;
+
+                return (
+                  <Link
+                    key={place.id}
+                    href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
+                    className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#7b5b38]">
+                          {place.category}
+                        </p>
+                        <h3 className="mt-1 text-base font-black">{place.name}</h3>
+                      </div>
+                      {live && (
+                        <span className="shrink-0 rounded-full bg-[#b3261e] px-2 py-1 text-[9px] font-black uppercase tracking-wider text-white">
+                          LIVE
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="mt-2 text-xs text-black/55">
+                      {place.area} · {place.type === "production" ? "Produksi" : "Experience"}
+                    </p>
+
+                    <p className="mt-2 line-clamp-2 text-sm leading-5 text-black/65">
+                      {live?.processTitle ?? place.shortDescription}
+                    </p>
+
+                    {distance && (
+                      <p className="mt-3 text-[11px] font-bold text-[#7b5b38]">
+                        {distance}
+                      </p>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-black/10 bg-white p-6 text-center">
+              <p className="text-sm font-bold">Place tidak ditemukan</p>
+              <p className="mt-1 text-xs text-black/55">
+                Coba kata kunci atau radius yang berbeda.
+              </p>
+            </div>
+          )}
+        </section>
+
         {/* Intro */}
         <section className="px-1 pb-4 pt-8">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#7b5b38]">
