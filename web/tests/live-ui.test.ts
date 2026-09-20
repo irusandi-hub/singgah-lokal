@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
   DISTANCE_FILTERS,
   distanceMeters,
@@ -8,8 +9,26 @@ import {
   matchesDistance,
 } from "../lib/live/ui";
 
-test("Distance filter set matches the locked policy §9 values exactly", () => {
-  assert.deepEqual(DISTANCE_FILTERS, ["Di sekitar saya", "500 m", "1 km", "5 km", "10 km+"]);
+test("Home filter bar matches the locked PO set exactly: LIVE first, distance only", () => {
+  // Policy §12.5 #1 (PO 2026-09-20): LIVE | 500 m | 1 km | 5 km | 10 km+.
+  // No "Di sekitar saya" and no time filters in the distance set.
+  assert.deepEqual(DISTANCE_FILTERS, ["500 m", "1 km", "5 km", "10 km+"]);
+  // The removed filters must not be re-introduced silently.
+  const uiSource = readFileSync(new URL("../lib/live/ui.ts", import.meta.url), "utf8");
+  const homeSource = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(uiSource, /Di sekitar saya/);
+  assert.doesNotMatch(homeSource, /Di sekitar saya/);
+  // Time filters are removed from Home entirely (constant + quoted labels +
+  // activeFilter state + map chip). The "Live Sekarang" card badge is NOT a
+  // time filter and stays (policy §9 LIVE card).
+  assert.doesNotMatch(homeSource, /const filters = \[/);
+  assert.doesNotMatch(homeSource, /"SEKARANG"|"HARI INI"|"BESOK"|"PILIH WAKTU"/);
+  assert.doesNotMatch(homeSource, /activeFilter/);
+  // LIVE is the first/leftmost filter in the bar (rendered before distance).
+  assert.ok(
+    homeSource.indexOf("setLiveOnly") < homeSource.indexOf("DISTANCE_FILTERS.map"),
+    "LIVE filter must render before the distance filters",
+  );
 });
 
 test("Distance matching is bounded by the locked radii and fail-open for the widest filter", () => {
@@ -18,8 +37,6 @@ test("Distance matching is bounded by the locked radii and fail-open for the wid
   const mid = { lat: -6.92, lng: 107.6 }; // ~2.2 km
   const far = { lat: -6.99, lng: 107.6 }; // ~10 km
 
-  assert.equal(matchesDistance("Di sekitar saya", null, near), true);
-  assert.equal(matchesDistance("Di sekitar saya", viewer, near), true);
   assert.equal(matchesDistance("500 m", viewer, near), true);
   assert.equal(matchesDistance("500 m", viewer, mid), false);
   assert.equal(matchesDistance("1 km", viewer, near), true);

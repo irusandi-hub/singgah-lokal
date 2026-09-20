@@ -12,8 +12,6 @@ import {
   type LiveDiscoveryItem,
 } from "@/lib/live/ui";
 
-const filters = ["SEKARANG", "HARI INI", "BESOK", "PILIH WAKTU"];
-
 // Map positions are demo placeholders keyed by Place id (canonical geocoords
 // are pending per PO decision); LIVE pins use the same map so distances are
 // computed from canonical lat/lng only — never from these layout positions.
@@ -26,14 +24,16 @@ const mapPositionByPlaceId: Record<string, string> = {
 type DiscoveryPlace = Place & { position: string };
 
 export default function Home() {
-  const [activeFilter, setActiveFilter] = useState("SEKARANG");
-  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("Di sekitar saya");
+  // Locked Home filter bar (PO decision 2026-09-20, Policy §12.5 #1):
+  // LIVE first/leftmost, then distance radii only. LIVE is a process/status
+  // filter (Places with a live session), not a time or category filter.
+  // Default = the unbounded filter so nothing is hidden on first load.
+  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("10 km+");
   const [liveOnly, setLiveOnly] = useState(false);
   const [places, setPlaces] = useState<DiscoveryPlace[]>([]);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
   // Viewer position (card distance only — PO item 7: distance "bila
-  // tersedia"). Geolocation is optional and silently absent when denied;
-  // the "Di sekitar saya" filter stays inert per Policy §12.3 #2.
+  // tersedia"). Geolocation is optional and silently absent when denied.
   const [viewerPosition, setViewerPosition] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
@@ -87,9 +87,9 @@ export default function Home() {
   const visiblePlaces = useMemo(() => {
     if (liveOnly) return places.filter((place) => liveByPlaceId.has(place.id));
     // Radii filters use canonical lat/lng (PO item 6). With no coordinates the
-    // Place stays visible only for the two unbounded filters (Policy §12.3 #2:
-    // "Di sekitar saya" stays inert; bounded radii never hide by assumption).
-    if (distanceFilter === "Di sekitar saya" || distanceFilter === "10 km+") return places;
+    // Place stays visible only for the unbounded filter (bounded radii never
+    // hide by assumption).
+    if (distanceFilter === "10 km+") return places;
     return places.filter((place) => place.latitude !== null && place.longitude !== null);
   }, [places, distanceFilter, liveOnly, liveByPlaceId]);
 
@@ -130,25 +130,21 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Time filters (existing, preserved) */}
-        <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
-          {filters.map((filter) => (
-            <button
-              key={filter}
-              onClick={() => setActiveFilter(filter)}
-              className={`whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-bold transition ${
-                activeFilter === filter
-                  ? "bg-[#20231f] text-white"
-                  : "border border-black/10 bg-white text-black/65"
-              }`}
-            >
-              {filter}
-            </button>
-          ))}
-        </div>
-
-        {/* Distance filters (locked set, policy §9) + LIVE filter */}
+        {/* Home filter bar — locked set (PO 2026-09-20, Policy §12.5 #1):
+            LIVE first/leftmost (process/status filter), then distance only. */}
         <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+          <button
+            onClick={() => setLiveOnly((value) => !value)}
+            aria-pressed={liveOnly}
+            className={`mr-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-black tracking-wide transition ${
+              liveOnly
+                ? "bg-[#b3261e] text-white"
+                : "border border-[#b3261e]/40 bg-white text-[#b3261e]"
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-[#b3261e]"}`} />
+            LIVE
+          </button>
           {DISTANCE_FILTERS.map((filter) => (
             <button
               key={filter}
@@ -162,18 +158,6 @@ export default function Home() {
               {filter}
             </button>
           ))}
-          <button
-            onClick={() => setLiveOnly((value) => !value)}
-            aria-pressed={liveOnly}
-            className={`ml-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-black tracking-wide transition ${
-              liveOnly
-                ? "bg-[#b3261e] text-white"
-                : "border border-[#b3261e]/40 bg-white text-[#b3261e]"
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-[#b3261e]"}`} />
-            LIVE
-          </button>
         </div>
 
         {/* LIVE SEKARANG cards */}
@@ -229,7 +213,8 @@ export default function Home() {
           </div>
 
           <div className="absolute left-5 top-5 z-10 rounded-full bg-white/90 px-4 py-2 text-xs font-bold shadow-sm">
-            {liveOnly ? `LIVE • ${activeFilter}` : activeFilter} • {distanceFilter}
+            {liveOnly ? "LIVE • " : ""}
+            {distanceFilter}
           </div>
 
           {/* LIVE markers — the pin occupies the SAME map position as its

@@ -116,9 +116,9 @@ Capacity checks are enforced server-side and fail closed at the limits above.
 The UI requirements below are locked as product intent for the Live feature. They are **not** an implementation authorization.
 
 - **Map remains primary.** Live must not displace Map-based Discovery.
-- **Preserve existing search and time filters.**
-- **Distance filter** values (exact set): `Di sekitar saya` / `500 m` / `1 km` / `5 km` / `10 km+`.
-- **Add a LIVE filter** and **LIVE map markers**.
+- **Preserve existing search.** *(Amended §12.5 #1, 2026-09-20: time filters are removed from the Home bar; see §12.5.)*
+- **Distance filter** values (exact set): `Di sekitar saya` / `500 m` / `1 km` / `5 km` / `10 km+`. *(Amended §12.5 #1, 2026-09-20: `Di sekitar saya` is removed from the Home bar.)*
+- **Add a LIVE filter** and **LIVE map markers**. *(Amended §12.5 #1, 2026-09-20: the LIVE filter is first/leftmost in the Home bar and is a process/status filter, not a time filter.)*
 - **LIVE card** shows: `LIVE SEKARANG` + Process + distance + Place open status.
 - **Place page** shows: Live status + current Process + `Lihat Live Sekarang` (when a Live is active).
 - **Preserve the Place flow**: Place → Dari Sini → Experience → SINGGAH → Visit Intent. Live navigation is added **only where compatible** with this flow and never reorders it.
@@ -218,3 +218,11 @@ Locked by explicit product-owner decision; implementation must follow these exac
 | # | Decision | Rule |
 | --- | --- | --- |
 | 1 | Ingest protocol | **WebRTC/WHIP** replaces RTMPS/SRT for browser Producer ingest. Cloudflare Stream remains the provider (§12.1 item 1 stands). Playback follows provider support for WHIP inputs: **WHEP** (HLS/DASH is not provider-supported for WHIP-published inputs — provider limitation, not a policy choice). Recording OFF (§7), credentials server-side (§8), Supabase canonical Live state (§8), Realtime status/presence/comments only (§8) — all unchanged. | RESOLVED — product owner |
+
+### 12.5 Home filter bar decision (2026-09-20)
+
+Locked by explicit product-owner decision; implementation must follow these exactly.
+
+| # | Decision | Rule |
+| --- | --- | --- |
+| 1 | Home filter bar | The Home discovery filter bar is exactly: **`LIVE` | `500 m` | `1 km` | `5 km` | `10 km+`**. **All time filters (`SEKARANG`, `HARI INI`, `BESOK`, `PILIH WAKTU`) are removed.** `Di sekitar saya` is removed from the bar (supersedes the inert-presence rule in §12.3 #2 — it is no longer rendered at all). **LIVE is the first/leftmost filter** and is a **process/status filter** (Places with an active Live session), not a time or category filter. Distance filters keep their locked radii (haversine, canonical coordinates). Search, Place, map-first discovery, and downstream flows are unchanged. | RESOLVED — product owner |

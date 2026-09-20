@@ -263,10 +263,10 @@ Policy §3: exactly 1 fixed/static camera; no handheld/vlog/panning/following/mu
 
 ## 9. Discovery / Place / Producer integration
 
-Policy §9 UI policy; **Map remains primary**; existing search/time filters preserved.
+Policy §9 UI policy; **Map remains primary**; search preserved. **Home filter bar amended by Policy §12.5 #1 (PO, 2026-09-20): the bar is exactly `LIVE` | `500 m` | `1 km` | `5 km` | `10 km+` — LIVE first/leftmost as a process/status filter; time filters and `Di sekitar saya` are removed from the Home bar.**
 
-- **Distance filter** (exact set, locked): `Di sekitar saya` / `500 m` / `1 km` / `5 km` / `10 km+` — TUNABLE radius conversion (haversine, server-or-client computed — **TUNABLE** where computed). **"Di sekitar saya" activation (PO, 2026-09-19, Policy §12.3 #2): deferred until valid Place coordinates exist; the filter stays present but inert/disabled meanwhile — no silent filtering or hiding behind unavailable geolocation.**
-- **LIVE filter + markers:** map markers for Places with `status='live'` sessions; the LIVE list is **derived data**, computed from Supabase live_sessions of published Places (canonical) — **never a cache/search index** (AGENTS).
+- **Distance filter** (locked set per Policy §12.5 #1, 2026-09-20): `500 m` / `1 km` / `5 km` / `10 km+` — TUNABLE radius conversion (haversine, server-or-client computed — **TUNABLE** where computed). **`Di sekitar saya` is removed from the Home bar (supersedes the deferred-activation rule of PO 2026-09-19, Policy §12.3 #2); bounded radii match only Places with canonical lat/lng, and the unbounded `10 km+` remains the default so nothing is hidden on first load.**
+- **LIVE filter + markers:** the LIVE filter is **first/leftmost** in the Home bar and filters **Places with `status='live'` sessions** (a process/status filter — not a time filter); map markers for Places with `status='live'` sessions; the LIVE list is **derived data**, computed from Supabase live_sessions of published Places (canonical) — **never a cache/search index** (AGENTS).
 - **LIVE card:** `LIVE SEKARANG` + Process (stage title) + distance + Place open status (from Place data). **Open-status source (PO, 2026-09-19, Policy §12.3 #1): reuse the existing Place schedule/status source; when missing/absent, show no open status — never an invented default.**
 - **Place page:** live status + current Process + `Lihat Live Sekarang` — reads canonical `live_sessions status='live'` for the Place.
 - **Place flow preserved:** Place → Dari Sini → Experience → SINGGAH → Visit Intent untouched; LIVE entry points are additive (map markers, Place page strip); Live navigation added **only where compatible**.
@@ -293,7 +293,7 @@ All tunables are **server-side configuration, not hardcoded policy values**; def
 | 720p/30fps | provider input config | provider + camera check |
 | Age-verification mechanism | none (**BLOCKED** → Phase 2.1) | assert_viewer_eligible |
 | Distance radius conversion | haversine | discovery layer (where computed: TUNABLE) |
-| "Di sekitar saya" activation | **deferred** (BLOCKED on real Place coordinates — PO 2026-09-19) | discovery layer |
+| Home filter bar | `LIVE` \| `500 m` \| `1 km` \| `5 km` \| `10 km+` (Policy §12.5 #1, 2026-09-20) | Home discovery bar |
 
 - **BLOCKED registry:** age-verification mechanism (**Phase 2.1** — until it exists, viewer access is DENY by design); Platform Admin/Moderator identity/tooling (moderation + eligibility grants + production grant path); rating subsystem for RATING auto-eval; provider-side recording-off verification + provider-side single-track rejection (needs credentials); scheduled Live; comment rate-limit mechanism choice.
 - **TUNABLE values registry (server config, not business rules):** comment length/rate, playback TTL, grace window, sweeper schedule, report note length, RATING threshold+count (once the rating subsystem exists).

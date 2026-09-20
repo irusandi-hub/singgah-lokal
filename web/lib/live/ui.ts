@@ -1,6 +1,13 @@
-export type DistanceFilter = "Di sekitar saya" | "500 m" | "1 km" | "5 km" | "10 km+";
+/**
+ * Home filter bar (locked, PO decision 2026-09-20, Policy §12.5 #1):
+ * LIVE first/leftmost, then distance radii only. LIVE is a process/status
+ * filter (Places with a live session), not a time or category filter.
+ * Time filters and the former geolocation-first filter are removed from
+ * the Home bar by explicit product decision.
+ */
+export type DistanceFilter = "500 m" | "1 km" | "5 km" | "10 km+";
 
-export const DISTANCE_FILTERS: DistanceFilter[] = ["Di sekitar saya", "500 m", "1 km", "5 km", "10 km+"];
+export const DISTANCE_FILTERS: DistanceFilter[] = ["500 m", "1 km", "5 km", "10 km+"];
 
 export const LIVE_FILTER_LABEL = "LIVE";
 
@@ -15,13 +22,13 @@ export type LiveDiscoveryItem = {
 };
 
 /**
- * Distance filter semantics (MASTER_LIVE_POLICY §9, MASTER_LIVE_TECH §9):
- * - "Di sekitar saya" requires a viewer position; with no position available
- *   it behaves like the widest filter (never hides results behind a permission).
- * - Radii are from the locked filter set; "10 km+" is unbounded.
+ * Distance filter semantics (MASTER_LIVE_POLICY §9 amended §12.5, MASTER_LIVE_TECH §9):
+ * - Bounded radii match Places whose canonical lat/lng is within the radius;
+ *   "10 km+" is unbounded.
+ * - A Place without canonical coordinates stays visible only under the
+ *   unbounded filter — bounded radii never hide results by assumption.
  */
 export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
-  "Di sekitar saya": null,
   "500 m": 500,
   "1 km": 1000,
   "5 km": 5000,
