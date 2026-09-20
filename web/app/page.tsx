@@ -21,6 +21,7 @@ export default function Home() {
   // Default = the unbounded filter so nothing is hidden on first load.
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("10 km+");
   const [liveOnly, setLiveOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [places, setPlaces] = useState<Place[]>([]);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
   // Viewer position (card distance only — PO item 7: distance "bila
@@ -73,7 +74,27 @@ export default function Home() {
     // Bounded radii match only on viewerPosition + canonical Place lat/lng
     // (PO item 6): without a real position or coordinates the Place stays
     // visible only under the unbounded filter — a position is never invented.
-    const distanceFiltered = places.filter((place) =>
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase("id-ID");
+
+    const searchFiltered = places.filter((place) => {
+      if (!normalizedQuery) return true;
+
+      const liveProcess = liveByPlaceId.get(place.id)?.processTitle ?? "";
+      const haystack = [
+        place.name,
+        place.shortDescription,
+        place.area,
+        place.category,
+        place.type,
+        liveProcess,
+      ]
+        .join(" ")
+        .toLocaleLowerCase("id-ID");
+
+      return haystack.includes(normalizedQuery);
+    });
+
+    const distanceFiltered = searchFiltered.filter((place) =>
       matchesDistance(
         distanceFilter,
         viewerPosition,
@@ -86,7 +107,7 @@ export default function Home() {
     // active session, further narrowed by the same distance gate above.
     if (liveOnly) return distanceFiltered.filter((place) => liveByPlaceId.has(place.id));
     return distanceFiltered;
-  }, [places, distanceFilter, liveOnly, liveByPlaceId, viewerPosition]);
+  }, [places, searchQuery, distanceFilter, liveOnly, liveByPlaceId, viewerPosition]);
 
   const liveCards = useMemo(
     () => liveItems.filter((item) => visiblePlaces.some((place) => place.id === item.placeId)),
@@ -130,6 +151,9 @@ export default function Home() {
             <input
               className="w-full bg-transparent text-sm outline-none placeholder:text-black/40"
               placeholder="Cari tempat, cerita, produksi..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              aria-label="Cari tempat, cerita, produksi"
             />
           </div>
         </div>
