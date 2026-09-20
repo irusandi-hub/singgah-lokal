@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import type { Place } from "@/lib/places";
 import {
   DISTANCE_FILTERS,
@@ -13,17 +14,6 @@ import {
   type LiveDiscoveryItem,
 } from "@/lib/live/ui";
 
-// Map positions are demo placeholders keyed by Place id (canonical geocoords
-// are pending per PO decision); LIVE pins use the same map so distances are
-// computed from canonical lat/lng only — never from these layout positions.
-const mapPositionByPlaceId: Record<string, string> = {
-  "kopi-dari-kebun": "left-[22%] top-[34%]",
-  "rumah-teh-lokal": "left-[62%] top-[27%]",
-  "dapur-rasa": "left-[48%] top-[57%]",
-};
-
-type DiscoveryPlace = Place & { position: string };
-
 export default function Home() {
   // Locked Home filter bar (PO decision 2026-09-20, Policy §12.5 #1):
   // LIVE first/leftmost, then distance radii only. LIVE is a process/status
@@ -31,7 +21,7 @@ export default function Home() {
   // Default = the unbounded filter so nothing is hidden on first load.
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("10 km+");
   const [liveOnly, setLiveOnly] = useState(false);
-  const [places, setPlaces] = useState<DiscoveryPlace[]>([]);
+  const [places, setPlaces] = useState<Place[]>([]);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
   // Viewer position (card distance only — PO item 7: distance "bila
   // tersedia"). Geolocation is optional and silently absent when denied.
@@ -40,14 +30,7 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/places")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Places could not be loaded"))))
-      .then((loadedPlaces: Place[]) =>
-        setPlaces(
-          loadedPlaces.map((place) => ({
-            ...place,
-            position: mapPositionByPlaceId[place.id] ?? "left-1/2 top-1/2",
-          })),
-        ),
-      )
+      .then((loadedPlaces: Place[]) => setPlaces(loadedPlaces))
       .catch(() => setPlaces([]));
   }, []);
 
@@ -108,6 +91,18 @@ export default function Home() {
   const liveCards = useMemo(
     () => liveItems.filter((item) => visiblePlaces.some((place) => place.id === item.placeId)),
     [liveItems, visiblePlaces],
+  );
+
+  // Map markers come ONLY from canonical Place coordinates — a Place
+  // without lat/lng is never invented onto the map (fail-closed).
+  const mapPlaces = useMemo<HomeMapPlace[]>(
+    () =>
+      visiblePlaces.flatMap((place) =>
+        place.latitude !== null && place.longitude !== null
+          ? [{ id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude }]
+          : [],
+      ),
+    [visiblePlaces],
   );
 
   return (
@@ -213,65 +208,26 @@ export default function Home() {
           </div>
         )}
 
-        {/* Map-first discovery */}
-        <section className="relative h-[58vh] min-h-[430px] overflow-hidden rounded-[28px] border border-black/10 bg-[#d9dfd2] shadow-sm">
-          {/* Map-like background */}
-          <div className="absolute inset-0 opacity-60">
-            <div className="absolute left-[12%] top-[-10%] h-[125%] w-8 rotate-[22deg] bg-white/70" />
-            <div className="absolute left-[42%] top-[-10%] h-[125%] w-5 rotate-[-35deg] bg-white/70" />
-            <div className="absolute left-[75%] top-[-10%] h-[125%] w-10 rotate-[48deg] bg-white/60" />
-            <div className="absolute left-[-10%] top-[35%] h-8 w-[120%] rotate-[8deg] bg-white/60" />
-            <div className="absolute left-[-10%] top-[72%] h-5 w-[120%] rotate-[-12deg] bg-white/60" />
-          </div>
+        {/* Map-first discovery — real interactive Leaflet map (OpenStreetMap).
+            isolate keeps Leaflet panes contained below the UI overlays. */}
+        <section className="relative isolate h-[58vh] min-h-[430px] overflow-hidden rounded-[28px] border border-black/10 bg-[#d9dfd2] shadow-sm">
+          <HomeMap places={mapPlaces} liveByPlaceId={liveByPlaceId} />
+
+          {/* Clear empty state when no visible Place carries canonical
+              coordinates — positions are never invented. */}
+          {mapPlaces.length === 0 && (
+            <div className="absolute inset-x-6 top-1/2 z-10 -translate-y-1/2 rounded-2xl bg-white/95 p-4 text-center shadow-md">
+              <p className="text-sm font-bold">Belum ada Place dengan koordinat di peta</p>
+              <p className="mt-1 text-xs text-black/55">
+                Peta hanya menampilkan Place dengan koordinat resmi. Place lain tetap ada di daftar.
+              </p>
+            </div>
+          )}
 
           <div className="absolute left-5 top-5 z-10 rounded-full bg-white/90 px-4 py-2 text-xs font-bold shadow-sm">
             {liveOnly ? "LIVE • " : ""}
             {distanceFilter}
           </div>
-
-          {/* LIVE markers — the pin occupies the SAME map position as its
-              Place pin (a live-state overlay on the Place, not a fabricated
-              coordinate). Markers follow the SAME active filters as the Place
-              list (visiblePlaces) — no live pin outside the current filter.
-              Places without a demo map position get no pin; nothing invented. */}
-          {liveItems.flatMap((item) => {
-            const place = visiblePlaces.find((candidate) => candidate.id === item.placeId);
-            if (!place) return [];
-            const position = mapPositionByPlaceId[place.id];
-            if (!position) return [];
-            return (
-              <Link
-                key={`live-${item.sessionId}`}
-                href={`/live/${item.sessionId}`}
-                aria-label={`Lihat Live di ${place.name}`}
-                className={`absolute ${position} z-20 -translate-x-1/2 -translate-y-1/2`}
-              >
-                <div className="flex h-12 w-12 animate-pulse items-center justify-center rounded-full border-4 border-white bg-[#b3261e] text-[10px] font-black text-white shadow-lg">
-                  LIVE
-                </div>
-                <div className="mt-1 whitespace-nowrap rounded-full bg-[#b3261e] px-3 py-1.5 text-[11px] font-bold text-white shadow-md">
-                  {item.processTitle ?? place.name}
-                </div>
-              </Link>
-            );
-          })}
-
-          {/* Place markers */}
-          {visiblePlaces.map((place) => (
-            <Link
-              key={place.id}
-              href={`/places/${place.id}`}
-              aria-label={`Lihat ${place.name}`}
-              className={`absolute ${place.position} z-10 -translate-x-1/2 -translate-y-1/2`}
-            >
-              <div className="flex h-12 w-12 items-center justify-center rounded-full border-4 border-white bg-[#7b5b38] text-lg shadow-lg">
-                📍
-              </div>
-              <div className="mt-1 whitespace-nowrap rounded-full bg-white px-3 py-1.5 text-[11px] font-bold shadow-md">
-                {place.name}
-              </div>
-            </Link>
-          ))}
 
           {/* Location button */}
           <button className="absolute bottom-[190px] right-5 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white text-lg shadow-lg">

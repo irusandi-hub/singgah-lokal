@@ -12,6 +12,7 @@ const sequenceSource = readFileSync(new URL("../lib/live/sequence.ts", import.me
 const realtimeSource = readFileSync(new URL("../lib/live/realtime.ts", import.meta.url), "utf8");
 const viewerSource = readFileSync(new URL("../app/live/[sessionId]/LiveViewerClient.tsx", import.meta.url), "utf8");
 const homeSource = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+const homeMapSource = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
 
 test("I1: producer start uses a fresh per-attempt idempotency key, never a constant", () => {
   assert.doesNotMatch(consoleSource, /const START_IDEMPOTENCY_KEY = "/);
@@ -48,10 +49,26 @@ test("E2E: bounded distance radii use matchesDistance and LIVE/markers follow th
   assert.match(homeSource, /matchesDistance\(\s*distanceFilter,\s*viewerPosition,/);
   // LIVE is a process/status filter applied on top of the same distance gate.
   assert.match(homeSource, /liveByPlaceId\.has\(place\.id\)/);
-  // Map LIVE markers derive from the filtered visiblePlaces, not raw liveItems.
-  assert.match(homeSource, /visiblePlaces\.find\(\(candidate\) => candidate\.id === item\.placeId\)/);
+  // Map markers derive from the filtered visiblePlaces (canonical coords
+  // only) through the real Leaflet map component — not raw liveItems, and
+  // the old demo layout positions are gone.
+  assert.match(homeSource, /visiblePlaces\.flatMap\(\(place\) =>/);
+  assert.match(homeSource, /<HomeMap places=\{mapPlaces\} liveByPlaceId=\{liveByPlaceId\} \/>/);
+  assert.doesNotMatch(homeSource, /mapPositionByPlaceId/);
   // LIVE cards also follow the filtered set.
   assert.match(homeSource, /visiblePlaces\.some\(\(place\) => place\.id === item\.placeId\)/);
+});
+
+test("E2E: Leaflet map renders only canonical Place coordinates and keeps the Place/Live links", () => {
+  // Real interactive map: OpenStreetMap tiles with required attribution.
+  assert.match(homeMapSource, /openstreetmap\.org/);
+  // Fail-closed markers: Places without finite canonical coordinates get no
+  // marker — no position is ever invented.
+  assert.match(homeMapSource, /Number\.isFinite\(place\.latitude\)/);
+  assert.match(homeMapSource, /Number\.isFinite\(place\.longitude\)/);
+  // Marker click keeps the /places/[id] flow; LIVE pins keep /live/[sessionId].
+  assert.match(homeMapSource, /router\.push\(`\/places\/\$\{place\.id\}`\)/);
+  assert.match(homeMapSource, /router\.push\(`\/live\/\$\{live\.sessionId\}`\)/);
 });
 
 test("I4: comment sequencing is server-issued, monotonic; Date.now() payload is gone", () => {
