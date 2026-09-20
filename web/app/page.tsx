@@ -119,9 +119,6 @@ export default function Home() {
             </div>
           </div>
 
-          <button className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold shadow-sm">
-            Jakarta
-          </button>
         </div>
       </header>
 
