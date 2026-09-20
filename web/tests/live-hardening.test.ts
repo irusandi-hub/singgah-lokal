@@ -40,6 +40,20 @@ test("E2E: LIVE cards compute distance only from real viewer position + canonica
   assert.match(homeSource, /\(\) => undefined,/);
 });
 
+test("E2E: bounded distance radii use matchesDistance and LIVE/markers follow the same filter", () => {
+  // Bounded radius filtering goes through the shared matchesDistance gate
+  // (haversine over viewerPosition + canonical Place lat/lng) — never a
+  // coordinate-presence-only check.
+  assert.match(homeSource, /matchesDistance\(/);
+  assert.match(homeSource, /matchesDistance\(\s*distanceFilter,\s*viewerPosition,/);
+  // LIVE is a process/status filter applied on top of the same distance gate.
+  assert.match(homeSource, /liveByPlaceId\.has\(place\.id\)/);
+  // Map LIVE markers derive from the filtered visiblePlaces, not raw liveItems.
+  assert.match(homeSource, /visiblePlaces\.find\(\(candidate\) => candidate\.id === item\.placeId\)/);
+  // LIVE cards also follow the filtered set.
+  assert.match(homeSource, /visiblePlaces\.some\(\(place\) => place\.id === item\.placeId\)/);
+});
+
 test("I4: comment sequencing is server-issued, monotonic; Date.now() payload is gone", () => {
   assert.doesNotMatch(commentsRouteSource, /sequence: Date\.now\(\)/);
   assert.match(commentsRouteSource, /nextLiveCommentSequence\(sessionId\)/);

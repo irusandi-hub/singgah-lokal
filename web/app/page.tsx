@@ -8,6 +8,7 @@ import {
   distanceMeters,
   formatDistance,
   liveDurationLabel,
+  matchesDistance,
   type DistanceFilter,
   type LiveDiscoveryItem,
 } from "@/lib/live/ui";
@@ -85,17 +86,28 @@ export default function Home() {
   }, [liveItems]);
 
   const visiblePlaces = useMemo(() => {
-    if (liveOnly) return places.filter((place) => liveByPlaceId.has(place.id));
-    // Radii filters use canonical lat/lng (PO item 6). With no coordinates the
-    // Place stays visible only for the unbounded filter (bounded radii never
-    // hide by assumption).
-    if (distanceFilter === "10 km+") return places;
-    return places.filter((place) => place.latitude !== null && place.longitude !== null);
-  }, [places, distanceFilter, liveOnly, liveByPlaceId]);
+    // Distance filter first (same gate for markers, Place list, and LIVE).
+    // Bounded radii match only on viewerPosition + canonical Place lat/lng
+    // (PO item 6): without a real position or coordinates the Place stays
+    // visible only under the unbounded filter — a position is never invented.
+    const distanceFiltered = places.filter((place) =>
+      matchesDistance(
+        distanceFilter,
+        viewerPosition,
+        place.latitude !== null && place.longitude !== null
+          ? { lat: place.latitude, lng: place.longitude }
+          : null,
+      ),
+    );
+    // LIVE filter second: a process/status filter — only Places with an
+    // active session, further narrowed by the same distance gate above.
+    if (liveOnly) return distanceFiltered.filter((place) => liveByPlaceId.has(place.id));
+    return distanceFiltered;
+  }, [places, distanceFilter, liveOnly, liveByPlaceId, viewerPosition]);
 
   const liveCards = useMemo(
-    () => liveItems.filter((item) => places.some((place) => place.id === item.placeId)),
-    [liveItems, places],
+    () => liveItems.filter((item) => visiblePlaces.some((place) => place.id === item.placeId)),
+    [liveItems, visiblePlaces],
   );
 
   return (
@@ -219,13 +231,14 @@ export default function Home() {
 
           {/* LIVE markers — the pin occupies the SAME map position as its
               Place pin (a live-state overlay on the Place, not a fabricated
-              coordinate). Until canonical lat/lng exist (PO item 6), Places
-              without a demo map position get no pin; nothing is invented. */}
-          {liveItems.map((item) => {
-            const place = places.find((candidate) => candidate.id === item.placeId);
-            if (!place) return null;
+              coordinate). Markers follow the SAME active filters as the Place
+              list (visiblePlaces) — no live pin outside the current filter.
+              Places without a demo map position get no pin; nothing invented. */}
+          {liveItems.flatMap((item) => {
+            const place = visiblePlaces.find((candidate) => candidate.id === item.placeId);
+            if (!place) return [];
             const position = mapPositionByPlaceId[place.id];
-            if (!position) return null;
+            if (!position) return [];
             return (
               <Link
                 key={`live-${item.sessionId}`}
