@@ -71,6 +71,15 @@ test("E2E: Leaflet map renders only canonical Place coordinates and keeps the Pl
   assert.match(homeMapSource, /router\.push\(`\/live\/\$\{live\.sessionId\}`\)/);
 });
 
+test("E2E: Home Leaflet marker content is HTML-escaped", () => {
+  // Leaflet marker HTML is assembled manually, so canonical Place/process
+  // text must be escaped before interpolation.
+  assert.match(homeMapSource, /function escapeHtml\(value: string\)/);
+  assert.match(homeMapSource, /escapeHtml\(live\.processTitle \?\? place\.name\)/);
+  assert.match(homeMapSource, /escapeHtml\(place\.name\)/);
+  assert.equal(homeMapSource.includes("${place.name}"), false);
+});
+
 test("I4: comment sequencing is server-issued, monotonic; Date.now() payload is gone", () => {
   assert.doesNotMatch(commentsRouteSource, /sequence: Date\.now\(\)/);
   assert.match(commentsRouteSource, /nextLiveCommentSequence\(sessionId\)/);
