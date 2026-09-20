@@ -14,6 +14,7 @@ using (
     where v.live_session_id = substring(realtime.topic() from 14)
       and v.user_id = auth.uid()
       and v.admitted_at > now() - interval '5 minutes'
+      and realtime.messages.extension = 'broadcast'
   )
 );
 
@@ -23,6 +24,7 @@ for insert
 to authenticated
 with check (
   realtime.topic() like 'live_session:%'
+  and realtime.messages.extension = 'broadcast'
   and (
     exists (
       select 1
