@@ -37,6 +37,15 @@ const OSM_ATTRIBUTION =
 const BRAND_BROWN = "#7b5b38";
 const BRAND_LIVE = "#b3261e";
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 export default function HomeMap({ places, liveByPlaceId }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -117,12 +126,12 @@ export default function HomeMap({ places, liveByPlaceId }: HomeMapProps) {
         // LIVE overlay pin — a live-state badge on the same canonical
         // Place coordinate, never a fabricated position.
         if (live) {
-          const liveTitle = live.processTitle ?? place.name;
+          const liveTitle = escapeHtml(live.processTitle ?? place.name);
           L.marker(position, {
             icon: L.divIcon({
               className: "singgah-map-marker",
               iconSize: [0, 0],
-              html: `<div role="img" aria-label="Lihat Live di ${place.name}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
+              html: `<div role="img" aria-label="Lihat Live di ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
                 <div style="display:flex;height:48px;width:48px;align-items:center;justify-content:center;border-radius:9999px;border:4px solid #fff;background:${BRAND_LIVE};color:#fff;font-size:10px;font-weight:900;letter-spacing:0.05em;box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);">LIVE</div>
                 <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:${BRAND_LIVE};padding:4px 10px;color:#fff;font-size:11px;font-weight:700;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${liveTitle}</div>
               </div>`,
@@ -139,7 +148,7 @@ export default function HomeMap({ places, liveByPlaceId }: HomeMapProps) {
           icon: L.divIcon({
             className: "singgah-map-marker",
             iconSize: [0, 0],
-            html: `<div role="img" aria-label="Lihat ${place.name}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
+            html: `<div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
               <div style="display:flex;height:48px;width:48px;align-items:center;justify-content:center;border-radius:9999px;border:4px solid #fff;background:${BRAND_BROWN};font-size:18px;box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);">📍</div>
               <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:#fff;padding:4px 10px;font-size:11px;font-weight:700;color:#20231f;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${place.name}</div>
             </div>`,
