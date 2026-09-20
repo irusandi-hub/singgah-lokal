@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Place } from "@/lib/places";
+import PlaceLocationPicker from "@/components/place-location-picker";
 
 type Props = { place?: Place; onSaved?: (place: Place) => void };
 
@@ -32,9 +33,23 @@ export default function PlaceForm({ place, onSaved }: Props) {
   return (
     <form className="grid gap-4" onSubmit={submit}>
       {!place && <label className="grid gap-1 text-sm font-semibold">ID Place<input required value={form.id} onChange={(event) => update("id", event.target.value)} placeholder="nama-place" /></label>}
-      {[["name", "Nama Place"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"], ["latitude", "Latitude"], ["longitude", "Longitude"]].map(([key, label]) => (
-        <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={!['contactInformation', 'latitude', 'longitude'].includes(key)} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
+      {[["name", "Nama Place"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"]].map(([key, label]) => (
+        <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
+      <div className="grid gap-2">
+        <span className="text-sm font-semibold">Lokasi Place</span>
+        <PlaceLocationPicker
+          latitude={form.latitude}
+          longitude={form.longitude}
+          onChange={(latitude, longitude) =>
+            setForm((current) => ({ ...current, latitude, longitude }))
+          }
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <label className="grid gap-1 text-xs font-semibold">Latitude<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} /></label>
+          <label className="grid gap-1 text-xs font-semibold">Longitude<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
+        </div>
+      </div>
       <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
       <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Experience</option></select></label>
       <button className="rounded-lg bg-[#20231f] px-4 py-3 text-sm font-bold text-white" type="submit">Simpan Place</button>
