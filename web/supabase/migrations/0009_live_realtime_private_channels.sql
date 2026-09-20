@@ -11,10 +11,9 @@ using (
     select 1
     from public.live_viewers v
     join public.live_sessions s on s.id = v.live_session_id
-    where v.live_session_id = substring(realtime.topic() from 13)
+    where v.live_session_id = substring(realtime.topic() from 14)
       and v.user_id = auth.uid()
       and v.admitted_at > now() - interval '5 minutes'
-      and s.status = 'live'
   )
 );
 
@@ -29,7 +28,7 @@ with check (
       select 1
       from public.live_viewers v
       join public.live_sessions s on s.id = v.live_session_id
-      where v.live_session_id = substring(realtime.topic() from 13)
+      where v.live_session_id = substring(realtime.topic() from 14)
         and v.user_id = auth.uid()
         and v.admitted_at > now() - interval '5 minutes'
         and s.status = 'live'
@@ -38,8 +37,7 @@ with check (
       select 1
       from public.live_sessions s
       join public.producer_memberships m on m.place_id = s.place_id
-      where s.id = substring(realtime.topic() from 13)
-        and s.status = 'live'
+      where s.id = substring(realtime.topic() from 14)
         and m.user_id = auth.uid()
         and m.role in ('owner', 'manager')
     )
