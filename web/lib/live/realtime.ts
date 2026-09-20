@@ -16,7 +16,7 @@ export async function broadcastLiveStatus(params: {
 }): Promise<void> {
   try {
     const supabase = await createSupabaseServerClient();
-    const channel = supabase.channel(`live_session:${params.sessionId}`);
+    const channel = supabase.channel(`live_session:${params.sessionId}`, { config: { private: true } });
     await channel.send({
       type: "broadcast",
       event: "status",

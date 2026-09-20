@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     // Ephemeral comment delivery: Realtime broadcast only, nothing persisted
     // (policy §12.1 item 6; tech §6). Channel: live_session:{id}. Sequence is
     // server-issued and monotonic per session (tech §6).
-    const channel = supabase.channel(`live_session:${sessionId}`);
+    const channel = supabase.channel(`live_session:${sessionId}`, { config: { private: true } });
     await channel.send({
       type: "broadcast",
       event: "comment",

@@ -77,7 +77,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
         void client.removeAllChannels();
         return;
       }
-      channel = client.channel(`live_session:${sessionId}`, { config: { broadcast: { self: false } } });
+      channel = client.channel(`live_session:${sessionId}`, { config: { private: true, broadcast: { self: false } } });
       channel.on("broadcast", { event: "comment" }, (message: { payload?: { body?: unknown; sequence?: unknown } }) => {
         const body = typeof message?.payload?.body === "string" ? message.payload.body : "";
         if (!body) return;
