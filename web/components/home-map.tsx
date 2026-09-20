@@ -150,7 +150,7 @@ export default function HomeMap({ places, liveByPlaceId }: HomeMapProps) {
             iconSize: [0, 0],
             html: `<div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
               <div style="display:flex;height:48px;width:48px;align-items:center;justify-content:center;border-radius:9999px;border:4px solid #fff;background:${BRAND_BROWN};font-size:18px;box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);">📍</div>
-              <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:#fff;padding:4px 10px;font-size:11px;font-weight:700;color:#20231f;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${place.name}</div>
+              <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:#fff;padding:4px 10px;font-size:11px;font-weight:700;color:#20231f;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${escapeHtml(place.name)}</div>
             </div>`,
           }),
           zIndexOffset: live ? 0 : 500,
