@@ -53,6 +53,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
   const [reportCategory, setReportCategory] = useState("other");
   const [reportNote, setReportNote] = useState("");
   const [reportDone, setReportDone] = useState(false);
+  const [admitted, setAdmitted] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -61,6 +62,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
   // channel only, never persisted (policy §12.1 item 6; tech §6). B1 keeps
   // the server admission gate closed, so this feed stays empty until Phase 2.1.
   useEffect(() => {
+    if (!admitted) return;
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key) return;
@@ -96,7 +98,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
       cancelled = true;
       channel?.unsubscribe();
     };
-  }, [sessionId]);
+  }, [admitted, sessionId]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -133,6 +135,8 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
         return;
       }
       if (cancelled) return;
+
+      setAdmitted(true);
 
       try {
         // Signed playback (tech §5, Phase 5): the short-lived RS256 token
