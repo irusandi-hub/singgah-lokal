@@ -250,11 +250,6 @@ export default function Home() {
             {distanceFilter}
           </div>
 
-          {/* Location button */}
-          <button className="absolute bottom-[190px] right-5 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white text-lg shadow-lg">
-            ◎
-          </button>
-
           {/* Bottom sheet */}
           {visiblePlaces[0] && (
             <div className="absolute bottom-0 left-0 right-0 z-20 rounded-t-[28px] bg-white p-5 shadow-[0_-10px_30px_rgba(0,0,0,0.12)]">
