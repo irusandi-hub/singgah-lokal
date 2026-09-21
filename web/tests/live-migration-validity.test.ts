@@ -26,10 +26,17 @@ const MIGRATIONS = [
   "0006_production_story.sql",
   "0007_production_story_atomic_persistence.sql",
   "0008_live_sessions.sql",
+  "0013_live_rpc_privilege_lockdown.sql",
 ];
 
 const readMigration = (name: string) =>
   readFileSync(new URL(MIGRATION_DIR + name, import.meta.url), "utf8");
+
+// PGlite does not bundle the pgcrypto extension (on Supabase, 0001 creates it);
+// the only symbol the migrations take from pgcrypto is gen_random_uuid(),
+// which is core PostgreSQL since 13.
+const stripPgcrypto = (s: string) =>
+  s.replace(/create extension if not exists pgcrypto;?/gim, "");
 
 // ---------------------------------------------------------------------------
 // Dollar-quote-aware lexical scan (no engine needed).
@@ -334,8 +341,6 @@ test("All migrations apply in order on real Postgres, 0008 as a single paste", a
     create role authenticator;
   `);
   await db.exec("create publication supabase_realtime;");
-  const stripPgcrypto = (s: string) =>
-    s.replace(/create extension if not exists pgcrypto;?/gim, "");
 
   for (const name of MIGRATIONS) {
     const sql = stripPgcrypto(readMigration(name));
@@ -395,6 +400,73 @@ test("All migrations apply in order on real Postgres, 0008 as a single paste", a
     )
   )[0].c ?? 0;
   assert.equal(pubCount, 2, "live_sessions and live_reports must be in the realtime publication");
+
+  await db.close();
+});
+
+test("0013 lockdown applies cleanly and locks EXECUTE on internal Live helpers", async () => {
+  const db = new PGlite();
+  await db.exec(`
+    create schema if not exists auth;
+    create table auth.users (id uuid primary key, email_confirmed_at timestamptz);
+    create function auth.uid() returns uuid language sql stable as 'select null::uuid';
+    create role anon;
+    create role authenticated;
+    create role service_role;
+    create role supabase_admin;
+    create role authenticator;
+  `);
+  await db.exec("create publication supabase_realtime;");
+  // Full migration chain (0008 depends on 0001–0007 schema; 0009–0012 need
+  // the Supabase realtime schema, which is out of this harness's scope).
+  for (const name of ["0001_visit_intent_foundation.sql", "0002_harden_visit_intent_rls.sql", "0003_persistence_integrity.sql", "0004_place_management.sql", "0005_experience_management.sql", "0006_production_story.sql", "0007_production_story_atomic_persistence.sql", "0008_live_sessions.sql"]) {
+    await db.exec(stripPgcrypto(readMigration(name)));
+  }
+  await db.exec(stripPgcrypto(readMigration("0013_live_rpc_privilege_lockdown.sql")));
+
+  const rows = async (query: string) =>
+    ((await db.query(query)).rows ?? []) as { rolname?: string; c?: number }[];
+
+  const execGrants = async (fn: string) =>
+    (
+      await rows(
+        `select r.rolname from pg_proc p join pg_namespace n on n.oid=p.pronamespace,
+         aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a join pg_roles r on r.oid=a.grantee
+         where n.nspname='public' and p.proname='${fn}' and a.privilege_type='EXECUTE' order by 1`,
+      )
+    ).map((r) => r.rolname ?? "");
+
+  // The object owner (the role that ran the migrations — postgres/supabase_admin)
+  // always retains its implicit full privileges, so the security contract is:
+  // PUBLIC/anon must hold NO EXECUTE, and authenticated must hold it.
+  const assertLockedFromPublicAnon = async (fn: string) => {
+    const grantees = await execGrants(fn);
+    assert.ok(
+      !grantees.includes("public") && !grantees.includes("anon"),
+      `${fn}: public/anon must not hold EXECUTE (got ${grantees.join(", ")})`,
+    );
+  };
+
+  // Internal helpers: PUBLIC/anon EXECUTE revoked, authenticated kept.
+  for (const fn of ["assert_viewer_eligible", "heal_live_duration_caps", "release_live_input", "list_ended_live_inputs"]) {
+    await assertLockedFromPublicAnon(fn);
+    assert.ok((await execGrants(fn)).includes("authenticated"), `${fn}: authenticated must hold EXECUTE`);
+  }
+
+  // Trigger functions: no EXECUTE for any login-capable role (trigger-called only).
+  for (const fn of ["block_live_audit_mutation", "live_stage_guard"]) {
+    const grantees = await execGrants(fn);
+    assert.ok(
+      !grantees.some((r) => ["public", "anon", "authenticated"].includes(r)),
+      `${fn}: no direct EXECUTE expected (got ${grantees.join(", ")})`,
+    );
+  }
+
+  // Client-facing cleanup RPCs keep their authenticated grant (0008/0012).
+  for (const fn of ["start_live_session", "end_live_session"]) {
+    await assertLockedFromPublicAnon(fn);
+    assert.ok((await execGrants(fn)).includes("authenticated"), `${fn}: authenticated must hold EXECUTE`);
+  }
 
   await db.close();
 });

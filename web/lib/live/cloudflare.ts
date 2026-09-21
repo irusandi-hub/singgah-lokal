@@ -263,15 +263,31 @@ export async function listAppLiveInputs(): Promise<LiveInputSummary[] | null> {
 }
 
 /**
- * Deletes a live input (cleanup / orphan handling, PO item 10). Best-effort:
- * returns false on failure without throwing — session state in Supabase stays
- * canonical regardless of provider cleanup outcome.
+ * Outcome of a provider delete attempt (cleanup ordering contract).
+ * "deleted" — provider confirmed the input is gone.
+ * "not_found" — provider reports no such input: HTTP 404 / error 404. Treated
+ *   as already-cleaned (idempotent success for cleanup purposes).
+ * "failed" — any other failure (network, auth, 5xx). The caller MUST keep the
+ *   live_input_id pointer so the next sweep can retry.
  */
-export async function deleteLiveInput(liveInputId: string): Promise<boolean> {
+export type LiveInputDeleteOutcome = "deleted" | "not_found" | "failed";
+
+export function isLiveInputDeleteNotFound(outcome: LiveInputDeleteOutcome): boolean {
+  return outcome === "not_found";
+}
+
+/**
+ * Deletes a live input (cleanup / orphan handling, PO item 10). Never throws —
+ * returns "failed" on error without exposing keys. Session state in Supabase
+ * stays canonical regardless of provider cleanup outcome.
+ */
+export async function deleteLiveInput(liveInputId: string): Promise<LiveInputDeleteOutcome> {
   const config = getCloudflareStreamConfig();
 
   if (!config) {
-    return false;
+    // Boundary unavailable (incl. B4): the provider state is unknown, so the
+    // pointer must be retained for retry once credentials exist.
+    return "failed";
   }
 
   try {
@@ -284,8 +300,13 @@ export async function deleteLiveInput(liveInputId: string): Promise<boolean> {
       },
     );
 
-    return response.ok;
+    // HTTP 404: the input is already gone — already-cleaned, idempotent success.
+    if (response.status === 404) {
+      return "not_found";
+    }
+
+    return response.ok ? "deleted" : "failed";
   } catch {
-    return false;
+    return "failed";
   }
 }

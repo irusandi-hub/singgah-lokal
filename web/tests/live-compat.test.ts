@@ -35,10 +35,11 @@ test("Gap 2: replayed starts delete the freshly minted input; never overwrite th
 });
 
 test("Gap 3: provider cleanup covers producer end, duration cap, stage-unpublished, and moderation", () => {
-  // Service wrapper: end releases the input after the end commit; the release
-  // RPC is fail-closed (verifies ended state server-side).
+  // Service wrapper: end cleans the provider input BEFORE releasing the
+  // pointer (hardening order 2026-09-21); the release RPC is fail-closed
+  // (verifies ended state server-side).
   assert.match(serviceSource, /release_live_input/);
-  assert.match(serviceSource, /verifies the session is ended \(fail closed\)/);
+  assert.match(serviceSource, /happen BEFORE release_live_input/);
   // Migration: release RPC only serves ended sessions (fail-closed) and the
   // backlog lister exists for ends outside the wrapper.
   assert.match(migrationSource, /function public\.release_live_input\(p_session_id text\)/);

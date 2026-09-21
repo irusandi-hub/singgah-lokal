@@ -111,6 +111,64 @@ test("I5: every DB end path emits the private Realtime status signal", () => {
   assert.match(viewerSource, /event: "status"/);
 });
 
+/**
+ * Cleanup order contract (hardening 2026-09-21):
+ *
+ *   1. Provider delete happens BEFORE release_live_input — the pointer is the
+ *      only retry handle for a failed delete, so it must stay set until the
+ *      provider confirms the input is gone.
+ *   2. HTTP 404 from the provider = already-cleaned: the pointer is released.
+ *   3. Any other provider failure keeps the pointer for the sweep to retry.
+ */
+test("Cleanup order: provider delete strictly precedes release_live_input on the end path", () => {
+  // Scope to endLiveSession: startLiveSession's orphan handling also deletes
+  // inputs (with its own, already-tested contract).
+  const endSource = sessionServiceSource.slice(
+    sessionServiceSource.indexOf("export async function endLiveSession"),
+  );
+  // Compare actual call sites — the prose comment also names release_live_input.
+  const releaseCall = endSource.indexOf('rpc("release_live_input"');
+  const deleteCall = endSource.indexOf("await deleteLiveInput(");
+
+  assert.ok(releaseCall > -1, "endLiveSession must call release_live_input");
+  assert.ok(deleteCall > -1, "endLiveSession must call deleteLiveInput");
+  assert.ok(
+    deleteCall < releaseCall,
+    `provider delete (offset ${deleteCall}) must come before release_live_input (offset ${releaseCall})`,
+  );
+  // 404 = already-cleaned releases the pointer; the pointer is released via
+  // the fail-closed RPC exactly once (only on confirmed cleanup).
+  assert.match(endSource, /isLiveInputDeleteNotFound\(outcome\)/);
+  assert.equal(
+    [...endSource.matchAll(/rpc\("release_live_input"/g)].length,
+    1,
+    "endLiveSession must contain exactly one release_live_input call",
+  );
+  // A failed delete keeps the pointer for the sweep to retry.
+  assert.match(endSource, /pointer stays; the ended-input sweep retries later/);
+});
+
+test("Cleanup order: ended-input sweep deletes first and releases only on confirmed cleanup", () => {
+  // Scope to sweepEndedLiveInputs: the orphan sweep also deletes inputs.
+  const sweepSource = capSource.slice(
+    capSource.indexOf("export async function sweepEndedLiveInputs"),
+  );
+  const releaseCall = sweepSource.indexOf('rpc("release_live_input"');
+  const deleteCall = sweepSource.indexOf("await deleteLiveInput(");
+
+  assert.ok(releaseCall > -1, "sweepEndedLiveInputs must call release_live_input");
+  assert.ok(deleteCall > -1, "sweepEndedLiveInputs must call deleteLiveInput");
+  assert.ok(
+    deleteCall < releaseCall,
+    `sweep delete (offset ${deleteCall}) must come before release_live_input (offset ${releaseCall})`,
+  );
+  // Failed deletes keep the pointer in the backlog (retryable).
+  assert.match(sweepSource, /outcome !== "deleted" && !isLiveInputDeleteNotFound\(outcome\)/);
+  assert.match(sweepSource, /keep the pointer for retry on the next sweep/);
+  // 404 = already-cleaned releases the pointer.
+  assert.match(sweepSource, /isLiveInputDeleteNotFound\(outcome\)/);
+});
+
 test("I6: discovery route and Place strip self-heal the 60-minute cap", () => {
   assert.match(discoverySource, /applyLiveDurationCap/);
   assert.match(placeStripSource, /applyLiveDurationCap/);

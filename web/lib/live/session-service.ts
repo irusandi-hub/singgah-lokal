@@ -1,7 +1,12 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createLiveInput, deleteLiveInput } from "@/lib/live/cloudflare";
+import {
+  createLiveInput,
+  deleteLiveInput,
+  isLiveInputDeleteNotFound,
+  type LiveInputDeleteOutcome,
+} from "@/lib/live/cloudflare";
 import {
   LIVE_COMMENT_MAX_LENGTH,
   LIVE_COMMENT_MIN_INTERVAL_MS,
@@ -148,19 +153,46 @@ export async function endLiveSession(params: {
     throw new LiveValidationError("live_end_failed");
   }
 
-  // Provider cleanup (gap fix 3): delete the live input after the end commit.
-  // release_live_input verifies the session is ended (fail closed), nulls the
-  // pointer, and hands back the input id — Supabase stays canonical; provider
-  // deletion is best-effort and retried by the ended-input sweep on failure.
+  // Provider cleanup (gap fix 3, hardening order): the provider delete MUST
+  // happen BEFORE release_live_input. The release RPC nulls the pointer, so it
+  // is the last remaining retry handle for a failed cleanup — deleting the
+  // input first, and only then releasing the pointer, keeps a failed provider
+  // delete retryable by the ended-input sweep (PO item 10 fail-safe).
+  //
+  // HTTP 404 from the provider means the input is already gone — treated as
+  // already-cleaned, so the pointer is released. Any other failure keeps the
+  // pointer for retry/sweep. Supabase stays canonical; a cleanup miss never
+  // affects the committed session state (best-effort, fail-safe).
   try {
-    const { data: inputId, error: releaseError } = await supabase.rpc("release_live_input", {
-      p_session_id: params.sessionId,
-    });
-    if (!releaseError && typeof inputId === "string" && inputId.length > 0) {
-      await deleteLiveInput(inputId);
+    // Pointer probe: the release RPC itself nulls live_input_id, so reading the
+    // pointer through the canonical row keeps the probe side-effect free. The
+    // read goes through RLS as the caller; a hidden/unknown session yields null
+    // and leaves the pointer untouched (the sweep remains the backstop).
+    const { data: rows } = await supabase
+      .from("live_sessions")
+      .select("live_input_id")
+      .eq("id", params.sessionId)
+      .eq("status", "ended")
+      .limit(1);
+
+    const inputId = (rows as Array<{ live_input_id: string | null }> | null)?.[0]?.live_input_id ?? null;
+    if (!inputId) {
+      // Nothing releasable via the pointer (not ended, hidden, or already
+      // released). Nothing to clean up here — the sweep remains the backstop.
+      return Boolean(data);
     }
+
+    // Pointer intact — provider delete FIRST.
+    const outcome: LiveInputDeleteOutcome = await deleteLiveInput(inputId);
+    if (outcome === "deleted" || isLiveInputDeleteNotFound(outcome)) {
+      // Provider confirmed clean (deleted, or 404 = already-cleaned): NOW
+      // release the pointer via the fail-closed ended-state RPC.
+      await supabase.rpc("release_live_input", { p_session_id: params.sessionId });
+    }
+    // outcome === "failed": pointer stays; the ended-input sweep retries later.
   } catch {
-    // Best-effort: the sweep covers any release/cleanup miss.
+    // Best-effort: the sweep covers any release/cleanup miss; the pointer
+    // stays in the backlog for the next sweep when a delete failed.
   }
 
   return Boolean(data);
