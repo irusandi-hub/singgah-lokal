@@ -2,7 +2,7 @@
 -- DB REGRESSION SUITE — Live (MASTER_LIVE_POLICY_v1.0 / MASTER_LIVE_TECH_v1.0)
 -- Target: Supabase DEVELOPMENT project ONLY. NEVER production.
 --
--- Run AFTER migrations 0001..0008 are applied, via Supabase SQL Editor or:
+-- Run AFTER migrations 0001..0012 are applied, via Supabase SQL Editor or:
 --   psql "$SUPABASE_DEV_DB_URL" -f tests/db-regression/live-regression.sql
 --
 -- Design (PostgreSQL-valid harness):
@@ -325,7 +325,7 @@ begin
 
   -- Producer end succeeds and terminates the session exactly once.
   perform _live_regression.expect_ok(format(
-    'select public.end_live_session(%L, %L, %L)', v_sid, 'producer_ended', 'regression'));
+    'select public.end_live_session(%L, %L, %L, %L)', v_sid, 'reg-end-' || v_sid, 'producer_ended', 'regression'));
 
   -- State assertions run as postgres: live_audit is dark to authenticated
   -- and the ended session leaves the public-read policy by design.
@@ -344,7 +344,7 @@ begin
   -- duplicate audit rows or change state.
   perform _live_regression.act_as(f.user_a);
   perform _live_regression.expect_ok(format(
-    'select public.end_live_session(%L, %L, %L)', v_sid, 'producer_ended', 'regression'));
+    'select public.end_live_session(%L, %L, %L, %L)', v_sid, 'reg-end-' || v_sid, 'producer_ended', 'regression'));
   perform _live_regression.reset_actor();
   if 1 <> (select count(*) from public.live_audit
            where live_session_id = v_sid and action = 'session_ended') then
