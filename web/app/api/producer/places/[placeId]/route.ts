@@ -3,9 +3,9 @@ import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requir
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
 import { parsePlaceMutation, PlaceInputError } from "@/lib/place-management";
 
-export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ placeId: string }> }) {
   try {
-    const { id } = await params;
+    const { placeId: id } = await params;
     await requireProducerAccess(request, id, ["owner", "manager", "editor"]);
     const place = await (await getServerPlaceManagementRepository()).getById(id);
     return place ? NextResponse.json(place) : NextResponse.json({ error: "place_not_found" }, { status: 404 });
@@ -16,9 +16,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ placeId: string }> }) {
   try {
-    const { id } = await params;
+    const { placeId: id } = await params;
     const access = await requireProducerAccess(request, id, ["owner", "manager", "editor"]);
     const mutation = parsePlaceMutation(await request.json(), id);
     const repository = await getServerPlaceManagementRepository();

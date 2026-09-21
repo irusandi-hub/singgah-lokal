@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { VisitIntent } from "@/lib/visit-intents";
 import type { Experience } from "@/lib/experiences";
 import type { Place } from "@/lib/places";
@@ -18,6 +19,7 @@ function getToday(timezone: string): string {
 }
 
 export default function VisitIntentForm({ place, experience }: VisitIntentFormProps) {
+  const router = useRouter();
   const [requestedDate, setRequestedDate] = useState(getToday(place.timezone));
   const [requestedStartTime, setRequestedStartTime] = useState("09:00");
   const [requestedEndTime, setRequestedEndTime] = useState("10:00");
@@ -40,6 +42,13 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
       });
       const result = await response.json();
       if (!response.ok) {
+        // Unauthenticated visitor: route to the auth page and come straight
+        // back to THIS Experience after signing in (existing backend auth).
+        if (response.status === 401 || result?.error === "authentication_required") {
+          const currentExperiencePath = `/places/${place.id}/experiences/${experience.id}`;
+          router.push(`/auth?returnTo=${encodeURIComponent(currentExperiencePath)}`);
+          return;
+        }
         setError(getVisitIntentErrorMessage(response.status, result.error));
         return;
       }

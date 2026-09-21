@@ -5,9 +5,9 @@ import { canTransitionPlaceStatus, isPlacePublicationReady, type PublicationStat
 
 const statuses: PublicationStatus[] = ["draft", "published", "paused", "archived"];
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ placeId: string }> }) {
   try {
-    const { id } = await params;
+    const { placeId: id } = await params;
     await requireProducerAccess(request, id);
     const body = await request.json() as { publicationStatus?: unknown };
     if (!statuses.includes(body.publicationStatus as PublicationStatus)) return NextResponse.json({ error: "place_status_invalid" }, { status: 400 });
