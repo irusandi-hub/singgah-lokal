@@ -2,7 +2,6 @@ import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { deleteLiveInput, listAppLiveInputs } from "@/lib/live/cloudflare";
-import { broadcastLiveStatus } from "@/lib/live/realtime";
 import { LIVE_DURATION_CAP_MINUTES } from "@/lib/live/types";
 
 /**
@@ -93,15 +92,6 @@ export async function applyLiveDurationCap(sessionId: string): Promise<boolean> 
 
   if (error) {
     return false;
-  }
-
-  if (Boolean(data)) {
-    // Realtime status event (tech §6): ended via the 60-minute cap.
-    await broadcastLiveStatus({
-      sessionId,
-      status: "ended",
-      endedReason: "duration_cap",
-    });
   }
 
   return Boolean(data);

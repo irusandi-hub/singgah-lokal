@@ -2,11 +2,9 @@ import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createLiveInput, deleteLiveInput } from "@/lib/live/cloudflare";
-import { broadcastLiveStatus } from "@/lib/live/realtime";
 import {
   LIVE_COMMENT_MAX_LENGTH,
   LIVE_COMMENT_MIN_INTERVAL_MS,
-  type LiveSessionEndReason,
 } from "@/lib/live/types";
 
 export class LiveValidationError extends Error {}
@@ -144,14 +142,6 @@ export async function endLiveSession(params: {
     if (String(error.message).includes("producer_authorization_required")) throw new LiveValidationError("producer_authorization_required");
     throw new LiveValidationError("live_end_failed");
   }
-
-  // Realtime status event (tech §6): inform connected viewers the Live ended.
-  // Canonical state is already committed in Supabase; display signal only.
-  await broadcastLiveStatus({
-    sessionId: params.sessionId,
-    status: "ended",
-    endedReason: (params.reason ?? "producer_ended") as LiveSessionEndReason,
-  });
 
   // Provider cleanup (gap fix 3): delete the live input after the end commit.
   // release_live_input verifies the session is ended (fail closed), nulls the

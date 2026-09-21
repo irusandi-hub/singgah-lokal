@@ -5,6 +5,10 @@ import { readFileSync } from "node:fs";
 const migrationSource = readFileSync(new URL("../supabase/migrations/0008_live_sessions.sql", import.meta.url), "utf8");
 const serviceSource = readFileSync(new URL("../lib/live/session-service.ts", import.meta.url), "utf8");
 const capSource = readFileSync(new URL("../lib/live/session-service-cap.ts", import.meta.url), "utf8");
+const realtimeMigrationSource = readFileSync(
+  new URL("../supabase/migrations/0010_live_realtime_status_from_db.sql", import.meta.url),
+  "utf8",
+);
 const statusRouteSource = readFileSync(new URL("../app/api/live/status/route.ts", import.meta.url), "utf8");
 const policySource = readFileSync(new URL("../../docs/masters/MASTER_LIVE_POLICY_v1.0.md", import.meta.url), "utf8");
 const techSource = readFileSync(new URL("../../docs/masters/MASTER_LIVE_TECH_v1.0.md", import.meta.url), "utf8");
@@ -41,8 +45,10 @@ test("Gap 3: provider cleanup covers producer end, duration cap, stage-unpublish
   assert.match(migrationSource, /status = 'ended'\s+for update/);
   assert.match(migrationSource, /function public\.list_ended_live_inputs\(\)/);
   assert.match(migrationSource, /status = 'ended' and live_input_id is not null/);
-  // Cap service broadcasts + the status route sweeps the backlog unconditionally.
-  assert.match(capSource, /broadcastLiveStatus/);
+  // DB end path owns the status broadcast; status route only sweeps provider cleanup.
+  assert.doesNotMatch(capSource, /broadcastLiveStatus/);
+  assert.match(realtimeMigrationSource, /realtime\.send\(/);
+  assert.match(realtimeMigrationSource, /'live_session:' \|\| p_session_id/);
   assert.match(statusRouteSource, /sweepEndedLiveInputs\(\)\.catch\(\(\) => 0\)/);
   // The sweep is NOT gated behind cap expiry (stage-unpublish/moderation ends
   // also happen outside the wrapper).

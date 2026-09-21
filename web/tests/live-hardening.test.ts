@@ -9,7 +9,10 @@ const commentsRouteSource = readFileSync(new URL("../app/api/live/comments/route
 const discoverySource = readFileSync(new URL("../app/api/live/discovery/route.ts", import.meta.url), "utf8");
 const placeStripSource = readFileSync(new URL("../app/places/[id]/PlaceLiveStatus.tsx", import.meta.url), "utf8");
 const sequenceSource = readFileSync(new URL("../lib/live/sequence.ts", import.meta.url), "utf8");
-const realtimeSource = readFileSync(new URL("../lib/live/realtime.ts", import.meta.url), "utf8");
+const realtimeMigrationSource = readFileSync(
+  new URL("../supabase/migrations/0010_live_realtime_status_from_db.sql", import.meta.url),
+  "utf8",
+);
 const viewerSource = readFileSync(new URL("../app/live/[sessionId]/LiveViewerClient.tsx", import.meta.url), "utf8");
 const homeSource = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
 const homeMapSource = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
@@ -88,15 +91,15 @@ test("I4: comment sequencing is server-issued, monotonic; Date.now() payload is 
   assert.match(sessionServiceSource, /enforceCommentRateLimit/);
 });
 
-test("I5: end paths broadcast a Realtime status event and viewers subscribe to it", () => {
-  assert.match(sessionServiceSource, /broadcastLiveStatus/);
-  assert.match(capSource, /broadcastLiveStatus/);
-  assert.match(capSource, /endedReason: "duration_cap"/);
-  assert.match(realtimeSource, /event: "status"/);
-  assert.match(realtimeSource, /live_session:\$\{params\.sessionId\}/);
+test("I5: every DB end path emits the private Realtime status signal", () => {
+  assert.doesNotMatch(sessionServiceSource, /broadcastLiveStatus/);
+  assert.doesNotMatch(capSource, /broadcastLiveStatus/);
+  assert.match(realtimeMigrationSource, /realtime\.send\(/);
+  assert.match(realtimeMigrationSource, /'status'/);
+  assert.match(realtimeMigrationSource, /'live_session:' \|\| p_session_id/);
+  assert.match(realtimeMigrationSource, /true\s*\n\s*\);/);
+  assert.match(realtimeMigrationSource, /endedReason/);
   assert.match(viewerSource, /event: "status"/);
-  // Display-signal safety: broadcast failure never breaks the end flow.
-  assert.match(realtimeSource, /catch \{/);
 });
 
 test("I6: discovery route and Place strip self-heal the 60-minute cap", () => {
