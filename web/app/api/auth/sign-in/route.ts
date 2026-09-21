@@ -2,7 +2,17 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
-  const body = await request.json();
+  // Malformed or empty bodies are treated as missing credentials (400),
+  // not as a server error (500).
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = await request.json();
+    if (parsed && typeof parsed === "object") {
+      body = parsed as Record<string, unknown>;
+    }
+  } catch {
+    body = {};
+  }
   const email = typeof body.email === "string" ? body.email.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
 
