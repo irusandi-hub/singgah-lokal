@@ -101,6 +101,8 @@ test("I2: Live end requires and forwards an explicit idempotency key", () => {
 test("I5: every DB end path emits the private Realtime status signal", () => {
   assert.doesNotMatch(sessionServiceSource, /broadcastLiveStatus/);
   assert.doesNotMatch(capSource, /broadcastLiveStatus/);
+  assert.match(realtimeMigrationSource, /p_idempotency_key/);
+  assert.match(realtimeMigrationSource, /end_idempotency_key/);
   assert.match(realtimeMigrationSource, /realtime\.send\(/);
   assert.match(realtimeMigrationSource, /'status'/);
   assert.match(realtimeMigrationSource, /'live_session:' \|\| p_session_id/);
