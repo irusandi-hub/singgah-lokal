@@ -10,7 +10,7 @@ const discoverySource = readFileSync(new URL("../app/api/live/discovery/route.ts
 const placeStripSource = readFileSync(new URL("../app/places/[id]/PlaceLiveStatus.tsx", import.meta.url), "utf8");
 const sequenceSource = readFileSync(new URL("../lib/live/sequence.ts", import.meta.url), "utf8");
 const realtimeMigrationSource = readFileSync(
-  new URL("../supabase/migrations/0010_live_realtime_status_from_db.sql", import.meta.url),
+  new URL("../supabase/migrations/0012_live_end_idempotency.sql", import.meta.url),
   "utf8",
 );
 const viewerSource = readFileSync(new URL("../app/live/[sessionId]/LiveViewerClient.tsx", import.meta.url), "utf8");
