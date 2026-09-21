@@ -12,6 +12,7 @@ type StartLiveBody = {
 
 type EndLiveBody = {
   sessionId?: unknown;
+  idempotencyKey?: unknown;
   note?: unknown;
 };
 
@@ -73,13 +74,19 @@ export async function DELETE(request: Request) {
   try {
     const body = (await request.json()) as EndLiveBody;
     const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
-    if (!sessionId) {
-      return NextResponse.json({ error: "session_id_required" }, { status: 400 });
+    const idempotencyKey =
+      typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
+
+    if (!sessionId || !idempotencyKey) {
+      return NextResponse.json(
+        { error: "session_id_idempotency_required" },
+        { status: 400 },
+      );
     }
 
     await endLiveSession({
       sessionId,
-      actorKey: "route",
+      idempotencyKey,
       reason: "producer_ended",
       note: typeof body.note === "string" ? body.note : undefined,
     });

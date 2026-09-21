@@ -34,12 +34,20 @@ type Broadcast = {
  * that would collapse every future start into the first session.
  */
 const START_IDEMPOTENCY_KEY_PREFIX = "producer-live-start";
+const END_IDEMPOTENCY_KEY_PREFIX = "producer-live-end";
 
 function nextIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `${START_IDEMPOTENCY_KEY_PREFIX}-${crypto.randomUUID()}`;
   }
   return `${START_IDEMPOTENCY_KEY_PREFIX}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function nextEndIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${END_IDEMPOTENCY_KEY_PREFIX}-${crypto.randomUUID()}`;
+  }
+  return `${END_IDEMPOTENCY_KEY_PREFIX}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function LiveConsole({ places }: Props) {
@@ -59,6 +67,7 @@ export function LiveConsole({ places }: Props) {
   const streamRef = useRef<MediaStream | null>(null);
   const broadcastRef = useRef<Broadcast | null>(null);
   const startedAtRef = useRef<number | null>(null);
+  const endIdempotencyKeyRef = useRef<string | null>(null);
 
   const stages = useMemo(
     () => places.find((place) => place.id === placeId)?.stages ?? [],
@@ -237,10 +246,17 @@ export function LiveConsole({ places }: Props) {
     setBusy(true);
     setError(null);
     try {
+      const endIdempotencyKey =
+        endIdempotencyKeyRef.current ?? nextEndIdempotencyKey();
+      endIdempotencyKeyRef.current = endIdempotencyKey;
+
       const response = await fetch("/api/producer/live/sessions", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: activeSessionId }),
+        body: JSON.stringify({
+          sessionId: activeSessionId,
+          idempotencyKey: endIdempotencyKey,
+        }),
       });
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { error?: string };
@@ -248,6 +264,7 @@ export function LiveConsole({ places }: Props) {
         return;
       }
       setActiveSessionId(null);
+      endIdempotencyKeyRef.current = null;
       setStep("choose");
       setAttested(false);
       setCamera(null);

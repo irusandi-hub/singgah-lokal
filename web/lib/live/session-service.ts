@@ -127,13 +127,18 @@ export async function startLiveSession(params: {
 
 export async function endLiveSession(params: {
   sessionId: string;
-  actorKey: string;
+  idempotencyKey: string;
   reason?: "producer_ended";
   note?: string;
 }): Promise<boolean> {
   const supabase = await createSupabaseServerClient();
+  if (!params.idempotencyKey.trim()) {
+    throw new LiveValidationError("live_end_idempotency_key_required");
+  }
+
   const { data, error } = await supabase.rpc("end_live_session", {
     p_session_id: params.sessionId,
+    p_idempotency_key: params.idempotencyKey,
     p_reason: params.reason ?? "producer_ended",
     p_note: params.note ?? null,
   });

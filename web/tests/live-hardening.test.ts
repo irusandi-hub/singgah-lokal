@@ -91,6 +91,13 @@ test("I4: comment sequencing is server-issued, monotonic; Date.now() payload is 
   assert.match(sessionServiceSource, /enforceCommentRateLimit/);
 });
 
+test("I2: Live end requires and forwards an explicit idempotency key", () => {
+  assert.match(sessionServiceSource, /p_idempotency_key: params\.idempotencyKey/);
+  assert.match(sessionServiceSource, /live_end_idempotency_key_required/);
+  assert.match(consoleSource, /END_IDEMPOTENCY_KEY_PREFIX/);
+  assert.match(consoleSource, /endIdempotencyKeyRef/);
+});
+
 test("I5: every DB end path emits the private Realtime status signal", () => {
   assert.doesNotMatch(sessionServiceSource, /broadcastLiveStatus/);
   assert.doesNotMatch(capSource, /broadcastLiveStatus/);

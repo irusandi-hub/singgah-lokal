@@ -220,6 +220,44 @@ begin
     raise exception 'assertion_failed: idempotent replay mismatch: % vs %', v_start, v_replay;
   end if;
 
+  -- End is explicitly idempotent: same key replays success without another
+  -- session_ended audit row.
+  if not public.end_live_session(
+    v_start->>'sessionId',
+    'reg_end_key',
+    'producer_ended',
+    'regression'
+  ) then
+    raise exception 'assertion_failed: first end did not succeed';
+  end if;
+
+  if not public.end_live_session(
+    v_start->>'sessionId',
+    'reg_end_key',
+    'producer_ended',
+    'regression'
+  ) then
+    raise exception 'assertion_failed: end replay did not succeed';
+  end if;
+
+  if (
+    select count(*)
+    from public.live_audit
+    where live_session_id = v_start->>'sessionId'
+      and action = 'session_ended'
+  ) <> 1 then
+    raise exception 'assertion_failed: duplicate session_ended audit row';
+  end if;
+
+  if public.end_live_session(
+    v_start->>'sessionId',
+    'different_end_key',
+    'producer_ended',
+    'regression'
+  ) then
+    raise exception 'assertion_failed: different end key replayed success';
+  end if;
+
   perform _live_regression.reset_actor();
   perform _live_regression.record('producer_authorization', true);
 end;
