@@ -149,7 +149,10 @@ function AuthForm() {
           </p>
           <p className="mt-2 text-center text-xs leading-5 text-black/45">
             Akses Producer tidak otomatis — setelah mendaftar, admin platform memberikan
-            membership Producer. Area Producer muncul sendiri saat membership aktif.
+            membership Producer. Area Producer muncul sendiri saat membership aktif.{" "}
+            <Link className="font-bold text-[#7b5b38] underline underline-offset-2" href="/producer/onboarding">
+              Ajukan menjadi Producer
+            </Link>
           </p>
         </form>
       </div>

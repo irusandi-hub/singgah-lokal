@@ -100,6 +100,12 @@ function SignUpForm() {
                 pemberian membership Producer. Setelah membership aktif, area Producer muncul
                 otomatis saat kamu masuk.
               </p>
+              <Link
+                href="/producer/onboarding"
+                className="mt-3 inline-flex rounded-full bg-[#7b5b38] px-4 py-2 text-xs font-bold text-white"
+              >
+                Ajukan menjadi Producer
+              </Link>
             </div>
 
             <button

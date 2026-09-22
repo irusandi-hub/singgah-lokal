@@ -178,6 +178,24 @@ export default function Home() {
           ))}
         </div>
 
+        {/* LIVE filter empty state — a clear notice instead of an empty
+            screen. Based only on canonical discovery data; no fake Live. */}
+        {liveOnly && liveItems.length === 0 && (
+          <div className="mb-5 rounded-2xl border border-[#b3261e]/30 bg-white p-6 text-center shadow-sm">
+            <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
+            <p className="mt-1 text-xs text-black/55">
+              Ketika sebuah Place memulai Live, proses produksinya otomatis muncul di sini.
+            </p>
+            <button
+              type="button"
+              onClick={() => setLiveOnly(false)}
+              className="mt-4 inline-flex rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white"
+            >
+              Lihat Semua Place
+            </button>
+          </div>
+        )}
+
         {/* LIVE SEKARANG cards */}
         {liveCards.length > 0 && (
           <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

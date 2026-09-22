@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { isVisited, markVisited } from "@/lib/visited-links";
+import { isVisited } from "@/lib/visited-links";
 
 type VisitedLinkProps = Omit<React.ComponentProps<typeof Link>, "className" | "onClick"> & {
   className?: string;
@@ -36,7 +36,6 @@ export default function VisitedLink({ className = "", visitedClassName = "", chi
     <Link
       {...rest}
       className={`${className} ${visited ? visitedClassName : ""}`}
-      onClick={() => markVisited(href)}
     >
       {children}
     </Link>

@@ -60,6 +60,13 @@ export default async function ProducerDashboardPage() {
           </Link>
         </section>
 
+        {places.length === 0 && (
+          <p className="mt-8 rounded-2xl border border-black/10 bg-white p-5 text-sm text-black/65">
+            Belum ada Place dalam kewenanganmu. Ikuti proses verifikasi untuk menjadi Producer —
+            lihat <Link href="/producer/onboarding" className="font-bold text-[#7b5b38] underline underline-offset-2">Ajukan menjadi Producer</Link>.
+          </p>
+        )}
+
         {places.length > 0 && (
           <section aria-label="Place dalam kewenangan" className="mt-8">
             <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Place milikmu</h2>
