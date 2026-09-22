@@ -1,6 +1,6 @@
-import Link from "next/link";
 import SiteNav from "@/components/site-nav";
 import MarkVisited from "@/components/mark-visited";
+import VisitedLink from "@/components/visited-link";
 import { notFound } from "next/navigation";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 import VisitIntentForm from "./VisitIntentForm";
@@ -30,12 +30,16 @@ export default async function ExperienceDetailPage({
   return (
     <>
       <SiteNav />
-      <MarkVisited />
+      <MarkVisited path={`/places/${place.id}/experiences/${experience.id}`} />
       <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
       <div className="mx-auto max-w-3xl">
-        <Link className="text-sm font-bold text-[#7b5b38]" href={`/places/${place.id}`}>
+        <VisitedLink
+          className="text-sm font-bold text-[#7b5b38]"
+          visitedClassName="text-[#4a4d44] underline underline-offset-4"
+          href={`/places/${place.id}`}
+        >
           ← Kembali ke {place.name}
-        </Link>
+        </VisitedLink>
 
         <article className="mt-8 overflow-hidden rounded-[28px] border border-black/10 bg-white shadow-sm">
           <div className="bg-[#d9dfd2] px-6 py-10 sm:px-10">

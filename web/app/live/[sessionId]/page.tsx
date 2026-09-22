@@ -44,7 +44,7 @@ export default async function LiveViewerPage({
 
   return (
     <main className="min-h-screen bg-[#f7f5ef] text-[#20231f]">
-      <MarkVisited />
+      <MarkVisited path={`/live/${sessionId}`} />
       <div className="mx-auto max-w-3xl px-5 py-6 sm:px-8">
         <Link className="text-sm font-bold text-[#7b5b38]" href={`/places/${place.id}`}>
           ← Kembali ke {place.name}

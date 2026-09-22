@@ -2,6 +2,10 @@ import Link from "next/link";
 import SiteNav from "@/components/site-nav";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+// The header resolves auth state itself (session probe) — Masuk/Daftar vs
+// Sign out — and ProducerNav renders for members. Same mechanism as every
+// other SiteNav surface; nothing is hardcoded.
+
 export const dynamic = "force-dynamic";
 
 // Live index: lists currently live sessions from canonical live_sessions.
@@ -33,7 +37,7 @@ export default async function LiveIndexPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f5ef] text-[#20231f]">
-      <SiteNav authenticated={false} />
+      <SiteNav />
       <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
         <h1 className="text-2xl font-black tracking-tight">Live Sekarang</h1>
         <p className="mt-2 text-sm text-black/55">

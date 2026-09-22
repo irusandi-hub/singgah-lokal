@@ -28,7 +28,7 @@ export default async function PlaceDetailPage({
   return (
     <>
       <SiteNav />
-      <MarkVisited />
+      <MarkVisited path={`/places/${place.id}`} />
       <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
       <div className="mx-auto max-w-3xl">
         <Link className="text-sm font-bold text-[#7b5b38]" href="/">

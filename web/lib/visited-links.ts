@@ -47,6 +47,19 @@ export function markVisited(pathname: string): void {
   writeVisited(visited);
 }
 
+// Optional detail argument: marking is tied to the exact entity URL/id, so
+// opening Place A never marks Place B (keys are compared per pathname).
+export function markVisitedExact(pathname: string, detail: string): void {
+  const key = toVisitedKey(pathname);
+  if (!key) return;
+  const normalizedDetail = toVisitedKey(detail) ?? detail.split(/[?#]/)[0] ?? detail;
+  if (key !== normalizedDetail) return;
+  const visited = readVisited();
+  if (visited.has(key)) return;
+  visited.add(key);
+  writeVisited(visited);
+}
+
 export function isVisited(pathname: string): boolean {
   const key = toVisitedKey(pathname);
   if (!key) return false;
