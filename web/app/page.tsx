@@ -140,6 +140,12 @@ export default function Home() {
             </div>
           </div>
 
+          <Link
+            href="/auth"
+            className="shrink-0 rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#7b5b38]"
+          >
+            Masuk
+          </Link>
         </div>
       </header>
 
