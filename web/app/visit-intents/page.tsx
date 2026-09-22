@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import SiteNav from "@/components/site-nav";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
 import { listUserVisitIntents, type UserVisitIntentRecord } from "@/lib/visit-intent-service";
 import type { VisitIntentStatus } from "@/lib/visit-intents";
@@ -43,21 +44,7 @@ export default async function VisitIntentsPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f5ef] text-[#20231f]">
-      <header className="sticky top-0 z-30 border-b border-black/5 bg-[#f7f5ef]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-5 py-4">
-          <div>
-            <div className="text-xl font-black tracking-tight">
-              SINGGAH<span className="text-[#7b5b38]"> LOKAL</span>
-            </div>
-            <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-black/45">
-              Visit Intent Saya
-            </div>
-          </div>
-          <Link href="/" className="shrink-0 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-bold text-black/70">
-            Jelajahi
-          </Link>
-        </div>
-      </header>
+      <SiteNav />
 
       <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
         <h1 className="text-2xl font-black tracking-tight">Visit Intent Saya</h1>

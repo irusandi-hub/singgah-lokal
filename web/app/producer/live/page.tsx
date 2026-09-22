@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
+import ProducerSubNav from "@/components/producer-sub-nav";
 import { LiveConsole } from "./LiveConsole";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +50,10 @@ export default async function ProducerLivePage() {
         <Link className="text-sm font-bold text-[#7b5b38]" href="/producer">
           ← Dashboard Producer
         </Link>
+
+        <div className="mt-4">
+          <ProducerSubNav active="/producer/live" />
+        </div>
 
         <header className="mt-6">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Producer Live</p>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
+import SiteNav from "@/components/site-nav";
 import type { Place } from "@/lib/places";
 import {
   DISTANCE_FILTERS,
@@ -128,26 +129,8 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#f7f5ef] text-[#20231f]">
-      {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-black/5 bg-[#f7f5ef]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-          <div>
-            <div className="text-xl font-black tracking-tight">
-              SINGGAH<span className="text-[#7b5b38]"> LOKAL</span>
-            </div>
-            <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-black/45">
-              Temukan cerita di balik tempat
-            </div>
-          </div>
-
-          <Link
-            href="/auth"
-            className="shrink-0 rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#7b5b38]"
-          >
-            Masuk
-          </Link>
-        </div>
-      </header>
+      {/* Header + auth entry (Masuk / Sign out) + URL-derived active tabs */}
+      <SiteNav />
 
       <section className="mx-auto max-w-6xl px-4 pb-10 pt-4">
         {/* Search */}

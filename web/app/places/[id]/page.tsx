@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import SiteNav from "@/components/site-nav";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 import { PlaceLiveStatus } from "./PlaceLiveStatus";
@@ -23,7 +24,9 @@ export default async function PlaceDetailPage({
   const productionStages = await (await getServerProductionStoryRepository()).listForPlace(place.id, true);
 
   return (
-    <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
+    <>
+      <SiteNav />
+      <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
       <div className="mx-auto max-w-3xl">
         <Link className="text-sm font-bold text-[#7b5b38]" href="/">
           ← Kembali ke peta
@@ -100,5 +103,6 @@ export default async function PlaceDetailPage({
         </article>
       </div>
     </main>
+    </>
   );
 }
