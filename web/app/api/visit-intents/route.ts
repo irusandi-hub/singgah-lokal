@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
-import { submitVisitIntent, VisitIntentConflictError } from "@/lib/visit-intent-service";
+import { listUserVisitIntents, submitVisitIntent, VisitIntentConflictError } from "@/lib/visit-intent-service";
+
+export async function GET(request: Request) {
+  try {
+    const actor = await requireAuthenticatedActor(request);
+    return NextResponse.json(await listUserVisitIntents(actor.userId));
+  } catch (error) {
+    if (error instanceof AuthenticationRequiredError) {
+      return NextResponse.json({ error: "authentication_required" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Visit Intents could not be loaded" }, { status: 400 });
+  }
+}
 
 export async function POST(request: Request) {
   try {

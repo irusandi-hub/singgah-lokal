@@ -64,9 +64,62 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
       <div className="mt-8 rounded-2xl border border-[#7b5b38]/25 bg-[#fffaf0] p-5">
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Visit Intent dibuat</p>
         <h2 className="mt-2 text-xl font-black">Niat berkunjung siap diteruskan ke Producer.</h2>
-        <p className="mt-3 text-sm leading-6 text-black/70">
-          Status: <strong>pending</strong>. Ini bukan konfirmasi reservasi. Waktu mengikuti {intent.timezone} dan masih perlu respons Producer. Visit Intent telah tercatat di server.
+
+        {/* Real record fields from the persisted server response. */}
+        <dl className="mt-4 grid gap-2 text-sm text-black/75 sm:grid-cols-2">
+          <div>
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Place</dt>
+            <dd>{place.name}</dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Experience</dt>
+            <dd>{experience.title}</dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Tanggal ({intent.timezone})</dt>
+            <dd>{intent.requestedDate}</dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Waktu</dt>
+            <dd>
+              {intent.requestedStartTime}–{intent.requestedEndTime}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Jumlah orang</dt>
+            <dd>{intent.partySize} orang</dd>
+          </div>
+          <div>
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Status</dt>
+            <dd className="font-bold">{intent.status}</dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Referensi</dt>
+            <dd className="font-mono text-xs">{intent.id}</dd>
+          </div>
+        </dl>
+
+        <p className="mt-3 text-xs leading-5 text-black/55">
+          Ini bukan konfirmasi reservasi. Waktu mengikuti {intent.timezone} dan masih perlu respons Producer.
         </p>
+
+        {/* Next steps: inspect the saved record, or go back to the Place. */}
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => router.push("/visit-intents")}
+            className="w-full rounded-2xl bg-[#20231f] py-3.5 text-sm font-bold text-white"
+          >
+            Lihat Visit Intent Saya
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push(`/places/${place.id}`)}
+            className="w-full rounded-2xl border border-black/10 bg-white py-3.5 text-sm font-bold text-black/70"
+          >
+            Kembali ke Tempat
+          </button>
+        </div>
       </div>
     );
   }

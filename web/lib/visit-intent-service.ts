@@ -27,6 +27,8 @@ export type CanonicalProducerVisitIntent = {
   experience: Experience;
 };
 
+export type UserVisitIntentRecord = CanonicalProducerVisitIntent;
+
 async function getRepository(repository?: VisitIntentRepository): Promise<VisitIntentRepository> {
   return repository ?? getServerVisitIntentRepository();
 }
@@ -70,6 +72,22 @@ export async function getUserVisitIntent(id: string, userId: string, repository?
     throw new VisitIntentNotFoundError();
   }
   return intent;
+}
+
+// The signed-in user's Visit Intents enriched with their Place and Experience
+// (the same canonical records the Producer Inbox reads — no second dataset).
+export async function listUserVisitIntents(userId: string, repository?: VisitIntentRepository): Promise<UserVisitIntentRecord[]> {
+  const dataRepository = await getRepository(repository);
+  const intents = await dataRepository.listForUser(userId);
+  const records = await Promise.all(
+    intents.map(async (intent) => {
+      const place = await dataRepository.getPlaceById(intent.placeId);
+      const experience = await dataRepository.getExperienceById(intent.experienceId);
+      if (!place || !experience || experience.placeId !== intent.placeId) return null;
+      return { intent, place, experience };
+    }),
+  );
+  return records.filter((record): record is UserVisitIntentRecord => record !== null);
 }
 
 export async function listProducerVisitIntents(

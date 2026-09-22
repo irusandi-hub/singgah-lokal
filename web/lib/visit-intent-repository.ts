@@ -12,6 +12,7 @@ export type VisitIntentRepository = {
   update(intent: VisitIntent): Promise<VisitIntent>;
   listForPlace(placeId: string): Promise<VisitIntent[]>;
   listForPlaces(placeIds: readonly string[], status?: VisitIntent["status"]): Promise<VisitIntent[]>;
+  listForUser(userId: string): Promise<VisitIntent[]>;
   getPlaceById(id: string): Promise<Place | undefined>;
   getExperienceById(id: string): Promise<Experience | undefined>;
 };
@@ -223,6 +224,19 @@ export class SupabaseVisitIntentRepository implements VisitIntentRepository {
     let query = this.client.from("visit_intents").select("*").in("place_id", placeIds).order("created_at", { ascending: false });
     if (status) query = query.eq("status", status);
     const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []).map(mapIntent);
+  }
+
+  // Reads the caller's own Visit Intents. The Supabase client carries the
+  // user session, so RLS (visit_intents_user_read) additionally restricts
+  // rows to user_id = auth.uid() — the explicit filter is defense in depth.
+  async listForUser(userId: string): Promise<VisitIntent[]> {
+    const { data, error } = await this.client
+      .from("visit_intents")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
     if (error) throw error;
     return (data ?? []).map(mapIntent);
   }
