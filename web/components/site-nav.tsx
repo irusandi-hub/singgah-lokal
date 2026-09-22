@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isActiveNavSection } from "@/lib/navigation";
+import ProducerNav from "./producer-nav";
 import SignOutButton from "./sign-out-button";
 
 type SiteNavProps = {
@@ -38,7 +39,8 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
   }, [authenticatedProp]);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-black/5 bg-[#f7f5ef]/95 backdrop-blur">
+    <>
+      <header className="sticky top-0 z-30 border-b border-black/5 bg-[#f7f5ef]/95 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-4">
         <div className="min-w-0">
           <Link href="/" className="block text-xl font-black tracking-tight">
@@ -91,15 +93,28 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
           {authenticated === null ? null : authenticated ? (
             <SignOutButton />
           ) : (
-            <Link
-              href="/auth"
-              className="shrink-0 rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#7b5b38]"
-            >
-              Masuk
-            </Link>
+            <>
+              <Link
+                href="/auth/sign-up"
+                className="hidden shrink-0 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-bold text-black/70 transition hover:bg-black/5 sm:block"
+              >
+                Daftar
+              </Link>
+              <Link
+                href="/auth"
+                className="shrink-0 rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#7b5b38]"
+              >
+                Masuk
+              </Link>
+            </>
           )}
         </div>
       </div>
-    </header>
+        </header>
+
+      {/* Producer entry row — renders only when the server-derived membership
+          probe says the signed-in user owns/manages a Place. */}
+      <ProducerNav />
+    </>
   );
 }

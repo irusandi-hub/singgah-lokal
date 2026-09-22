@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import SiteNav from "@/components/site-nav";
+import MarkVisited from "@/components/mark-visited";
+import VisitedLink from "@/components/visited-link";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 import { PlaceLiveStatus } from "./PlaceLiveStatus";
@@ -26,6 +28,7 @@ export default async function PlaceDetailPage({
   return (
     <>
       <SiteNav />
+      <MarkVisited />
       <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
       <div className="mx-auto max-w-3xl">
         <Link className="text-sm font-bold text-[#7b5b38]" href="/">
@@ -73,12 +76,13 @@ export default async function PlaceDetailPage({
                   <article key={experience.id} className="rounded-2xl border border-black/10 bg-[#f7f5ef] p-5">
                     <h3 className="text-lg font-black">{experience.title}</h3>
                     <p className="mt-2 text-sm leading-6 text-black/65">{experience.shortDescription}</p>
-                    <Link
+                    <VisitedLink
                       className="mt-4 inline-flex rounded-full bg-[#20231f] px-4 py-2 text-sm font-bold text-white"
+                      visitedClassName="bg-[#4a4d44]"
                       href={`/places/${place.id}/experiences/${experience.id}`}
                     >
                       Lihat Experience
-                    </Link>
+                    </VisitedLink>
                   </article>
                 ))
               ) : (

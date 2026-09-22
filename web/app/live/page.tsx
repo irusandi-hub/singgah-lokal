@@ -42,19 +42,22 @@ export default async function LiveIndexPage() {
 
         {loadError ? (
           <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
-            <p className="text-sm font-bold">Live belum tersedia</p>
+            <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
             <p className="mt-1 text-xs text-black/55">
-              Layanan Live belum dapat dimuat. Coba lagi nanti.
+              Coba lagi nanti atau jelajahi Place lain.
             </p>
+            <Link href="/" className="mt-4 inline-block rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white">
+              Kembali ke Beranda
+            </Link>
           </div>
         ) : liveItems.length === 0 ? (
           <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
-            <p className="text-sm font-bold">Belum ada Live berjalan</p>
+            <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
             <p className="mt-1 text-xs text-black/55">
-              Ketika sebuah Place memulai Live, proses produksinya muncul di sini.
+              Ketika sebuah Place memulai Live, proses produksinya otomatis muncul di sini.
             </p>
             <Link href="/" className="mt-4 inline-block rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white">
-              Jelajahi Tempat
+              Kembali ke Beranda
             </Link>
           </div>
         ) : (

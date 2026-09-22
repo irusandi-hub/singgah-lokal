@@ -1,5 +1,6 @@
 import Link from "next/link";
 import SiteNav from "@/components/site-nav";
+import MarkVisited from "@/components/mark-visited";
 import { notFound } from "next/navigation";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 import VisitIntentForm from "./VisitIntentForm";
@@ -29,6 +30,7 @@ export default async function ExperienceDetailPage({
   return (
     <>
       <SiteNav />
+      <MarkVisited />
       <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
       <div className="mx-auto max-w-3xl">
         <Link className="text-sm font-bold text-[#7b5b38]" href={`/places/${place.id}`}>

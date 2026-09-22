@@ -142,7 +142,14 @@ function AuthForm() {
           </button>
 
           <p className="mt-4 text-center text-xs leading-5 text-black/55">
-            Belum punya akun? Hubungi admin platform untuk akses Producer.
+            Belum punya akun?{" "}
+            <Link className="font-bold text-[#7b5b38] underline-offset-2 hover:underline" href="/auth/sign-up">
+              Daftar di sini
+            </Link>
+          </p>
+          <p className="mt-2 text-center text-xs leading-5 text-black/45">
+            Akses Producer tidak otomatis — setelah mendaftar, admin platform memberikan
+            membership Producer. Area Producer muncul sendiri saat membership aktif.
           </p>
         </form>
       </div>

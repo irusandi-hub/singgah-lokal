@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import SiteNav from "@/components/site-nav";
+import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
 import {
   DISTANCE_FILTERS,
@@ -190,10 +191,11 @@ export default function Home() {
                   ? formatDistance(distanceMeters(viewerPosition, { lat: place.latitude, lng: place.longitude }))
                   : null;
               return (
-                <Link
+                <VisitedLink
                   key={item.sessionId}
                   href={`/live/${item.sessionId}`}
                   className="group rounded-2xl border border-[#b3261e]/30 bg-white p-4 shadow-sm transition hover:shadow-md"
+                  visitedClassName="border-[#b3261e]/60 bg-[#fdf6f2]"
                 >
                   <div className="flex items-center justify-between">
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-[#b3261e] px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-white">
@@ -212,7 +214,7 @@ export default function Home() {
                     {distance ? `${distance} • ` : ""}
                     {place?.type === "production" ? "Sedang berproduksi" : "Sedang aktif"}
                   </p>
-                </Link>
+                </VisitedLink>
               );
             })}
           </div>
@@ -270,9 +272,13 @@ export default function Home() {
                 </Link>
               )}
 
-              <Link href={`/places/${visiblePlaces[0].id}`} className="mt-3 block w-full rounded-2xl bg-[#20231f] py-4 text-center text-sm font-bold text-white">
+              <VisitedLink
+                href={`/places/${visiblePlaces[0].id}`}
+                className="mt-3 block w-full rounded-2xl bg-[#20231f] py-4 text-center text-sm font-bold text-white"
+                visitedClassName="bg-[#4a4d44]"
+              >
                 Lihat Tempat
-              </Link>
+              </VisitedLink>
             </div>
           )}
         </section>
@@ -308,10 +314,11 @@ export default function Home() {
                     : null;
 
                 return (
-                  <Link
+                  <VisitedLink
                     key={place.id}
                     href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
                     className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
+                    visitedClassName={live ? "border-[#b3261e]/60 bg-[#fdf6f2]" : "border-[#7b5b38]/35 bg-[#faf6ee]"}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -340,7 +347,7 @@ export default function Home() {
                         {distance}
                       </p>
                     )}
-                  </Link>
+                  </VisitedLink>
                 );
               })}
             </div>
