@@ -25,6 +25,9 @@ type GateStatus = {
 
 type Feedback = { kind: "ok" | "error"; message: string } | null;
 
+/** Limited info about the currently active Creator session (masked id only). */
+type LeaseBlocked = { maskedId: string | null; expiresIso: string | null };
+
 const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY ?? "";
 const DEVELOPER_PATH = "/developer";
 
@@ -35,26 +38,53 @@ export default function CreatorGateClient() {
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [submitting, setSubmitting] = useState(false);
   const [answer, setAnswer] = useState("");
+  const [leaseBlocked, setLeaseBlocked] = useState<LeaseBlocked | null>(null);
 
   // Pure fetcher (no setState inside): the mount effect applies state only
   // after await, with a cancelled guard — consistent with project rules.
-  const fetchStatus = useCallback(async (): Promise<GateStatus | null> => {
-    try {
-      const response = await fetch("/api/creator/gate");
-      if (!response.ok) return null;
-      const payload: unknown = await response.json();
-      if (!payload || typeof payload !== "object" || !("captchaConfigured" in payload)) return null;
-      return payload as GateStatus;
-    } catch {
-      return null;
-    }
-  }, []);
+  const fetchStatus = useCallback(
+    async (): Promise<
+      | { kind: "status"; status: GateStatus }
+      | { kind: "lease-blocked"; blocked: LeaseBlocked }
+      | { kind: "unavailable" }
+    > => {
+      try {
+        const response = await fetch("/api/creator/gate");
+        const payload: unknown = await response.json().catch(() => null);
+        if (!response.ok) {
+          if (
+            payload &&
+            typeof payload === "object" &&
+            "code" in payload &&
+            (payload as ApiError).code === "creator_session_active"
+          ) {
+            const p = payload as { activeHolderMaskedId?: string | null; activeExpiresIso?: string | null };
+            return {
+              kind: "lease-blocked",
+              blocked: { maskedId: p.activeHolderMaskedId ?? null, expiresIso: p.activeExpiresIso ?? null },
+            };
+          }
+          return { kind: "unavailable" };
+        }
+        if (!payload || typeof payload !== "object" || !("captchaConfigured" in payload)) {
+          return { kind: "unavailable" };
+        }
+        return { kind: "status", status: payload as GateStatus };
+      } catch {
+        return { kind: "unavailable" };
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const next = await fetchStatus();
-      if (!cancelled) setStatus(next);
+      const result = await fetchStatus();
+      if (cancelled) return;
+      if (result.kind === "status") setStatus(result.status);
+      else if (result.kind === "lease-blocked") setLeaseBlocked(result.blocked);
+      else setStatus(null);
     })();
     return () => {
       cancelled = true;
@@ -82,6 +112,11 @@ export default function CreatorGateClient() {
             payload && typeof payload === "object" && "error" in payload
               ? String((payload as ApiError).error)
               : "Verifikasi gagal. Coba lagi.";
+          if (code === "creator_session_active") {
+            const p = payload as { activeHolderMaskedId?: string | null; activeExpiresIso?: string | null };
+            setLeaseBlocked({ maskedId: p.activeHolderMaskedId ?? null, expiresIso: p.activeExpiresIso ?? null });
+            return;
+          }
           const detail = code === "captcha_not_configured" || missingVars.length > 0
             ? ` (${missingVars.length > 0 ? missingVars.join(", ") : "CLOUDFLARE_TURNSTILE_SECRET_KEY"} belum diatur)`
             : "";
@@ -126,6 +161,48 @@ export default function CreatorGateClient() {
       router.push(DEVELOPER_PATH);
       router.refresh();
     });
+  }
+
+  if (leaseBlocked) {
+    return (
+      <section className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Single Active Session</p>
+        <h2 className="mt-2 font-brand text-xl font-black text-[#20231f]">Sesi Creator lain sedang aktif</h2>
+        <p className="mt-3 text-sm leading-6 text-[#20231f]/60">
+          Slot Creator sedang digunakan oleh sesi lain. Identitas aktif (terbatas):{" "}
+          <span className="font-mono font-semibold text-[#20231f]">{leaseBlocked.maskedId ?? "••••"}</span>.
+        </p>
+        {leaseBlocked.expiresIso ? (
+          <p className="mt-2 text-xs leading-5 text-[#20231f]/55">
+            Slot berakhir otomatis pada {new Date(leaseBlocked.expiresIso).toLocaleString("id-ID")} — atau lebih cepat
+            bila sesi aktif tersebut logout.
+          </p>
+        ) : null}
+        <p className="mt-3 text-xs leading-5 text-[#20231f]/55">
+          CAPTCHA dan Pertanyaan Rahasia tidak diminta selama slot masih dipegang sesi lain.
+        </p>
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={() => {
+            void (async () => {
+              setSubmitting(true);
+              const result = await fetchStatus();
+              if (result.kind === "status") {
+                setLeaseBlocked(null);
+                setStatus(result.status);
+              } else if (result.kind === "lease-blocked") {
+                setLeaseBlocked(result.blocked);
+              }
+              setSubmitting(false);
+            })();
+          }}
+          className="mt-4 rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-black text-white transition hover:bg-[#0a5640] disabled:opacity-50"
+        >
+          Muat ulang status
+        </button>
+      </section>
+    );
   }
 
   if (status === null) {

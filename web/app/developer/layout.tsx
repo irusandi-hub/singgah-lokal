@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
  *   request from the HTTP-only cookie, not from client state.
  */
 type DeveloperGuard =
-  | { kind: "authorized"; email: string; gateValid: boolean }
+  | { kind: "authorized"; email: string; userId: string; gateValid: boolean }
   | { kind: "unauthenticated" }
   | { kind: "forbidden" };
 
@@ -33,7 +33,7 @@ async function resolveDeveloperGuard(): Promise<DeveloperGuard> {
     // The gate cookie must be valid AND bound to this exact Creator's user id
     // (signature, expiry, purpose, and userId all verified server-side).
     const gateValid = await hasValidGate(creator.userId);
-    return { kind: "authorized", email: creator.email, gateValid };
+    return { kind: "authorized", email: creator.email, userId: creator.userId, gateValid };
   } catch (error) {
     if (error instanceof CreatorRequiredError) {
       try {
@@ -63,6 +63,19 @@ export default async function DeveloperLayout({ children }: { children: React.Re
     // returnTo stays internal (encodeURIComponent of a fixed path — no open
     // redirect).
     redirect(`/developer-gate?returnTo=${encodeURIComponent("/developer")}`);
+  }
+
+  if (guard.kind === "authorized") {
+    // Single-active-session heartbeat: every server-rendered Developer Center
+    // request refreshes this Creator's lease, so an actively-working Creator
+    // keeps the slot while an idle one frees it by expiry. Failure is
+    // non-blocking — the gate cookie below is the access control here.
+    const { heartbeatCreatorLease } = await import("@/lib/creator/session-lease");
+    try {
+      await heartbeatCreatorLease(guard.userId);
+    } catch {
+      // lease refresh is best-effort; never block the Center on it
+    }
   }
 
   if (guard.kind === "forbidden") {

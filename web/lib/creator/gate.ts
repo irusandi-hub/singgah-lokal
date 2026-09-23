@@ -79,14 +79,60 @@ export async function verifyTurnstileToken(token: string, remoteIp?: string): Pr
   }
 }
 
+/**
+ * Single active session check (server-side). Called BEFORE any CAPTCHA or
+ * secret question work: when the slot is validly held by another Creator,
+ * the second Creator is refused here and never reaches either step. The
+ * first Creator is not disturbed. Regular users, Producers, and Platform
+ * Admins never reach this function (requireCreator() runs first).
+ */
+export async function checkLeaseBeforeGateSteps(
+  userId: string,
+): Promise<
+  | { proceed: true }
+  | { proceed: false; reason: "lease_unavailable" | "lease_held_by_other"; maskedId?: string; expiresIso?: string }
+> {
+  const { getCreatorLeaseStatus } = await import("@/lib/creator/session-lease");
+  try {
+    const status = await getCreatorLeaseStatus(userId);
+    if (status.state === "free" || status.state === "mine") return { proceed: true };
+    return {
+      proceed: false,
+      reason: "lease_held_by_other",
+      maskedId: status.maskedId,
+      expiresIso: status.expiresIso,
+    };
+  } catch {
+    // Fail-closed: lease service unavailable => the gate cannot start.
+    return { proceed: false, reason: "lease_unavailable" };
+  }
+}
+
 export type GateStepResult =
   | { ok: true }
-  | { ok: false; code: "captcha_not_configured" | "captcha_failed" | "invalid_secret_answer" | "config_error" };
+  | {
+      ok: false;
+      code:
+        | "captcha_not_configured"
+        | "captcha_failed"
+        | "invalid_secret_answer"
+        | "creator_session_active"
+        | "config_error";
+    };
 
 /** Step 1: verify the CAPTCHA server-side, then issue the step cookie. */
 export async function passCaptchaStep(token: string, remoteIp?: string): Promise<GateStepResult> {
   const creator = await requireCreator();
   if (!hasCaptchaSecret()) return { ok: false, code: "captcha_not_configured" };
+  // Re-check the single-active-session slot before granting step progress.
+  const leaseCheck = await checkLeaseBeforeGateSteps(creator.userId);
+  if (!leaseCheck.proceed) return { ok: false, code: "creator_session_active" };
+  const lease = await import("@/lib/creator/session-lease");
+  const acquired = await lease.acquireCreatorLease(creator.userId);
+  if (acquired.state !== "mine") {
+    // Concurrent race lost: another acquire owns the slot now.
+    return { ok: false, code: "creator_session_active" };
+  }
   const verified = await verifyTurnstileToken(token, remoteIp);
   if (!verified) return { ok: false, code: "captcha_failed" };
 
@@ -113,9 +159,22 @@ export async function passSecretQuestionStep(
 
   const store = await cookies();
   const step = store.get(CREATOR_GATE_STEP_COOKIE)?.value;
-  const stepValid =
-    verifyGatePayload(step, secret, "step", CREATOR_GATE_STEP_MAX_AGE_SECONDS * 1000).ok;
-  if (!stepValid) return { ok: false, code: "captcha_failed" };
+  const stepVerification = verifyGatePayload(
+    step,
+    secret,
+    "step",
+    CREATOR_GATE_STEP_MAX_AGE_SECONDS * 1000,
+  );
+  // The step cookie must be valid AND belong to THIS Creator: a step cookie
+  // minted for Creator A can never authorize Creator B's secret question.
+  if (!stepVerification.ok || stepVerification.userId !== creator.userId) {
+    return { ok: false, code: "captcha_failed" };
+  }
+
+  // The single-active-session slot must still belong to this Creator when
+  // the second step runs (guards session switching / concurrent logins).
+  const leaseCheck = await checkLeaseBeforeGateSteps(creator.userId);
+  if (!leaseCheck.proceed) return { ok: false, code: "creator_session_active" };
 
   // Same hash path as the Account Security Manager — no new verification
   // mechanism. A wrong answer and an unset question are indistinguishable.

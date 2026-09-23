@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { CreatorRequiredError, requireCreator } from "@/lib/auth/creator";
 import { checkCreatorSecretAnswer, getCreatorSecretQuestion } from "@/lib/creator/security-settings";
-import { GateConfigError, passCaptchaStep, passSecretQuestionStep } from "@/lib/creator/gate";
+import {
+  GateConfigError,
+  checkLeaseBeforeGateSteps,
+  passCaptchaStep,
+  passSecretQuestionStep,
+} from "@/lib/creator/gate";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +34,28 @@ export async function GET(request: Request) {
   void request;
   try {
     const creator = await requireCreator();
+
+    // Single active session: refuse BEFORE revealing any gate state when the
+    // slot is validly held by another Creator. Only a limited, masked
+    // identifier of the active holder is returned — never full id/email.
+    const leaseCheck = await checkLeaseBeforeGateSteps(creator.userId);
+    if (!leaseCheck.proceed) {
+      if (leaseCheck.reason === "lease_unavailable") {
+        return NextResponse.json(
+          { error: "Gate belum tersedia.", code: "lease_unavailable" },
+          { status: 503 },
+        );
+      }
+      return NextResponse.json(
+        {
+          error: "Sesi Creator lain sedang aktif.",
+          code: "creator_session_active",
+          activeHolderMaskedId: leaseCheck.maskedId ?? null,
+          activeExpiresIso: leaseCheck.expiresIso ?? null,
+        },
+        { status: 423 },
+      );
+    }
 
     let captchaConfigured = Boolean(process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY);
     let questionStatus: Awaited<ReturnType<typeof getCreatorSecretQuestion>> | null = null;
@@ -70,10 +97,25 @@ export async function POST(request: Request) {
   const step = typeof body.step === "string" ? body.step : "";
 
   try {
+    const creator = await requireCreator();
+    const creatorUserId = creator.userId;
+
     if (step === "captcha") {
       const token = typeof body.token === "string" ? body.token : "";
       const result = await passCaptchaStep(token, clientIp(request));
       if (!result.ok) {
+        if (result.code === "creator_session_active") {
+          const leaseCheck = await checkLeaseBeforeGateSteps(creatorUserId);
+          return NextResponse.json(
+            {
+              error: "Sesi Creator lain sedang aktif.",
+              code: "creator_session_active",
+              activeHolderMaskedId: leaseCheck.proceed ? null : leaseCheck.maskedId ?? null,
+              activeExpiresIso: leaseCheck.proceed ? null : leaseCheck.expiresIso ?? null,
+            },
+            { status: 423 },
+          );
+        }
         const status = result.code === "captcha_not_configured" ? 503 : 403;
         return NextResponse.json(
           { error: "Verifikasi gagal. Coba lagi.", code: result.code },
@@ -87,6 +129,18 @@ export async function POST(request: Request) {
       const answer = typeof body.answer === "string" ? body.answer : "";
       const result = await passSecretQuestionStep(answer, checkCreatorSecretAnswer);
       if (!result.ok) {
+        if (result.code === "creator_session_active") {
+          const leaseCheck = await checkLeaseBeforeGateSteps(creatorUserId);
+          return NextResponse.json(
+            {
+              error: "Sesi Creator lain sedang aktif.",
+              code: "creator_session_active",
+              activeHolderMaskedId: leaseCheck.proceed ? null : leaseCheck.maskedId ?? null,
+              activeExpiresIso: leaseCheck.proceed ? null : leaseCheck.expiresIso ?? null,
+            },
+            { status: 423 },
+          );
+        }
         const status = result.code === "config_error" ? 503 : 403;
         return NextResponse.json(
           { error: "Verifikasi gagal. Coba lagi.", code: result.code },
