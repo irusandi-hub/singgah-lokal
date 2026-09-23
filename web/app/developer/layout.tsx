@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CreatorRequiredError, requireCreator } from "@/lib/auth/creator";
+import { hasValidGate } from "@/lib/creator/gate";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,12 @@ export const dynamic = "force-dynamic";
  *   Creator-controlled environment allowlist (fail closed). The Creator is
  *   never modeled as platform_moderator (Authority Master §4) and no
  *   infrastructure credential is ever rendered here.
+ * - SECURITY GATE (additional layer, never a replacement for Creator
+ *   authorization): a verified Creator must also hold a valid signed gate
+ *   cookie — issued only after the server-verified CAPTCHA and secret
+ *   question steps — before any Developer Center content renders. Refresh
+ *   and direct URLs cannot bypass it because the check re-runs on every
+ *   request from the HTTP-only cookie, not from client state.
  */
 type DeveloperGuard = { kind: "authorized"; email: string } | { kind: "unauthenticated" } | { kind: "forbidden" };
 
@@ -41,6 +48,13 @@ export default async function DeveloperLayout({ children }: { children: React.Re
 
   if (guard.kind === "unauthenticated") {
     redirect("/auth?returnTo=%2Fdeveloper");
+  }
+
+  if (guard.kind === "authorized" && !(await hasValidGate())) {
+    // Verified Creator without a valid gate: send them through the two-step
+    // verification instead of rendering the Center. returnTo stays internal
+    // (encodeURIComponent of a fixed path — no open redirect).
+    redirect(`/developer/gate?returnTo=${encodeURIComponent("/developer")}`);
   }
 
   if (guard.kind === "forbidden") {
