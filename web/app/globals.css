@@ -3,13 +3,25 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* SINGGAH LOKAL brand tokens (Master brand mockup): shared design tokens
+     only. Areas opt in per surface — nothing here restyles existing pages. */
+  --brand-primary: #0e6b4f;
+  --brand-secondary: #6b8f72;
+  --brand-accent: #c89b6b;
+  --brand-cream: #f6f3eb;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-accent: var(--brand-accent);
+  --color-brand-cream: var(--brand-cream);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-brand: var(--font-poppins);
 }
 
 @media (prefers-color-scheme: dark) {

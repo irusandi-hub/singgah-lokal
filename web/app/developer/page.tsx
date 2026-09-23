@@ -16,11 +16,13 @@ export default async function DeveloperPage() {
   const creator = await requireCreator();
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-2xl border border-white/10 bg-white/5 p-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#d8ad6f]">Creator / Owner / Developer</p>
-        <h2 className="mt-2 text-2xl font-black text-white">Kewenangan tertinggi program</h2>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">
+    <div className="space-y-6">
+      <section className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
+          Creator / Owner / Developer
+        </p>
+        <h2 className="mt-2 font-brand text-2xl font-black text-[#20231f]">Kewenangan tertinggi program</h2>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-[#20231f]/60">
           Developer Center adalah lapisan Creator — terpisah dari Admin Center (operasional), Producer Dashboard,
           dan area user. Verifikasi kewenangan berjalan server-side di setiap permintaan.
         </p>
