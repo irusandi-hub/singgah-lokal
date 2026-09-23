@@ -5,8 +5,9 @@ import { useState } from "react";
 
 // Real logout through the existing backend endpoint; after success the router
 // cache is refreshed so every server-rendered surface flips to the
-// unauthenticated state.
-export default function SignOutButton({ dark = false }: { dark?: boolean }) {
+// unauthenticated state. Rendered inside the main app header next to the
+// account email and Kelola Akun.
+export default function SignOutButton() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
 
@@ -26,13 +27,9 @@ export default function SignOutButton({ dark = false }: { dark?: boolean }) {
       type="button"
       onClick={signOut}
       disabled={pending}
-      className={
-        dark
-          ? "rounded-full border border-white/20 px-3 py-1.5 text-xs font-bold text-white/80 hover:bg-white/10 disabled:opacity-50"
-          : "rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-black text-black/70 hover:bg-black/5 disabled:opacity-50"
-      }
+      className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-black text-black/70 hover:bg-black/5 disabled:opacity-50"
     >
-      {pending ? "Keluar..." : "Sign out"}
+      {pending ? "Keluar…" : "Keluar"}
     </button>
   );
 }

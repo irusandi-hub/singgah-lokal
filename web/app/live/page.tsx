@@ -3,8 +3,8 @@ import SiteNav from "@/components/site-nav";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 // The header resolves auth state itself (session probe) — Masuk/Daftar vs
-// Sign out — and ProducerNav renders for members. Same mechanism as every
-// other SiteNav surface; nothing is hardcoded.
+// [email · Kelola Akun · Keluar]. Producer entry lives in /account, not the
+// main header.
 
 export const dynamic = "force-dynamic";
 
