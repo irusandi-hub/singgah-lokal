@@ -7,6 +7,7 @@ const siteNav = readFileSync(new URL("../components/site-nav.tsx", import.meta.u
 const accountPage = readFileSync(new URL("../app/account/page.tsx", import.meta.url), "utf8");
 const developerLayout = readFileSync(new URL("../app/developer/layout.tsx", import.meta.url), "utf8");
 const developerPage = readFileSync(new URL("../app/developer/page.tsx", import.meta.url), "utf8");
+const developerManager = readFileSync(new URL("../app/developer/platform-admins-manager.tsx", import.meta.url), "utf8");
 const developerLib = readFileSync(new URL("../lib/developer/platform-admins.ts", import.meta.url), "utf8");
 const creatorLib = readFileSync(new URL("../lib/auth/creator.ts", import.meta.url), "utf8");
 const serviceClient = readFileSync(new URL("../lib/supabase/admin.ts", import.meta.url), "utf8");
@@ -51,6 +52,13 @@ test("Developer Center is a separate guarded layer with server-side Creator auth
   assert.match(developerLayout, /Akses ditolak/);
   assert.match(developerPage, /export const dynamic = "force-dynamic"/);
   assert.match(developerPage, /await requireCreator\(\)/);
+});
+
+test("Platform Admin dashboard fetches its list on mount (no stuck Memuat…)", () => {
+  assert.match(developerManager, /useEffect\(/);
+  assert.match(developerManager, /await fetchAdmins\(\)/);
+  assert.match(developerManager, /let cancelled/);
+  assert.match(developerManager, /const refresh = useCallback\(/);
 });
 
 test("Creator authorization is environment-based, fail closed, and never a DB role", () => {

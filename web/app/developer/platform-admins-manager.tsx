@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 
 /**
  * Developer Center — Platform Admin management (Authority Master §2/§8).
@@ -43,23 +43,48 @@ export default function DeveloperPlatformAdmins({ creatorEmail }: { creatorEmail
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function refresh() {
+  const fetchAdmins = useCallback(async (): Promise<AdminRow[]> => {
+    const response = await fetch("/api/developer/platform-admins");
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new Error(payload.error ?? "list_failed");
+    }
+    const payload = (await response.json()) as { admins: AdminRow[] };
+    return payload.admins;
+  }, []);
+
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/developer/platform-admins");
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(payload.error ?? "list_failed");
-      }
-      const payload = (await response.json()) as { admins: AdminRow[] };
-      setRows(payload.admins);
+      setRows(await fetchAdmins());
     } catch (requestError) {
       setError(messageFor(requestError instanceof Error ? requestError.message : null));
     } finally {
       setLoading(false);
     }
-  }
+  }, [fetchAdmins]);
+
+  // Fetch the Platform Admin list once on mount — without this the dashboard
+  // stays stuck on "Memuat…". Every state update happens after the await
+  // boundary (nothing synchronous inside the effect), and the cancelled guard
+  // drops a late response from an already-unmounted first render.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const admins = await fetchAdmins();
+        if (!cancelled) setRows(admins);
+      } catch (requestError) {
+        if (!cancelled) setError(messageFor(requestError instanceof Error ? requestError.message : null));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchAdmins]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
