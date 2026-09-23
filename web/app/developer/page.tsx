@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requireCreator } from "@/lib/auth/creator";
 import DeveloperPlatformAdmins from "./platform-admins-manager";
 
@@ -23,20 +22,6 @@ export default async function DeveloperPage() {
           Developer Center adalah lapisan Creator — terpisah dari Admin Center (operasional), Producer Dashboard,
           dan area user. Verifikasi kewenangan berjalan server-side di setiap permintaan.
         </p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link
-            href="/admin"
-            className="rounded-xl border border-white/15 bg-[#20231f] px-4 py-2.5 text-xs font-bold text-white/80 hover:bg-white/10"
-          >
-            Buka Admin Center →
-          </Link>
-          <Link
-            href="/account"
-            className="rounded-xl border border-white/15 px-4 py-2.5 text-xs font-bold text-white/70 hover:bg-white/10"
-          >
-            Kelola Akun
-          </Link>
-        </div>
       </section>
 
       <DeveloperPlatformAdmins creatorEmail={creator.email} />

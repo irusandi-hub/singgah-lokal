@@ -75,10 +75,10 @@ export default async function DeveloperLayout({ children }: { children: React.Re
             <div className="flex items-center gap-3">
               <span className="hidden text-xs font-semibold text-white/60 sm:block">{guard.email}</span>
               <Link
-                href="/account"
+                href="/"
                 className="rounded-full border border-white/20 px-4 py-2 text-xs font-bold text-white/80 hover:bg-white/10"
               >
-                Kelola Akun
+                Home
               </Link>
             </div>
           </div>
