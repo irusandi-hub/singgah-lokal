@@ -16,6 +16,7 @@ const errorStatuses: Record<string, number> = {
   email_invalid: 400,
   creator_account: 409,
   account_not_found: 404,
+  service_not_configured: 503,
   lookup_failed: 502,
   list_failed: 502,
   grant_failed: 502,
@@ -35,6 +36,7 @@ export async function GET() {
       return NextResponse.json({ error: "creator_required" }, { status: 403 });
     }
     if (error instanceof DeveloperActionError) return errorResponse(error.code);
+    console.error("[developer/platform-admins] unexpected list error", error);
     return errorResponse("list_failed");
   }
 }
@@ -60,6 +62,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "creator_required" }, { status: 403 });
     }
     if (error instanceof DeveloperActionError) return errorResponse(error.code);
+    console.error("[developer/platform-admins] unexpected grant error", error);
     return errorResponse("grant_failed");
   }
 }
@@ -85,6 +88,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "creator_required" }, { status: 403 });
     }
     if (error instanceof DeveloperActionError) return errorResponse(error.code);
+    console.error("[developer/platform-admins] unexpected revoke error", error);
     return errorResponse("revoke_failed");
   }
 }

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { requireCreator } from "@/lib/auth/creator";
-import { createSupabaseServiceClient } from "@/lib/supabase/admin";
+import { ServiceConfigError, createSupabaseServiceClient } from "@/lib/supabase/admin";
 
 /**
  * Developer Center data layer — Platform Admin management (Authority Master
@@ -35,19 +35,41 @@ export class DeveloperActionError extends Error {
   }
 }
 
+/**
+ * Resolve the service-role client, translating a missing server runtime
+ * configuration into a distinct, actionable code instead of a generic data
+ * failure. The true cause (which env var NAMES are missing) is logged
+ * server-side only — it is never returned to any client surface (Authority
+ * Master §3).
+ */
+function requireServiceClient() {
+  try {
+    return createSupabaseServiceClient();
+  } catch (error) {
+    if (error instanceof ServiceConfigError) {
+      console.error("[developer/platform-admins] service client not configured:", error.message);
+      throw new DeveloperActionError("service_not_configured");
+    }
+    throw error;
+  }
+}
+
 const PLATFORM_ROLE = "platform_moderator";
 
 export async function listPlatformAdmins(): Promise<PlatformAdminRow[]> {
   await requireCreator();
 
-  const admin = createSupabaseServiceClient();
+  const admin = requireServiceClient();
   const { data, error } = await admin
     .from("users")
     .select("id, platform_role, created_at")
     .eq("platform_role", PLATFORM_ROLE)
     .order("created_at", { ascending: false });
 
-  if (error) throw new DeveloperActionError("list_failed");
+  if (error) {
+    console.error("[developer/platform-admins] users query failed:", error.message);
+    throw new DeveloperActionError("list_failed");
+  }
 
   const rows = data ?? [];
   if (rows.length === 0) return [];
@@ -56,7 +78,10 @@ export async function listPlatformAdmins(): Promise<PlatformAdminRow[]> {
     page: 1,
     perPage: 1000,
   });
-  if (authError) throw new DeveloperActionError("list_failed");
+  if (authError) {
+    console.error("[developer/platform-admins] auth user lookup failed:", authError.message);
+    throw new DeveloperActionError("list_failed");
+  }
 
   const emailById = new Map((authData.users ?? []).map((user) => [user.id, user.email ?? null]));
 
@@ -79,7 +104,7 @@ export async function grantPlatformAdmin(email: string): Promise<PlatformAdminRo
   // platform_moderator (Authority Master §4).
   if (requireCreatorAllowlistIncludes(target)) throw new DeveloperActionError("creator_account");
 
-  const admin = createSupabaseServiceClient();
+  const admin = requireServiceClient();
   const { data: userData, error: userError } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (userError) throw new DeveloperActionError("lookup_failed");
 
@@ -109,7 +134,7 @@ export async function revokePlatformAdmin(email: string): Promise<void> {
   if (!target.includes("@")) throw new DeveloperActionError("email_invalid");
   if (requireCreatorAllowlistIncludes(target)) throw new DeveloperActionError("creator_account");
 
-  const admin = createSupabaseServiceClient();
+  const admin = requireServiceClient();
   const { data: userData, error: userError } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (userError) throw new DeveloperActionError("lookup_failed");
 

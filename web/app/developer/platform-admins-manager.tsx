@@ -24,6 +24,8 @@ const errorMessages: Record<string, string> = {
   email_invalid: "Email tidak valid.",
   account_not_found: "Akun dengan email tersebut tidak ditemukan.",
   creator_account: "Akun Creator tidak dapat dijadikan Platform Admin.",
+  service_not_configured:
+    "Server produksi belum terkonfigurasi: SUPABASE_SERVICE_ROLE_KEY tidak tersedia. Tambahkan di Vercel → Settings → Environment Variables (Production), lalu deploy ulang.",
   lookup_failed: "Pemeriksaan akun gagal. Coba lagi.",
   list_failed: "Daftar Platform Admin tidak dapat dimuat.",
   grant_failed: "Pemberian role gagal. Coba lagi.",

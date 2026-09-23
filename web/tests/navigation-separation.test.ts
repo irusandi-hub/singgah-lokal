@@ -74,6 +74,17 @@ test("Creator authorization is environment-based, fail closed, and never a DB ro
   assert.doesNotMatch(code, /platform_moderator/);
 });
 
+test("Missing service configuration is service_not_configured, logged server-side only", () => {
+  assert.match(serviceClient, /ServiceConfigError/);
+  assert.match(developerLib, /service_not_configured/);
+  assert.match(developerLib, /console\.error\("\[developer\/platform-admins\]/);
+  assert.match(developerApi, /service_not_configured: 503/);
+  assert.match(developerApi, /console\.error/);
+  // The creator-only UI names the missing variable — never its value.
+  assert.match(developerManager, /service_not_configured/);
+  assert.match(developerManager, /SUPABASE_SERVICE_ROLE_KEY/);
+});
+
 test("Platform Admin grant/revoke always passes through requireCreator", () => {
   for (const name of ["listPlatformAdmins", "grantPlatformAdmin", "revokePlatformAdmin"]) {
     const fn = developerLib.slice(developerLib.indexOf(`export async function ${name}`));
