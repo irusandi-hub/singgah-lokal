@@ -1,14 +1,16 @@
 import { requireCreator } from "@/lib/auth/creator";
+import AccountSecurityManager from "./account-security-manager";
 import DeveloperPlatformAdmins from "./platform-admins-manager";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Developer Center overview (Authority Master §2): the Creator's in-app
- * surface. Today it exposes exactly one Creator power that is safe to operate
- * in-app — Platform Admin lifecycle. Everything infrastructural (GitHub,
- * Vercel, Supabase project settings, DNS, secrets, deployment) stays in
- * Creator-controlled consoles by design.
+ * surface. It exposes the Creator powers that are safe to operate in-app —
+ * Platform Admin lifecycle and the Creator account security settings
+ * (email, password, secret question, all re-verified server-side).
+ * Everything infrastructural (GitHub, Vercel, Supabase project settings,
+ * DNS, secrets, deployment) stays in Creator-controlled consoles by design.
  */
 export default async function DeveloperPage() {
   const creator = await requireCreator();
@@ -25,6 +27,8 @@ export default async function DeveloperPage() {
       </section>
 
       <DeveloperPlatformAdmins creatorEmail={creator.email} />
+
+      <AccountSecurityManager />
     </div>
   );
 }

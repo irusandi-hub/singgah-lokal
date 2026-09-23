@@ -15,6 +15,13 @@ const developerApi = readFileSync(new URL("../app/api/developer/platform-admins/
 const authPage = readFileSync(new URL("../app/auth/page.tsx", import.meta.url), "utf8");
 const sessionRoute = readFileSync(new URL("../app/api/auth/session/route.ts", import.meta.url), "utf8");
 const signOutButton = readFileSync(new URL("../components/sign-out-button.tsx", import.meta.url), "utf8");
+const securityLib = readFileSync(new URL("../lib/creator/security-settings.ts", import.meta.url), "utf8");
+const securityApi = readFileSync(new URL("../app/api/creator/security-settings/route.ts", import.meta.url), "utf8");
+const securityManager = readFileSync(new URL("../app/developer/account-security-manager.tsx", import.meta.url), "utf8");
+const secretQuestionMigration = readFileSync(
+  new URL("../supabase/migrations/0014_creator_secret_question.sql", import.meta.url),
+  "utf8",
+);
 
 test("Main header contains no Producer, Admin, or Developer menu", () => {
   assert.doesNotMatch(siteNav, /producer-nav|ProducerNav/);
@@ -129,6 +136,69 @@ test("Developer API maps authorization failures without leaking internals", () =
   assert.match(developerApi, /export const dynamic = "force-dynamic"/);
   assert.match(developerApi, /creator_required/);
   assert.match(developerApi, /CreatorRequiredError/);
+});
+
+test("Creator account security requires password re-verification and allowlist-safe email", () => {
+  assert.match(securityApi, /requireCreator\(\)/);
+  assert.match(securityApi, /signInWithPassword/);
+  assert.match(securityApi, /invalid_current_password/);
+  assert.match(securityApi, /isCreatorEmail\(newEmail\)/);
+  assert.match(securityApi, /updateUser\(\{ email: newEmail \}\)/);
+  assert.match(securityApi, /updateUser\(\{ password: newPassword \}\)/);
+  assert.match(securityApi, /invalid_secret_answer/);
+  assert.match(securityApi, /creator_required/);
+  // Supabase Auth is the system of record for email/password — no service
+  // role in these flows.
+  const apiCode = securityApi
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("*") && !line.trim().startsWith("//"))
+    .join("\n");
+  assert.doesNotMatch(apiCode, /SUPABASE_SERVICE_ROLE_KEY|createSupabaseServiceClient/);
+});
+
+test("Creator secret question is stored hashed, server-side only, fail-closed", () => {
+  // RLS enabled with no policies => anon/authenticated can never touch rows.
+  // (Comments are stripped so the doc line "no CREATE POLICY" doesn't count.)
+  const migrationCode = secretQuestionMigration
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+  assert.match(migrationCode, /enable row level security/);
+  assert.doesNotMatch(migrationCode, /create policy/i);
+  // Answer is a salted scrypt hash — never plaintext, never hardcoded.
+  assert.match(securityLib, /import "server-only"/);
+  assert.match(securityLib, /randomBytes/);
+  assert.match(securityLib, /scrypt/);
+  assert.match(securityLib, /timingSafeEqual/);
+  assert.match(securityLib, /answer_salt/);
+  assert.match(securityLib, /answer_hash/);
+  const libCode = securityLib
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("*") && !line.trim().startsWith("//"))
+    .join("\n");
+  // No hardcoded/default answer ever exists in source.
+  assert.doesNotMatch(libCode, /answer:\s*"[^"]+"/);
+  // Every storage operation re-verifies Creator authorization.
+  for (const name of ["getCreatorSecretQuestion", "setCreatorSecretQuestion", "checkCreatorSecretAnswer"]) {
+    const fn = securityLib.slice(securityLib.indexOf(`export async function ${name}`));
+    const body = fn.slice(0, fn.indexOf("\n}"));
+    assert.match(body, /await requireCreator\(\)/, `${name} must verify Creator first`);
+  }
+});
+
+test("Creator security settings expose no answer material and mount-fetch their status", () => {
+  assert.match(securityManager, /Ganti Email/);
+  assert.match(securityManager, /Ganti Password/);
+  assert.match(securityManager, /Ganti Pertanyaan Rahasia/);
+  assert.match(securityManager, /api\/creator\/security-settings/);
+  assert.match(securityManager, /useEffect\(/);
+  assert.match(securityManager, /await fetchQuestionStatus\(\)/);
+  // The UI must never receive hash/salt material.
+  const uiCode = securityManager
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("*") && !line.trim().startsWith("//"))
+    .join("\n");
+  assert.doesNotMatch(uiCode, /answer_hash|answer_salt/);
 });
 
 test("Password field has a show/hide toggle on the login page", () => {
