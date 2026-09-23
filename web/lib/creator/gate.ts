@@ -133,15 +133,21 @@ export async function passSecretQuestionStep(
 
 /**
  * Server-side gate check for /developer. Returns whether the signed gate
- * cookie is present, valid, bound to the current Creator, and unexpired.
- * Creator authorization itself is still enforced separately by requireCreator().
+ * cookie is present, correctly signed for this purpose, unexpired, AND bound
+ * to the exact Creator currently signed in — signature alone is never
+ * enough. Creator authorization itself is still enforced separately by
+ * requireCreator().
  */
-export async function hasValidGate(): Promise<boolean> {
+export async function hasValidGate(userId: string): Promise<boolean> {
+  if (!userId) return false;
   const secret = resolveGateSecret();
   if (!secret) return false;
   const store = await cookies();
   const gate = store.get(CREATOR_GATE_COOKIE)?.value;
-  return verifyGatePayload(gate, secret, "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000).ok;
+  const verification = verifyGatePayload(gate, secret, "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000);
+  // Signature + expiry + purpose already checked; the cookie must also name
+  // this exact Creator so one account's gate can never serve another.
+  return verification.ok && verification.userId === userId;
 }
 
 /** Adds a random delay so wrong-answer probes are not timing-distinguishable. */

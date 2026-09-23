@@ -98,10 +98,14 @@ export default function CreatorGateClient() {
     [],
   );
 
+  // Official Turnstile flow: the widget renders an isolated form with its own
+  // "cf-turnstile-response" input inside; reading the submitted FormData
+  // (or the Turnstile callback state) is the supported way to get the token.
+  // No hand-rolled hidden input is used.
   function onCaptchaSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const input = document.getElementById("cf-turnstile-response") as HTMLInputElement | null;
-    const token = input?.value ?? "";
+    const formData = new FormData(event.currentTarget);
+    const token = String(formData.get("cf-turnstile-response") ?? "").trim();
     if (!token) {
       setFeedback({ kind: "error", message: "Selesaikan verifikasi Bukan robot terlebih dahulu." });
       return;
@@ -162,7 +166,6 @@ export default function CreatorGateClient() {
                   data-sitekey={TURNSTILE_SITE_KEY}
                   data-theme="light"
                 />
-                <input type="hidden" id="cf-turnstile-response" name="cf-turnstile-response" />
                 <button
                   type="submit"
                   disabled={submitting}

@@ -10,13 +10,17 @@ export const dynamic = "force-dynamic";
 /**
  * Creator security gate page (Authority Master §2).
  *
- * Only the Creator ever reaches this route: requireCreator() runs first and
- * a non-Creator sees the same 403 as anywhere else — regular users,
- * Producers, and Platform Admins never encounter this gate. A Creator with
- * a valid signed gate cookie proceeds straight to /developer; otherwise the
- * two-step verification starts here. The destination after completion is a
- * fixed internal path resolved through the same returnTo sanitization used
- * by /auth, so no open redirect is introduced.
+ * This route lives OUTSIDE app/developer/ so it is not wrapped by the
+ * Developer Center layout — the previous placement under developer/gate
+ * made the layout's own gate-check redirect loop against this page and
+ * render blank. Only the Creator ever reaches this route: requireCreator()
+ * runs first and a non-Creator sees the same 403 as anywhere else —
+ * regular users, Producers, and Platform Admins never encounter this gate.
+ * A Creator with a valid signed gate cookie proceeds straight to their
+ * destination; otherwise the two-step verification starts here. The
+ * destination after completion is a fixed internal path resolved through
+ * the same returnTo sanitization used by /auth, so no open redirect is
+ * introduced.
  */
 export default async function DeveloperGatePage({
   searchParams,
@@ -24,9 +28,11 @@ export default async function DeveloperGatePage({
   searchParams: Promise<{ returnTo?: string }>;
 }) {
   let creatorEmail: string;
+  let creatorId: string;
   try {
     const creator = await requireCreator();
     creatorEmail = creator.email;
+    creatorId = creator.userId;
   } catch (error) {
     if (error instanceof CreatorRequiredError) {
       // Unauthenticated visitors head to sign-in first; authenticated
@@ -36,10 +42,10 @@ export default async function DeveloperGatePage({
         const supabase = await createSupabaseServerClient();
         const { data } = await supabase.auth.getUser();
         if (!data?.user) {
-          redirect("/auth?returnTo=%2Fdeveloper%2Fgate");
+          redirect("/auth?returnTo=%2Fdeveloper-gate");
         }
       } catch {
-        redirect("/auth?returnTo=%2Fdeveloper%2Fgate");
+        redirect("/auth?returnTo=%2Fdeveloper-gate");
       }
       return (
         <main className="flex min-h-screen items-center justify-center bg-brand-cream px-5 text-[#20231f]">
@@ -63,8 +69,8 @@ export default async function DeveloperGatePage({
   }
 
   // An already-verified Creator does not see the gate again until the signed
-  // cookie expires.
-  if (await hasValidGate()) {
+  // cookie expires — and the cookie must belong to THIS Creator.
+  if (await hasValidGate(creatorId)) {
     const params = await searchParams;
     const returnTo = sanitizeReturnTo(params.returnTo ?? null);
     redirect(returnTo === "/" ? "/developer" : returnTo);

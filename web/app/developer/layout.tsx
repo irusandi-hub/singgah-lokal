@@ -22,12 +22,18 @@ export const dynamic = "force-dynamic";
  *   and direct URLs cannot bypass it because the check re-runs on every
  *   request from the HTTP-only cookie, not from client state.
  */
-type DeveloperGuard = { kind: "authorized"; email: string } | { kind: "unauthenticated" } | { kind: "forbidden" };
+type DeveloperGuard =
+  | { kind: "authorized"; email: string; gateValid: boolean }
+  | { kind: "unauthenticated" }
+  | { kind: "forbidden" };
 
 async function resolveDeveloperGuard(): Promise<DeveloperGuard> {
   try {
     const creator = await requireCreator();
-    return { kind: "authorized", email: creator.email };
+    // The gate cookie must be valid AND bound to this exact Creator's user id
+    // (signature, expiry, purpose, and userId all verified server-side).
+    const gateValid = await hasValidGate(creator.userId);
+    return { kind: "authorized", email: creator.email, gateValid };
   } catch (error) {
     if (error instanceof CreatorRequiredError) {
       try {
@@ -50,11 +56,13 @@ export default async function DeveloperLayout({ children }: { children: React.Re
     redirect("/auth?returnTo=%2Fdeveloper");
   }
 
-  if (guard.kind === "authorized" && !(await hasValidGate())) {
-    // Verified Creator without a valid gate: send them through the two-step
-    // verification instead of rendering the Center. returnTo stays internal
-    // (encodeURIComponent of a fixed path — no open redirect).
-    redirect(`/developer/gate?returnTo=${encodeURIComponent("/developer")}`);
+  if (guard.kind === "authorized" && !guard.gateValid) {
+    // Verified Creator without a valid, user-bound gate: send them through
+    // the two-step verification on a route OUTSIDE this layout (the old
+    // /developer/gate placement caused a redirect loop with this check).
+    // returnTo stays internal (encodeURIComponent of a fixed path — no open
+    // redirect).
+    redirect(`/developer-gate?returnTo=${encodeURIComponent("/developer")}`);
   }
 
   if (guard.kind === "forbidden") {

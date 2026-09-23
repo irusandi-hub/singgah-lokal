@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import {
   CREATOR_GATE_COOKIE,
@@ -13,9 +13,9 @@ import {
 
 const gateLib = readFileSync(new URL("../lib/creator/gate.ts", import.meta.url), "utf8");
 const gateApi = readFileSync(new URL("../app/api/creator/gate/route.ts", import.meta.url), "utf8");
-const gatePage = readFileSync(new URL("../app/developer/gate/page.tsx", import.meta.url), "utf8");
+const gatePage = readFileSync(new URL("../app/developer-gate/page.tsx", import.meta.url), "utf8");
 const gateClient = readFileSync(
-  new URL("../app/developer/gate/creator-gate-client.tsx", import.meta.url),
+  new URL("../app/developer-gate/creator-gate-client.tsx", import.meta.url),
   "utf8",
 );
 const developerLayout = readFileSync(new URL("../app/developer/layout.tsx", import.meta.url), "utf8");
@@ -108,15 +108,42 @@ test("Gate page is Creator-only, returnTo-sanitized, and session-verified", () =
   assert.match(gatePage, /await requireCreator\(\)/);
   assert.match(gatePage, /sanitizeReturnTo/);
   assert.match(gatePage, /hasValidGate/);
-  assert.match(gatePage, /redirect\("\/auth\?returnTo=%2Fdeveloper%2Fgate"\)/);
+  assert.match(gatePage, /redirect\("\/auth\?returnTo=%2Fdeveloper-gate"\)/);
 });
 
 test("Developer Center enforces the gate server-side on every request", () => {
   assert.match(developerLayout, /hasValidGate/);
-  assert.match(developerLayout, /redirect\(`\/developer\/gate\?returnTo=/);
+  assert.match(developerLayout, /redirect\(`\/developer-gate\?returnTo=/);
   // The check sits behind Creator authorization, never instead of it.
   const layoutCode = stripComments(developerLayout);
-  assert.match(layoutCode, /guard\.kind === "authorized" && !\(await hasValidGate\(\)\)/);
+  assert.match(layoutCode, /guard\.kind === "authorized" && !guard\.gateValid/);
+});
+
+test("Gate check is bound to the signed-in Creator's user id, not signature alone", () => {
+  const gateLibCode = stripComments(gateLib);
+  // hasValidGate takes the current Creator's id and compares it with the
+  // cookie payload's bound userId after signature/expiry/purpose checks.
+  assert.match(gateLibCode, /hasValidGate\(userId: string\)/);
+  assert.match(gateLibCode, /if \(!userId\) return false;/);
+  assert.match(gateLibCode, /verification\.ok && verification\.userId === userId/);
+  // Layout and gate page pass the requireCreator()-resolved id.
+  const layoutCode = stripComments(developerLayout);
+  assert.match(layoutCode, /hasValidGate\(creator\.userId\)/);
+  const pageCode = stripComments(gatePage);
+  assert.match(pageCode, /hasValidGate\(creatorId\)/);
+  // The gate route lives OUTSIDE the developer layout directory (no loop):
+  // the old nested route must not exist anymore.
+  assert.equal(existsSync(new URL("../app/developer/gate/page.tsx", import.meta.url)), false);
+});
+
+test("Turnstile token comes from the official widget form data, not a hand-made input", () => {
+  const clientCode = stripComments(gateClient);
+  // Token is read from the submitted form data of the official widget input.
+  assert.match(clientCode, /FormData\(event\.currentTarget\)/);
+  assert.match(clientCode, /formData\.get\("cf-turnstile-response"\)/);
+  // No synthetic hidden input pretending to hold the token.
+  assert.doesNotMatch(clientCode, /type="hidden"/);
+  assert.doesNotMatch(clientCode, /getElementById/);
 });
 
 test("Gate client holds no verification logic or secret material", () => {
