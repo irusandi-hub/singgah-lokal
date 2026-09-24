@@ -6,8 +6,9 @@ import {
   formatAdminTimestamp,
   formatShortId,
 } from "@/components/admin/ui";
-import { listAdminMemberships, type AdminMembershipRow } from "@/lib/admin/queries";
+import { listAdminMemberships, listAdminPlaces, type AdminMembershipRow } from "@/lib/admin/queries";
 import { PlatformModeratorRequiredError } from "@/lib/live/platform";
+import ProducerApplicationsManager from "./applications-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +18,9 @@ export const dynamic = "force-dynamic";
  */
 export default async function AdminProducerMembershipPage() {
   let memberships: AdminMembershipRow[];
+  let places: { id: string; name: string; producerId: string | null }[];
   try {
-    memberships = await listAdminMemberships();
+    [memberships, places] = await Promise.all([listAdminMemberships(), listAdminPlaces()]);
   } catch (error) {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
@@ -33,8 +35,12 @@ export default async function AdminProducerMembershipPage() {
     <div className="space-y-8">
       <AdminPageHeader
         title="Producer Membership"
-        description="Kewenangan Producer per Place (user, producer, place, role). Read-only untuk MVP."
+        description="Kewenangan Producer per Place (user, producer, place, role)."
       />
+
+      {/* Approval flow: pengajuan terikat user_id pengaju; approval mengaktifkan
+          membership untuk akun yang sama (tanpa auth user/credential baru). */}
+      <ProducerApplicationsManager places={places} />
       <AdminDataTable
         rows={memberships}
         emptyMessage="Belum ada Producer Membership."

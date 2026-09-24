@@ -125,3 +125,42 @@ test("Membership table remains the single Producer grant (existing schema unchan
   assert.match(base, /role text not null check \(role in \('owner', 'manager', 'editor'\)\)/);
   assert.doesNotMatch(base, /password/);
 });
+
+const membershipAdminPage = readFileSync(
+  new URL("../app/admin/producer-membership/page.tsx", import.meta.url),
+  "utf8",
+);
+const applicationsManager = readFileSync(
+  new URL("../app/admin/producer-membership/applications-manager.tsx", import.meta.url),
+  "utf8",
+);
+
+test("Admin Center surfaces pending applications with an approve action", () => {
+  const pageCode = stripComments(membershipAdminPage);
+  assert.match(pageCode, /ProducerApplicationsManager/);
+  assert.match(pageCode, /listAdminPlaces\(\)/);
+  const managerCode = stripComments(applicationsManager);
+  // The admin API (which enforces requirePlatformModerator) is the only channel.
+  assert.match(managerCode, /api\/admin\/producer-applications/);
+  assert.match(managerCode, /Setujui/);
+  // Success feedback only after the server confirms; list refreshed after.
+  assert.match(managerCode, /Berhasil menyetujui/);
+  const okIdx = managerCode.indexOf("Berhasil menyetujui");
+  const guardIdx = managerCode.indexOf("if (!response.ok)");
+  assert.ok(guardIdx >= 0 && okIdx > guardIdx, "approval success must follow server confirmation");
+});
+
+test("Approval sends only application/place/role — never identity fields", () => {
+  const managerCode = stripComments(applicationsManager);
+  assert.match(managerCode, /applicationId/);
+  assert.match(managerCode, /placeId/);
+  // Only the POST body matters: inspect its exact construction.
+  const bodyStart = managerCode.indexOf("JSON.stringify({");
+  const bodyEnd = managerCode.indexOf("})", bodyStart);
+  const postBody = managerCode.slice(bodyStart, bodyEnd);
+  assert.match(postBody, /applicationId/);
+  assert.match(postBody, /producerId/);
+  assert.match(postBody, /placeId/);
+  assert.match(postBody, /role/);
+  assert.doesNotMatch(postBody, /email|user_id|password/i);
+});
