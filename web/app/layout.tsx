@@ -22,9 +22,16 @@ const poppins = Poppins({
 // kept so the icon is always readable. No drawing, recoloring, or resizing of
 // the master assets happens in code.
 function brandIconMetadata(): Metadata["icons"] | undefined {
-  const brandDir = path.join(process.cwd(), "public", "brand");
-  const icon512 = path.join(brandDir, "singgah-lokal-icon-512.png");
-  if (!existsSync(icon512)) return undefined;
+  // The dev/preview process cwd may be the repo root or the web/ package dir;
+  // try both so the master icons are picked up in every runtime.
+  const candidates = [
+    path.join(process.cwd(), "public", "brand"),
+    path.join(process.cwd(), "web", "public", "brand"),
+  ];
+  const brandDir = candidates.find((dir) =>
+    existsSync(path.join(dir, "singgah-lokal-icon-512.png")),
+  );
+  if (!brandDir) return undefined;
   const favicon = path.join(brandDir, "singgah-lokal-favicon.ico");
   return {
     icon: existsSync(favicon)
