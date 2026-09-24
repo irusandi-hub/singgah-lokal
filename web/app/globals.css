@@ -34,12 +34,8 @@
   --font-brand: var(--font-poppins);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* Light brand theme is the ONLY theme (Master brand identity). No automatic
+   dark-mode override: dark devices still get the light brand UI. */
 
 body {
   background: var(--background);
