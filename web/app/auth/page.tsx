@@ -3,6 +3,7 @@
 import { FormEvent, Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import BrandLogo from "@/components/brand-logo";
 import { sanitizeReturnTo } from "@/lib/auth/return-to";
 
 /**
@@ -87,9 +88,9 @@ function AuthForm() {
           ← Beranda
         </Link>
 
-        <header className="mt-8 text-center">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">SINGGAH LOKAL</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Masuk</h1>
+        <header className="mt-8 flex flex-col items-center text-center">
+          <BrandLogo height={44} className="max-w-full" />
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Masuk</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
             Masuk untuk mengirim Visit Intent atau mengelola Place-mu. Niat berkunjung
             dikirim ke Producer — bukan pembayaran.

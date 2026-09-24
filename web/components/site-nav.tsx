@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isActiveNavSection } from "@/lib/navigation";
+import BrandLogo from "./brand-logo";
 import SignOutButton from "./sign-out-button";
 
 type SiteNavProps = {
@@ -52,12 +53,9 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
     <header className="sticky top-0 z-30 border-b border-black/5 bg-brand-cream/95 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-4">
         <div className="min-w-0">
-          <Link href="/" className="block text-xl font-semibold tracking-tight">
-            SINGGAH<span className="text-brand-accent"> LOKAL</span>
+          <Link href="/" className="flex min-h-[40px] items-center" aria-label="SINGGAH LOKAL — beranda">
+            <BrandLogo height={40} tagline="Temukan cerita di balik tempat" />
           </Link>
-          <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-black/45">
-            Temukan cerita di balik tempat
-          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
