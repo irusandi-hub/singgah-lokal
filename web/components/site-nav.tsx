@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isActiveNavSection } from "@/lib/navigation";
+import AccountMenu from "./account-menu";
 import BrandLogo from "./brand-logo";
-import SignOutButton from "./sign-out-button";
 
 type SiteNavProps = {
   // Optional server-derived auth state. When omitted the header probes
@@ -98,23 +98,9 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
           </nav>
 
           {session === null ? null : authenticated ? (
-            <div className="flex items-center gap-2">
-              {session.email ? (
-                <span
-                  className="hidden max-w-[220px] truncate text-xs font-semibold text-black/60 md:block"
-                  title={session.email}
-                >
-                  {session.email}
-                </span>
-              ) : null}
-              <Link
-                href="/account"
-                className="rounded-full bg-brand-primary px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-primary-deep"
-              >
-                Kelola Akun
-              </Link>
-              <SignOutButton />
-            </div>
+            // Single ☰ entry point after sign in: email, Kelola Akun, and
+            // Sign Out no longer sit in the header itself.
+            <AccountMenu />
           ) : (
             <>
               <Link

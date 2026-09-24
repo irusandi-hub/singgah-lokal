@@ -14,7 +14,6 @@ const serviceClient = readFileSync(new URL("../lib/supabase/admin.ts", import.me
 const developerApi = readFileSync(new URL("../app/api/developer/platform-admins/route.ts", import.meta.url), "utf8");
 const authPage = readFileSync(new URL("../app/auth/page.tsx", import.meta.url), "utf8");
 const sessionRoute = readFileSync(new URL("../app/api/auth/session/route.ts", import.meta.url), "utf8");
-const signOutButton = readFileSync(new URL("../components/sign-out-button.tsx", import.meta.url), "utf8");
 const securityLib = readFileSync(new URL("../lib/creator/security-settings.ts", import.meta.url), "utf8");
 const securityApi = readFileSync(new URL("../app/api/creator/security-settings/route.ts", import.meta.url), "utf8");
 const securityManager = readFileSync(new URL("../app/developer/account-security-manager.tsx", import.meta.url), "utf8");
@@ -22,6 +21,13 @@ const secretQuestionMigration = readFileSync(
   new URL("../supabase/migrations/0014_creator_secret_question.sql", import.meta.url),
   "utf8",
 );
+
+function stripComments(source: string): string {
+  return source
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("*") && !line.trim().startsWith("//") && !line.trim().startsWith("/*"))
+    .join("\n");
+}
 
 test("Main header contains no Producer, Admin, or Developer menu", () => {
   assert.doesNotMatch(siteNav, /producer-nav|ProducerNav/);
@@ -31,12 +37,50 @@ test("Main header contains no Producer, Admin, or Developer menu", () => {
   }
 });
 
-test("Header shows the account email next to Keluar, plus a single Kelola Akun entry", () => {
-  assert.match(siteNav, /Kelola Akun/);
-  assert.match(siteNav, /session\.email/);
-  assert.match(siteNav, /SignOutButton/);
-  assert.match(signOutButton, /Keluar/);
+test("Signed-in header collapses to a single ☰ account/application menu", () => {
+  // Email, standalone Kelola Akun, and standalone Sign Out are gone from the
+  // header surface; one ☰ menu (AccountMenu) becomes the entry point.
+  assert.match(siteNav, /AccountMenu/);
+  const authedBlock = stripComments(siteNav).slice(
+    stripComments(siteNav).indexOf("authenticated ? ("),
+    stripComments(siteNav).indexOf(") : ("),
+  );
+  assert.doesNotMatch(authedBlock, /session\.email/);
+  assert.doesNotMatch(authedBlock, /Kelola Akun/);
+  assert.doesNotMatch(authedBlock, /SignOutButton/);
+  // The menu itself owns the entries and the real sign-out mechanism.
+  const menuCode = readFileSync(new URL("../components/account-menu.tsx", import.meta.url), "utf8");
+  for (const expected of ["Account Center", "Sign Out", "Setting", "Navigation", "App Language", "Video Setting", "Help", "About & Terms", "/account"]) {
+    assert.ok(menuCode.includes(expected), `account menu must contain ${expected}`);
+  }
+  assert.match(menuCode, /SignOutButton/);
+  assert.match(menuCode, /aria-haspopup="menu"/);
+  assert.match(menuCode, /aria-expanded/);
+  assert.match(menuCode, /Escape/);
+  assert.match(menuCode, /pointerdown/);
+  // Session probe keeps returning the email (used elsewhere), header does not render it.
   assert.match(sessionRoute, /email: data\?\.user\?\.email \?\? null/);
+});
+
+test("Sign Out gives explicit success feedback and only navigates after server confirms", () => {
+  const signOutCode = readFileSync(new URL("../components/sign-out-button.tsx", import.meta.url), "utf8");
+  assert.match(signOutCode, /Berhasil keluar\./);
+  assert.match(signOutCode, /api\/auth\/sign-out/);
+  // Success state is set only after the fetch response (not on click).
+  const okIdx = signOutCode.indexOf("setSuccess(true)");
+  const fetchIdx = signOutCode.indexOf('await fetch("/api/auth/sign-out"');
+  assert.ok(fetchIdx >= 0 && okIdx > fetchIdx, "success feedback must follow the real logout");
+  assert.match(signOutCode, /aria-live="polite"/);
+});
+
+test("Sign In shows explicit success feedback after server confirms the session", () => {
+  const signInCode = readFileSync(new URL("../app/auth/page.tsx", import.meta.url), "utf8");
+  assert.match(signInCode, /Berhasil masuk\. Mengalihkan/);
+  assert.match(signInCode, /role="status"/);
+  // Success only after the authenticated check passed.
+  const okIdx = signInCode.indexOf('setSuccess("Berhasil masuk');
+  const authIdx = signInCode.indexOf("result?.authenticated !== true");
+  assert.ok(authIdx >= 0 && okIdx > authIdx, "sign-in success must follow server confirmation");
 });
 
 test("Kelola Akun gateway only renders areas the account holds, server-side", () => {

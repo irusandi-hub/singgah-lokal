@@ -28,6 +28,7 @@ function AuthForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   // Keep the validated destination reachable for the flow tests.
   useEffect(() => {
@@ -40,6 +41,7 @@ function AuthForm() {
     event.preventDefault();
     if (submitting) return;
     setError(null);
+    setSuccess(null);
 
     if (!email.trim() || !password) {
       setError("Email dan password wajib diisi.");
@@ -71,6 +73,9 @@ function AuthForm() {
         return;
       }
 
+      // Server confirmed the session; state the success explicitly before
+      // the redirect (feedback must not depend on navigation alone).
+      setSuccess("Berhasil masuk. Mengalihkan…");
       // Session cookie is set by the API route (Supabase SSR helper).
       router.replace(returnTo);
       router.refresh();
@@ -155,6 +160,11 @@ function AuthForm() {
           {error ? (
             <p className="mt-4 text-sm font-semibold text-red-700" role="alert">
               {error}
+            </p>
+          ) : null}
+          {success ? (
+            <p className="mt-4 text-sm font-semibold text-brand-primary" role="status">
+              {success}
             </p>
           ) : null}
 
