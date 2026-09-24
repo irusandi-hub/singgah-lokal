@@ -165,20 +165,20 @@ export default function CreatorGateClient() {
 
   if (leaseBlocked) {
     return (
-      <section className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+      <section className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Single Active Session</p>
-        <h2 className="mt-2 font-brand text-xl font-black text-[#20231f]">Sesi Creator lain sedang aktif</h2>
-        <p className="mt-3 text-sm leading-6 text-[#20231f]/60">
+        <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Sesi Creator lain sedang aktif</h2>
+        <p className="mt-3 text-sm leading-6 text-brand-ink/60">
           Slot Creator sedang digunakan oleh sesi lain. Identitas aktif (terbatas):{" "}
-          <span className="font-mono font-semibold text-[#20231f]">{leaseBlocked.maskedId ?? "••••"}</span>.
+          <span className="font-mono font-semibold text-brand-ink">{leaseBlocked.maskedId ?? "••••"}</span>.
         </p>
         {leaseBlocked.expiresIso ? (
-          <p className="mt-2 text-xs leading-5 text-[#20231f]/55">
+          <p className="mt-2 text-xs leading-5 text-brand-ink/55">
             Slot berakhir otomatis pada {new Date(leaseBlocked.expiresIso).toLocaleString("id-ID")} — atau lebih cepat
             bila sesi aktif tersebut logout.
           </p>
         ) : null}
-        <p className="mt-3 text-xs leading-5 text-[#20231f]/55">
+        <p className="mt-3 text-xs leading-5 text-brand-ink/55">
           CAPTCHA dan Pertanyaan Rahasia tidak diminta selama slot masih dipegang sesi lain.
         </p>
         <button
@@ -197,7 +197,7 @@ export default function CreatorGateClient() {
               setSubmitting(false);
             })();
           }}
-          className="mt-4 rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-black text-white transition hover:bg-[#0a5640] disabled:opacity-50"
+          className="mt-4 rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
         >
           Muat ulang status
         </button>
@@ -207,7 +207,7 @@ export default function CreatorGateClient() {
 
   if (status === null) {
     return (
-      <p className="text-sm font-semibold text-[#20231f]/60" role="status">
+      <p className="text-sm font-semibold text-brand-ink/60" role="status">
         Memuat gate…
       </p>
     );
@@ -215,7 +215,7 @@ export default function CreatorGateClient() {
 
   if (!status.storageAvailable) {
     return (
-      <p className="text-sm font-semibold text-[#b3261e]" role="alert">
+      <p className="text-sm font-semibold text-live" role="alert">
         Gate belum dapat memverifikasi pertanyaan rahasia (konfigurasi server belum lengkap). Hubungi pengelola
         lingkungan.
       </p>
@@ -223,14 +223,14 @@ export default function CreatorGateClient() {
   }
 
   const inputClass =
-    "w-full rounded-xl border border-[#20231f]/15 bg-white px-4 py-2.5 text-sm text-[#20231f] focus:border-brand-primary focus:outline-none";
+    "w-full rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-sm text-brand-ink focus:border-brand-primary focus:outline-none";
 
   return (
     <div className="space-y-6">
       {step === "captcha" ? (
-        <section className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+        <section className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Langkah 1 dari 2</p>
-          <h2 className="mt-2 font-brand text-xl font-black text-[#20231f]">Bukan robot</h2>
+          <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Bukan robot</h2>
           {status.captchaConfigured && TURNSTILE_SITE_KEY ? (
             <>
               <Script
@@ -246,21 +246,21 @@ export default function CreatorGateClient() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-black text-white transition hover:bg-[#0a5640] disabled:opacity-50"
+                  className="rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
                 >
                   {submitting ? "Memverifikasi…" : "Verifikasi"}
                 </button>
               </form>
-              <p className="mt-3 text-xs leading-5 text-[#20231f]/50">
+              <p className="mt-3 text-xs leading-5 text-brand-ink/50">
                 Verifikasi dilakukan server-side melalui Cloudflare Turnstile. Checkbox palsu tidak diterima.
               </p>
             </>
           ) : (
-            <div className="mt-4 rounded-xl border border-[#b3261e]/30 bg-[#b3261e]/10 px-4 py-3">
-              <p className="text-sm font-semibold text-[#b3261e]">
+            <div className="mt-4 rounded-xl border border-live/30 bg-live/10 px-4 py-3">
+              <p className="text-sm font-semibold text-live">
                 CAPTCHA belum terkonfigurasi — gate berstatus gagal-aman (tidak dapat dilanjutkan).
               </p>
-              <p className="mt-2 text-xs leading-5 text-[#20231f]/60">
+              <p className="mt-2 text-xs leading-5 text-brand-ink/60">
                 Variabel yang diperlukan (server-only):{" "}
                 <span className="font-mono">CLOUDFLARE_TURNSTILE_SECRET_KEY</span> dan{" "}
                 <span className="font-mono">NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY</span> (site key,
@@ -273,8 +273,8 @@ export default function CreatorGateClient() {
               role="status"
               className={`mt-4 rounded-xl border px-3 py-2 text-xs font-semibold ${
                 feedback.kind === "ok"
-                  ? "border-[#1f6b3f]/30 bg-[#1f6b3f]/10 text-[#1f6b3f]"
-                  : "border-[#b3261e]/30 bg-[#b3261e]/10 text-[#b3261e]"
+                  ? "border-ok/30 bg-ok/10 text-ok"
+                  : "border-live/30 bg-live/10 text-live"
               }`}
             >
               {feedback.message}
@@ -282,15 +282,15 @@ export default function CreatorGateClient() {
           ) : null}
         </section>
       ) : (
-        <section className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+        <section className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Langkah 2 dari 2</p>
-          <h2 className="mt-2 font-brand text-xl font-black text-[#20231f]">Pertanyaan Rahasia</h2>
+          <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Pertanyaan Rahasia</h2>
           {status.questionConfigured ? (
             <>
-              <p className="mt-3 text-sm font-semibold text-[#20231f]">{status.question}</p>
+              <p className="mt-3 text-sm font-semibold text-brand-ink">{status.question}</p>
               <form className="mt-4 space-y-3" onSubmit={onSecretSubmit}>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-[0.14em] text-[#20231f]/50" htmlFor="gate-secret-answer">
+                  <label className="block text-xs font-bold uppercase tracking-[0.14em] text-brand-ink/50" htmlFor="gate-secret-answer">
                     Jawaban
                   </label>
                   <input
@@ -305,21 +305,21 @@ export default function CreatorGateClient() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-black text-white transition hover:bg-[#0a5640] disabled:opacity-50"
+                  className="rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
                 >
                   {submitting ? "Memverifikasi…" : "Buka Developer Center"}
                 </button>
               </form>
-              <p className="mt-3 text-xs leading-5 text-[#20231f]/50">
+              <p className="mt-3 text-xs leading-5 text-brand-ink/50">
                 Jawaban diverifikasi server-side terhadap hash tersimpan. Jawaban salah membuat Anda tetap di gate.
               </p>
             </>
           ) : (
-            <div className="mt-4 rounded-xl border border-[#b3261e]/30 bg-[#b3261e]/10 px-4 py-3">
-              <p className="text-sm font-semibold text-[#b3261e]">
+            <div className="mt-4 rounded-xl border border-live/30 bg-live/10 px-4 py-3">
+              <p className="text-sm font-semibold text-live">
                 Pertanyaan rahasia belum diatur — gate berstatus gagal-aman (tidak dapat dilanjutkan).
               </p>
-              <p className="mt-2 text-xs leading-5 text-[#20231f]/60">
+              <p className="mt-2 text-xs leading-5 text-brand-ink/60">
                 Atur melalui Developer Center → Keamanan Akun → Ganti Pertanyaan Rahasia setelah gate dapat
                 dibuka, atau perbarui baris{" "}
                 <span className="font-mono">creator_secret_question</span> melalui service tooling Creator.
@@ -331,8 +331,8 @@ export default function CreatorGateClient() {
               role="status"
               className={`mt-4 rounded-xl border px-3 py-2 text-xs font-semibold ${
                 feedback.kind === "ok"
-                  ? "border-[#1f6b3f]/30 bg-[#1f6b3f]/10 text-[#1f6b3f]"
-                  : "border-[#b3261e]/30 bg-[#b3261e]/10 text-[#b3261e]"
+                  ? "border-ok/30 bg-ok/10 text-ok"
+                  : "border-live/30 bg-live/10 text-live"
               }`}
             >
               {feedback.message}

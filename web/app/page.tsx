@@ -129,7 +129,7 @@ export default function Home() {
   );
 
   return (
-    <main className="min-h-screen bg-[#f7f5ef] text-[#20231f]">
+    <main className="min-h-screen bg-brand-cream text-brand-ink">
       {/* Header + auth entry (Masuk / Sign out) + URL-derived active tabs */}
       <SiteNav />
 
@@ -154,13 +154,13 @@ export default function Home() {
           <button
             onClick={() => setLiveOnly((value) => !value)}
             aria-pressed={liveOnly}
-            className={`mr-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-black tracking-wide transition ${
+            className={`mr-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-semibold tracking-wide transition ${
               liveOnly
-                ? "bg-[#b3261e] text-white"
-                : "border border-[#b3261e]/40 bg-white text-[#b3261e]"
+                ? "bg-live text-white"
+                : "border border-live/40 bg-white text-live"
             }`}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-[#b3261e]"}`} />
+            <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-live"}`} />
             LIVE
           </button>
           {DISTANCE_FILTERS.map((filter) => (
@@ -169,7 +169,7 @@ export default function Home() {
               onClick={() => setDistanceFilter(filter)}
               className={`whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-bold transition ${
                 distanceFilter === filter
-                  ? "bg-[#7b5b38] text-white"
+                  ? "bg-brand-accent text-white"
                   : "border border-black/10 bg-white text-black/65"
               }`}
             >
@@ -181,7 +181,7 @@ export default function Home() {
         {/* LIVE filter empty state — a clear notice instead of an empty
             screen. Based only on canonical discovery data; no fake Live. */}
         {liveOnly && liveItems.length === 0 && (
-          <div className="mb-5 rounded-2xl border border-[#b3261e]/30 bg-white p-6 text-center shadow-sm">
+          <div className="mb-5 rounded-2xl border border-live/30 bg-white p-6 text-center shadow-sm">
             <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
             <p className="mt-1 text-xs text-black/55">
               Ketika sebuah Place memulai Live, proses produksinya otomatis muncul di sini.
@@ -189,7 +189,7 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setLiveOnly(false)}
-              className="mt-4 inline-flex rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white"
+              className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white"
             >
               Lihat Semua Place
             </button>
@@ -212,11 +212,11 @@ export default function Home() {
                 <VisitedLink
                   key={item.sessionId}
                   href={`/live/${item.sessionId}`}
-                  className="group rounded-2xl border border-[#b3261e]/30 bg-white p-4 shadow-sm transition hover:shadow-md"
-                  visitedClassName="border-[#b3261e]/60 bg-[#fdf6f2]"
+                  className="group rounded-2xl border border-live/30 bg-white p-4 shadow-sm transition hover:shadow-md"
+                  visitedClassName="border-live/60 bg-[#fdf6f2]"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[#b3261e] px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-white">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-live px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-white">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
                       Live Sekarang
                     </span>
@@ -224,11 +224,11 @@ export default function Home() {
                       {liveDurationLabel(item.startedAt)} • {item.viewerPeak}/100
                     </span>
                   </div>
-                  <p className="mt-3 text-sm font-black">{item.processTitle ?? "Proses produksi"}</p>
+                  <p className="mt-3 text-sm font-semibold">{item.processTitle ?? "Proses produksi"}</p>
                   <p className="mt-0.5 text-xs text-black/55">
                     {place?.name ?? item.placeName} • {place?.area ?? ""}
                   </p>
-                  <p className="mt-2 text-[11px] font-bold text-[#7b5b38]">
+                  <p className="mt-2 text-[11px] font-bold text-brand-accent">
                     {distance ? `${distance} • ` : ""}
                     {place?.type === "production" ? "Sedang berproduksi" : "Sedang aktif"}
                   </p>
@@ -264,11 +264,11 @@ export default function Home() {
             <div className="absolute bottom-0 left-0 right-0 z-20 rounded-t-[28px] bg-white p-5 shadow-[0_-10px_30px_rgba(0,0,0,0.12)]">
               <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-black/15" />
 
-              <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">
+              <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
                 Tempat pilihan
               </div>
 
-              <h2 className="text-2xl font-black tracking-tight">
+              <h2 className="text-2xl font-semibold tracking-tight">
                 {visiblePlaces[0].name}
               </h2>
 
@@ -284,7 +284,7 @@ export default function Home() {
               {liveByPlaceId.has(visiblePlaces[0].id) && (
                 <Link
                   href={`/live/${liveByPlaceId.get(visiblePlaces[0].id)!.sessionId}`}
-                  className="mt-4 block w-full rounded-2xl bg-[#b3261e] py-4 text-center text-sm font-bold text-white"
+                  className="mt-4 block w-full rounded-2xl bg-live py-4 text-center text-sm font-bold text-white"
                 >
                   Lihat Live Sekarang
                 </Link>
@@ -292,7 +292,7 @@ export default function Home() {
 
               <VisitedLink
                 href={`/places/${visiblePlaces[0].id}`}
-                className="mt-3 block w-full rounded-2xl bg-[#20231f] py-4 text-center text-sm font-bold text-white"
+                className="mt-3 block w-full rounded-2xl bg-brand-primary py-4 text-center text-sm font-bold text-white"
                 visitedClassName="bg-[#4a4d44]"
               >
                 Lihat Tempat
@@ -305,10 +305,10 @@ export default function Home() {
         <section className="mt-6" aria-labelledby="place-results-heading">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">
+              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
                 Hasil
               </p>
-              <h2 id="place-results-heading" className="mt-1 text-xl font-black">
+              <h2 id="place-results-heading" className="mt-1 text-xl font-semibold">
                 {searchQuery.trim() ? `Hasil untuk “${searchQuery.trim()}”` : "Tempat di sekitar"}
               </h2>
             </div>
@@ -336,17 +336,17 @@ export default function Home() {
                     key={place.id}
                     href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
                     className="rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
-                    visitedClassName={live ? "border-[#b3261e]/60 bg-[#fdf6f2]" : "border-[#7b5b38]/35 bg-[#faf6ee]"}
+                    visitedClassName={live ? "border-live/60 bg-[#fdf6f2]" : "border-brand-accent/35 bg-[#faf6ee]"}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#7b5b38]">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-accent">
                           {place.category}
                         </p>
-                        <h3 className="mt-1 text-base font-black">{place.name}</h3>
+                        <h3 className="mt-1 text-base font-semibold">{place.name}</h3>
                       </div>
                       {live && (
-                        <span className="shrink-0 rounded-full bg-[#b3261e] px-2 py-1 text-[9px] font-black uppercase tracking-wider text-white">
+                        <span className="shrink-0 rounded-full bg-live px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-white">
                           LIVE
                         </span>
                       )}
@@ -361,7 +361,7 @@ export default function Home() {
                     </p>
 
                     {distance && (
-                      <p className="mt-3 text-[11px] font-bold text-[#7b5b38]">
+                      <p className="mt-3 text-[11px] font-bold text-brand-accent">
                         {distance}
                       </p>
                     )}
@@ -381,10 +381,10 @@ export default function Home() {
 
         {/* Intro */}
         <section className="px-1 pb-4 pt-8">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#7b5b38]">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-accent">
             SINGGAH LOKAL
           </p>
-          <h1 className="mt-2 max-w-xl text-3xl font-black leading-tight tracking-tight sm:text-4xl">
+          <h1 className="mt-2 max-w-xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
             Jangan hanya datang.
             <br />
             Kenali ceritanya.

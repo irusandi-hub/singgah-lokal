@@ -45,9 +45,9 @@ export default async function ProducerLivePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
+    <main className="min-h-screen bg-brand-cream px-5 py-6 text-brand-ink sm:px-8">
       <div className="mx-auto max-w-3xl">
-        <Link className="text-sm font-bold text-[#7b5b38]" href="/producer">
+        <Link className="text-sm font-bold text-brand-accent" href="/producer">
           ← Dashboard Producer
         </Link>
 
@@ -56,8 +56,8 @@ export default async function ProducerLivePage() {
         </div>
 
         <header className="mt-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Producer Live</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight">Tayangkan Proses secara real-time</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Producer Live</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Tayangkan Proses secara real-time</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-black/60">
             Live menampilkan proses produksi asli dari Place-mu. 1 kamera statis, 720p/30fps,
             maksimal 100 penonton concurrent, durasi maksimal 60 menit. Live tidak direkam dan
@@ -72,7 +72,7 @@ export default async function ProducerLivePage() {
                 Kamu belum memiliki Place dengan akses owner/manager. Live hanya dapat dimulai dari
                 Place yang kamu kelola.
               </p>
-              <Link className="mt-4 inline-flex rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white" href="/producer/places">
+              <Link className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white" href="/producer/places">
                 Buka daftar Place
               </Link>
             </section>

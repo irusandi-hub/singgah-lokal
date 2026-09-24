@@ -222,12 +222,12 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
   if (endedReason) {
     return (
       <section className="mt-6 rounded-2xl border border-black/10 bg-white p-5 shadow-sm" aria-label="Live berakhir">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Live berakhir</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Live berakhir</p>
         <p className="mt-2 text-sm text-black/70">
           Live ini telah diakhiri. Tidak ada rekaman atau tayangan ulang — Live bersifat real-time saja.
         </p>
         <Link
-          className="mt-4 inline-flex rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white"
+          className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white"
           href={`/places/${placeId}`}
         >
           Kembali ke {placeName}
@@ -239,7 +239,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
   return (
     <div className="mt-6 grid gap-4 sm:grid-cols-2">
       {/* Video stage (WHEP playback; server-gated) */}
-      <section className="rounded-2xl border border-black/10 bg-[#20231f] p-5 shadow-sm" aria-label="Video Live">
+      <section className="rounded-2xl border border-black/10 bg-brand-ink p-5 shadow-sm" aria-label="Video Live">
         <video ref={videoRef} autoPlay playsInline muted className="aspect-video w-full rounded-xl bg-black object-cover" />
         {playbackError && (
           <p className="mt-3 text-xs font-semibold text-[#e8c47c]">{playbackError}</p>
@@ -254,11 +254,11 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
       {/* Comments (ephemeral) */}
       <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm" aria-label="Komentar Live">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Komentar</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Komentar</p>
           <span className="text-[10px] text-black/40">Ephemeral • tidak disimpan</span>
         </div>
 
-        <div ref={listRef} className="mt-3 h-40 space-y-2 overflow-y-auto rounded-xl bg-[#f7f5ef] p-3">
+        <div ref={listRef} className="mt-3 h-40 space-y-2 overflow-y-auto rounded-xl bg-brand-cream p-3">
           {comments.length === 0 ? (
             <p className="text-xs text-black/45">
               Komentar muncul real-time untuk penonton terverifikasi.
@@ -278,21 +278,21 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
             maxLength={LIVE_COMMENT_MAX_LENGTH}
             onChange={(event) => setDraft(event.target.value)}
             placeholder={`Tanya soal ${processTitle.toLowerCase()}...`}
-            className="w-full rounded-full border border-black/10 bg-[#f7f5ef] px-4 py-2.5 text-sm outline-none"
+            className="w-full rounded-full border border-black/10 bg-brand-cream px-4 py-2.5 text-sm outline-none"
           />
           <button
             onClick={submitComment}
-            className="rounded-full bg-[#20231f] px-4 py-2.5 text-sm font-bold text-white"
+            className="rounded-full bg-brand-ink px-4 py-2.5 text-sm font-bold text-white"
           >
             Kirim
           </button>
         </div>
-        {notice && <p className="mt-2 text-xs font-semibold text-[#b3261e]">{notice}</p>}
+        {notice && <p className="mt-2 text-xs font-semibold text-live">{notice}</p>}
       </section>
 
       {/* Report */}
       <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm" aria-label="Laporkan Live">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Laporkan Live</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Laporkan Live</p>
         {reportDone ? (
           <p className="mt-3 text-sm font-semibold text-black/70">
             Terima kasih. Laporanmu diterima dan akan ditinjau moderator platform.
@@ -302,7 +302,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
             <select
               value={reportCategory}
               onChange={(event) => setReportCategory(event.target.value)}
-              className="w-full rounded-xl border border-black/10 bg-[#f7f5ef] px-3 py-2.5 text-sm"
+              className="w-full rounded-xl border border-black/10 bg-brand-cream px-3 py-2.5 text-sm"
             >
               {REPORT_CATEGORIES.map((category) => (
                 <option key={category.value} value={category.value}>
@@ -315,10 +315,10 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
               maxLength={500}
               onChange={(event) => setReportNote(event.target.value)}
               placeholder="Catatan tambahan (opsional)"
-              className="h-20 w-full rounded-xl border border-black/10 bg-[#f7f5ef] px-3 py-2.5 text-sm"
+              className="h-20 w-full rounded-xl border border-black/10 bg-brand-cream px-3 py-2.5 text-sm"
             />
             <div className="flex gap-2">
-              <button onClick={submitReport} className="rounded-full bg-[#b3261e] px-4 py-2 text-sm font-bold text-white">
+              <button onClick={submitReport} className="rounded-full bg-live px-4 py-2 text-sm font-bold text-white">
                 Kirim laporan
               </button>
               <button onClick={() => setReportOpen(false)} className="rounded-full border border-black/10 px-4 py-2 text-sm font-bold">
@@ -333,7 +333,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
             </p>
             <button
               onClick={() => setReportOpen(true)}
-              className="mt-4 rounded-full border border-[#b3261e] px-4 py-2 text-sm font-bold text-[#b3261e]"
+              className="mt-4 rounded-full border border-live px-4 py-2 text-sm font-bold text-live"
             >
               Laporkan
             </button>

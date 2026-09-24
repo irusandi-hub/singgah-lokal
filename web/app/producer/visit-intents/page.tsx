@@ -16,7 +16,7 @@ export default async function ProducerVisitIntentsPage() {
 
   return (
     <>
-      <div className="bg-[#20231f] px-4 pt-5 sm:px-6">
+      <div className="bg-brand-ink px-4 pt-5 sm:px-6">
         <div className="mx-auto max-w-4xl">
           <ProducerSubNav active="/producer/visit-intents" dark />
         </div>

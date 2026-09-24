@@ -10,7 +10,7 @@ import type { VisitIntentStatus } from "@/lib/visit-intents";
 export const dynamic = "force-dynamic";
 
 const statusStyles: Record<VisitIntentStatus, string> = {
-  pending: "bg-[#d8ad6f]/40 text-[#5a431f]",
+  pending: "bg-brand-accent/40 text-[#5a431f]",
   accepted: "bg-green-700/15 text-green-800",
   declined: "bg-red-900/10 text-red-800",
   requires_confirmation: "bg-blue-900/10 text-blue-800",
@@ -44,11 +44,11 @@ export default async function VisitIntentsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f5ef] text-[#20231f]">
+    <main className="min-h-screen bg-brand-cream text-brand-ink">
       <SiteNav />
 
       <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
-        <h1 className="text-2xl font-black tracking-tight">Visit Intent Saya</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Visit Intent Saya</h1>
         <p className="mt-2 text-sm text-black/55">
           Niat berkunjungmu ke Place. Status diperbarui setelah Producer merespons. Ini bukan pembayaran atau konfirmasi reservasi.
         </p>
@@ -59,7 +59,7 @@ export default async function VisitIntentsPage() {
             <p className="mt-1 text-xs text-black/55">
               Ajukan niat berkunjung dari halaman Experience pada sebuah Place.
             </p>
-            <Link href="/" className="mt-4 inline-block rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white">
+            <Link href="/" className="mt-4 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white">
               Jelajahi Tempat
             </Link>
           </div>
@@ -69,12 +69,12 @@ export default async function VisitIntentsPage() {
               <article key={intent.id} className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#7b5b38]">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-accent">
                       {place.name} • {place.area}
                     </p>
-                    <h2 className="mt-1 text-lg font-black">{experience.title}</h2>
+                    <h2 className="mt-1 text-lg font-semibold">{experience.title}</h2>
                   </div>
-                  <span className={`rounded-full px-3 py-1 text-xs font-black ${statusStyles[intent.status] ?? statusStyles.expired}`}>
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[intent.status] ?? statusStyles.expired}`}>
                     {intent.status}
                   </span>
                 </div>
@@ -113,7 +113,7 @@ export default async function VisitIntentsPage() {
                 <div className="mt-4 flex flex-wrap gap-2">
                   <VisitedLink
                     href={`/places/${place.id}`}
-                    className="rounded-full bg-[#20231f] px-4 py-2 text-xs font-bold text-white"
+                    className="rounded-full bg-brand-primary px-4 py-2 text-xs font-bold text-white"
                     visitedClassName="bg-[#4a4d44]"
                   >
                     Kembali ke Tempat
@@ -121,7 +121,7 @@ export default async function VisitIntentsPage() {
                   <VisitedLink
                     href={`/places/${place.id}/experiences/${experience.id}`}
                     className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-bold text-black/70"
-                    visitedClassName="border-[#7b5b38]/35 bg-[#faf6ee]"
+                    visitedClassName="border-brand-accent/35 bg-[#faf6ee]"
                   >
                     Lihat Experience
                   </VisitedLink>

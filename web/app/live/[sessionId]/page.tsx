@@ -43,14 +43,14 @@ export default async function LiveViewerPage({
   const isEnded = status === "ended";
 
   return (
-    <main className="min-h-screen bg-[#f7f5ef] text-[#20231f]">
+    <main className="min-h-screen bg-brand-cream text-brand-ink">
       <MarkVisited path={`/live/${sessionId}`} />
       <div className="mx-auto max-w-3xl px-5 py-6 sm:px-8">
-        <Link className="text-sm font-bold text-[#7b5b38]" href={`/places/${place.id}`}>
+        <Link className="text-sm font-bold text-brand-accent" href={`/places/${place.id}`}>
           ← Kembali ke {place.name}
         </Link>
 
-        <section className="mt-6 overflow-hidden rounded-[28px] border border-black/10 bg-[#20231f] shadow-sm">
+        <section className="mt-6 overflow-hidden rounded-[28px] border border-black/10 bg-brand-ink shadow-sm">
           {/* Video stage. Playback is provisioned server-side only
               (Cloudflare playback token via admission); B1 keeps viewer
               admission DENY for everyone until verified-age lands, so this
@@ -59,7 +59,7 @@ export default async function LiveViewerPage({
             {isEnded ? (
               <div className="p-8 text-center">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/50">Live berakhir</p>
-                <p className="mt-2 text-lg font-black text-white">Live ini sudah selesai</p>
+                <p className="mt-2 text-lg font-semibold text-white">Live ini sudah selesai</p>
                 <p className="mt-1 text-xs text-white/60">
                   Tidak ada rekaman — Live tidak direkam (kebijakan platform).
                 </p>
@@ -67,7 +67,7 @@ export default async function LiveViewerPage({
             ) : (
               <div className="p-8 text-center">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#e8c47c]">LIVE SEKARANG</p>
-                <p className="mt-2 text-lg font-black text-white">
+                <p className="mt-2 text-lg font-semibold text-white">
                   Menunggu verifikasi akses Live
                 </p>
                 <p className="mt-1 text-xs text-white/60">
@@ -76,7 +76,7 @@ export default async function LiveViewerPage({
               </div>
             )}
             {!isEnded && (
-              <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-[#b3261e] px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-white">
+              <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-live px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-white">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
                 Live
               </div>
@@ -84,7 +84,7 @@ export default async function LiveViewerPage({
           </div>
 
           {/* Status / viewers / process strip */}
-          <div className="grid gap-4 border-t border-white/10 bg-[#20231f] p-5 sm:grid-cols-3">
+          <div className="grid gap-4 border-t border-white/10 bg-brand-ink p-5 sm:grid-cols-3">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45">Status</p>
               <p className="mt-1 text-sm font-bold text-white">{isEnded ? "Berakhir" : "Sedang tayang"}</p>
@@ -102,12 +102,12 @@ export default async function LiveViewerPage({
 
         {isEnded && (
           <section className="mt-6 rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Live berakhir</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Live berakhir</p>
             <p className="mt-2 text-sm text-black/70">
               Live ini telah diakhiri. Tidak ada rekaman atau tayangan ulang — Live bersifat real-time saja.
             </p>
             <Link
-              className="mt-4 inline-flex rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white"
+              className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white"
               href={`/places/${place.id}`}
             >
               Kembali ke Place
@@ -125,11 +125,11 @@ export default async function LiveViewerPage({
         )}
 
         <section className="mt-6 rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Tentang Place ini</p>
-          <h2 className="mt-2 text-xl font-black tracking-tight">{place.name}</h2>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Tentang Place ini</p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight">{place.name}</h2>
           <p className="mt-1 text-sm text-black/55">{place.area}</p>
           <Link
-            className="mt-4 inline-flex rounded-full border border-black/10 bg-[#f7f5ef] px-4 py-2 text-sm font-bold"
+            className="mt-4 inline-flex rounded-full border border-black/10 bg-brand-cream px-4 py-2 text-sm font-bold"
             href={`/places/${place.id}`}
           >
             Buka Place

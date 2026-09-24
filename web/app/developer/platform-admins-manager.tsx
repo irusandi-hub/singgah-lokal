@@ -142,15 +142,15 @@ export default function DeveloperPlatformAdmins({ creatorEmail }: { creatorEmail
 
   if (rows === null) {
     return (
-      <div className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
-        <p className={`text-sm font-semibold ${error ? "text-[#b3261e]" : "text-[#20231f]/60"}`}>
+      <div className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+        <p className={`text-sm font-semibold ${error ? "text-live" : "text-brand-ink/60"}`}>
           {error ?? "Memuat…"}
         </p>
         {!loading ? (
           <button
             type="button"
             onClick={refresh}
-            className="mt-4 rounded-full bg-brand-primary px-4 py-2 text-xs font-bold text-white transition hover:bg-[#0a5640]"
+            className="mt-4 rounded-full bg-brand-primary px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-primary-deep"
           >
             Coba muat ulang
           </button>
@@ -161,9 +161,9 @@ export default function DeveloperPlatformAdmins({ creatorEmail }: { creatorEmail
 
   return (
     <section className="space-y-6" aria-label="Pengelolaan Platform Admin">
-      <div className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
-        <h2 className="text-lg font-black text-[#20231f]">Platform Admin</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#20231f]/60">
+      <div className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+        <h2 className="text-lg font-semibold text-brand-ink">Platform Admin</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-brand-ink/60">
           Berikan atau cabut role <span className="font-mono text-brand-accent">platform_moderator</span> pada akun
           terdaftar. Role ini adalah kewenangan operasional di dalam aplikasi (Admin Center) — bukan kewenangan
           infrastruktur. Perubahan berlaku saat akun tersebut membuka area Admin.
@@ -177,46 +177,46 @@ export default function DeveloperPlatformAdmins({ creatorEmail }: { creatorEmail
             onChange={(event) => setEmail(event.target.value)}
             placeholder="email akun yang diberi role"
             aria-label="Email akun Platform Admin baru"
-            className="w-full rounded-xl border border-[#20231f]/15 bg-white px-4 py-2.5 text-sm text-[#20231f] placeholder:text-[#20231f]/35 focus:border-brand-primary focus:outline-none sm:max-w-md"
+            className="w-full rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-sm text-brand-ink placeholder:text-brand-ink/35 focus:border-brand-primary focus:outline-none sm:max-w-md"
           />
           <button
             type="submit"
             disabled={submitting}
-            className="shrink-0 rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#0a5640] disabled:opacity-60"
+            className="shrink-0 rounded-xl bg-brand-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-primary-deep disabled:opacity-60"
           >
             {submitting ? "Memproses…" : "Grant Platform Admin"}
           </button>
         </form>
 
-        {notice ? <p className="mt-3 text-sm font-semibold text-[#1f6b3f]" role="status">{notice}</p> : null}
-        {error ? <p className="mt-3 text-sm font-semibold text-[#b3261e]" role="alert">{error}</p> : null}
+        {notice ? <p className="mt-3 text-sm font-semibold text-ok" role="status">{notice}</p> : null}
+        {error ? <p className="mt-3 text-sm font-semibold text-live" role="alert">{error}</p> : null}
       </div>
 
-      <div className="rounded-2xl border border-[#20231f]/10 bg-white shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
-        <div className="flex items-center justify-between gap-3 border-b border-[#20231f]/10 px-6 py-4">
-          <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-[#20231f]/70">Role aktif</h3>
+      <div className="rounded-2xl border border-brand-ink/10 bg-white shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+        <div className="flex items-center justify-between gap-3 border-b border-brand-ink/10 px-6 py-4">
+          <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-brand-ink/70">Role aktif</h3>
           <button
             type="button"
             onClick={refresh}
-            className="rounded-full border border-[#20231f]/15 px-3 py-1.5 text-xs font-bold text-[#20231f]/70 transition hover:bg-[#20231f]/5"
+            className="rounded-full border border-brand-ink/15 px-3 py-1.5 text-xs font-bold text-brand-ink/70 transition hover:bg-brand-ink/5"
           >
             Muat ulang
           </button>
         </div>
 
         {loading ? (
-          <p className="px-6 py-6 text-sm text-[#20231f]/60">Memuat…</p>
+          <p className="px-6 py-6 text-sm text-brand-ink/60">Memuat…</p>
         ) : rows.length === 0 ? (
-          <p className="px-6 py-6 text-sm text-[#20231f]/60">
+          <p className="px-6 py-6 text-sm text-brand-ink/60">
             Belum ada Platform Admin. Berikan role lewat formulir di atas.
           </p>
         ) : (
-          <ul className="divide-y divide-[#20231f]/10">
+          <ul className="divide-y divide-brand-ink/10">
             {rows.map((row) => (
               <li key={row.userId} className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold text-[#20231f]">{row.email ?? "email tidak tersedia"}</p>
-                  <p className="mt-0.5 truncate font-mono text-[11px] text-[#20231f]/45">
+                  <p className="truncate text-sm font-bold text-brand-ink">{row.email ?? "email tidak tersedia"}</p>
+                  <p className="mt-0.5 truncate font-mono text-[11px] text-brand-ink/45">
                     {row.userId} · sejak {new Date(row.createdAt).toLocaleDateString("id-ID")}
                   </p>
                 </div>
@@ -224,7 +224,7 @@ export default function DeveloperPlatformAdmins({ creatorEmail }: { creatorEmail
                   type="button"
                   onClick={() => revoke(row)}
                   disabled={submitting}
-                  className="rounded-full border border-[#b3261e]/40 px-4 py-2 text-xs font-bold text-[#b3261e] transition hover:bg-[#b3261e]/10 disabled:opacity-50"
+                  className="rounded-full border border-live/40 px-4 py-2 text-xs font-bold text-live transition hover:bg-live/10 disabled:opacity-50"
                 >
                   Revoke
                 </button>
@@ -234,7 +234,7 @@ export default function DeveloperPlatformAdmins({ creatorEmail }: { creatorEmail
         )}
       </div>
 
-      <p className="text-xs leading-5 text-[#20231f]/40">
+      <p className="text-xs leading-5 text-brand-ink/40">
         Masuk sebagai {creatorEmail}. Kredensial infrastruktur (GitHub, Vercel, Supabase, DNS, secrets) tetap
         dikelola di luar aplikasi sesuai Authority Master.
       </p>

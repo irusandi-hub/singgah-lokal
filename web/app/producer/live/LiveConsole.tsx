@@ -278,22 +278,22 @@ export function LiveConsole({ places }: Props) {
   return (
     <div className="grid gap-6">
       {error && (
-        <p className="rounded-2xl border border-[#b3261e]/30 bg-[#b3261e]/5 px-4 py-3 text-sm font-semibold text-[#b3261e]">
+        <p className="rounded-2xl border border-live/30 bg-live/5 px-4 py-3 text-sm font-semibold text-live">
           {error}
         </p>
       )}
 
       {step === "choose" && (
         <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Langkah 1</p>
-          <h2 className="mt-1 text-xl font-black tracking-tight">Pilih Proses yang akan ditayangkan</h2>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Langkah 1</p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">Pilih Proses yang akan ditayangkan</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">
               Place
               <select
                 value={placeId}
                 onChange={(event) => setPlaceId(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-black/10 bg-[#f7f5ef] px-3 py-2.5 text-sm font-semibold text-[#20231f]"
+                className="mt-1 w-full rounded-xl border border-black/10 bg-brand-cream px-3 py-2.5 text-sm font-semibold text-brand-ink"
               >
                 {places.map((place) => (
                   <option key={place.id} value={place.id}>
@@ -307,7 +307,7 @@ export function LiveConsole({ places }: Props) {
               <select
                 value={effectiveStageId}
                 onChange={(event) => setStageId(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-black/10 bg-[#f7f5ef] px-3 py-2.5 text-sm font-semibold text-[#20231f]"
+                className="mt-1 w-full rounded-xl border border-black/10 bg-brand-cream px-3 py-2.5 text-sm font-semibold text-brand-ink"
               >
                 {stages.length === 0 && <option value="">Tidak ada Proses published</option>}
                 {stages.map((stage) => (
@@ -324,7 +324,7 @@ export function LiveConsole({ places }: Props) {
               setStep("camera");
               void runCameraCheck();
             }}
-            className="mt-5 rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+            className="mt-5 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white disabled:opacity-40"
           >
             Lanjut ke pemeriksaan kamera
           </button>
@@ -333,8 +333,8 @@ export function LiveConsole({ places }: Props) {
 
       {step === "camera" && (
         <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Langkah 2</p>
-          <h2 className="mt-1 text-xl font-black tracking-tight">Pemeriksaan kamera</h2>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Langkah 2</p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">Pemeriksaan kamera</h2>
           <video ref={videoRef} muted playsInline className="mt-4 aspect-video w-full rounded-xl bg-black object-cover" />
           {camera && (
             <div className="mt-3 grid gap-1 text-xs text-black/65">
@@ -343,11 +343,11 @@ export function LiveConsole({ places }: Props) {
               {camera.passed ? (
                 <p className="font-semibold">Kualitas memenuhi syarat: minimal 720p / 30 fps.</p>
               ) : (
-                <p className="font-semibold text-[#b3261e]">
+                <p className="font-semibold text-live">
                   Kualitas belum memenuhi syarat: minimal 720p / 30 fps diperlukan.
                 </p>
               )}
-              {camera.error && <p className="font-semibold text-[#b3261e]">{camera.error}</p>}
+              {camera.error && <p className="font-semibold text-live">{camera.error}</p>}
             </div>
           )}
           <label className="mt-4 flex items-start gap-2 text-xs leading-5 text-black/65">
@@ -364,7 +364,7 @@ export function LiveConsole({ places }: Props) {
             <button
               disabled={!camera?.passed || !attested}
               onClick={() => setStep("preview")}
-              className="rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+              className="rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white disabled:opacity-40"
             >
               Lanjut ke pratinjau
             </button>
@@ -383,8 +383,8 @@ export function LiveConsole({ places }: Props) {
 
       {step === "preview" && (
         <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Langkah 3</p>
-          <h2 className="mt-1 text-xl font-black tracking-tight">Pratinjau</h2>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Langkah 3</p>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">Pratinjau</h2>
           <video ref={videoRef} muted playsInline autoPlay className="mt-4 aspect-video w-full rounded-xl bg-black object-cover" />
           <p className="mt-3 text-xs text-black/55">
             Kualitas dikunci 720p/30fps • 1 kamera statis • Live tidak direkam • tanpa monetisasi.
@@ -393,7 +393,7 @@ export function LiveConsole({ places }: Props) {
             <button
               disabled={busy}
               onClick={startLive}
-              className="rounded-full bg-[#b3261e] px-6 py-2.5 text-sm font-black text-white disabled:opacity-40"
+              className="rounded-full bg-live px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
             >
               {busy ? "Memulai..." : "Mulai Live"}
             </button>
@@ -411,17 +411,17 @@ export function LiveConsole({ places }: Props) {
       )}
 
       {step === "live" && (
-        <section className="rounded-2xl border border-[#b3261e]/30 bg-[#b3261e]/5 p-5">
+        <section className="rounded-2xl border border-live/30 bg-live/5 p-5">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[#b3261e]" />
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#b3261e]">LIVE SEKARANG</p>
+            <span className="h-2 w-2 animate-pulse rounded-full bg-live" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-live">LIVE SEKARANG</p>
           </div>
-          <h2 className="mt-1 text-xl font-black tracking-tight">Live sedang berjalan</h2>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">Live sedang berjalan</h2>
           <p className="mt-2 text-sm text-black/65">
             Penonton maksimal 100 concurrent • durasi maksimal 60 menit • Live berakhir otomatis bila
             Proses ditarik dari published.
           </p>
-          <p className="mt-2 text-xs font-bold text-[#b3261e]">
+          <p className="mt-2 text-xs font-bold text-live">
             {publishing
               ? "Menyambungkan kamera ke streaming..."
               : broadcastLive
@@ -429,14 +429,14 @@ export function LiveConsole({ places }: Props) {
                 : "Kamera belum tersambung ke streaming."}
           </p>
           {elapsedSeconds >= 3600 && (
-            <p className="mt-1 text-xs font-semibold text-[#b3261e]">
+            <p className="mt-1 text-xs font-semibold text-live">
               Batas 60 menit tercapai — Live akan diakhiri otomatis oleh server.
             </p>
           )}
           <button
             disabled={busy || !activeSessionId}
             onClick={endLive}
-            className="mt-4 rounded-full bg-[#20231f] px-6 py-2.5 text-sm font-black text-white disabled:opacity-40"
+            className="mt-4 rounded-full bg-brand-ink px-6 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
           >
             {busy ? "Mengakhiri..." : "Akhiri Live"}
           </button>

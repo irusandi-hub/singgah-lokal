@@ -49,11 +49,11 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
   const authenticated = session?.authenticated === true;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-black/5 bg-[#f7f5ef]/95 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-black/5 bg-brand-cream/95 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-4">
         <div className="min-w-0">
-          <Link href="/" className="block text-xl font-black tracking-tight">
-            SINGGAH<span className="text-[#7b5b38]"> LOKAL</span>
+          <Link href="/" className="block text-xl font-semibold tracking-tight">
+            SINGGAH<span className="text-brand-accent"> LOKAL</span>
           </Link>
           <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-black/45">
             Temukan cerita di balik tempat
@@ -67,7 +67,7 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
               aria-current={isActiveNavSection(pathname, "home") ? "page" : undefined}
               className={`${linkBase} ${
                 isActiveNavSection(pathname, "home")
-                  ? "bg-[#20231f] text-white"
+                  ? "bg-brand-primary text-white"
                   : "text-black/60 hover:bg-black/5"
               }`}
             >
@@ -78,8 +78,8 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
               aria-current={isActiveNavSection(pathname, "live") ? "page" : undefined}
               className={`${linkBase} ${
                 isActiveNavSection(pathname, "live")
-                  ? "bg-[#b3261e] text-white"
-                  : "border border-[#b3261e]/40 bg-white text-[#b3261e]"
+                  ? "bg-live text-white"
+                  : "border border-live/40 bg-white text-live"
               }`}
             >
               LIVE
@@ -90,8 +90,8 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
                 aria-current={isActiveNavSection(pathname, "visit-intents") ? "page" : undefined}
                 className={`${linkBase} ${
                   isActiveNavSection(pathname, "visit-intents")
-                    ? "bg-[#7b5b38] text-white"
-                    : "border border-[#7b5b38]/40 bg-white text-[#7b5b38]"
+                    ? "bg-brand-accent text-white"
+                    : "border border-brand-accent/40 bg-white text-brand-accent"
                 }`}
               >
                 Visit Intent Saya
@@ -111,7 +111,7 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
               ) : null}
               <Link
                 href="/account"
-                className="rounded-full bg-[#20231f] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#7b5b38]"
+                className="rounded-full bg-brand-primary px-4 py-2 text-xs font-bold text-white transition hover:bg-brand-primary-deep"
               >
                 Kelola Akun
               </Link>
@@ -127,7 +127,7 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
               </Link>
               <Link
                 href="/auth"
-                className="shrink-0 rounded-full bg-[#20231f] px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#7b5b38]"
+                className="shrink-0 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-primary-deep"
               >
                 Masuk
               </Link>

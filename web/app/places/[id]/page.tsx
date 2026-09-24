@@ -29,17 +29,17 @@ export default async function PlaceDetailPage({
     <>
       <SiteNav />
       <MarkVisited path={`/places/${place.id}`} />
-      <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
+      <main className="min-h-screen bg-brand-cream px-5 py-6 text-brand-ink sm:px-8">
       <div className="mx-auto max-w-3xl">
-        <Link className="text-sm font-bold text-[#7b5b38]" href="/">
+        <Link className="text-sm font-bold text-brand-accent" href="/">
           ← Kembali ke peta
         </Link>
 
         <article className="mt-8 rounded-[28px] border border-black/10 bg-white p-6 shadow-sm sm:p-10">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
             {place.category} • {place.type === "production" ? "Produksi" : "Experience"}
           </p>
-          <h1 className="mt-3 text-4xl font-black tracking-tight">{place.name}</h1>
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight">{place.name}</h1>
           <p className="mt-2 text-sm text-black/55">{place.area}</p>
           <p className="mt-6 text-base leading-7 text-black/70">{place.shortDescription}</p>
 
@@ -66,18 +66,18 @@ export default async function PlaceDetailPage({
           </dl>
 
           <section className="mt-10 border-t border-black/10 pt-8" aria-labelledby="experiences-heading">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Experience di Place ini</p>
-            <h2 id="experiences-heading" className="mt-2 text-2xl font-black tracking-tight">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Experience di Place ini</p>
+            <h2 id="experiences-heading" className="mt-2 text-2xl font-semibold tracking-tight">
               Kalau datang, kamu akan melakukan apa?
             </h2>
             <div className="mt-5 grid gap-4">
               {placeExperiences.length > 0 ? (
                 placeExperiences.map((experience) => (
-                  <article key={experience.id} className="rounded-2xl border border-black/10 bg-[#f7f5ef] p-5">
-                    <h3 className="text-lg font-black">{experience.title}</h3>
+                  <article key={experience.id} className="rounded-2xl border border-black/10 bg-brand-cream p-5">
+                    <h3 className="text-lg font-semibold">{experience.title}</h3>
                     <p className="mt-2 text-sm leading-6 text-black/65">{experience.shortDescription}</p>
                     <VisitedLink
-                      className="mt-4 inline-flex rounded-full bg-[#20231f] px-4 py-2 text-sm font-bold text-white"
+                      className="mt-4 inline-flex rounded-full bg-brand-ink px-4 py-2 text-sm font-bold text-white"
                       visitedClassName="bg-[#4a4d44]"
                       href={`/places/${place.id}/experiences/${experience.id}`}
                     >
@@ -92,13 +92,13 @@ export default async function PlaceDetailPage({
           </section>
 
           <section className="mt-10 border-t border-black/10 pt-8" aria-labelledby="story-heading">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Dari Sini</p>
-            <h2 id="story-heading" className="mt-2 text-2xl font-black tracking-tight">Dari sumber sampai menjadi pengalaman</h2>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Dari Sini</p>
+            <h2 id="story-heading" className="mt-2 text-2xl font-semibold tracking-tight">Dari sumber sampai menjadi pengalaman</h2>
             <div className="mt-5 grid gap-4">
               {productionStages.length > 0 ? productionStages.map((stage) => (
-                <article key={stage.id} className="rounded-2xl border border-black/10 bg-[#f7f5ef] p-5">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#7b5b38]">Tahap {stage.sortOrder + 1}</p>
-                  <h3 className="mt-1 text-lg font-black">{stage.title}</h3>
+                <article key={stage.id} className="rounded-2xl border border-black/10 bg-brand-cream p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-accent">Tahap {stage.sortOrder + 1}</p>
+                  <h3 className="mt-1 text-lg font-semibold">{stage.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-black/65">{stage.description}</p>
                 </article>
               )) : <p className="text-sm text-black/60">Cerita produksi Place ini belum tersedia.</p>}

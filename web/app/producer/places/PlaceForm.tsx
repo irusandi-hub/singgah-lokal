@@ -52,7 +52,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
       </div>
       <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
       <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Experience</option></select></label>
-      <button className="rounded-lg bg-[#20231f] px-4 py-3 text-sm font-bold text-white" type="submit">Simpan Place</button>
+      <button className="rounded-lg bg-brand-ink px-4 py-3 text-sm font-bold text-white" type="submit">Simpan Place</button>
       {message && <p className="text-sm text-black/60" role="status">{message}</p>}
     </form>
   );

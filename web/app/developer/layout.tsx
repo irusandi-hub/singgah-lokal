@@ -80,16 +80,16 @@ export default async function DeveloperLayout({ children }: { children: React.Re
 
   if (guard.kind === "forbidden") {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-brand-cream px-5 text-[#20231f]">
-        <div className="w-full max-w-md rounded-2xl border border-[#20231f]/10 bg-white p-8 text-center">
+      <main className="flex min-h-screen items-center justify-center bg-brand-cream px-5 text-brand-ink">
+        <div className="w-full max-w-md rounded-2xl border border-brand-ink/10 bg-white p-8 text-center">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-primary">403</p>
-          <h1 className="mt-2 font-brand text-2xl font-black">Akses ditolak</h1>
+          <h1 className="mt-2 font-brand text-2xl font-semibold">Akses ditolak</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
             Area ini hanya untuk Creator / Owner / Developer.
           </p>
           <Link
             href="/"
-            className="mt-6 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-[#0a5640]"
+            className="mt-6 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-primary-deep"
           >
             Kembali ke beranda
           </Link>
@@ -99,19 +99,19 @@ export default async function DeveloperLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="min-h-screen bg-brand-cream font-brand text-[#20231f]">
-      <header className="border-b border-[#20231f]/10">
+    <div className="min-h-screen bg-brand-cream font-brand text-brand-ink">
+      <header className="border-b border-brand-ink/10">
         <div className="mx-auto max-w-4xl px-5 py-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-primary">SINGGAH LOKAL</p>
-              <h1 className="text-xl font-black tracking-tight">Developer Center</h1>
+              <h1 className="text-xl font-semibold tracking-tight">Developer Center</h1>
             </div>
             <div className="flex items-center gap-3">
-              <span className="hidden text-xs font-semibold text-[#20231f]/60 sm:block">{guard.email}</span>
+              <span className="hidden text-xs font-semibold text-brand-ink/60 sm:block">{guard.email}</span>
               <Link
                 href="/"
-                className="rounded-full border border-[#20231f]/15 bg-white px-4 py-2 text-xs font-bold text-[#20231f]/80 transition hover:bg-brand-primary hover:text-white"
+                className="rounded-full border border-brand-ink/15 bg-white px-4 py-2 text-xs font-bold text-brand-ink/80 transition hover:bg-brand-primary hover:text-white"
               >
                 Home
               </Link>

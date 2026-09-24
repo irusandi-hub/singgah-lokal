@@ -34,14 +34,14 @@ export async function PlaceLiveStatus({ placeId }: { placeId: string }) {
   const stage = await (await getServerProductionStoryRepository()).getById(placeId, session.stage_id, true);
 
   return (
-    <section className="mt-8 overflow-hidden rounded-2xl border border-[#b3261e]/30 bg-[#b3261e]/5" aria-label="Status Live Place">
+    <section className="mt-8 overflow-hidden rounded-2xl border border-live/30 bg-live/5" aria-label="Status Live Place">
       <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[#b3261e]" />
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#b3261e]">LIVE SEKARANG</p>
+            <span className="h-2 w-2 animate-pulse rounded-full bg-live" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-live">LIVE SEKARANG</p>
           </div>
-          <p className="mt-1 text-lg font-black tracking-tight">
+          <p className="mt-1 text-lg font-semibold tracking-tight">
             {stage?.title ?? "Proses produksi"}
           </p>
           <p className="text-xs text-black/55">
@@ -49,7 +49,7 @@ export async function PlaceLiveStatus({ placeId }: { placeId: string }) {
           </p>
         </div>
         <Link
-          className="inline-flex shrink-0 items-center justify-center rounded-full bg-[#b3261e] px-5 py-2.5 text-sm font-bold text-white"
+          className="inline-flex shrink-0 items-center justify-center rounded-full bg-live px-5 py-2.5 text-sm font-bold text-white"
           href={`/live/${session.id}`}
         >
           Lihat Live Sekarang

@@ -19,10 +19,10 @@ type QuestionStatus =
   | { configured: false };
 
 const inputClass =
-  "w-full rounded-xl border border-[#20231f]/15 bg-white px-4 py-2.5 text-sm text-[#20231f] placeholder:text-[#20231f]/35 focus:border-brand-primary focus:outline-none";
-const labelClass = "block text-xs font-bold uppercase tracking-[0.14em] text-[#20231f]/50";
+  "w-full rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-sm text-brand-ink placeholder:text-brand-ink/35 focus:border-brand-primary focus:outline-none";
+const labelClass = "block text-xs font-bold uppercase tracking-[0.14em] text-brand-ink/50";
 const primaryButtonClass =
-  "rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-black text-white transition hover:bg-[#0a5640] disabled:cursor-not-allowed disabled:opacity-50";
+  "rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-primary-deep disabled:cursor-not-allowed disabled:opacity-50";
 
 function Card({
   title,
@@ -34,9 +34,9 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
-      <h3 className="text-base font-black text-[#20231f]">{title}</h3>
-      <p className="mt-1 text-xs leading-5 text-[#20231f]/50">{description}</p>
+    <section className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+      <h3 className="text-base font-semibold text-brand-ink">{title}</h3>
+      <p className="mt-1 text-xs leading-5 text-brand-ink/50">{description}</p>
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -46,8 +46,8 @@ function Feedback({ state }: { state: { kind: "idle" | "ok" | "error"; message: 
   if (state.kind === "idle") return null;
   const tone =
     state.kind === "ok"
-      ? "border-[#1f6b3f]/30 bg-[#1f6b3f]/10 text-[#1f6b3f]"
-      : "border-[#b3261e]/30 bg-[#b3261e]/10 text-[#b3261e]";
+      ? "border-ok/30 bg-ok/10 text-ok"
+      : "border-live/30 bg-live/10 text-live";
   return (
     <p role="status" className={`mt-3 rounded-xl border px-3 py-2 text-xs font-semibold ${tone}`}>
       {state.message}
@@ -208,10 +208,10 @@ export default function AccountSecurityManager() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[#20231f]/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+      <div className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Keamanan Akun</p>
-        <h2 className="mt-2 font-brand text-2xl font-black text-[#20231f]">Pengaturan akun Creator</h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#20231f]/60">
+        <h2 className="mt-2 font-brand text-2xl font-semibold text-brand-ink">Pengaturan akun Creator</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-brand-ink/60">
           Semua perubahan diverifikasi server-side. Password saat ini wajib untuk setiap aksi, dan
           pertanyaan rahasia hanya dapat diganti setelah jawaban lama terverifikasi. Jawaban disimpan
           sebagai hash — tidak pernah plaintext.

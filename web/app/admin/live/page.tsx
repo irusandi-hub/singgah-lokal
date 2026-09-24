@@ -43,11 +43,11 @@ export default async function AdminLivePage() {
 
       <section aria-label="Ringkasan Live" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-2xl border border-black/10 bg-white p-4">
-          <div className="text-2xl font-black tabular-nums">{activeCount}/5</div>
+          <div className="text-2xl font-semibold tabular-nums">{activeCount}/5</div>
           <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Live aktif</div>
         </div>
         <div className="rounded-2xl border border-black/10 bg-white p-4">
-          <div className="text-2xl font-black tabular-nums">{sessions.length}</div>
+          <div className="text-2xl font-semibold tabular-nums">{sessions.length}</div>
           <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Total sesi (100 terakhir)</div>
         </div>
       </section>

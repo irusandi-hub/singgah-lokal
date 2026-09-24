@@ -81,15 +81,15 @@ function AuthForm() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-[#f7f5ef] px-5 py-10 text-[#20231f]">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-brand-cream px-5 py-10 text-brand-ink">
       <div className="w-full max-w-md">
-        <Link className="text-sm font-bold text-[#7b5b38]" href="/">
+        <Link className="text-sm font-bold text-brand-accent" href="/">
           ← Beranda
         </Link>
 
         <header className="mt-8 text-center">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">SINGGAH LOKAL</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight">Masuk</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">SINGGAH LOKAL</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Masuk</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
             Masuk untuk mengirim Visit Intent atau mengelola Place-mu. Niat berkunjung
             dikirim ke Producer — bukan pembayaran.
@@ -97,7 +97,7 @@ function AuthForm() {
         </header>
 
         <form
-          className="mt-8 rounded-2xl border border-[#7b5b38]/25 bg-[#fffaf0] p-6"
+          className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-6"
           onSubmit={handleSubmit}
         >
           <label className="block text-sm font-semibold" htmlFor="email">
@@ -158,7 +158,7 @@ function AuthForm() {
           ) : null}
 
           <button
-            className="mt-6 w-full rounded-2xl bg-[#20231f] py-4 text-sm font-bold text-white disabled:opacity-60"
+            className="mt-6 w-full rounded-2xl bg-brand-primary py-4 text-sm font-bold text-white disabled:opacity-60"
             disabled={submitting}
             type="submit"
           >
@@ -167,14 +167,14 @@ function AuthForm() {
 
           <p className="mt-4 text-center text-xs leading-5 text-black/55">
             Belum punya akun?{" "}
-            <Link className="font-bold text-[#7b5b38] underline-offset-2 hover:underline" href="/auth/sign-up">
+            <Link className="font-bold text-brand-accent underline-offset-2 hover:underline" href="/auth/sign-up">
               Daftar di sini
             </Link>
           </p>
           <p className="mt-2 text-center text-xs leading-5 text-black/45">
             Akses Producer tidak otomatis — setelah mendaftar, admin platform memberikan
             membership Producer. Area Producer muncul sendiri saat membership aktif.{" "}
-            <Link className="font-bold text-[#7b5b38] underline underline-offset-2" href="/producer/onboarding">
+            <Link className="font-bold text-brand-accent underline underline-offset-2" href="/producer/onboarding">
               Ajukan menjadi Producer
             </Link>
           </p>
@@ -187,7 +187,7 @@ function AuthForm() {
 export default function AuthPage() {
   return (
     <Suspense fallback={
-      <main className="flex min-h-screen items-center justify-center bg-[#f7f5ef] text-[#20231f]">
+      <main className="flex min-h-screen items-center justify-center bg-brand-cream text-brand-ink">
         <p className="text-sm font-semibold text-black/60">Memuat…</p>
       </main>
     }>

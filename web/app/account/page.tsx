@@ -102,19 +102,19 @@ export default async function AccountPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f5ef] px-5 py-10 text-[#20231f] sm:px-8">
+    <main className="min-h-screen bg-brand-cream px-5 py-10 text-brand-ink sm:px-8">
       <div className="mx-auto max-w-2xl">
-        <Link href="/" className="text-sm font-bold text-[#7b5b38]">
+        <Link href="/" className="text-sm font-bold text-brand-accent">
           ← Beranda
         </Link>
 
         <header className="mt-8 border-b border-black/10 pb-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Kelola Akun</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight">Area akun</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Kelola Akun</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Area akun</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
             {authority.email ? (
               <>
-                Masuk sebagai <span className="font-bold text-[#20231f]">{authority.email}</span>. Area di bawah
+                Masuk sebagai <span className="font-bold text-brand-ink">{authority.email}</span>. Area di bawah
                 mengikuti kewenangan akun ini.
               </>
             ) : (
@@ -124,15 +124,15 @@ export default async function AccountPage() {
         </header>
 
         {entries.length === 0 ? (
-          <section className="mt-8 rounded-2xl border border-[#7b5b38]/25 bg-[#fffaf0] p-6">
-            <h2 className="text-sm font-black">Belum ada area khusus</h2>
+          <section className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-6">
+            <h2 className="text-sm font-semibold">Belum ada area khusus</h2>
             <p className="mt-2 text-sm leading-6 text-black/60">
               Akunmu adalah akun user biasa: discovery, Place, Experience, SINGGAH/Visit Intent, dan Live.
               Akses Producer diberikan admin platform; akses Platform Admin diberikan Creator.
             </p>
             <Link
               href="/producer/onboarding"
-              className="mt-4 inline-flex rounded-full bg-[#7b5b38] px-4 py-2 text-xs font-bold text-white"
+              className="mt-4 inline-flex rounded-full bg-brand-accent px-4 py-2 text-xs font-bold text-white"
             >
               Ajukan menjadi Producer
             </Link>
@@ -143,12 +143,12 @@ export default async function AccountPage() {
               <Link
                 key={href}
                 href={href}
-                className="group rounded-2xl border border-black/10 bg-white p-6 transition hover:border-[#7b5b38]/40 hover:shadow-sm"
+                className="group rounded-2xl border border-black/10 bg-white p-6 transition hover:border-brand-accent/40 hover:shadow-sm"
               >
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">{eyebrow}</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-brand-accent">{eyebrow}</p>
                 <div className="mt-1 flex items-center justify-between gap-3">
-                  <h2 className="text-lg font-black tracking-tight">{title}</h2>
-                  <span aria-hidden className="text-[#7b5b38] transition group-hover:translate-x-0.5">→</span>
+                  <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+                  <span aria-hidden className="text-brand-accent transition group-hover:translate-x-0.5">→</span>
                 </div>
                 <p className="mt-2 text-sm leading-6 text-black/60">{description}</p>
               </Link>

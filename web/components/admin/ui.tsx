@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 export function AdminPageHeader({ title, description }: { title: string; description: string }) {
   return (
     <header className="border-b border-black/10 pb-5">
-      <h2 className="text-2xl font-black tracking-tight">{title}</h2>
+      <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
       <p className="mt-2 max-w-2xl text-sm leading-6 text-black/60">{description}</p>
     </header>
   );
@@ -20,7 +20,7 @@ export function AdminStatCards({ stats }: { stats: Array<{ label: string; value:
     <section aria-label="Statistik operasional" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
       {stats.map(({ label, value }) => (
         <div key={label} className="rounded-2xl border border-black/10 bg-white p-4">
-          <div className="text-2xl font-black tabular-nums">{value}</div>
+          <div className="text-2xl font-semibold tabular-nums">{value}</div>
           <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">{label}</div>
         </div>
       ))}
@@ -89,7 +89,7 @@ export function AdminStatusBadge({ value, tone = "neutral" }: { value: string; t
     positive: "border-emerald-200 bg-emerald-50 text-emerald-800",
     negative: "border-red-200 bg-red-50 text-red-800",
     warning: "border-amber-200 bg-amber-50 text-amber-800",
-    live: "border-[#b3261e]/40 bg-[#b3261e]/10 text-[#b3261e]",
+    live: "border-live/40 bg-live/10 text-live",
   };
   return (
     <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${tones[tone]}`}>

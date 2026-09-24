@@ -31,10 +31,10 @@ export default async function ExperienceDetailPage({
     <>
       <SiteNav />
       <MarkVisited path={`/places/${place.id}/experiences/${experience.id}`} />
-      <main className="min-h-screen bg-[#f7f5ef] px-5 py-6 text-[#20231f] sm:px-8">
+      <main className="min-h-screen bg-brand-cream px-5 py-6 text-brand-ink sm:px-8">
       <div className="mx-auto max-w-3xl">
         <VisitedLink
-          className="text-sm font-bold text-[#7b5b38]"
+          className="text-sm font-bold text-brand-accent"
           visitedClassName="text-[#4a4d44] underline underline-offset-4"
           href={`/places/${place.id}`}
         >
@@ -43,8 +43,8 @@ export default async function ExperienceDetailPage({
 
         <article className="mt-8 overflow-hidden rounded-[28px] border border-black/10 bg-white shadow-sm">
           <div className="bg-[#d9dfd2] px-6 py-10 sm:px-10">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Experience di {place.name}</p>
-            <h1 className="mt-3 text-4xl font-black tracking-tight">{experience.title}</h1>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Experience di {place.name}</p>
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight">{experience.title}</h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-black/70">{experience.shortDescription}</p>
           </div>
 
@@ -65,31 +65,31 @@ export default async function ExperienceDetailPage({
             </dl>
 
             <section className="mt-8">
-              <h2 className="text-xl font-black">Tentang Experience</h2>
+              <h2 className="text-xl font-semibold">Tentang Experience</h2>
               <p className="mt-3 text-sm leading-7 text-black/70">{experience.description}</p>
             </section>
 
             <section className="mt-8">
-              <h2 className="text-xl font-black">Yang akan kamu lakukan</h2>
+              <h2 className="text-xl font-semibold">Yang akan kamu lakukan</h2>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-black/70">
                 {experience.highlights.map((highlight) => (
                   <li key={highlight} className="flex gap-2">
-                    <span aria-hidden="true" className="font-bold text-[#7b5b38]">•</span>
+                    <span aria-hidden="true" className="font-bold text-brand-accent">•</span>
                     <span>{highlight}</span>
                   </li>
                 ))}
               </ul>
             </section>
 
-            <section className="mt-8 rounded-2xl bg-[#f7f5ef] p-5">
-              <h2 className="text-xl font-black">Jadwal dan titik temu</h2>
+            <section className="mt-8 rounded-2xl bg-brand-cream p-5">
+              <h2 className="text-xl font-semibold">Jadwal dan titik temu</h2>
               {experience.schedules.map((schedule) => (
                 <div key={`${schedule.dayOfWeek}-${schedule.startTime}`} className="mt-3 text-sm leading-6 text-black/70">
                   <p>{schedule.dayOfWeek}</p>
                   <p>
                     {schedule.startTime}-{schedule.endTime} ({schedule.timezone})
                   </p>
-                  <p className="mt-2 font-semibold text-[#7b5b38]">Ketersediaan perlu dikonfirmasi kepada Producer.</p>
+                  <p className="mt-2 font-semibold text-brand-accent">Ketersediaan perlu dikonfirmasi kepada Producer.</p>
                 </div>
               ))}
               <p className="mt-4 border-t border-black/10 pt-4 text-sm leading-6 text-black/65">{experience.meetingPoint}</p>

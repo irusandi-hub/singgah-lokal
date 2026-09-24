@@ -61,9 +61,9 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
 
   if (intent) {
     return (
-      <div className="mt-8 rounded-2xl border border-[#7b5b38]/25 bg-[#fffaf0] p-5">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#7b5b38]">Visit Intent dibuat</p>
-        <h2 className="mt-2 text-xl font-black">Niat berkunjung siap diteruskan ke Producer.</h2>
+      <div className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-5">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Visit Intent dibuat</p>
+        <h2 className="mt-2 text-xl font-semibold">Niat berkunjung siap diteruskan ke Producer.</h2>
 
         {/* Real record fields from the persisted server response. */}
         <dl className="mt-4 grid gap-2 text-sm text-black/75 sm:grid-cols-2">
@@ -108,7 +108,7 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
           <button
             type="button"
             onClick={() => router.push("/visit-intents")}
-            className="w-full rounded-2xl bg-[#20231f] py-3.5 text-sm font-bold text-white"
+            className="w-full rounded-2xl bg-brand-primary py-3.5 text-sm font-bold text-white"
           >
             Lihat Visit Intent Saya
           </button>
@@ -125,8 +125,8 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
   }
 
   return (
-    <form className="mt-8 rounded-2xl border border-[#7b5b38]/25 bg-[#fffaf0] p-5" onSubmit={handleSubmit}>
-      <h2 className="text-xl font-black">SINGGAH DI SINI</h2>
+    <form className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-5" onSubmit={handleSubmit}>
+      <h2 className="text-xl font-semibold">SINGGAH DI SINI</h2>
       <p className="mt-2 text-sm leading-6 text-black/65">Ajukan niat berkunjung kepada Producer. Belum ada pembayaran atau kepastian reservasi.</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <label className="text-sm font-semibold">Tanggal ({place.timezone})
@@ -146,7 +146,7 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
         <textarea className="mt-1 min-h-24 w-full rounded-xl border border-black/10 bg-white px-3 py-2 font-normal" maxLength={500} value={optionalNote} onChange={(event) => setOptionalNote(event.target.value)} />
       </label>
       {error ? <p className="mt-3 text-sm font-semibold text-red-700" role="alert">{error}</p> : null}
-      <button className="mt-5 w-full rounded-2xl bg-[#20231f] py-4 text-sm font-bold text-white" type="submit">Kirim Visit Intent</button>
+      <button className="mt-5 w-full rounded-2xl bg-brand-primary py-4 text-sm font-bold text-white" type="submit">Kirim Visit Intent</button>
     </form>
   );
 }
