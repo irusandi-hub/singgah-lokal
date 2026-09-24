@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CreatorRequiredError, requireCreator } from "@/lib/auth/creator";
 import { hasValidGate } from "@/lib/creator/gate";
+import { acquireCreatorLease } from "@/lib/creator/session-lease";
+import CreatorLeaseHeartbeat from "./creator-lease-heartbeat";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +17,9 @@ export const dynamic = "force-dynamic";
  *   Creator-controlled environment allowlist (fail closed). The Creator is
  *   never modeled as platform_moderator (Authority Master §4) and no
  *   infrastructure credential is ever rendered here.
- * - SECURITY GATE (additional layer, never a replacement for Creator
- *   authorization): a verified Creator must also hold a valid signed gate
- *   cookie — issued only after the server-verified CAPTCHA and secret
- *   question steps — before any Developer Center content renders. Refresh
- *   and direct URLs cannot bypass it because the check re-runs on every
- *   request from the HTTP-only cookie, not from client state.
+ * - The signed Creator gate cookie and the singleton session lease are both
+ *   checked on every Developer request. The browser heartbeat renews the
+ *   lease while the Center remains open.
  */
 type DeveloperGuard =
   | { kind: "authorized"; email: string; userId: string; gateValid: boolean }
@@ -30,9 +29,7 @@ type DeveloperGuard =
 async function resolveDeveloperGuard(): Promise<DeveloperGuard> {
   try {
     const creator = await requireCreator();
-    // The gate cookie must be valid AND bound to this exact Creator's user id
-    // (signature, expiry, purpose, and userId all verified server-side).
-    const gateValid = await hasValidGate(creator.userId);
+    const gateValid = await hasValidGate();
     return { kind: "authorized", email: creator.email, userId: creator.userId, gateValid };
   } catch (error) {
     if (error instanceof CreatorRequiredError) {
@@ -56,25 +53,19 @@ export default async function DeveloperLayout({ children }: { children: React.Re
     redirect("/auth?returnTo=%2Fdeveloper");
   }
 
-  if (guard.kind === "authorized" && !guard.gateValid) {
-    // Verified Creator without a valid, user-bound gate: send them through
-    // the two-step verification on a route OUTSIDE this layout (the old
-    // /developer/gate placement caused a redirect loop with this check).
-    // returnTo stays internal (encodeURIComponent of a fixed path — no open
-    // redirect).
-    redirect(`/developer-gate?returnTo=${encodeURIComponent("/developer")}`);
-  }
-
   if (guard.kind === "authorized") {
-    // Single-active-session heartbeat: every server-rendered Developer Center
-    // request refreshes this Creator's lease, so an actively-working Creator
-    // keeps the slot while an idle one frees it by expiry. Failure is
-    // non-blocking — the gate cookie below is the access control here.
-    const { heartbeatCreatorLease } = await import("@/lib/creator/session-lease");
+    if (!guard.gateValid) {
+      redirect(`/developer-gate?returnTo=${encodeURIComponent("/developer")}`);
+    }
+
+    let leaseIsActive = false;
     try {
-      await heartbeatCreatorLease(guard.userId);
+      leaseIsActive = await acquireCreatorLease(guard.userId);
     } catch {
-      // lease refresh is best-effort; never block the Center on it
+      redirect("/developer-gate");
+    }
+    if (!leaseIsActive) {
+      redirect("/developer-gate");
     }
   }
 
@@ -119,6 +110,7 @@ export default async function DeveloperLayout({ children }: { children: React.Re
           </div>
         </div>
       </header>
+      <CreatorLeaseHeartbeat />
       <main className="mx-auto max-w-4xl px-5 py-8">{children}</main>
     </div>
   );

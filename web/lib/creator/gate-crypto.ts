@@ -1,24 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
- * Pure crypto primitives for the Creator security gate (Authority Master §2).
+ * Pure crypto primitives for the Creator gate.
  *
- * The gate is a signed, HTTP-only cookie — never client-side state. The
- * payload binds purpose + Creator user id + issue time; the HMAC proves the
- * value was issued by this server (secret lives only in the server runtime).
- * Deliberately free of "server-only"/next imports so the round-trip can be
- * unit-tested directly; policy lives in lib/creator/gate.ts.
+ * The gate is a signed, HTTP-only cookie. The payload binds its purpose,
+ * Creator user id, and issue time; the HMAC proves that this server issued
+ * the value. The secret is never exposed to the browser.
  */
 
 export const CREATOR_GATE_COOKIE = "singgah_creator_gate";
-export const CREATOR_GATE_STEP_COOKIE = "singgah_creator_gate_step";
-
-/** Full gate lifetime after both verification steps pass. */
-export const CREATOR_GATE_MAX_AGE_SECONDS = 8 * 60 * 60; // 8 hours
-/** Short window between passing CAPTCHA and answering the secret question. */
-export const CREATOR_GATE_STEP_MAX_AGE_SECONDS = 5 * 60;
-
-export type GatePurpose = "gate" | "step";
+export const CREATOR_GATE_MAX_AGE_SECONDS = 8 * 60 * 60;
+export type GatePurpose = "gate";
 
 export function signGatePayload(
   purpose: GatePurpose,

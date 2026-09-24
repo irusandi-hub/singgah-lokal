@@ -1,52 +1,40 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { randomBytes } from "node:crypto";
+import { cookies } from "next/headers";
 
+import { requireCreator } from "@/lib/auth/creator";
 import {
   CREATOR_GATE_COOKIE,
   CREATOR_GATE_MAX_AGE_SECONDS,
-  CREATOR_GATE_STEP_COOKIE,
-  CREATOR_GATE_STEP_MAX_AGE_SECONDS,
   signGatePayload,
   verifyGatePayload,
 } from "@/lib/creator/gate-crypto";
-import { requireCreator } from "@/lib/auth/creator";
+import { acquireCreatorLease } from "@/lib/creator/session-lease";
 
 /**
- * CREATOR SECURITY GATE — server-side session layer (Authority Master §2).
+ * Creator gate server layer.
  *
- * Flow: sign-in → requireCreator() detects the Creator → server-verified
- * CAPTCHA ("Bukan robot") → server-verified secret question → full access
- * to /developer for the cookie lifetime.
- *
- * Both verifications produce signed, HTTP-only cookies; nothing is stored
- * client-side, so refresh and direct URLs cannot bypass the gate. The gate
- * is an additional layer only: requireCreator() remains mandatory on every
- * Developer API and page, and a gate cookie can never substitute Creator
- * authorization (the cookie only ever proves a Creator already passed the
- * two steps for that exact user id).
- *
- * Fail-closed: if the CAPTCHA secret is not configured, verification fails
- * regardless of any token value. Required environment variables are
- * documented in README (Creator setup) and reported by the gate page.
+ * An authenticated Creator first acquires/renews the single Creator session
+ * lease, then verifies the existing secret question. Only a successful
+ * verification issues the signed HTTP-only gate cookie.
  */
 
 export class GateConfigError extends Error {
   readonly missingVars: string[];
+
   constructor(missingVars: string[]) {
     super(`Creator gate configuration is missing: ${missingVars.join(", ")}`);
     this.missingVars = missingVars;
   }
 }
 
-/** Server-only HMAC secret for gate cookies. Never exposed to the client. */
 function resolveGateSecret(): string {
   return process.env.CREATOR_GATE_SECRET ?? "";
 }
 
-function hasCaptchaSecret(): boolean {
-  return Boolean(process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY);
+export function isCreatorGateConfigured(): boolean {
+  return Boolean(resolveGateSecret());
 }
 
 const COOKIE_BASE = {
@@ -56,99 +44,18 @@ const COOKIE_BASE = {
   secure: process.env.NODE_ENV === "production",
 };
 
-/**
- * Server-side CAPTCHA verification (Cloudflare Turnstile siteverify).
- * Fail-closed: missing config, network errors, or non-success responses all
- * count as "not verified". No secret ever leaves the server runtime.
- */
-export async function verifyTurnstileToken(token: string, remoteIp?: string): Promise<boolean> {
-  const secret = process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY;
-  if (!secret || !token) return false;
-  try {
-    const body = new URLSearchParams({ secret, response: token });
-    if (remoteIp) body.set("remoteip", remoteIp);
-    const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-      method: "POST",
-      body,
-    });
-    if (!response.ok) return false;
-    const result = (await response.json()) as { success?: boolean };
-    return result.success === true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Single active session check (server-side). Called BEFORE any CAPTCHA or
- * secret question work: when the slot is validly held by another Creator,
- * the second Creator is refused here and never reaches either step. The
- * first Creator is not disturbed. Regular users, Producers, and Platform
- * Admins never reach this function (requireCreator() runs first).
- */
-export async function checkLeaseBeforeGateSteps(
-  userId: string,
-): Promise<
-  | { proceed: true }
-  | { proceed: false; reason: "lease_unavailable" | "lease_held_by_other"; maskedId?: string; expiresIso?: string }
-> {
-  const { getCreatorLeaseStatus } = await import("@/lib/creator/session-lease");
-  try {
-    const status = await getCreatorLeaseStatus(userId);
-    if (status.state === "free" || status.state === "mine") return { proceed: true };
-    return {
-      proceed: false,
-      reason: "lease_held_by_other",
-      maskedId: status.maskedId,
-      expiresIso: status.expiresIso,
-    };
-  } catch {
-    // Fail-closed: lease service unavailable => the gate cannot start.
-    return { proceed: false, reason: "lease_unavailable" };
-  }
-}
-
 export type GateStepResult =
   | { ok: true }
   | {
       ok: false;
-      code:
-        | "captcha_not_configured"
-        | "captcha_failed"
-        | "invalid_secret_answer"
-        | "creator_session_active"
-        | "config_error";
+      code: "creator_session_active" | "invalid_secret_answer" | "config_error";
     };
 
-/** Step 1: verify the CAPTCHA server-side, then issue the step cookie. */
-export async function passCaptchaStep(token: string, remoteIp?: string): Promise<GateStepResult> {
-  const creator = await requireCreator();
-  if (!hasCaptchaSecret()) return { ok: false, code: "captcha_not_configured" };
-  // Re-check the single-active-session slot before granting step progress.
-  const leaseCheck = await checkLeaseBeforeGateSteps(creator.userId);
-  if (!leaseCheck.proceed) return { ok: false, code: "creator_session_active" };
-  const lease = await import("@/lib/creator/session-lease");
-  const acquired = await lease.acquireCreatorLease(creator.userId);
-  if (acquired.state !== "mine") {
-    // Concurrent race lost: another acquire owns the slot now.
-    return { ok: false, code: "creator_session_active" };
-  }
-  const verified = await verifyTurnstileToken(token, remoteIp);
-  if (!verified) return { ok: false, code: "captcha_failed" };
-
-  const secret = resolveGateSecret();
-  if (!secret) {
-    throw new GateConfigError(["CREATOR_GATE_SECRET"]);
-  }
-  const store = await cookies();
-  store.set(CREATOR_GATE_STEP_COOKIE, signGatePayload("step", creator.userId, Date.now(), secret), {
-    ...COOKIE_BASE,
-    maxAge: CREATOR_GATE_STEP_MAX_AGE_SECONDS,
-  });
-  return { ok: true };
-}
-
-/** Step 2: verify the secret answer against the stored hash, then issue the gate cookie. */
+/**
+ * Verify the existing secret question and issue/refresh gate authorization.
+ * The lease is acquired again here so every gate POST is re-authorized and
+ * cannot rely on stale client state.
+ */
 export async function passSecretQuestionStep(
   answer: string,
   checkAnswer: (userId: string, answer: string) => Promise<boolean>,
@@ -157,65 +64,46 @@ export async function passSecretQuestionStep(
   const secret = resolveGateSecret();
   if (!secret) throw new GateConfigError(["CREATOR_GATE_SECRET"]);
 
-  const store = await cookies();
-  const step = store.get(CREATOR_GATE_STEP_COOKIE)?.value;
-  const stepVerification = verifyGatePayload(
-    step,
-    secret,
-    "step",
-    CREATOR_GATE_STEP_MAX_AGE_SECONDS * 1000,
-  );
-  // The step cookie must be valid AND belong to THIS Creator: a step cookie
-  // minted for Creator A can never authorize Creator B's secret question.
-  if (!stepVerification.ok || stepVerification.userId !== creator.userId) {
-    return { ok: false, code: "captcha_failed" };
+  const acquired = await acquireCreatorLease(creator.userId);
+  if (!acquired) {
+    return { ok: false, code: "creator_session_active" };
   }
 
-  // The single-active-session slot must still belong to this Creator when
-  // the second step runs (guards session switching / concurrent logins).
-  const leaseCheck = await checkLeaseBeforeGateSteps(creator.userId);
-  if (!leaseCheck.proceed) return { ok: false, code: "creator_session_active" };
+  const verified = await checkAnswer(creator.userId, answer.trim());
+  if (!verified) {
+    addGateJitter();
+    return { ok: false, code: "invalid_secret_answer" };
+  }
 
-  // Same hash path as the Account Security Manager — no new verification
-  // mechanism. A wrong answer and an unset question are indistinguishable.
-  const verified = await checkAnswer(creator.userId, answer);
-  if (!verified) return { ok: false, code: "invalid_secret_answer" };
-
+  const store = await cookies();
   store.set(CREATOR_GATE_COOKIE, signGatePayload("gate", creator.userId, Date.now(), secret), {
     ...COOKIE_BASE,
     maxAge: CREATOR_GATE_MAX_AGE_SECONDS,
   });
-  // Consume the step cookie so it cannot be replayed for a second grant.
-  store.delete(CREATOR_GATE_STEP_COOKIE);
   return { ok: true };
 }
 
 /**
- * Server-side gate check for /developer. Returns whether the signed gate
- * cookie is present, correctly signed for this purpose, unexpired, AND bound
- * to the exact Creator currently signed in — signature alone is never
- * enough. Creator authorization itself is still enforced separately by
- * requireCreator().
+ * Server-side gate check. The signed cookie is valid only for the currently
+ * authenticated Creator, so another account cannot reuse a copied cookie.
  */
-export async function hasValidGate(userId: string): Promise<boolean> {
-  if (!userId) return false;
+export async function hasValidGate(): Promise<boolean> {
+  const creator = await requireCreator();
   const secret = resolveGateSecret();
   if (!secret) return false;
   const store = await cookies();
   const gate = store.get(CREATOR_GATE_COOKIE)?.value;
-  const verification = verifyGatePayload(gate, secret, "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000);
-  // Signature + expiry + purpose already checked; the cookie must also name
-  // this exact Creator so one account's gate can never serve another.
-  return verification.ok && verification.userId === userId;
+  const result = verifyGatePayload(gate, secret, "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000);
+  return result.ok && result.userId === creator.userId;
 }
 
-/** Adds a random delay so wrong-answer probes are not timing-distinguishable. */
+/** Adds a small bounded delay so wrong-answer probes are less distinguishable. */
 export function addGateJitter(): void {
   const jitterMs = Number(randomBytes(1)[0]) % 40;
   const start = Date.now();
   while (Date.now() - start < jitterMs) {
-    // intentional busy-wait: tiny, bounded, no async scheduling involved
+    // Intentional bounded delay; no success or authentication state changes.
   }
 }
 
-export { CREATOR_GATE_COOKIE, CREATOR_GATE_STEP_COOKIE };
+export { CREATOR_GATE_COOKIE };

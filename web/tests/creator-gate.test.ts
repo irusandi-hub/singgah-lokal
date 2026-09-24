@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
+import { PGlite } from "@electric-sql/pglite";
 
 import {
   CREATOR_GATE_COOKIE,
   CREATOR_GATE_MAX_AGE_SECONDS,
-  CREATOR_GATE_STEP_COOKIE,
-  CREATOR_GATE_STEP_MAX_AGE_SECONDS,
   signGatePayload,
   verifyGatePayload,
 } from "../lib/creator/gate-crypto";
@@ -19,13 +18,20 @@ const gateClient = readFileSync(
   "utf8",
 );
 const developerLayout = readFileSync(new URL("../app/developer/layout.tsx", import.meta.url), "utf8");
-
-function stripComments(source: string): string {
-  return source
-    .split("\n")
-    .filter((line) => !line.trim().startsWith("*") && !line.trim().startsWith("//") && !line.trim().startsWith("/*"))
-    .join("\n");
-}
+const heartbeat = readFileSync(
+  new URL("../app/developer/creator-lease-heartbeat.tsx", import.meta.url),
+  "utf8",
+);
+const signOutRoute = readFileSync(new URL("../app/api/auth/sign-out/route.ts", import.meta.url), "utf8");
+const leaseMigration = readFileSync(
+  new URL("../supabase/migrations/0015_creator_session_lease.sql", import.meta.url),
+  "utf8",
+);
+const secretQuestionMigration = readFileSync(
+  new URL("../supabase/migrations/0014_creator_secret_question.sql", import.meta.url),
+  "utf8",
+);
+const leaseLib = readFileSync(new URL("../lib/creator/session-lease.ts", import.meta.url), "utf8");
 
 test("Gate cookie round-trip: valid signature and binding pass", () => {
   const secret = "test-secret";
@@ -35,231 +41,201 @@ test("Gate cookie round-trip: valid signature and binding pass", () => {
   if (result.ok) assert.equal(result.userId, "user-1");
 });
 
-test("Gate cookie rejects tampering, wrong secret, wrong purpose, and expiry", () => {
+test("Gate cookie rejects tampering, wrong secret, expiry, and missing values", () => {
   const secret = "test-secret";
   const now = 1_700_000_000_000;
   const gate = signGatePayload("gate", "user-1", now, secret);
-  const step = signGatePayload("step", "user-1", now, secret);
 
   assert.equal(verifyGatePayload(gate, secret, "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000, now + 1000).ok, true);
-  // Tampered payload
   assert.equal(verifyGatePayload(`${gate}x`, secret, "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000).ok, false);
-  // Wrong secret
   assert.equal(verifyGatePayload(gate, "other-secret", "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000).ok, false);
-  // Step cookie must never satisfy the gate purpose
-  assert.equal(verifyGatePayload(step, secret, "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000, now + 1000).ok, false);
-  // Expired
   assert.equal(
     verifyGatePayload(gate, secret, "gate", CREATOR_GATE_MAX_AGE_SECONDS * 1000, now + (CREATOR_GATE_MAX_AGE_SECONDS + 60) * 1000).ok,
     false,
   );
-  // Missing/empty
   assert.equal(verifyGatePayload(undefined, secret, "gate", 1000).ok, false);
   assert.equal(verifyGatePayload("", secret, "gate", 1000).ok, false);
 });
 
-test("Gate constants: cookie names and TTLs are server-defined", () => {
+test("Creator gate uses one signed gate cookie and no obsolete step cookie", () => {
   assert.equal(CREATOR_GATE_COOKIE, "singgah_creator_gate");
-  assert.equal(CREATOR_GATE_STEP_COOKIE, "singh_creator_gate_step".replace("singh", "singgah"));
   assert.equal(CREATOR_GATE_MAX_AGE_SECONDS, 8 * 60 * 60);
-  assert.equal(CREATOR_GATE_STEP_MAX_AGE_SECONDS, 5 * 60);
+  assert.doesNotMatch(gateLib, /CREATOR_GATE_STEP|passCaptchaStep|TURNSTILE|turnstile|captcha/i);
 });
 
-test("CAPTCHA is verified server-side and fails closed without configuration", () => {
-  const code = stripComments(gateLib);
-  assert.match(code, /CLOUDFLARE_TURNSTILE_SECRET_KEY/);
-  assert.match(code, /siteverify/);
-  assert.match(code, /success === true/);
-  // Fail-closed: missing secret => false, regardless of token.
-  assert.match(code, /if \(!secret \|\| !token\) return false;/);
-  assert.match(code, /catch \{\s*return false;/);
-  // Turnstile secret is never NEXT_PUBLIC and never serialized into a response.
-  assert.doesNotMatch(code, /NEXT_PUBLIC[^\\n]*TURNSTILE_SECRET/);
+test("Creator gate flow is lease-first, secret-question-only, and server-authorized", () => {
+  assert.match(gateLib, /export async function passSecretQuestionStep/);
+  assert.match(gateLib, /await requireCreator\(\)/);
+  assert.match(gateLib, /await acquireCreatorLease\(creator\.userId\)/);
+  assert.match(gateLib, /await checkAnswer\(creator\.userId, answer\.trim\(\)\)/);
+  assert.match(gateLib, /store\.set\(CREATOR_GATE_COOKIE/);
+  assert.match(gateLib, /result\.userId === creator\.userId/);
+  assert.doesNotMatch(gateLib, /CLOUDFLARE_TURNSTILE_SECRET_KEY|NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY|cf-turnstile-response/i);
+
+  assert.match(gateApi, /export async function GET/);
+  assert.match(gateApi, /export async function POST/);
+  assert.match(gateApi, /acquireCreatorLease/);
+  assert.match(gateApi, /getCreatorSecretQuestion/);
+  assert.match(gateApi, /checkCreatorSecretAnswer/);
+  assert.match(gateApi, /creator_session_active/);
+  assert.match(gateApi, /secret_question_missing/);
+  assert.match(gateApi, /service_unavailable/);
+  assert.match(gateApi, /step === "heartbeat"/);
+  assert.doesNotMatch(gateApi, /captcha|turnstile|siteverify|NEXT_PUBLIC_CLOUDFLARE/i);
 });
 
-test("Both gate steps re-verify requireCreator before anything else", () => {
-  for (const name of ["passCaptchaStep", "passSecretQuestionStep"]) {
-    const fn = gateLib.slice(gateLib.indexOf(`export async function ${name}`));
-    const body = fn.slice(0, fn.indexOf("\n}"));
-    assert.match(body, /await requireCreator\(\)/, `${name} must verify Creator first`);
-  }
-});
-
-test("Secret question step reuses the existing hash verification", () => {
-  const code = stripComments(gateLib);
-  assert.match(code, /checkAnswer: \(userId: string, answer: string\) => Promise<boolean>/);
-  assert.match(code, /await checkAnswer\(creator\.userId, answer\)/);
-  // Step cookie is required and consumed after success (no replay).
-  assert.match(code, /CREATOR_GATE_STEP_MAX_AGE_SECONDS \* 1000/);
-  assert.match(code, /store\.delete\(CREATOR_GATE_STEP_COOKIE\)/);
-});
-
-test("Gate API never exposes hash, salt, or answer material", () => {
-  const apiCode = stripComments(gateApi);
-  assert.doesNotMatch(apiCode, /answer_hash|answer_salt/);
-  // Wrong answer and unset question are indistinguishable failures.
-  assert.match(apiCode, /Verifikasi gagal\. Coba lagi\./);
-  assert.match(apiCode, /requireCreator\(\)/);
-  assert.match(apiCode, /creator_required/);
-});
-
-test("Gate page is Creator-only, returnTo-sanitized, and session-verified", () => {
+test("Gate UI reaches the secret question directly and always has a terminal error state", () => {
   assert.match(gatePage, /export const dynamic = "force-dynamic"/);
   assert.match(gatePage, /await requireCreator\(\)/);
-  assert.match(gatePage, /sanitizeReturnTo/);
+  assert.match(gatePage, /await acquireCreatorLease\(\)/);
+  assert.match(gatePage, /getCreatorSecretQuestion\(creatorUserId\)/);
   assert.match(gatePage, /hasValidGate/);
-  assert.match(gatePage, /redirect\("\/auth\?returnTo=%2Fdeveloper-gate"\)/);
+  assert.match(gatePage, /returnTo === "\/" \? "\/developer"/);
+  assert.doesNotMatch(gatePage, /turnstile|captcha|NEXT_PUBLIC_CLOUDFLARE/i);
+
+  assert.match(gateClient, /fetch\("\/api\/creator\/gate"/);
+  assert.match(gateClient, /step: "secret-question"/);
+  assert.match(gateClient, /AbortController/);
+  assert.match(gateClient, /creator_session_active/);
+  assert.match(gateClient, /secret_question_missing/);
+  assert.match(gateClient, /state === "error"/);
+  assert.doesNotMatch(gateClient, /<Script|turnstile|captcha|cf-turnstile-response|NEXT_PUBLIC_CLOUDFLARE/i);
+  assert.doesNotMatch(gateClient, /answer_hash|answer_salt|SUPABASE_SERVICE_ROLE_KEY/);
 });
 
-test("Developer Center enforces the gate server-side on every request", () => {
-  assert.match(developerLayout, /hasValidGate/);
-  assert.match(developerLayout, /redirect\(`\/developer-gate\?returnTo=/);
-  // The check sits behind Creator authorization, never instead of it.
-  const layoutCode = stripComments(developerLayout);
-  assert.match(layoutCode, /guard\.kind === "authorized" && !guard\.gateValid/);
+test("Developer requests renew the lease and the browser sends heartbeats", () => {
+  assert.match(developerLayout, /await acquireCreatorLease\(guard\.userId\)/);
+  assert.match(developerLayout, /redirect\("\/developer-gate/);
+  assert.match(developerLayout, /CreatorLeaseHeartbeat/);
+  assert.match(heartbeat, /setInterval/);
+  assert.match(heartbeat, /step: "heartbeat"/);
+  assert.match(heartbeat, /api\/creator\/gate/);
+  assert.match(heartbeat, /router\.push\("\/developer-gate"\)/);
+  assert.doesNotMatch(heartbeat, /turnstile|captcha/i);
 });
 
-test("Gate check is bound to the signed-in Creator's user id, not signature alone", () => {
-  const gateLibCode = stripComments(gateLib);
-  // hasValidGate takes the current Creator's id and compares it with the
-  // cookie payload's bound userId after signature/expiry/purpose checks.
-  assert.match(gateLibCode, /hasValidGate\(userId: string\)/);
-  assert.match(gateLibCode, /if \(!userId\) return false;/);
-  assert.match(gateLibCode, /verification\.ok && verification\.userId === userId/);
-  // Layout and gate page pass the requireCreator()-resolved id.
-  const layoutCode = stripComments(developerLayout);
-  assert.match(layoutCode, /hasValidGate\(creator\.userId\)/);
-  const pageCode = stripComments(gatePage);
-  assert.match(pageCode, /hasValidGate\(creatorId\)/);
-  // The gate route lives OUTSIDE the developer layout directory (no loop):
-  // the old nested route must not exist anymore.
-  assert.equal(existsSync(new URL("../app/developer/gate/page.tsx", import.meta.url)), false);
+test("Creator sign-out releases the lease before invalidating auth", () => {
+  assert.match(signOutRoute, /releaseCreatorLease\(userId\)/);
+  assert.match(signOutRoute, /auth\.signOut\(\)/);
+  assert.match(signOutRoute, /CREATOR_GATE_COOKIE/);
+  assert.match(signOutRoute, /CreatorRequiredError/);
 });
 
-test("Turnstile token comes from the official widget form data, not a hand-made input", () => {
-  const clientCode = stripComments(gateClient);
-  // Token is read from the submitted form data of the official widget input.
-  assert.match(clientCode, /FormData\(event\.currentTarget\)/);
-  assert.match(clientCode, /formData\.get\("cf-turnstile-response"\)/);
-  // No synthetic hidden input pretending to hold the token.
-  assert.doesNotMatch(clientCode, /type="hidden"/);
-  assert.doesNotMatch(clientCode, /getElementById/);
+test("Developer Center keeps Creator, regular User, Producer, and Platform Admin separated", () => {
+  assert.match(developerLayout, /await requireCreator\(\)/);
+  assert.match(developerLayout, /Akses ditolak/);
+  const executableLayout = developerLayout
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("*") && !line.trim().startsWith("//"))
+    .join("\n");
+  assert.doesNotMatch(executableLayout, /producer_memberships|platform_moderator/);
+  assert.doesNotMatch(gateApi, /producer|platform_moderator/i);
 });
 
-test("Gate client holds no verification logic or secret material", () => {
-  const clientCode = stripComments(gateClient);
-  // Only the public site key is read client-side; naming the missing secret
-  // variable in the fail-closed help text is allowed (never its value).
-  assert.match(clientCode, /NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY/);
-  assert.doesNotMatch(clientCode, /process\.env\.(?!NEXT_PUBLIC_)/);
-  assert.doesNotMatch(clientCode, /answer_hash|answer_salt/);
-  // The client posts the token/answer and lets the server decide.
-  assert.match(clientCode, /api\/creator\/gate/);
-  assert.doesNotMatch(clientCode, /timingSafeEqual|createHmac/);
+test("Secret-question source remains the existing server-side Creator table", () => {
+  assert.match(secretQuestionMigration, /create table if not exists public\.creator_secret_question/);
+  assert.match(gateApi, /getCreatorSecretQuestion/);
+  assert.match(gateApi, /checkCreatorSecretAnswer/);
+  assert.doesNotMatch(leaseMigration, /insert\s+into\s+(auth\.users|public\.users)|create\s+(user|account)|password/i);
 });
 
-// ---------------------------------------------------------------------------
-// PAKET 5 — Single Active Creator Session + step-cookie user binding
-// ---------------------------------------------------------------------------
-
-const leaseLib = readFileSync(new URL("../lib/creator/session-lease.ts", import.meta.url), "utf8");
-const signOutRoute = readFileSync(new URL("../app/api/auth/sign-out/route.ts", import.meta.url), "utf8");
-const leaseMigration = readFileSync(
-  new URL("../supabase/migrations/0015_creator_session_lease.sql", import.meta.url),
-  "utf8",
-);
-
-test("Gate steps run the single-active-session check BEFORE any verification", () => {
-  const code = stripComments(gateLib);
-  // Order: lease check → acquire → only then Turnstile siteverify.
-  const captchaFn = gateLib.slice(gateLib.indexOf("export async function passCaptchaStep"));
-  const captchaBody = captchaFn.slice(0, captchaFn.indexOf("\n}"));
-  const checkIdx = captchaBody.indexOf("checkLeaseBeforeGateSteps(creator.userId)");
-  const acquireIdx = captchaBody.indexOf("acquireCreatorLease(creator.userId)");
-  const siteverifyIdx = captchaBody.indexOf("verifyTurnstileToken");
-  assert.ok(checkIdx >= 0, "captcha step must check the lease first");
-  assert.ok(acquireIdx > checkIdx, "acquire must follow the lease check");
-  assert.ok(siteverifyIdx > acquireIdx, "siteverify must run only after the slot is acquired");
-  // A concurrent race loser must never get the step cookie.
-  assert.match(captchaBody, /acquired\.state !== "mine"/);
-});
-
-test("Captcha and secret steps re-check the lease and refuse when held by another Creator", () => {
-  const code = stripComments(gateLib);
-  assert.match(code, /creator_session_active/);
-  const secretFn = gateLib.slice(gateLib.indexOf("export async function passSecretQuestionStep"));
-  const secretBody = secretFn.slice(0, secretFn.indexOf("\n}"));
-  assert.match(secretBody, /checkLeaseBeforeGateSteps\(creator\.userId\)/);
-});
-
-test("Secret question step is bound to the step cookie's Creator (A's step cannot serve B)", () => {
-  const secretFn = gateLib.slice(gateLib.indexOf("export async function passSecretQuestionStep"));
-  const secretBody = secretFn.slice(0, secretFn.indexOf("\n}"));
+test("Creator lease schema is a singleton with one advisory-lock contract", () => {
+  assert.match(leaseMigration, /slot_id\s+boolean\s+primary\s+key/);
+  assert.match(leaseMigration, /creator_session_lease_single_slot\s+check\s*\(slot_id\s*=\s*true\)/);
   assert.match(
-    secretBody,
-    /!stepVerification\.ok \|\| stepVerification\.userId !== creator\.userId/,
-    "step cookie minted for Creator A must be rejected for Creator B",
+    leaseMigration,
+    /create or replace function public\.acquire_creator_session_lease\([\s\S]*p_user_id uuid[\s\S]*p_expires_at timestamptz/,
   );
-  // checkAnswer runs only after the binding check.
-  const bindingIdx = secretBody.indexOf("stepVerification.userId !== creator.userId");
-  const checkAnswerIdx = secretBody.indexOf("await checkAnswer(");
-  assert.ok(bindingIdx >= 0 && checkAnswerIdx > bindingIdx, "checkAnswer must run after the binding check");
+  assert.match(
+    leaseMigration,
+    /create or replace function public\.release_creator_session_lease\([\s\S]*p_user_id uuid/,
+  );
+  assert.equal(
+    [...leaseMigration.matchAll(/pg_advisory_xact_lock\(hashtext\('creator_session_lease'\)\)/g)].length,
+    2,
+    "acquire and release must use the same advisory lock",
+  );
+  assert.doesNotMatch(leaseMigration, /create\s+(unique\s+)?index[\s\S]*where\s+expires_at\s*>\s*now\(\)/i);
+  assert.doesNotMatch(leaseMigration, /where\s+expires_at\s*>\s*now\(\)/i);
+  assert.match(leaseLib, /rpc\("acquire_creator_session_lease"/);
+  assert.match(leaseLib, /p_user_id: userId/);
+  assert.match(leaseLib, /p_expires_at: expiresAt/);
+  assert.doesNotMatch(leaseLib, /\.upsert\(/);
 });
 
-test("Lease status reveals only a masked identifier of the active holder", () => {
-  const code = stripComments(leaseLib);
-  assert.match(code, /maskedId/);
-  assert.match(code, /function maskUserId/);
-  assert.match(code, /userId\.slice\(0, 4\)/);
-  assert.match(code, /userId\.slice\(-4\)/);
-  // Never the raw id/email in the shared status shape.
-  assert.doesNotMatch(code, /state: "held-by-other";[^}]*email/);
-});
+test("Creator lease atomically denies an active second Creator, takes expiry, and releases safely", async () => {
+  const db = new PGlite();
+  const creatorA = "11111111-1111-4111-8111-111111111111";
+  const creatorB = "22222222-2222-4222-8222-222222222222";
+  const future = new Date(Date.now() + 60_000).toISOString();
 
-test("Lease is atomic: database unique index is the point of serialization", () => {
-  // Partial unique index: only one live (unexpired) row can exist; concurrent
-  // acquires race on it and Postgres picks exactly one winner per instant.
-  assert.match(leaseMigration, /create unique index/i);
-  assert.match(leaseMigration, /where expires_at > now\(\)/);
-  // Acquisition is a single upsert; ownership is decided by an authoritative re-read.
-  const code = stripComments(leaseLib);
-  assert.match(code, /\.upsert\(/);
-  assert.match(code, /onConflict: "user_id"/);
-  assert.match(code, /getCreatorLeaseStatus\(userId\)/);
-});
+  try {
+    await db.exec(`
+      create schema auth;
+      create table auth.users (id uuid primary key);
+      create table public.users (id uuid primary key references auth.users(id) on delete cascade);
+      create role anon;
+      create role authenticated;
+      create role service_role;
+    `);
+    await db.exec(leaseMigration);
+    await db.exec(`
+      insert into auth.users (id) values
+        ('${creatorA}'),
+        ('${creatorB}');
+      insert into public.users (id) values
+        ('${creatorA}'),
+        ('${creatorB}');
+    `);
 
-test("Lease expiry frees the slot; release uses the advisory-lock RPC on sign-out", () => {
-  assert.match(leaseMigration, /release_creator_session_lease/);
-  assert.match(leaseMigration, /pg_advisory_xact_lock/);
-  const code = stripComments(leaseLib);
-  assert.match(code, /releaseCreatorLease/);
-  assert.match(code, /rpc\("release_creator_session_lease"/);
-  // Expiry is enforced on read too (expired rows never count as active).
-  assert.match(code, /new Date\(data\.expires_at\)\.getTime\(\) > Date\.now\(\)/);
-});
+    const acquire = async (userId: string, expiresAt: string) => {
+      const result = await db.query(
+        "select public.acquire_creator_session_lease($1::uuid, $2::timestamptz) as acquired",
+        [userId, expiresAt],
+      );
+      const rows = result.rows as Array<{ acquired: boolean }>;
+      return rows[0]?.acquired === true;
+    };
+    const release = async (userId: string) => {
+      const result = await db.query(
+        "select public.release_creator_session_lease($1::uuid) as released",
+        [userId],
+      );
+      const rows = result.rows as Array<{ released: boolean }>;
+      return rows[0]?.released === true;
+    };
 
-test("Sign-out releases the lease only for the Creator account", () => {
-  const code = stripComments(signOutRoute);
-  // Read the account BEFORE auth teardown, release AFTER signOut.
-  assert.match(code, /isCreatorEmail\(email\)/);
-  assert.match(code, /releaseCreatorLease\(userId\)/);
-  const signOutIdx = code.indexOf("await supabase.auth.signOut()");
-  const releaseIdx = code.indexOf("releaseCreatorLease(userId)");
-  assert.ok(signOutIdx >= 0 && releaseIdx > signOutIdx, "lease release must follow auth sign-out");
-});
+    assert.equal(await acquire(creatorA, future), true);
+    assert.equal(await acquire(creatorA, future), true, "the active Creator remains unaffected");
+    assert.equal(await acquire(creatorB, future), false, "an active Creator cannot be displaced");
 
-test("Lease failures are fail-closed and never bypass the gate", () => {
-  const code = stripComments(gateLib);
-  assert.match(code, /lease_unavailable/);
-  assert.match(code, /catch \{[\s\S]*?lease_unavailable/);
-});
+    const activeRow = await db.query(
+      "select user_id, expires_at from public.creator_session_lease where slot_id = true",
+    );
+    const activeRows = activeRow.rows as Array<{ user_id: string; expires_at: string | null }>;
+    assert.equal(activeRows.length, 1, "the table must remain a singleton");
+    assert.equal(activeRows[0]?.user_id, creatorA);
 
-test("Non-Creator accounts never touch the lease (requireCreator runs first everywhere)", () => {
-  for (const fn of ["passCaptchaStep", "passSecretQuestionStep"]) {
-    const body = gateLib.slice(gateLib.indexOf(`export async function ${fn}`));
-    const fnBody = body.slice(0, body.indexOf("\n}"));
-    const creatorIdx = fnBody.indexOf("await requireCreator()");
-    const leaseIdx = fnBody.indexOf("checkLeaseBeforeGateSteps");
-    assert.ok(creatorIdx >= 0 && leaseIdx > creatorIdx, `${fn}: requireCreator must precede lease logic`);
+    await db.exec(`
+      update public.creator_session_lease
+         set expires_at = clock_timestamp() - interval '1 second',
+             updated_at = clock_timestamp()
+       where slot_id = true;
+    `);
+    assert.equal(await acquire(creatorB, future), true, "an expired lease may be claimed");
+
+    assert.equal(await release(creatorA), false, "the old owner cannot release the new owner's lease");
+    assert.equal(await release(creatorB), true);
+    assert.equal(await release(creatorB), false, "repeated release is a safe no-op");
+
+    const releasedRow = await db.query(
+      "select user_id, expires_at from public.creator_session_lease where slot_id = true",
+    );
+    const releasedRows = releasedRow.rows as Array<{ user_id: string | null; expires_at: string | null }>;
+    assert.equal(releasedRows.length, 1);
+    assert.equal(releasedRows[0]?.user_id, null);
+    assert.equal(releasedRows[0]?.expires_at, null);
+  } finally {
+    await db.close();
   }
 });

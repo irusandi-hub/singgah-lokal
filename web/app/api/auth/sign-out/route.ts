@@ -1,14 +1,11 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isCreatorEmail } from "@/lib/auth/creator";
+import { CreatorRequiredError, isCreatorEmail } from "@/lib/auth/creator";
+import { CREATOR_GATE_COOKIE } from "@/lib/creator/gate-crypto";
 import { releaseCreatorLease } from "@/lib/creator/session-lease";
 
-/**
- * Sign-out. For the Creator it also releases the single-active-session slot
- * so another Creator can sign in afterwards. The lease is released only when
- * the signed-out account actually holds it — regular users, Producers, and
- * Platform Admins are unaffected.
- */
+/** Sign-out releases the Creator lease before invalidating the auth session. */
 export async function POST() {
   try {
     const supabase = await createSupabaseServerClient();
@@ -16,15 +13,24 @@ export async function POST() {
     const email = data.user?.email;
     const userId = data.user?.id;
 
-    await supabase.auth.signOut();
-
-    // Release after auth teardown; the release itself never throws.
     if (userId && email && isCreatorEmail(email)) {
-      await releaseCreatorLease(userId);
+      try {
+        await releaseCreatorLease(userId);
+      } catch (error) {
+        if (!(error instanceof CreatorRequiredError)) {
+          console.error("[auth/sign-out] Creator lease release failed:", error);
+        }
+      }
     }
 
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      return NextResponse.json({ error: "authentication_unavailable" }, { status: 503 });
+    }
+    const store = await cookies();
+    store.delete(CREATOR_GATE_COOKIE);
     return NextResponse.json({ authenticated: false });
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "authentication_unavailable" }, { status: 503 });
+  } catch {
+    return NextResponse.json({ error: "authentication_unavailable" }, { status: 503 });
   }
 }

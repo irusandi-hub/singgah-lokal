@@ -27,6 +27,7 @@ const MIGRATIONS = [
   "0007_production_story_atomic_persistence.sql",
   "0008_live_sessions.sql",
   "0013_live_rpc_privilege_lockdown.sql",
+  "0015_creator_session_lease.sql",
 ];
 
 const readMigration = (name: string) =>

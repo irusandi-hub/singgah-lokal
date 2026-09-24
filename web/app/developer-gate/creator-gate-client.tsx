@@ -1,211 +1,148 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Script from "next/script";
 import { useRouter } from "next/navigation";
 
 /**
- * Creator security gate UI (Authority Master §2).
- *
- * Renders the two-step verification for the one account type that reaches
- * it: step 1 renders the real Cloudflare Turnstile widget (token verified
- * server-side via siteverify), step 2 posts the secret answer for scrypt
- * verification against the stored hash. This component holds no secret
- * material — the server owns verification and issues the signed gate cookie.
+ * Creator gate client. Authentication, lease ownership, secret-question
+ * verification, and cookie issuance all happen on the server. This component
+ * only renders a server response and submits the answer.
  */
 
-type ApiError = { error?: string; code?: string; missingVars?: string[] };
+export type GateState =
+  | "loading"
+  | "ready"
+  | "creator_session_active"
+  | "secret_question_missing"
+  | "error";
 
-type GateStatus = {
-  captchaConfigured: boolean;
-  storageAvailable: boolean;
-  questionConfigured: boolean;
-  question: string | null;
+export type GatePayload = {
+  state: GateState;
+  question?: string | null;
+  error?: string;
+  code?: string;
 };
 
-type Feedback = { kind: "ok" | "error"; message: string } | null;
+type Feedback = { kind: "error"; message: string } | null;
 
-/** Limited info about the currently active Creator session (masked id only). */
-type LeaseBlocked = { maskedId: string | null; expiresIso: string | null };
-
-const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY ?? "";
-const DEVELOPER_PATH = "/developer";
-
-export default function CreatorGateClient() {
-  const router = useRouter();
-  const [status, setStatus] = useState<GateStatus | null>(null);
-  const [step, setStep] = useState<"captcha" | "secret-question">("captcha");
-  const [feedback, setFeedback] = useState<Feedback>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [answer, setAnswer] = useState("");
-  const [leaseBlocked, setLeaseBlocked] = useState<LeaseBlocked | null>(null);
-
-  // Pure fetcher (no setState inside): the mount effect applies state only
-  // after await, with a cancelled guard — consistent with project rules.
-  const fetchStatus = useCallback(
-    async (): Promise<
-      | { kind: "status"; status: GateStatus }
-      | { kind: "lease-blocked"; blocked: LeaseBlocked }
-      | { kind: "unavailable" }
-    > => {
-      try {
-        const response = await fetch("/api/creator/gate");
-        const payload: unknown = await response.json().catch(() => null);
-        if (!response.ok) {
-          if (
-            payload &&
-            typeof payload === "object" &&
-            "code" in payload &&
-            (payload as ApiError).code === "creator_session_active"
-          ) {
-            const p = payload as { activeHolderMaskedId?: string | null; activeExpiresIso?: string | null };
-            return {
-              kind: "lease-blocked",
-              blocked: { maskedId: p.activeHolderMaskedId ?? null, expiresIso: p.activeExpiresIso ?? null },
-            };
-          }
-          return { kind: "unavailable" };
-        }
-        if (!payload || typeof payload !== "object" || !("captchaConfigured" in payload)) {
-          return { kind: "unavailable" };
-        }
-        return { kind: "status", status: payload as GateStatus };
-      } catch {
-        return { kind: "unavailable" };
-      }
-    },
-    [],
+function isGatePayload(value: unknown): value is GatePayload {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "state" in value &&
+      typeof (value as { state?: unknown }).state === "string",
   );
+}
+
+function terminalError(): GatePayload {
+  return {
+    state: "error",
+    code: "service_unavailable",
+    error: "Layanan Creator sedang tidak tersedia. Coba lagi nanti.",
+  };
+}
+
+export default function CreatorGateClient({ initialStatus }: { initialStatus?: GatePayload }) {
+  const router = useRouter();
+  const [status, setStatus] = useState<GatePayload>(initialStatus ?? { state: "loading" });
+  const [answer, setAnswer] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+
+  const fetchStatus = useCallback(async (): Promise<GatePayload> => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch("/api/creator/gate", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!isGatePayload(payload)) {
+        return response.ok ? terminalError() : {
+          state: "error",
+          code: "service_unavailable",
+          error: "Respons gate tidak valid. Coba lagi nanti.",
+        };
+      }
+      if (!response.ok && payload.state === "loading") return terminalError();
+      return payload;
+    } catch {
+      return terminalError();
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const result = await fetchStatus();
-      if (cancelled) return;
-      if (result.kind === "status") setStatus(result.status);
-      else if (result.kind === "lease-blocked") setLeaseBlocked(result.blocked);
-      else setStatus(null);
-    })();
+    void fetchStatus().then((next) => {
+      if (!cancelled) setStatus(next);
+    });
     return () => {
       cancelled = true;
     };
   }, [fetchStatus]);
 
-  const submit = useCallback(
-    async (fields: Record<string, string>, onSuccess: () => void) => {
-      setSubmitting(true);
-      setFeedback(null);
-      try {
-        const response = await fetch("/api/creator/gate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(fields),
-        });
-        const payload: unknown = await response.json().catch(() => null);
-        if (!response.ok) {
-          const code = payload && typeof payload === "object" && "code" in payload ? String((payload as ApiError).code) : "";
-          const missingVars =
-            payload && typeof payload === "object" && "missingVars" in payload
-              ? ((payload as ApiError).missingVars ?? [])
-              : [];
-          const base =
-            payload && typeof payload === "object" && "error" in payload
-              ? String((payload as ApiError).error)
-              : "Verifikasi gagal. Coba lagi.";
-          if (code === "creator_session_active") {
-            const p = payload as { activeHolderMaskedId?: string | null; activeExpiresIso?: string | null };
-            setLeaseBlocked({ maskedId: p.activeHolderMaskedId ?? null, expiresIso: p.activeExpiresIso ?? null });
-            return;
-          }
-          const detail = code === "captcha_not_configured" || missingVars.length > 0
-            ? ` (${missingVars.length > 0 ? missingVars.join(", ") : "CLOUDFLARE_TURNSTILE_SECRET_KEY"} belum diatur)`
-            : "";
-          setFeedback({ kind: "error", message: `${base}${detail}` });
+  async function submitAnswer(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting) return;
+    if (!answer.trim()) {
+      setFeedback({ kind: "error", message: "Masukkan jawaban rahasia." });
+      return;
+    }
+
+    setSubmitting(true);
+    setFeedback(null);
+    try {
+      const response = await fetch("/api/creator/gate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ step: "secret-question", answer: answer.trim() }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!isGatePayload(payload) && response.ok) {
+        setStatus(terminalError());
+        return;
+      }
+      const result = isGatePayload(payload) ? payload : null;
+      if (!response.ok || !result) {
+        if (result?.state === "creator_session_active" || result?.code === "creator_session_active") {
+          setStatus({
+            state: "creator_session_active",
+            code: "creator_session_active",
+            error: "Sesi Creator lain sedang aktif. Tunggu hingga lease berakhir.",
+          });
           return;
         }
-        onSuccess();
-      } catch {
-        setFeedback({ kind: "error", message: "Tidak dapat menghubungi server." });
-      } finally {
-        setSubmitting(false);
+        if (result?.state === "secret_question_missing" || result?.code === "secret_question_missing") {
+          setStatus({
+            state: "secret_question_missing",
+            code: "secret_question_missing",
+            error: "Pertanyaan rahasia belum dikonfigurasi.",
+          });
+          return;
+        }
+        setFeedback({ kind: "error", message: result?.error ?? "Verifikasi gagal. Coba lagi." });
+        return;
       }
-    },
-    [],
-  );
 
-  // Official Turnstile flow: the widget renders an isolated form with its own
-  // "cf-turnstile-response" input inside; reading the submitted FormData
-  // (or the Turnstile callback state) is the supported way to get the token.
-  // No hand-rolled hidden input is used.
-  function onCaptchaSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const token = String(formData.get("cf-turnstile-response") ?? "").trim();
-    if (!token) {
-      setFeedback({ kind: "error", message: "Selesaikan verifikasi Bukan robot terlebih dahulu." });
-      return;
-    }
-    void submit({ step: "captcha", token }, () => {
-      setStep("secret-question");
-      setFeedback(null);
-    });
-  }
-
-  function onSecretSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!answer.trim()) {
-      setFeedback({ kind: "error", message: "Masukkan jawaban." });
-      return;
-    }
-    void submit({ step: "secret-question", answer: answer.trim() }, () => {
-      router.push(DEVELOPER_PATH);
+      router.replace("/developer");
       router.refresh();
-    });
+    } catch {
+      setFeedback({ kind: "error", message: "Tidak dapat menghubungi server." });
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  if (leaseBlocked) {
-    return (
-      <section className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Single Active Session</p>
-        <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Sesi Creator lain sedang aktif</h2>
-        <p className="mt-3 text-sm leading-6 text-brand-ink/60">
-          Slot Creator sedang digunakan oleh sesi lain. Identitas aktif (terbatas):{" "}
-          <span className="font-mono font-semibold text-brand-ink">{leaseBlocked.maskedId ?? "••••"}</span>.
-        </p>
-        {leaseBlocked.expiresIso ? (
-          <p className="mt-2 text-xs leading-5 text-brand-ink/55">
-            Slot berakhir otomatis pada {new Date(leaseBlocked.expiresIso).toLocaleString("id-ID")} — atau lebih cepat
-            bila sesi aktif tersebut logout.
-          </p>
-        ) : null}
-        <p className="mt-3 text-xs leading-5 text-brand-ink/55">
-          CAPTCHA dan Pertanyaan Rahasia tidak diminta selama slot masih dipegang sesi lain.
-        </p>
-        <button
-          type="button"
-          disabled={submitting}
-          onClick={() => {
-            void (async () => {
-              setSubmitting(true);
-              const result = await fetchStatus();
-              if (result.kind === "status") {
-                setLeaseBlocked(null);
-                setStatus(result.status);
-              } else if (result.kind === "lease-blocked") {
-                setLeaseBlocked(result.blocked);
-              }
-              setSubmitting(false);
-            })();
-          }}
-          className="mt-4 rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
-        >
-          Muat ulang status
-        </button>
-      </section>
-    );
+  function retry() {
+    setFeedback(null);
+    setStatus({ state: "loading" });
+    void fetchStatus().then(setStatus);
   }
 
-  if (status === null) {
+  if (status.state === "loading") {
     return (
       <p className="text-sm font-semibold text-brand-ink/60" role="status">
         Memuat gate…
@@ -213,12 +150,61 @@ export default function CreatorGateClient() {
     );
   }
 
-  if (!status.storageAvailable) {
+  if (status.state === "creator_session_active") {
     return (
-      <p className="text-sm font-semibold text-live" role="alert">
-        Gate belum dapat memverifikasi pertanyaan rahasia (konfigurasi server belum lengkap). Hubungi pengelola
-        lingkungan.
-      </p>
+      <section className="rounded-2xl border border-live/30 bg-live/10 p-6" role="alert">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-live">Sesi aktif</p>
+        <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Creator lain sedang menggunakan Developer Center</h2>
+        <p className="mt-3 text-sm leading-6 text-brand-ink/65">
+          {status.error ?? "Sesi Creator lain sedang aktif. Tunggu hingga lease berakhir."}
+        </p>
+        <p className="mt-2 text-xs text-brand-ink/45">Identitas Creator aktif tidak ditampilkan.</p>
+        <button
+          type="button"
+          onClick={retry}
+          className="mt-5 rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-xs font-semibold text-brand-ink"
+        >
+          Periksa lagi
+        </button>
+      </section>
+    );
+  }
+
+  if (status.state === "secret_question_missing") {
+    return (
+      <section className="rounded-2xl border border-live/30 bg-live/10 p-6" role="alert">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-live">Konfigurasi belum selesai</p>
+        <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Pertanyaan rahasia belum tersedia</h2>
+        <p className="mt-3 text-sm leading-6 text-brand-ink/65">
+          {status.error ?? "Pertanyaan rahasia belum dikonfigurasi. Gate tetap ditutup."}
+        </p>
+        <button
+          type="button"
+          onClick={retry}
+          className="mt-5 rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-xs font-semibold text-brand-ink"
+        >
+          Periksa lagi
+        </button>
+      </section>
+    );
+  }
+
+  if (status.state === "error" || !status.question) {
+    return (
+      <section className="rounded-2xl border border-live/30 bg-live/10 p-6" role="alert">
+        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-live">Gate tidak tersedia</p>
+        <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Verifikasi tidak dapat dilanjutkan</h2>
+        <p className="mt-3 text-sm leading-6 text-brand-ink/65">
+          {status.error ?? "Layanan Creator sedang tidak tersedia. Coba lagi nanti."}
+        </p>
+        <button
+          type="button"
+          onClick={retry}
+          className="mt-5 rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-xs font-semibold text-brand-ink"
+        >
+          Coba lagi
+        </button>
+      </section>
     );
   }
 
@@ -226,120 +212,40 @@ export default function CreatorGateClient() {
     "w-full rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-sm text-brand-ink focus:border-brand-primary focus:outline-none";
 
   return (
-    <div className="space-y-6">
-      {step === "captcha" ? (
-        <section className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Langkah 1 dari 2</p>
-          <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Bukan robot</h2>
-          {status.captchaConfigured && TURNSTILE_SITE_KEY ? (
-            <>
-              <Script
-                src="https://challenges.cloudflare.com/turnstile/v0/api.js"
-                strategy="afterInteractive"
-              />
-              <form className="mt-4 space-y-4" onSubmit={onCaptchaSubmit}>
-                <div
-                  className="cf-turnstile"
-                  data-sitekey={TURNSTILE_SITE_KEY}
-                  data-theme="light"
-                />
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
-                >
-                  {submitting ? "Memverifikasi…" : "Verifikasi"}
-                </button>
-              </form>
-              <p className="mt-3 text-xs leading-5 text-brand-ink/50">
-                Verifikasi dilakukan server-side melalui Cloudflare Turnstile. Checkbox palsu tidak diterima.
-              </p>
-            </>
-          ) : (
-            <div className="mt-4 rounded-xl border border-live/30 bg-live/10 px-4 py-3">
-              <p className="text-sm font-semibold text-live">
-                CAPTCHA belum terkonfigurasi — gate berstatus gagal-aman (tidak dapat dilanjutkan).
-              </p>
-              <p className="mt-2 text-xs leading-5 text-brand-ink/60">
-                Variabel yang diperlukan (server-only):{" "}
-                <span className="font-mono">CLOUDFLARE_TURNSTILE_SECRET_KEY</span> dan{" "}
-                <span className="font-mono">NEXT_PUBLIC_CLOUDFLARE_TURNSTILE_SITE_KEY</span> (site key,
-                bukan secret). Tambahkan di Vercel → Settings → Environment Variables, lalu deploy ulang.
-              </p>
-            </div>
-          )}
-          {feedback ? (
-            <p
-              role="status"
-              className={`mt-4 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                feedback.kind === "ok"
-                  ? "border-ok/30 bg-ok/10 text-ok"
-                  : "border-live/30 bg-live/10 text-live"
-              }`}
-            >
-              {feedback.message}
-            </p>
-          ) : null}
-        </section>
-      ) : (
-        <section className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Langkah 2 dari 2</p>
-          <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Pertanyaan Rahasia</h2>
-          {status.questionConfigured ? (
-            <>
-              <p className="mt-3 text-sm font-semibold text-brand-ink">{status.question}</p>
-              <form className="mt-4 space-y-3" onSubmit={onSecretSubmit}>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-[0.14em] text-brand-ink/50" htmlFor="gate-secret-answer">
-                    Jawaban
-                  </label>
-                  <input
-                    id="gate-secret-answer"
-                    className={inputClass}
-                    type="password"
-                    autoComplete="off"
-                    value={answer}
-                    onChange={(event) => setAnswer(event.target.value)}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
-                >
-                  {submitting ? "Memverifikasi…" : "Buka Developer Center"}
-                </button>
-              </form>
-              <p className="mt-3 text-xs leading-5 text-brand-ink/50">
-                Jawaban diverifikasi server-side terhadap hash tersimpan. Jawaban salah membuat Anda tetap di gate.
-              </p>
-            </>
-          ) : (
-            <div className="mt-4 rounded-xl border border-live/30 bg-live/10 px-4 py-3">
-              <p className="text-sm font-semibold text-live">
-                Pertanyaan rahasia belum diatur — gate berstatus gagal-aman (tidak dapat dilanjutkan).
-              </p>
-              <p className="mt-2 text-xs leading-5 text-brand-ink/60">
-                Atur melalui Developer Center → Keamanan Akun → Ganti Pertanyaan Rahasia setelah gate dapat
-                dibuka, atau perbarui baris{" "}
-                <span className="font-mono">creator_secret_question</span> melalui service tooling Creator.
-              </p>
-            </div>
-          )}
-          {feedback ? (
-            <p
-              role="status"
-              className={`mt-4 rounded-xl border px-3 py-2 text-xs font-semibold ${
-                feedback.kind === "ok"
-                  ? "border-ok/30 bg-ok/10 text-ok"
-                  : "border-live/30 bg-live/10 text-live"
-              }`}
-            >
-              {feedback.message}
-            </p>
-          ) : null}
-        </section>
-      )}
-    </div>
+    <section className="rounded-2xl border border-brand-ink/10 bg-white p-6 shadow-[0_1px_2px_rgba(32,35,31,0.06)]">
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Verifikasi Creator</p>
+      <h2 className="mt-2 font-brand text-xl font-semibold text-brand-ink">Jawab pertanyaan rahasia</h2>
+      <p className="mt-3 text-sm font-semibold text-brand-ink">{status.question}</p>
+      <form className="mt-5 space-y-4" onSubmit={submitAnswer}>
+        <div>
+          <label className="block text-xs font-bold uppercase tracking-[0.14em] text-brand-ink/50" htmlFor="gate-secret-answer">
+            Jawaban
+          </label>
+          <input
+            id="gate-secret-answer"
+            className={inputClass}
+            type="password"
+            autoComplete="off"
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
+          />
+        </div>
+        {feedback ? (
+          <p className="rounded-xl border border-live/30 bg-live/10 px-3 py-2 text-xs font-semibold text-live" role="alert">
+            {feedback.message}
+          </p>
+        ) : null}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-xl bg-brand-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
+        >
+          {submitting ? "Memverifikasi…" : "Buka Developer Center"}
+        </button>
+      </form>
+      <p className="mt-3 text-xs leading-5 text-brand-ink/50">
+        Jawaban diverifikasi server-side. Data verifikasi tidak pernah dikirim ke browser.
+      </p>
+    </section>
   );
 }
