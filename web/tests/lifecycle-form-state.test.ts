@@ -71,7 +71,9 @@ test("Marker and user-location updates never recreate the map", () => {
 
 test("Map gestures stay inside the map container (no page layer behind drag)", () => {
   const mapCode = stripComments(homeMap);
-  assert.match(mapCode, /className="h-full w-full touch-none"/);
+  // relative + z-0 (closed stacking context — Leaflet panes trapped) and
+  // touch-none (map gestures never hijack page scroll/navigation).
+  assert.match(mapCode, /className="relative z-0 h-full w-full touch-none"/);
   // One real container, no hidden/stacked map surfaces.
   assert.equal((mapCode.match(/ref=\{containerRef\}/g) ?? []).length, 1);
   assert.doesNotMatch(mapCode, /position:\s*"absolute"[^,]*display:\s*"none"/);

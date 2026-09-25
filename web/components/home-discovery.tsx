@@ -348,9 +348,13 @@ export default function HomeDiscovery() {
           />
 
           {/* Clear empty state when no visible Place carries canonical
-              coordinates — positions are never invented. */}
+              coordinates — positions are never invented. OVERLAY_LADDER:
+              Leaflet's highest documented z-index is 1000 (zoom control);
+              z-[1100] pins this card strictly above every Leaflet pane
+              (tile 200, map pane 400, tooltip 650, control 1000) in any
+              drag/zoom state — the visual fix for the mobile drag bug. */}
           {mapPlaces.length === 0 && (
-            <div className="absolute inset-x-6 top-1/2 z-10 -translate-y-1/2 rounded-2xl bg-white/95 p-4 text-center shadow-md">
+            <div className="absolute inset-x-6 top-1/2 z-[1100] -translate-y-1/2 rounded-2xl bg-white/95 p-4 text-center shadow-md">
               <p className="text-sm font-bold">Belum ada Place dengan koordinat di peta</p>
               <p className="mt-1 text-xs text-black/55">
                 Peta hanya menampilkan Place dengan koordinat resmi. Place lain tetap ada di daftar.
@@ -358,14 +362,17 @@ export default function HomeDiscovery() {
             </div>
           )}
 
-          <div className="absolute left-5 top-5 z-10 rounded-full bg-white/90 px-4 py-2 text-xs font-bold shadow-sm">
+          {/* Radius/status badge — OVERLAY_LADDER above the Leaflet ceiling. */}
+          <div className="absolute left-5 top-5 z-[1100] rounded-full bg-white/90 px-4 py-2 text-xs font-bold shadow-sm">
             {liveOnly ? "LIVE • " : ""}
             {curatedOnly ? "Tempat Pilihan" : distanceFilter}
           </div>
 
-          {/* Bottom sheet */}
+          {/* Bottom sheet — the highest overlay in the frame (OVERLAY_LADDER:
+              above Leaflet control ceiling 1000 and every other React
+              overlay). */}
           {visiblePlaces[0] && (
-            <div className="absolute bottom-0 left-0 right-0 z-20 rounded-t-[28px] bg-white p-5 shadow-[0_-10px_30px_rgba(0,0,0,0.12)]">
+            <div className="absolute bottom-0 left-0 right-0 z-[1200] rounded-t-[28px] bg-white p-5 shadow-[0_-10px_30px_rgba(0,0,0,0.12)]">
               <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-black/15" />
 
               <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">

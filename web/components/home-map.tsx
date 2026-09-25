@@ -459,12 +459,25 @@ export default function HomeMap({
   return (
     <div className="relative h-full w-full">
       {/* touch-none keeps drag/pinch inside the map container so page
-          scroll/navigation never hijacks a map gesture. */}
-      <div ref={containerRef} className="h-full w-full touch-none" aria-label="Peta Place" />
+          scroll/navigation never hijacks a map gesture. relative+z-0 makes
+          THIS element a closed stacking context: Leaflet's own pane z-indexes
+          (tile 200 … control 1000) stay trapped inside it and can never paint
+          over React siblings. Without it Leaflet's _initLayout sets only
+          position:relative (no z-index) and its big pane z-indexes compete
+          directly with the overlays in the frame's stacking context — the
+          root cause of tiles covering the empty-state card on mobile drag. */}
+      <div
+        ref={containerRef}
+        className="relative z-0 h-full w-full touch-none"
+        aria-label="Peta Place"
+      />
+      {/* Map UI overlays ride ABOVE Leaflet's documented z-index ceiling
+          (max control z-index = 1000): 1100+ keeps the React layer strictly
+          on top in any drag/zoom state. */}
       <button
         type="button"
         onClick={onRequestLocate}
-        className="absolute right-3 top-[76px] z-[800] inline-flex items-center gap-1.5 rounded-full bg-white/95 px-4 py-2.5 text-xs font-bold text-brand-ink shadow-md transition hover:bg-white"
+        className="absolute right-3 top-[76px] z-[1100] inline-flex items-center gap-1.5 rounded-full bg-white/95 px-4 py-2.5 text-xs font-bold text-brand-ink shadow-md transition hover:bg-white"
         aria-label="Kembali ke lokasi aktual saya"
       >
         <span aria-hidden className="h-2 w-2 rounded-full bg-brand-accent" />
