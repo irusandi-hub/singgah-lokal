@@ -93,3 +93,19 @@ test("Distance filtering stays anchored to the real Current Location", () => {
   assert.match(pageCode, /matchesDistance\(\s*distanceFilter,\s*viewerPosition,/);
   assert.match(pageCode, /formatDistance\(distanceMeters\(viewerPosition/);
 });
+
+test("Bounded radius focuses the camera on the real Current Location, never on markers or Indonesia", () => {
+  const mapCode = stripComments(homeMap);
+  // The camera effect is driven by the active filter radius...
+  assert.match(mapCode, /radiusMeters/);
+  // ...centers on the REAL geolocation fix — never the overview point...
+  assert.match(mapCode, /flyTo\(\[lat, viewerPosition\.lng\]/);
+  // ...derives zoom from the radius itself (radius-sized bounds box)...
+  assert.match(mapCode, /getBoundsZoom\(bounds\)/);
+  assert.match(mapCode, /latDelta = radiusMeters \/ 111_320/);
+  // ...skips unbounded "10 km+" and never steals the camera from the user.
+  assert.match(mapCode, /radiusMeters === null \|\| !viewerPosition \|\| userInteractedRef\.current/);
+  // Home passes the locked filter's radius mapping as the camera source.
+  const pageCode = stripComments(homePage);
+  assert.match(pageCode, /radiusMeters=\{DISTANCE_FILTER_RADIUS_M\[distanceFilter\]\}/);
+});

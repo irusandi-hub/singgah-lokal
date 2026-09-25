@@ -43,6 +43,8 @@ type HomeMapProps = {
   viewerPosition: HomeMapViewer | null;
   locateNonce: number;
   onRequestLocate: () => void;
+  /** Active distance-filter radius in meters; null = unbounded ("10 km+"). */
+  radiusMeters: number | null;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -67,6 +69,7 @@ export default function HomeMap({
   viewerPosition,
   locateNonce,
   onRequestLocate,
+  radiusMeters,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -81,6 +84,7 @@ export default function HomeMap({
   const cameraDecidedRef = useRef(false);
   const locatePendingRef = useRef(false);
   const lastLocateNonceRef = useRef(0);
+  const lastRadiusRef = useRef<number | null>(null);
   const router = useRouter();
   const [ready, setReady] = useState(false);
 
@@ -237,6 +241,43 @@ export default function HomeMap({
       flyToUser(map, viewerPosition);
     }
   }, [locateNonce, ready, viewerPosition, flyToUser]);
+
+  // Radius camera: when a bounded distance filter is active (500 m / 1 km /
+  // 5 km) the camera focuses on the area around the REAL Current Location —
+  // never the neutral overview and never a marker-derived viewport. The
+  // zoom is derived from the filter radius itself (getBoundsZoom on a
+  // radius-sized box), so 1 km is wider than 500 m and 5 km wider than 1 km;
+  // "10 km+" stays unbounded and never re-zooms the camera. Runs once per
+  // radius change, never after the user has taken over the camera.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    if (lastRadiusRef.current === radiusMeters) return;
+    lastRadiusRef.current = radiusMeters;
+    if (radiusMeters === null || !viewerPosition || userInteractedRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      const L = (await import("leaflet")).default;
+      if (cancelled || mapRef.current !== map) return;
+      const lat = viewerPosition.lat;
+      // getBoundsZoom needs a non-degenerate box; project the radius into
+      // degrees (lat degrees are exact, lng degrees widen toward the poles).
+      const latDelta = radiusMeters / 111_320;
+      const lngDelta = radiusMeters / (111_320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
+      const bounds = L.latLngBounds(
+        [lat - latDelta, viewerPosition.lng - lngDelta],
+        [lat + latDelta, viewerPosition.lng + lngDelta],
+      );
+      const radiusZoom = map.getBoundsZoom(bounds) - 0.5; // keep the ring inside the frame
+      programmaticMoveRef.current = true;
+      map.flyTo([lat, viewerPosition.lng], Math.max(3, radiusZoom), { duration: 0.8 });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, radiusMeters, viewerPosition]);
 
   // Rebuild markers whenever the filtered marker set changes. Camera note:
   // fitBounds is a one-shot initial overview — it never runs again after

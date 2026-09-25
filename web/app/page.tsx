@@ -12,6 +12,7 @@ import {
   formatDistance,
   liveDurationLabel,
   matchesDistance,
+  DISTANCE_FILTER_RADIUS_M,
   type DistanceFilter,
   type LiveDiscoveryItem,
 } from "@/lib/live/ui";
@@ -259,6 +260,7 @@ export default function Home() {
             viewerPosition={viewerPosition}
             locateNonce={locateNonce}
             onRequestLocate={() => setLocateNonce((nonce) => nonce + 1)}
+            radiusMeters={DISTANCE_FILTER_RADIUS_M[distanceFilter]}
           />
 
           {/* Clear empty state when no visible Place carries canonical
@@ -283,7 +285,7 @@ export default function Home() {
               <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-black/15" />
 
               <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
-                Tempat pilihan
+                {distanceFilter === "10 km+" ? "Tempat pilihan" : "Tempat di sekitar"}
               </div>
 
               <h2 className="text-2xl font-semibold tracking-tight">
@@ -327,7 +329,11 @@ export default function Home() {
                 Hasil
               </p>
               <h2 id="place-results-heading" className="mt-1 text-xl font-semibold">
-                {searchQuery.trim() ? `Hasil untuk “${searchQuery.trim()}”` : "Tempat pilihan"}
+                {searchQuery.trim()
+                  ? `Hasil untuk “${searchQuery.trim()}”`
+                  : distanceFilter === "10 km+"
+                    ? "Tempat pilihan"
+                    : "Tempat di sekitar"}
               </h2>
             </div>
             <span className="text-xs font-bold text-black/45">

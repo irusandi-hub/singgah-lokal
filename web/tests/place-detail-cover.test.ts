@@ -27,9 +27,23 @@ function stripComments(source: string): string {
 
 // --- B: Place list heading ---
 
-test("Place results heading uses Tempat pilihan — no stale Tempat di sekitar", () => {
+test("Tempat pilihan is the default curated heading; Tempat di sekitar is radius-gated only", () => {
   assert.match(homePage, /Tempat pilihan/);
-  assert.doesNotMatch(homePage, /Tempat di sekitar/);
+  // The proximity label exists but ONLY under an active bounded radius —
+  // never a permanent label for a Place that merely has coordinates.
+  // Gating is done on the unbounded filter ("10 km+") staying curated.
+  const code = stripComments(homePage);
+  assert.match(code, /distanceFilter === "10 km\+"/);
+  assert.match(code, /Tempat di sekitar/);
+  // A Place is never statically labeled "Tempat di sekitar" outside the
+  // filter-gated expressions (two occurrences, both inside a ternary whose
+  // condition is the unbounded filter).
+  const occurrences = code.split("Tempat di sekitar").length - 1;
+  const conditional = (code.match(/"10 km\+"\s*\?\s*"Tempat pilihan"\s*:\s*"Tempat di sekitar"/g) ?? []).length;
+  assert.ok(
+    occurrences === 2 && conditional === 2,
+    `expected both occurrences radius-gated (got ${occurrences} occurrences, ${conditional} gated)`,
+  );
 });
 
 // --- C: Place detail hero replaces the info block ---
