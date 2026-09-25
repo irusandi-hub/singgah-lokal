@@ -14,10 +14,13 @@ export const dynamic = "force-dynamic";
  * CREATOR ACCOUNT SECURITY API (Authority Master §2).
  *
  * requireCreator() is the first check on every request and on every storage
- * operation. Email/password changes use Supabase Auth with the session
- * client — the service-role key is never used here and never leaves the
- * server. Secret-question storage is service-role + fail-closed RLS, and
- * responses never include answer material.
+ * operation. Email/password changes prove session ownership by re-verifying
+ * the current password against Supabase Auth; the secret-question flow does
+ * NOT use the account password — replacing an existing question requires the
+ * previous answer, verified server-side against the stored scrypt hash/salt
+ * (an unconfigured question may be created without an old answer). The
+ * service-role key is never used here and never leaves the server; responses
+ * never include answer material.
  */
 
 type ErrorBody = { error: string; code?: string };
@@ -56,18 +59,17 @@ export async function POST(request: Request) {
   try {
     const creator = await requireCreator();
 
-    // Every mutating action requires the current password: prove session
-    // ownership against Supabase Auth before anything changes.
-    const supabase = await createSupabaseServerClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: creator.email,
-      password: currentPassword,
-    });
-    if (signInError) {
-      return jsonError(403, { error: "Password saat ini salah.", code: "invalid_current_password" });
-    }
-
     if (action === "change-email") {
+      // Prove session ownership with the current password before anything
+      // changes (email/password flows only — never the secret-question flow).
+      const supabase = await createSupabaseServerClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: creator.email,
+        password: currentPassword,
+      });
+      if (signInError) {
+        return jsonError(403, { error: "Password saat ini salah.", code: "invalid_current_password" });
+      }
       const newEmail = typeof body.newEmail === "string" ? body.newEmail.trim().toLowerCase() : "";
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
         return jsonError(400, { error: "Format email baru tidak valid.", code: "invalid_email" });
@@ -91,6 +93,14 @@ export async function POST(request: Request) {
     }
 
     if (action === "change-password") {
+      const supabase = await createSupabaseServerClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: creator.email,
+        password: currentPassword,
+      });
+      if (signInError) {
+        return jsonError(403, { error: "Password saat ini salah.", code: "invalid_current_password" });
+      }
       const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
       if (newPassword.length < 8) {
         return jsonError(400, { error: "Password baru minimal 8 karakter.", code: "weak_password" });
@@ -106,8 +116,10 @@ export async function POST(request: Request) {
       const question = typeof body.question === "string" ? body.question : "";
       const answer = typeof body.answer === "string" ? body.answer : "";
 
-      // If a question is already configured, the previous answer must be
-      // verified server-side before it can be replaced.
+      // This flow never uses the account password. If a question is already
+      // configured, the previous answer is verified server-side against the
+      // stored hash/salt before it can be replaced. An unconfigured question
+      // may be created without an old answer (initial setup).
       const status = await getCreatorSecretQuestion(creator.userId);
       if (status.configured) {
         if (!secretAnswer) {

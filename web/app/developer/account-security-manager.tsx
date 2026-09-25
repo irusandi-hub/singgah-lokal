@@ -5,10 +5,18 @@ import { useCallback, useEffect, useState } from "react";
 /**
  * Creator-only account security panel (Developer Center).
  *
- * All three flows post to /api/creator/security-settings, where every action
- * is re-verified server-side: requireCreator() gates the route, the current
- * password is checked against Supabase Auth, and replacing an existing
- * secret question requires the previous answer (scrypt-verified server-side).
+ * The three flows are fully independent: each has its own idle/loading/
+ * success/error feedback rendered directly above its own form, its own
+ * pending state, and submitting or loading one menu never disables or
+ * re-renders the feedback of the others.
+ *
+ * Server-side contract (all actions re-verify requireCreator()):
+ * - change-email and change-password require the current password
+ *   (Supabase Auth re-verification) and never touch the secret question;
+ * - change-secret-question never uses the account password: replacing an
+ *   existing question requires the previous answer, verified server-side
+ *   against the stored scrypt hash/salt; an unconfigured question may be
+ *   created without an old answer.
  * This component holds no secrets beyond what the Creator types.
  */
 
@@ -17,6 +25,15 @@ type ApiError = { error: string; code?: string };
 type QuestionStatus =
   | { configured: true; question: string; updatedAt: string }
   | { configured: false };
+
+/** Per-menu async state: exactly one of idle/loading/success/error. */
+type MenuState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; message: string }
+  | { status: "error"; message: string };
+
+const IDLE: MenuState = { status: "idle" };
 
 const inputClass =
   "w-full rounded-xl border border-brand-ink/15 bg-white px-4 py-2.5 text-sm text-brand-ink placeholder:text-brand-ink/35 focus:border-brand-primary focus:outline-none";
@@ -42,25 +59,34 @@ function Card({
   );
 }
 
-function Feedback({ state }: { state: { kind: "idle" | "ok" | "error"; message: string } }) {
-  if (state.kind === "idle") return null;
+/** Success/error feedback rendered directly ABOVE its own menu's form. */
+function Feedback({ state }: { state: MenuState }) {
+  if (state.status === "idle" || state.status === "loading") return null;
   const tone =
-    state.kind === "ok"
+    state.status === "success"
       ? "border-ok/30 bg-ok/10 text-ok"
       : "border-live/30 bg-live/10 text-live";
   return (
-    <p role="status" className={`mt-3 rounded-xl border px-3 py-2 text-xs font-semibold ${tone}`}>
+    <p role="status" className={`mb-3 rounded-xl border px-3 py-2 text-xs font-semibold ${tone}`}>
       {state.message}
     </p>
   );
 }
 
+function LoadingLine({ state }: { state: MenuState }) {
+  if (state.status !== "loading") return null;
+  return (
+    <p role="status" className="mb-3 text-xs font-semibold text-brand-ink/50">
+      Memproses…
+    </p>
+  );
+}
+
 export default function AccountSecurityManager() {
-  const [feedback, setFeedback] = useState<{ kind: "idle" | "ok" | "error"; message: string }>({
-    kind: "idle",
-    message: "",
-  });
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  // Independent per-menu state — one update never touches the others.
+  const [emailState, setEmailState] = useState<MenuState>(IDLE);
+  const [passwordState, setPasswordState] = useState<MenuState>(IDLE);
+  const [secretState, setSecretState] = useState<MenuState>(IDLE);
 
   // Ganti Email
   const [currentPasswordEmail, setCurrentPasswordEmail] = useState("");
@@ -117,9 +143,18 @@ export default function AccountSecurityManager() {
     };
   }, [fetchQuestionStatus]);
 
-  async function submit(action: string, fields: Record<string, string>, onSuccess?: () => void) {
-    setFeedback({ kind: "idle", message: "" });
-    setPendingAction(action);
+  /**
+   * Per-menu submit. Only the caller's own state setter is touched — a
+   * failure in one menu can never alter another menu's feedback, and each
+   * button's disabled flag is bound to its own menu's loading state.
+   */
+  async function submit(
+    action: string,
+    fields: Record<string, string>,
+    setState: React.Dispatch<React.SetStateAction<MenuState>>,
+    onSuccess?: () => void,
+  ) {
+    setState({ status: "loading" });
     try {
       const response = await fetch("/api/creator/security-settings", {
         method: "POST",
@@ -132,19 +167,17 @@ export default function AccountSecurityManager() {
           payload && typeof payload === "object" && "error" in payload
             ? String((payload as ApiError).error)
             : "Permintaan gagal.";
-        setFeedback({ kind: "error", message });
+        setState({ status: "error", message });
         return;
       }
       const message =
         payload && typeof payload === "object" && "message" in payload
           ? String((payload as { message?: string }).message ?? "Berhasil.")
           : "Berhasil.";
-      setFeedback({ kind: "ok", message });
+      setState({ status: "success", message });
       onSuccess?.();
     } catch {
-      setFeedback({ kind: "error", message: "Tidak dapat menghubungi server." });
-    } finally {
-      setPendingAction(null);
+      setState({ status: "error", message: "Tidak dapat menghubungi server." });
     }
   }
 
@@ -155,41 +188,53 @@ export default function AccountSecurityManager() {
   async function onChangeEmail(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!currentPasswordEmail || !newEmail) {
-      setFeedback({ kind: "error", message: "Lengkapi password saat ini dan email baru." });
+      setEmailState({ status: "error", message: "Lengkapi password saat ini dan email baru." });
       return;
     }
+    if (emailState.status === "loading") return;
     await submit(
       "change-email",
       { currentPassword: currentPasswordEmail, newEmail },
+      setEmailState,
       () => resetFormState([setCurrentPasswordEmail, setNewEmail]),
     );
   }
 
   async function onChangePassword(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (passwordState.status === "loading") return;
     if (!currentPassword || !newPassword || !newPasswordConfirmation) {
-      setFeedback({ kind: "error", message: "Lengkapi semua field password." });
+      setPasswordState({ status: "error", message: "Lengkapi semua field password." });
       return;
     }
     if (newPassword !== newPasswordConfirmation) {
-      setFeedback({ kind: "error", message: "Konfirmasi password baru tidak cocok." });
+      setPasswordState({ status: "error", message: "Konfirmasi password baru tidak cocok." });
       return;
     }
     await submit(
       "change-password",
       { currentPassword, newPassword },
+      setPasswordState,
       () => resetFormState([setCurrentPassword, setNewPassword, setNewPasswordConfirmation]),
     );
   }
 
   async function onChangeSecretQuestion(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (secretState.status === "loading") return;
     if (!newQuestion || !newAnswer || !newAnswerConfirmation) {
-      setFeedback({ kind: "error", message: "Lengkapi pertanyaan, jawaban, dan konfirmasi jawaban." });
+      setSecretState({
+        status: "error",
+        message: "Lengkapi pertanyaan, jawaban, dan konfirmasi jawaban.",
+      });
+      return;
+    }
+    if (questionStatus?.configured && !oldSecretAnswer) {
+      setSecretState({ status: "error", message: "Jawaban lama wajib diisi." });
       return;
     }
     if (newAnswer !== newAnswerConfirmation) {
-      setFeedback({ kind: "error", message: "Konfirmasi jawaban tidak cocok." });
+      setSecretState({ status: "error", message: "Konfirmasi jawaban tidak cocok." });
       return;
     }
     const fields: Record<string, string> = { question: newQuestion, answer: newAnswer };
@@ -197,6 +242,7 @@ export default function AccountSecurityManager() {
     await submit(
       "change-secret-question",
       fields,
+      setSecretState,
       () => {
         resetFormState([setNewQuestion, setNewAnswer, setNewAnswerConfirmation, setOldSecretAnswer]);
         void (async () => {
@@ -212,18 +258,18 @@ export default function AccountSecurityManager() {
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Keamanan Akun</p>
         <h2 className="mt-2 font-brand text-2xl font-semibold text-brand-ink">Pengaturan akun Creator</h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-brand-ink/60">
-          Semua perubahan diverifikasi server-side. Password saat ini wajib untuk setiap aksi, dan
-          pertanyaan rahasia hanya dapat diganti setelah jawaban lama terverifikasi. Jawaban disimpan
-          sebagai hash — tidak pernah plaintext.
+          Semua perubahan diverifikasi server-side. Ganti email dan password mengonfirmasi password
+          saat ini; pertanyaan rahasia tidak memakai password akun — menggantinya membutuhkan jawaban
+          lama yang terverifikasi server-side. Jawaban disimpan sebagai hash — tidak pernah plaintext.
         </p>
       </div>
-
-      <Feedback state={feedback} />
 
       <Card
         title="Ganti Email"
         description="Email akun Creator di Supabase Auth. Harus tetap berada dalam allowlist Creator."
       >
+        <Feedback state={emailState} />
+        <LoadingLine state={emailState} />
         <form className="space-y-3" onSubmit={onChangeEmail}>
           <div>
             <label className={labelClass} htmlFor="creator-current-password-email">
@@ -251,8 +297,12 @@ export default function AccountSecurityManager() {
               onChange={(event) => setNewEmail(event.target.value)}
             />
           </div>
-          <button className={primaryButtonClass} type="submit" disabled={pendingAction !== null}>
-            {pendingAction === "change-email" ? "Memproses…" : "Ganti Email"}
+          <button
+            className={primaryButtonClass}
+            type="submit"
+            disabled={emailState.status === "loading"}
+          >
+            {emailState.status === "loading" ? "Memproses…" : "Ganti Email"}
           </button>
         </form>
       </Card>
@@ -261,6 +311,8 @@ export default function AccountSecurityManager() {
         title="Ganti Password"
         description="Password akun Creator di Supabase Auth. Minimal 8 karakter."
       >
+        <Feedback state={passwordState} />
+        <LoadingLine state={passwordState} />
         <form className="space-y-3" onSubmit={onChangePassword}>
           <div>
             <label className={labelClass} htmlFor="creator-current-password">
@@ -301,8 +353,12 @@ export default function AccountSecurityManager() {
               onChange={(event) => setNewPasswordConfirmation(event.target.value)}
             />
           </div>
-          <button className={primaryButtonClass} type="submit" disabled={pendingAction !== null}>
-            {pendingAction === "change-password" ? "Memproses…" : "Ganti Password"}
+          <button
+            className={primaryButtonClass}
+            type="submit"
+            disabled={passwordState.status === "loading"}
+          >
+            {passwordState.status === "loading" ? "Memproses…" : "Ganti Password"}
           </button>
         </form>
       </Card>
@@ -313,10 +369,12 @@ export default function AccountSecurityManager() {
           questionStatus === null
             ? "Memuat status pertanyaan rahasia…"
             : questionStatus.configured
-              ? "Pertanyaan saat ini terpasang. Menggantinya membutuhkan jawaban lama yang terverifikasi."
-              : "Belum ada pertanyaan rahasia. Pertanyaan ini melindungi area Developer."
+              ? "Pertanyaan saat ini terpasang. Menggantinya membutuhkan jawaban lama — bukan password akun."
+              : "Belum ada pertanyaan rahasia. Pertanyaan pertama dapat dibuat tanpa jawaban lama."
         }
       >
+        <Feedback state={secretState} />
+        <LoadingLine state={secretState} />
         <form className="space-y-3" onSubmit={onChangeSecretQuestion}>
           {questionStatus?.configured ? (
             <div>
@@ -371,8 +429,12 @@ export default function AccountSecurityManager() {
               onChange={(event) => setNewAnswerConfirmation(event.target.value)}
             />
           </div>
-          <button className={primaryButtonClass} type="submit" disabled={pendingAction !== null}>
-            {pendingAction === "change-secret-question" ? "Memproses…" : "Simpan Pertanyaan Rahasia"}
+          <button
+            className={primaryButtonClass}
+            type="submit"
+            disabled={secretState.status === "loading"}
+          >
+            {secretState.status === "loading" ? "Memproses…" : "Simpan Pertanyaan Rahasia"}
           </button>
         </form>
       </Card>
