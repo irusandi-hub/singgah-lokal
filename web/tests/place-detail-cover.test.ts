@@ -131,6 +131,48 @@ test("Producer Place form no longer carries a cover-URL input (media moved to St
   assert.match(code, /PLACE_PHOTO_SLOTS\.map/);
 });
 
+// --- Home tab placement (PO 2026-09-25): no horizontal scroll, fixed order ---
+
+test("Primary tabs fit one mobile screen: LIVE leftmost, Tempat Pilihan beside it, Pilihan Jarak after", () => {
+  const code = stripComments(homePage);
+  // Primary row is a grid (auto + 1fr), not a scroll strip...
+  assert.match(code, /mb-5 grid grid-cols-\[auto_1fr\]/);
+  assert.match(code, /mb-5 grid grid-cols-4/);
+  // ...LIVE is leftmost, Tempat Pilihan directly after it...
+  const primaryBar = code.indexOf("mb-5 grid grid-cols-[auto_1fr]");
+  const liveBtn = code.indexOf("setLiveOnly", primaryBar);
+  const curatedBtn = code.indexOf("setCuratedOnly(true)", primaryBar);
+  assert.ok(liveBtn >= 0 && curatedBtn > liveBtn, "LIVE leftmost, Tempat Pilihan directly beside it");
+  // ...and the locked distance tabs stay available after the primary row.
+  const distanceBar = code.indexOf("mb-5 grid grid-cols-4");
+  assert.ok(distanceBar > primaryBar, "Pilihan Jarak stays available after the primary row");
+  // The distance bar and the primary bar never horizontally scroll.
+  assert.equal(/className="mb-5 flex gap-2 overflow-x-auto"/.test(code.slice(0, distanceBar)), false);
+  // The only remaining scroll container is the curated-chips row INSIDE the
+  // Tempat Pilihan layer — Dapur/Kopi/Teh never become primary tabs.
+  const chipsIdx = code.indexOf('aria-label="Koleksi Tempat Pilihan"');
+  assert.ok(chipsIdx > distanceBar, "collection chips render only inside the Tempat Pilihan layer");
+  const primarySlice = code.slice(primaryBar, distanceBar);
+  assert.ok(!primarySlice.includes("CURATED_COLLECTIONS"), "no collection is a primary tab");
+  // No Kategori tab/filter exists on Home (categories stay internal data).
+  assert.equal(code.includes(">Kategori</button>"), false);
+});
+
+test("Account authority probe reads an existing membership column (no id column exists)", () => {
+  const accountPage = readFileSync(new URL("../app/account/page.tsx", import.meta.url), "utf8");
+  const code = stripComments(accountPage);
+  // The membership probe used select("id") — producer_memberships has NO id
+  // column (PK is (user_id, place_id)), so every probe errored and approved
+  // Producers were treated as regular users on /account.
+  assert.match(code, /\.select\("role"\)/);
+  assert.doesNotMatch(code, /\.select\("id"\)/);
+  assert.match(code, /\.eq\("user_id", userData\.user\.id\)/);
+  assert.match(code, /\.in\("role", \["owner", "manager"\]\)/);
+  // The Producer entry is driven by that probe and links the dashboard.
+  assert.match(code, /isProducer: Boolean\(membership\)/);
+  assert.match(code, /href: "\/producer"/);
+});
+
 // --- Auth navigation: the header flips from live session state ---
 
 test("Session probe, sign-in, and sign-out answers are never cacheable", () => {

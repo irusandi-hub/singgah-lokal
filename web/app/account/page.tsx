@@ -47,7 +47,9 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
     const [{ data: membership }, { data: userRow }] = await Promise.all([
       supabase
         .from("producer_memberships")
-        .select("id")
+        // producer_memberships has NO id column (PK is (user_id, place_id),
+        // 0001) — probe an existing column so the read cannot fail.
+        .select("role")
         .eq("user_id", userData.user.id)
         .in("role", ["owner", "manager"])
         .limit(1)

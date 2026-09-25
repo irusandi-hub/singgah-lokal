@@ -191,15 +191,17 @@ export default function HomeDiscovery() {
           </div>
         </div>
 
-        {/* Home filter bar — locked set (PO 2026-09-20, Policy §12.5 #1):
-            LIVE first/leftmost (process/status filter), then distance only.
-            The curated tab sits beside the distance-group tabs (PO request,
-            2026-09-25); the radius-gated proximity list stays untouched. */}
-        <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+        {/* Home tab bar — locked set (PO 2026-09-20, Policy §12.5 #1) with
+            the PO 2026-09-25 placement: LIVE leftmost, "Tempat Pilihan"
+            directly beside it, then the distance tabs. All primary tabs fit
+            one mobile screen — grid columns, no horizontal scroll, no bar
+            growing past the viewport. Dapur/Kopi/Teh stay INSIDE the
+            Tempat Pilihan layer (secondary row), never as primary tabs. */}
+        <div className="mb-5 grid grid-cols-[auto_1fr] gap-2 pb-1">
           <button
             onClick={() => setLiveOnly((value) => !value)}
             aria-pressed={liveOnly}
-            className={`mr-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-semibold tracking-wide transition ${
+            className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold tracking-wide transition sm:px-4 ${
               liveOnly
                 ? "bg-live text-white"
                 : "border border-live/40 bg-white text-live"
@@ -208,6 +210,26 @@ export default function HomeDiscovery() {
             <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-live"}`} />
             LIVE
           </button>
+          <button
+            onClick={() => {
+              setCuratedOnly(true);
+              setLiveOnly(false);
+            }}
+            aria-pressed={curatedOnly}
+            className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-bold transition sm:px-4 ${
+              curatedOnly
+                ? "bg-brand-ink text-white"
+                : "border border-brand-ink/25 bg-white text-brand-ink/70"
+            }`}
+          >
+            Tempat Pilihan
+          </button>
+        </div>
+
+        {/* Pilihan Jarak — the locked distance tabs, directly after the
+            primary row, equally fitting one mobile screen. Labels stay the
+            locked master copy. */}
+        <div className="mb-5 grid grid-cols-4 gap-2 pb-1">
           {DISTANCE_FILTERS.map((filter) => (
             <button
               key={filter}
@@ -215,7 +237,7 @@ export default function HomeDiscovery() {
                 setDistanceFilter(filter);
                 setCuratedOnly(false);
               }}
-              className={`whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-bold transition ${
+              className={`whitespace-nowrap rounded-full px-2 py-2 text-center text-xs font-bold transition sm:px-4 ${
                 distanceFilter === filter && !curatedOnly
                   ? "bg-brand-accent text-white"
                   : "border border-black/10 bg-white text-black/65"
@@ -224,20 +246,6 @@ export default function HomeDiscovery() {
               {filter}
             </button>
           ))}
-          <button
-            onClick={() => {
-              setCuratedOnly(true);
-              setLiveOnly(false);
-            }}
-            aria-pressed={curatedOnly}
-            className={`ml-1 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-bold transition ${
-              curatedOnly
-                ? "bg-brand-ink text-white"
-                : "border border-brand-ink/25 bg-white text-brand-ink/70"
-            }`}
-          >
-            Tempat Pilihan
-          </button>
         </div>
 
         {/* Curated collections — visible ONLY inside the Tempat Pilihan
