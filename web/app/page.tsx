@@ -26,9 +26,17 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [places, setPlaces] = useState<Place[]>([]);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
-  // Viewer position (card distance only — PO item 7: distance "bila
-  // tersedia"). Geolocation is optional and silently absent when denied.
-  const [viewerPosition, setViewerPosition] = useState<{ lat: number; lng: number } | null>(null);
+  // Viewer position — Current Location. Geolocation is the primary map
+  // anchor: when available the Home Map centers on it and shows the user
+  // marker. Silently absent when denied; no fallback point is ever invented.
+  const [viewerPosition, setViewerPosition] = useState<{
+    lat: number;
+    lng: number;
+    accuracy?: number;
+  } | null>(null);
+  // Explicit "Lokasi Saya" requests bump this nonce so the map re-centers on
+  // the latest fix on demand.
+  const [locateNonce, setLocateNonce] = useState(0);
 
   useEffect(() => {
     fetch("/api/places")
@@ -57,7 +65,11 @@ export default function Home() {
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (position) =>
-        setViewerPosition({ lat: position.coords.latitude, lng: position.coords.longitude }),
+        setViewerPosition({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        }),
       () => undefined,
       { timeout: 8000 },
     );
@@ -241,7 +253,13 @@ export default function Home() {
         {/* Map-first discovery — real interactive Leaflet map (OpenStreetMap).
             isolate keeps Leaflet panes contained below the UI overlays. */}
         <section className="relative isolate h-[58vh] min-h-[430px] overflow-hidden rounded-[28px] border border-black/10 bg-[#d9dfd2] shadow-sm">
-          <HomeMap places={mapPlaces} liveByPlaceId={liveByPlaceId} />
+          <HomeMap
+            places={mapPlaces}
+            liveByPlaceId={liveByPlaceId}
+            viewerPosition={viewerPosition}
+            locateNonce={locateNonce}
+            onRequestLocate={() => setLocateNonce((nonce) => nonce + 1)}
+          />
 
           {/* Clear empty state when no visible Place carries canonical
               coordinates — positions are never invented. */}

@@ -56,7 +56,11 @@ test("E2E: bounded distance radii use matchesDistance and LIVE/markers follow th
   // only) through the real Leaflet map component — not raw liveItems, and
   // the old demo layout positions are gone.
   assert.match(homeSource, /visiblePlaces\.flatMap\(\(place\) =>/);
-  assert.match(homeSource, /<HomeMap places=\{mapPlaces\} liveByPlaceId=\{liveByPlaceId\} \/>/);
+  assert.match(homeSource, /<HomeMap\n\s+places=\{mapPlaces\}\n\s+liveByPlaceId=\{liveByPlaceId\}/);
+  // Current Location is passed into the map: real geolocation only.
+  assert.match(homeSource, /viewerPosition=\{viewerPosition\}/);
+  assert.match(homeSource, /locateNonce=\{locateNonce\}/);
+  assert.match(homeSource, /onRequestLocate=\{\(\) => setLocateNonce\(\(nonce\) => nonce \+ 1\)\}/);
   assert.doesNotMatch(homeSource, /mapPositionByPlaceId/);
   // LIVE cards also follow the filtered set.
   assert.match(homeSource, /visiblePlaces\.some\(\(place\) => place\.id === item\.placeId\)/);
