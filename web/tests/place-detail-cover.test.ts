@@ -27,23 +27,28 @@ function stripComments(source: string): string {
 
 // --- B: Place list heading ---
 
-test("Tempat pilihan is the default curated heading; Tempat di sekitar is radius-gated only", () => {
+test("Tempat pilihan is the dedicated curated tab; Tempat di sekitar is radius-gated only", () => {
   assert.match(homePage, /Tempat pilihan/);
-  // The proximity label exists but ONLY under an active bounded radius —
-  // never a permanent label for a Place that merely has coordinates.
-  // Gating is done on the unbounded filter ("10 km+") staying curated.
+  // "Tempat pilihan" is a separate tab beside the distance group (PO request
+  // 2026-09-25): it toggles the curated state and never reuses the distance
+  // filter state.
   const code = stripComments(homePage);
-  assert.match(code, /distanceFilter === "10 km\+"/);
+  assert.match(code, /curatedOnly/);
+  assert.match(code, /setCuratedOnly\(true\)/);
+  // The proximity label exists but ONLY under an active bounded radius —
+  // the curated tab and the radius tabs are mutually exclusive states.
   assert.match(code, /Tempat di sekitar/);
   // A Place is never statically labeled "Tempat di sekitar" outside the
-  // filter-gated expressions (two occurrences, both inside a ternary whose
-  // condition is the unbounded filter).
+  // curated-state-gated expressions (two occurrences, both inside a ternary
+  // keyed on curatedOnly).
   const occurrences = code.split("Tempat di sekitar").length - 1;
-  const conditional = (code.match(/"10 km\+"\s*\?\s*"Tempat pilihan"\s*:\s*"Tempat di sekitar"/g) ?? []).length;
+  const conditional = (code.match(/curatedOnly\s*\?\s*"Tempat pilihan"\s*:\s*"Tempat di sekitar"/g) ?? []).length;
   assert.ok(
     occurrences === 2 && conditional === 2,
-    `expected both occurrences radius-gated (got ${occurrences} occurrences, ${conditional} gated)`,
+    `expected both occurrences curated-state-gated (got ${occurrences} occurrences, ${conditional} gated)`,
   );
+  // The map stays unbounded in curated mode (no radius refocus).
+  assert.match(code, /curatedOnly \? null : DISTANCE_FILTER_RADIUS_M\[distanceFilter\]/);
 });
 
 // --- C: Place detail hero replaces the info block ---
@@ -100,12 +105,13 @@ test("Server-side parser rejects non-https cover URLs and accepts clearing", () 
   assert.match(fn, /return null/);
 });
 
-test("Producer Place form sends coverImageUrl and EDIT restores the saved value", () => {
+test("Producer Place form no longer carries a cover-URL input (media moved to Storage slots)", () => {
   const code = stripComments(placeForm);
-  assert.match(code, /coverImageUrl: \"\"/);
-  assert.match(code, /coverImageUrl: place\.coverImageUrl \?\? \"\"/);
-  assert.match(code, /coverImageUrl: form\.coverImageUrl\.trim\(\) \|\| null/);
-  assert.match(code, /URL Gambar Sampul/);
+  // The HTTP-URL cover input was REMOVED as the media mechanism (PO request,
+  // 2026-09-25); photos now go through the standard Storage slots.
+  assert.doesNotMatch(code, /coverImageUrl/i);
+  assert.doesNotMatch(code, /URL Gambar Sampul/);
+  assert.match(code, /PLACE_PHOTO_SLOTS\.map/);
 });
 
 // --- A: Sign-out flips the header without a manual refresh ---

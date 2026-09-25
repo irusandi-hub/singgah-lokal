@@ -146,16 +146,81 @@ test("Bounded radius focuses the camera on the real Current Location, never on m
   assert.match(mapCode, /getBoundsZoom\(bounds\)/);
   assert.match(mapCode, /latDelta = radiusMeters \/ 111_320/);
   // ...skips unbounded "10 km+" radius re-zoom and never steals the camera
-  // from the user.
+  // from the user (interactions latch; the latch re-arms on a NEW radius
+  // choice so the next bounded tab can refocus).
   assert.match(mapCode, /radiusMeters !== null/);
-  assert.match(mapCode, /if \(userInteractedRef\.current\) return/);
-  // Home passes the locked filter's radius mapping as the camera source.
+  assert.match(mapCode, /userInteractedRef\.current\) return/);
+  // Home passes the locked filter's radius mapping as the camera source
+  // (unbounded in curated mode).
   const pageCode = stripComments(homePage);
-  assert.match(pageCode, /radiusMeters=\{DISTANCE_FILTER_RADIUS_M\[distanceFilter\]\}/);
+  assert.match(pageCode, /radiusMeters=\{curatedOnly \? null : DISTANCE_FILTER_RADIUS_M\[distanceFilter\]\}/);
 });
 
 test("Unbounded 10 km+ never re-zooms the camera from a radius refocus", () => {
   const mapCode = stripComments(homeMap);
   // Unbounded path: single focus on the actual location, no radius zoom.
   assert.match(mapCode, /if \(!cameraDecidedRef\.current\) \{\n\s*flyToUser\(map, viewerPosition\);\n\s*\}/);
+});
+
+// --- Round 2 hardening (PO request, 2026-09-25) ---
+
+test("Map is single-world: no world-copy jump, wrapped tiles, or Indonesia layer on pan", () => {
+  const mapCode = stripComments(homeMap);
+  // Panning never repeats the world or shows wrapped copy tiles...
+  assert.match(mapCode, /worldCopyJump: false/);
+  assert.match(mapCode, /noWrap: true/);
+  // ...and the single OSM tile layer is clamped to the single-world bounds.
+  assert.match(mapCode, /bounds: \[\n\s*\[-85, -Infinity\],/);
+  assert.match(mapCode, /maxBoundsViscosity: 1\.0/);
+});
+
+test("Exactly one tile layer exists for the map's whole lifetime", () => {
+  const mapCode = stripComments(homeMap);
+  // One L.tileLayer call, kept in a ref and explicitly removed in teardown —
+  // no orphaned OSM layer can survive a remount, refresh, or drag.
+  const tileLayerCalls = mapCode.match(/L\.tileLayer\(/g) ?? [];
+  assert.equal(tileLayerCalls.length, 1, "exactly one L.tileLayer call");
+  assert.match(mapCode, /tileLayerRef\.current = tileLayer/);
+  assert.match(mapCode, /tileLayerRef\.current\?\.remove\(\)/);
+  assert.match(mapCode, /tileLayerRef\.current = null/);
+});
+
+test("Zoom controls stay available and user zoom/pan latches are re-armed per filter", () => {
+  const mapCode = stripComments(homeMap);
+  // +/- controls remain a real Leaflet zoom control...
+  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright" \}\)/);
+  // ...and interactions are re-armed on a new radius choice so a bounded tab
+  // can refocus after the user dragged on the previous one.
+  assert.match(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
+  assert.match(mapCode, /lastRadiusRef\.current = radiusMeters/);
+});
+
+test("Bounded radius refocuses the camera on every radius change (tab-switch regression)", () => {
+  const mapCode = stripComments(homeMap);
+  // The refocus is driven by radius change, not a one-shot latch...
+  assert.match(mapCode, /const radiusChanged = lastRadiusRef\.current !== radiusMeters/);
+  // ...re-arms the interaction latch for the new tab...
+  assert.match(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
+  // ...and still centers on the REAL geolocation fix with radius-derived zoom.
+  assert.match(mapCode, /map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\]/);
+  assert.match(mapCode, /getBoundsZoom\(bounds\)/);
+  // Home passes the locked filter radius (or unbounded in curated mode).
+  const pageCode = stripComments(homePage);
+  assert.match(pageCode, /radiusMeters=\{curatedOnly \? null : DISTANCE_FILTER_RADIUS_M\[distanceFilter\]\}/);
+});
+
+test("Remount/refresh safety: container claim, full teardown, and size re-measure", () => {
+  const mapCode = stripComments(homeMap);
+  // Synchronous container claim before the async import (no double init).
+  assert.match(mapCode, /container\.dataset\.singgahMap = "initializing"/);
+  assert.match(mapCode, /if \(!container \|\| container\.dataset\.singgahMap\) return/);
+  // Teardown removes listeners, every layer, and the map itself.
+  assert.match(mapCode, /map\.off\(\)/);
+  assert.match(mapCode, /map\.remove\(\)/);
+  assert.match(mapCode, /markerLayerRef\.current\?\.remove\(\)/);
+  assert.match(mapCode, /userLayerRef\.current\?\.remove\(\)/);
+  assert.match(mapCode, /tileLayerRef\.current\?\.remove\(\)/);
+  // Size re-measure after init + on resize (no stacked mobile tiles).
+  assert.match(mapCode, /map\.invalidateSize\(\)/);
+  assert.match(mapCode, /window\.addEventListener\("resize"/);
 });

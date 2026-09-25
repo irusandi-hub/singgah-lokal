@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { LayerGroup, Map as LeafletMap } from "leaflet";
+import type { LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 /**
@@ -83,6 +83,9 @@ export default function HomeMap({
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
+  // The single OSM basemap — removed explicitly in teardown so no orphaned
+  // tile layer can ever survive a remount (repeated/stale-tile guard).
+  const tileLayerRef = useRef<TileLayer | null>(null);
   const markerLayerRef = useRef<LayerGroup | null>(null);
   const userLayerRef = useRef<LayerGroup | null>(null);
   // Camera authority refs. After a real user pan/zoom automatic refreshes
@@ -137,6 +140,13 @@ export default function HomeMap({
     [],
   );
 
+  // Radius refocus (500 m / 1 km / 5 km): ALWAYS re-derives the camera from
+  // the filter radius around the real Current Location — every tab switch to
+  // a bounded radius refocuses (no one-shot latch), unless the user has
+  // interacted since the last filter change (their pan/zoom wins until the
+  // next explicit filter choice). "10 km+" is unbounded and never re-zooms.
+  const lastRadiusRef = useRef<number | null>(null);
+
   useEffect(() => {
     viewerPositionRef.current = viewerPosition;
   }, [viewerPosition]);
@@ -177,9 +187,33 @@ export default function HomeMap({
         zoomControl: false,
         scrollWheelZoom: true,
         attributionControl: true,
+        // Single-world map: panning never repeats the world or shows wrapped
+        // copies (the "Indonesia layer" / duplicate-tiles artifact on Android
+        // Chrome comes from Leaflet's default world-copy jumping + wrapped
+        // tile loads). noWrap lives on the TILE layer below; maxBounds pins
+        // the camera to the single world.
+        worldCopyJump: false,
+        minZoom: 2,
+        maxBounds: [
+          [-85, -Infinity],
+          [85, Infinity],
+        ],
+        maxBoundsViscosity: 1.0,
       });
       map.fitWorld();
-      L.tileLayer(OSM_TILE_URL, { attribution: OSM_ATTRIBUTION, maxZoom: 19 }).addTo(map);
+      // EXACTLY ONE tile layer for the map's whole lifetime — a removed
+      // instance can never leave an orphaned OSM layer (stale/repeated tiles
+      // after remount, refresh, or drag on Android Chrome).
+      const tileLayer = L.tileLayer(OSM_TILE_URL, {
+        attribution: OSM_ATTRIBUTION,
+        maxZoom: 19,
+        noWrap: true,
+        bounds: [
+          [-85, -Infinity],
+          [85, Infinity],
+        ],
+      }).addTo(map);
+      tileLayerRef.current = tileLayer;
 
       // Functional interactions: drag/touch pan, +/- zoom buttons, scroll
       // and touch zoom (single basemap, no layer selector).
@@ -226,6 +260,8 @@ export default function HomeMap({
       markerLayerRef.current = null;
       userLayerRef.current?.remove();
       userLayerRef.current = null;
+      tileLayerRef.current?.remove();
+      tileLayerRef.current = null;
       const map = mapRef.current;
       if (map) {
         map.off();
@@ -235,19 +271,26 @@ export default function HomeMap({
     };
   }, []);
 
-  // Camera anchor: Current Location is the map's center. On the first real
-  // fix the camera focuses the actual location; while a bounded radius is
-  // active the zoom is derived from that radius around the fix. "10 km+"
-  // keeps the current camera (unbounded — no radius refocus). Automatic
-  // moves never steal the camera after real user interaction.
+  // Camera anchor: Current Location is the map's center. A bounded radius
+  // (500 m / 1 km / 5 km) refocuses on EVERY change of the filter radius —
+  // the camera is re-derived from the filter around the real fix. "10 km+"
+  // focuses once (unbounded — no radius re-zoom). Automatic moves never
+  // steal the camera after real user interaction, and interactions are
+  // re-armed when a new radius is chosen so the next bounded tab can
+  // refocus. One-shot overviews (fitBounds / 10 km+ focus) stay one-shot via
+  // cameraDecidedRef.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !viewerPosition) return;
-    if (userInteractedRef.current) return;
+    if (userInteractedRef.current && lastRadiusRef.current === radiusMeters) return;
+
+    const radiusChanged = lastRadiusRef.current !== radiusMeters;
+    lastRadiusRef.current = radiusMeters;
 
     let cancelled = false;
     (async () => {
       if (radiusMeters !== null) {
+        if (radiusChanged) userInteractedRef.current = false;
         const zoom = await radiusZoom(map, viewerPosition, radiusMeters);
         if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
         programmaticMoveRef.current = true;

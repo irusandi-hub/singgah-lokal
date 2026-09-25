@@ -23,6 +23,10 @@ const onboardingPage = readFileSync(
   new URL("../app/producer/onboarding/page.tsx", import.meta.url),
   "utf8",
 );
+const producerDashboard = readFileSync(
+  new URL("../app/producer/page.tsx", import.meta.url),
+  "utf8",
+);
 
 const SHIMS = `
   create schema if not exists auth;
@@ -69,6 +73,20 @@ async function seedActor(db: PGlite, n: number): Promise<string> {
   const userId = uuid(n);
   await db.exec(`insert into auth.users (id, email_confirmed_at) values ('${userId}', now());`);
   return userId;
+}
+
+// The gate query exactly as the onboarding page runs it (RLS-scoped to the
+// session user via auth.uid()). The session GUC is set and read inside ONE
+// exec batch (simple protocol = one implicit transaction), modeling a single
+// server request — a signed-out request (no claims sub) matches no row, the
+// same fail-closed behavior as the memberships_self_read policy.
+async function gateQuery(db: PGlite, sessionUser: string | null) {
+  const results = (await db.exec(`
+    select set_config('request.jwt.claims.sub', ${sessionUser ? `'${sessionUser}'` : "null"}, true);
+    select role from public.producer_memberships
+    where user_id = auth.uid() and role in ('owner', 'manager') limit 1;
+  `)) as { rows: Record<string, unknown>[] }[];
+  return results.at(-1)?.rows ?? [];
 }
 
 test("Onboarding gate redirects approved owner/manager to /producer server-side", () => {
@@ -167,4 +185,86 @@ test("Approved owner membership → Producer access; editor and non-member do no
   } finally {
     await db.close();
   }
+});
+
+test("Full gate flow: login → approval → logout/login → refresh keeps the same decision", async () => {
+  const db = await bootstrapDb();
+  try {
+    // --- Step 1: LOGIN — a fresh signed-in session with no membership. ---
+    const userId = await seedActor(db, 1);
+    await db.exec(
+      `insert into public.producers (id, display_name) values ('flow-producer', 'Flow Producer');`,
+    );
+    await db.exec(
+      `insert into public.places (id, name, short_description, category, type, area, timezone, currency)
+       values ('flow-place', 'Flow Place', 'desc', 'Kuliner', 'production', 'Yogyakarta', 'Asia/Jakarta', 'IDR');`,
+    );
+
+    await db.exec(`select set_config('request.jwt.claims.sub', '${userId}', true);`);
+    // Before approval the gate query returns nothing → onboarding renders the
+    // application form (non-member stays on onboarding).
+    assert.equal((await gateQuery(db, userId)).length, 0, "pre-approval: non-member stays on onboarding");
+
+    // --- Step 2: APPROVAL — the admin activates the owner membership for
+    // the APPLICANT's own user_id (the server-side approval contract, no
+    // new account, no password). ---
+    await db.exec(
+      `insert into public.producer_memberships (user_id, producer_id, place_id, role)
+       values ('${userId}', 'flow-producer', 'flow-place', 'owner');`,
+    );
+
+    // --- Step 3: LOGOUT / LOGIN again — a brand-new session for the same
+    // account (session token changes; the account's user_id does not). ---
+    // A signed-out request carries no claims sub → the gate matches nothing.
+    assert.equal((await gateQuery(db, null)).length, 0, "after logout no session passes the gate");
+    // Fresh login: the new session resolves to the SAME account user_id.
+
+    // --- Step 4: REFRESH — the gate is re-evaluated per request; the
+    // decision must be identical on every re-check. ---
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      assert.equal(
+        (await gateQuery(db, userId)).length,
+        1,
+        `approved owner passes the gate on re-check ${attempt + 1} (refresh/login cycle)`,
+      );
+    }
+
+    // No additional auth users were created across the whole flow (approval
+    // never mints a Producer account/password).
+    const authCount = (
+      (await db.query("select count(*)::int as c from auth.users")).rows as { c: number }[]
+    )[0].c;
+    assert.equal(authCount, 1, "the flow creates no new auth user — the SAME account gains access");
+  } finally {
+    await db.close();
+  }
+});
+
+test("Onboarding and /producer guard decisions stay opposite for every session state", () => {
+  // Onboarding (page source): a signed-in owner/manager is redirected to
+  // /producer BEFORE the application form; /producer redirects an
+  // unauthenticated session back to /auth. Together they mean: the form is
+  // unreachable for approved members, and /producer is unreachable without
+  // a session — across login, refresh, and logout/login.
+  const onboardingCode = onboardingPage
+    .split("\n")
+    .filter((line) => {
+      const t = line.trim();
+      return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
+    })
+    .join("\n");
+  assert.match(onboardingCode, /if \(hasProducerMembership\) \{\n\s*redirect\("\/producer"\);/);
+
+  const dashboardCode = producerDashboard
+    .split("\n")
+    .filter((line) => {
+      const t = line.trim();
+      return !t.startsWith("*") && !t.startsWith("//") && !t.startsWith("/*");
+    })
+    .join("\n");
+  // The dashboard gates on the session itself, server-side per request.
+  assert.match(dashboardCode, /AuthenticationRequiredError/);
+  assert.match(dashboardCode, /redirect\("\/auth\?returnTo=%2Fproducer"\)/);
+  assert.match(dashboardCode, /export const dynamic = "force-dynamic"/);
+  assert.match(dashboardCode, /\.in\("role", \["owner", "manager"\]\)/);
 });
