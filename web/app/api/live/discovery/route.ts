@@ -1,7 +1,19 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { applyLiveDurationCap, isPastLiveDurationCap } from "@/lib/live/session-service-cap";
+import { getPublicSupabaseClient } from "@/lib/supabase/public-client";
+import { isPastLiveDurationCap } from "@/lib/live/session-service-cap";
 
+// Public Live discovery — fully session-independent:
+// - reads canonical live_sessions of published Places through the anon key
+//   (sessionless client, no cookies() — safe for ISR route caching);
+// - healed sessions (60-minute duration cap) are filtered by startedAt in the
+//   handler and left as-is in the DB, so no privileged heal call is needed;
+// - Places/stages are joined through the published-only repositories, which
+//   now use the same sessionless client.
+// Short-lived cache: revalidated at most every 10 seconds — at most 10 s
+// behind the DB, which only affects how quickly a just-started Live appears,
+// never authorization or canonical state. `dynamic` is kept only as
+// belt-and-braces against accidental upstream opt-outs (revalidate wins).
+export const revalidate = 10;
 export const dynamic = "force-dynamic";
 
 type LiveRow = {
@@ -17,7 +29,7 @@ type LiveRow = {
 // repositories. Derived data only — never a cache/search index (AGENTS.md).
 export async function GET() {
   try {
-    const supabase = await createSupabaseServerClient();
+    const supabase = getPublicSupabaseClient();
 
     const { data: sessions, error } = await supabase
       .from("live_sessions")
@@ -31,29 +43,20 @@ export async function GET() {
 
     const rows = (sessions ?? []) as LiveRow[];
 
-    // Opportunistic duration cap (tech §7): heal any session past the locked
-    // 60 minutes before reporting it as live. Same pattern as /api/live/status.
-    const expiredIds: string[] = [];
-    for (const row of rows) {
-      if (isPastLiveDurationCap(row.started_at)) {
-        expiredIds.push(row.id);
-      }
-    }
-    if (expiredIds.length > 0) {
-      await Promise.all(expiredIds.map((id) => applyLiveDurationCap(id)));
-    }
-    const activeRows = expiredIds.length
-      ? rows.filter((row) => !expiredIds.includes(row.id))
-      : rows;
+    // Duration cap (tech §7) applied without privileged writes: sessions past
+    // the locked 60-minute cap are filtered here (canonical heal still runs on
+    // the authenticated Live-status path). This keeps the response identical
+    // for every visitor and cacheable.
+    const activeRows = rows.filter((row) => !isPastLiveDurationCap(row.started_at));
 
     if (activeRows.length === 0) {
       return NextResponse.json({ live: [] });
     }
 
-    const { getServerPlaceExperienceRepository } = await import("@/lib/place-experience-repository");
-    const { getServerProductionStoryRepository } = await import("@/lib/production-story-repository");
-    const placeRepository = await getServerPlaceExperienceRepository();
-    const stageRepository = await getServerProductionStoryRepository();
+    const { getPublicPlaceExperienceRepository } = await import("@/lib/place-experience-repository");
+    const { getPublicProductionStoryRepository } = await import("@/lib/production-story-repository");
+    const placeRepository = await getPublicPlaceExperienceRepository();
+    const stageRepository = await getPublicProductionStoryRepository();
 
     const live = [];
     for (const row of activeRows) {

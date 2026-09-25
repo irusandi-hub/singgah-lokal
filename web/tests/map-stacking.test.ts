@@ -76,8 +76,25 @@ test("React map overlays sit above Leaflet's documented z-index ceiling (1000)",
     "empty-state card must ride above the Leaflet control ceiling",
   );
   assert.match(pageCode, /absolute left-5 top-5 z-\[1100\] rounded-full/);
-  // Bottom sheet is the topmost overlay in the frame.
-  assert.match(pageCode, /absolute bottom-0 left-0 right-0 z-\[1200\] rounded-t-\[28px\]/);
+});
+
+// --- PO decision 2026-09-25: the map frame stays fully visible ---
+
+test("No Place preview/bottom sheet may ever cover the map surface", () => {
+  const pageCode = stripComments(homeDiscovery);
+  // The old in-map bottom sheet must not come back in any form.
+  assert.equal(/bottom-0 left-0 right-0/.test(pageCode), false, "no absolute bottom strip inside the map frame");
+  assert.equal(pageCode.includes("z-[1200]"), false, "no bottom-sheet overlay layer");
+  assert.equal(pageCode.includes("Lihat Tempat"), false, "no Place CTA floating over the map");
+  assert.equal(/rounded-t-\[28px\]\s+bg-white/.test(pageCode), false, "no bottom-sheet card over the map");
+});
+
+test("Place detail still lives in the results section below the map", () => {
+  const pageCode = stripComments(homeDiscovery);
+  // The discovery list below the map stays the Place-detail surface.
+  assert.match(pageCode, /aria-labelledby="place-results-heading"/);
+  assert.match(pageCode, /Tempat di sekitar/);
+  assert.match(pageCode, /href=\{live \? `\/live\/\$\{live.sessionId\}` : `\/places\/\$\{place.id\}`\}/);
 });
 
 test("No legacy low overlay z-index survives inside the map frame", () => {
@@ -109,13 +126,13 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   const pageCode = stripComments(homeDiscovery);
   const mapMount = pageCode.indexOf("<HomeMap");
   assert.ok(mapMount > 0, "HomeMap must be rendered by HomeDiscovery");
-  const emptyCard = pageCode.indexOf('top-1/2 z-[1100]');
-  const badge = pageCode.indexOf('left-5 top-5 z-[1100]');
-  const bottomSheet = pageCode.indexOf('bottom-0 left-0 right-0 z-[1200]');
+  // The in-map Place bottom sheet was removed (PO 2026-09-25): the map frame
+  // keeps only the empty-state card and the radius/status badge above it.
+  const emptyCard = pageCode.indexOf("top-1/2 z-[1100]");
+  const badge = pageCode.indexOf("left-5 top-5 z-[1100]");
   for (const [name, index] of [
     ["empty-state card", emptyCard],
     ["radius badge", badge],
-    ["bottom sheet", bottomSheet],
   ] as const) {
     assert.ok(index > mapMount, `${name} must come after the map in DOM order`);
   }

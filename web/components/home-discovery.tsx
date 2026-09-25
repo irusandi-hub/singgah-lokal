@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import SiteNav from "@/components/site-nav";
@@ -64,7 +63,16 @@ export default function HomeDiscovery() {
   }, []);
 
   // LIVE discovery feed (canonical live_sessions, published Places only).
+  // Performance rule (PO, 2026-09-25): the 15-second poll runs ONLY while
+  // the LIVE tab is actually active — distance/curated modes must not pay
+  // for continuous Live polling. Initial load + refresh happen when the tab
+  // is opened; the interval is torn down on every mode exit (tab switch off,
+  // Tempat Pilihan, unmount/route change), so leaving LIVE mode always
+  // stops the polling. LIVE badges (liveByPlaceId) stay correct for a full
+  // poll cycle after leaving the tab and never invent Live state.
   useEffect(() => {
+    if (!liveOnly) return;
+
     const load = () =>
       fetch("/api/live/discovery")
         .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Live discovery unavailable"))))
@@ -74,7 +82,7 @@ export default function HomeDiscovery() {
     load();
     const interval = window.setInterval(load, 15000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [liveOnly]);
 
   // Real viewer position when permission is granted; no fallback point is
   // ever invented — without a position (or Place coordinates) no distance
@@ -368,48 +376,10 @@ export default function HomeDiscovery() {
             {curatedOnly ? "Tempat Pilihan" : distanceFilter}
           </div>
 
-          {/* Bottom sheet — the highest overlay in the frame (OVERLAY_LADDER:
-              above Leaflet control ceiling 1000 and every other React
-              overlay). */}
-          {visiblePlaces[0] && (
-            <div className="absolute bottom-0 left-0 right-0 z-[1200] rounded-t-[28px] bg-white p-5 shadow-[0_-10px_30px_rgba(0,0,0,0.12)]">
-              <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-black/15" />
-
-              <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
-                {curatedOnly ? activeCollection?.label ?? "Tempat Pilihan" : "Tempat di sekitar"}
-              </div>
-
-              <h2 className="text-2xl font-semibold tracking-tight">
-                {visiblePlaces[0].name}
-              </h2>
-
-              <p className="mt-1 text-sm text-black/55">
-                {visiblePlaces[0].type} • {visiblePlaces[0].area}
-              </p>
-
-              <p className="mt-3 text-sm leading-6 text-black/70">
-                Kenali tempat, lihat bagaimana sesuatu dibuat, lalu tentukan
-                apakah kamu ingin singgah.
-              </p>
-
-              {liveByPlaceId.has(visiblePlaces[0].id) && (
-                <Link
-                  href={`/live/${liveByPlaceId.get(visiblePlaces[0].id)!.sessionId}`}
-                  className="mt-4 block w-full rounded-2xl bg-live py-4 text-center text-sm font-bold text-white"
-                >
-                  Lihat Live Sekarang
-                </Link>
-              )}
-
-              <VisitedLink
-                href={`/places/${visiblePlaces[0].id}`}
-                className="mt-3 block w-full rounded-2xl bg-brand-primary py-4 text-center text-sm font-bold text-white"
-                visitedClassName="bg-[#4a4d44]"
-              >
-                Lihat Tempat
-              </VisitedLink>
-            </div>
-          )}
+          {/* No Place card/preview may cover the map surface (PO decision,
+              2026-09-25): the map frame stays fully visible from top to
+              bottom. Place detail stays in the proximity results section
+              below the map. */}
         </section>
 
         {/* Place results — same canonical visiblePlaces used by map and filters. */}

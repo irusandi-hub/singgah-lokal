@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { experiences, type Experience, type ExperienceSchedule, validateExperience } from "@/lib/experiences";
 import { places, type Place, validatePlace } from "@/lib/places";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getPublicSupabaseClient } from "@/lib/supabase/public-client";
 
 export type PlaceExperienceRepository = {
   listPublishedPlaces(): Promise<Place[]>;
@@ -311,6 +312,18 @@ export class SupabaseExperienceManagementRepository {
 
 export async function getServerPlaceExperienceRepository(): Promise<PlaceExperienceRepository> {
   return new SupabasePlaceExperienceRepository(await createSupabaseServerClient());
+}
+
+/**
+ * Sessionless repository for PUBLIC discovery reads (published Places,
+ * published Experiences) — backed by the shared public (anon) Supabase
+ * client, which never touches `cookies()`. This keeps callers cache-safe:
+ * a route handler using it can use Next.js ISR route caching without the
+ * handler opting out via dynamic APIs. Never use it for reads that depend
+ * on the viewer's identity (RLS still enforces authorization on the DB).
+ */
+export async function getPublicPlaceExperienceRepository(): Promise<PlaceExperienceRepository> {
+  return new SupabasePlaceExperienceRepository(getPublicSupabaseClient());
 }
 
 export async function getServerPlaceManagementRepository(): Promise<SupabasePlaceManagementRepository> {

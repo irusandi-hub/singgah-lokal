@@ -174,11 +174,16 @@ test("Cleanup order: ended-input sweep deletes first and releases only on confir
 });
 
 test("I6: discovery route and Place strip self-heal the 60-minute cap", () => {
-  assert.match(discoverySource, /applyLiveDurationCap/);
+  // The discovery route became a sessionless cached public route (PO,
+  // 2026-09-25): it can no longer run the privileged heal RPC — instead it
+  // enforces the cap by filtering past-cap sessions out of the response via
+  // the shared helper. Canonical healing still runs on the authenticated
+  // Place strip path.
+  assert.equal(discoverySource.includes("applyLiveDurationCap"), false, "cached public discovery must not perform privileged DB writes");
+  assert.match(discoverySource, /isPastLiveDurationCap/);
   assert.match(placeStripSource, /applyLiveDurationCap/);
   // Cap math lives in the shared helper (locked 60-minute constant).
   const capHelperSource = readFileSync(new URL("../lib/live/session-service-cap.ts", import.meta.url), "utf8");
   assert.match(capHelperSource, /LIVE_DURATION_CAP_MINUTES \* 60 \* 1000/);
   assert.match(placeStripSource, /isPastLiveDurationCap/);
-  assert.match(discoverySource, /isPastLiveDurationCap/);
 });

@@ -45,15 +45,15 @@ test("Tempat Pilihan is the dedicated curated layer with Dapur/Kopi/Teh collecti
   // the curated layer and the radius tabs are mutually exclusive states.
   assert.match(code, /Tempat di sekitar/);
   // A Place is never statically labeled "Tempat di sekitar" outside the
-  // curated-state-gated expressions (two occurrences, both inside a ternary
-  // keyed on curatedOnly).
+  // curated-state-gated expression (heading ternary keyed on curatedOnly);
+  // the section heading is the single occurrence that may render it.
   const occurrences = code.split("Tempat di sekitar").length - 1;
   const conditional = (
     code.match(/curatedOnly\s*\?\s*(?:\n?\s*)?activeCollection\?\.label \?\? "Tempat Pilihan"\s*:\s*"Tempat di sekitar"/g) ?? []
   ).length;
   assert.ok(
-    occurrences === 2 && conditional === 2,
-    `expected both occurrences curated-state-gated (got ${occurrences} occurrences, ${conditional} gated)`,
+    occurrences === 1 && conditional === 1,
+    `expected the heading to be the single curated-state-gated occurrence (got ${occurrences} occurrences, ${conditional} gated)`,
   );
   // The map stays unbounded in curated mode (no radius refocus) and the
   // Live-now cards are not part of the curated layer.

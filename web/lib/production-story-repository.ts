@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getPublicSupabaseClient } from "@/lib/supabase/public-client";
 import type { ProductionStage, ProductionStageStatus } from "@/lib/production-story";
 import type { ProductionStageMutation } from "@/lib/production-story-management";
 
@@ -155,4 +156,14 @@ export class SupabaseProductionStoryRepository implements ProductionStoryReposit
 
 export async function getServerProductionStoryRepository(): Promise<ProductionStoryRepository> {
   return new SupabaseProductionStoryRepository(await createSupabaseServerClient());
+}
+
+/**
+ * Sessionless repository for PUBLIC reads of published Production Stages —
+ * backed by the shared public (anon) Supabase client (no `cookies()`), so
+ * callers stay eligible for Next.js ISR route caching. RLS on the DB still
+ * enforces that only published stages of published Places are visible.
+ */
+export function getPublicProductionStoryRepository(): ProductionStoryRepository {
+  return new SupabaseProductionStoryRepository(getPublicSupabaseClient());
 }
