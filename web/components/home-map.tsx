@@ -12,13 +12,23 @@ import "leaflet/dist/leaflet.css";
  *   are all functional.
  * - Markers come ONLY from canonical Place lat/lng — a Place without
  *   coordinates never receives a marker (fail-closed, no invented position).
- * - Current Location is a first-class function: the real browser geolocation
- *   position is shown as a user marker and the map centers on it. The
- *   neutral Indonesia-overview center is viewport-only fallback — it is
- *   never treated as the user's position.
- * - Camera authority: automatic marker refreshes and the initial fitBounds
- *   never move the map again after the user pans/zooms or presses
- *   "Lokasi Saya" (programmatic flights are excluded from that rule).
+ * - Current Location is the map's anchor: the real browser geolocation fix
+ *   becomes the camera center. There is NO fallback viewport and NO invented
+ *   user position — before the first real fix the map starts on the neutral
+ *   world overview (fitWorld), never on a stand-in country view.
+ * - Camera authority:
+ *     · when a bounded distance filter is active (500 m / 1 km / 5 km) the
+ *       zoom is derived from the filter radius around Current Location;
+ *     · "10 km+" is unbounded and never re-zooms the camera;
+ *     · marker refreshes/API polling never move the camera;
+ *     · the one-shot marker fitBounds runs ONLY while no Current Location
+ *       exists and is re-checked after its async import so it can never race
+ *       (or override) the real user fix.
+ * - One container = one Leaflet instance: the container is claimed
+ *   synchronously before the async import resolves (Strict Mode double-mount
+ *   and fast route transitions cannot initialize twice), and teardown fully
+ *   removes listeners, layers, and the map itself. invalidateSize() runs on
+ *   init and window resize so mobile remounts never leave stacked tiles.
  * - Marker click navigates to /places/[id]; a Place with an active Live
  *   session shows a LIVE overlay pin that navigates to /live/[sessionId].
  */
@@ -75,18 +85,21 @@ export default function HomeMap({
   const mapRef = useRef<LeafletMap | null>(null);
   const markerLayerRef = useRef<LayerGroup | null>(null);
   const userLayerRef = useRef<LayerGroup | null>(null);
-  // Camera authority refs. After a real user pan/zoom — or an explicit
-  // "Lokasi Saya" flight — automatic refreshes/fitBounds never move the map
-  // again. Programmatic camera moves set programmaticMoveRef so they are not
-  // mistaken for user interaction.
+  // Camera authority refs. After a real user pan/zoom automatic refreshes
+  // never move the map again; programmatic flights set programmaticMoveRef so
+  // they are not mistaken for user interaction. cameraDecidedRef latches the
+  // first automatic camera decision (user fix or marker fitBounds).
   const userInteractedRef = useRef(false);
   const programmaticMoveRef = useRef(false);
   const cameraDecidedRef = useRef(false);
   const locatePendingRef = useRef(false);
   const lastLocateNonceRef = useRef(0);
-  const lastRadiusRef = useRef<number | null>(null);
+  // Latest fix readable from async callbacks (fitBounds race guard).
+  const viewerPositionRef = useRef<HomeMapViewer | null>(null);
   const router = useRouter();
   const [ready, setReady] = useState(false);
+
+  const viewerPositionKey = viewerPosition ? `${viewerPosition.lat},${viewerPosition.lng}` : "";
 
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
@@ -107,6 +120,27 @@ export default function HomeMap({
     map.flyTo([position.lat, position.lng], Math.max(map.getZoom(), 15), { duration: 0.8 });
   }, []);
 
+  // Zoom that fits a distance-filter radius around Current Location.
+  const radiusZoom = useCallback(
+    async (map: LeafletMap, position: { lat: number; lng: number }, radiusMeters: number) => {
+      const L = (await import("leaflet")).default;
+      // getBoundsZoom needs a non-degenerate box; project the radius into
+      // degrees (lat degrees are exact, lng degrees widen toward the poles).
+      const latDelta = radiusMeters / 111_320;
+      const lngDelta = radiusMeters / (111_320 * Math.max(0.1, Math.cos((position.lat * Math.PI) / 180)));
+      const bounds = L.latLngBounds(
+        [position.lat - latDelta, position.lng - lngDelta],
+        [position.lat + latDelta, position.lng + lngDelta],
+      );
+      return map.getBoundsZoom(bounds) - 0.5; // keep the radius ring inside the frame
+    },
+    [],
+  );
+
+  useEffect(() => {
+    viewerPositionRef.current = viewerPosition;
+  }, [viewerPosition]);
+
   // Create the map once. Leaflet touches window, so it is imported
   // dynamically inside the effect (safe for SSR of this client component).
   // The container is marked synchronously BEFORE the async import resolves,
@@ -115,6 +149,11 @@ export default function HomeMap({
   // the same container — and a cancelled setup releases the mark.
   useEffect(() => {
     let cancelled = false;
+    let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const invalidate = (map: LeafletMap) => {
+      map.invalidateSize();
+    };
 
     (async () => {
       const container = containerRef.current;
@@ -132,14 +171,14 @@ export default function HomeMap({
       }
 
       const map = L.map(container, {
-        // Neutral overview until markers/user position define the viewport;
-        // NEVER a stand-in for the user's position.
-        center: [-2.5, 118],
-        zoom: 5,
+        // Neutral world overview until the real Current Location fix (or, in
+        // its absence, the one-shot marker fitBounds) defines the viewport.
+        // There is deliberately NO country fallback and NO invented position.
         zoomControl: false,
         scrollWheelZoom: true,
         attributionControl: true,
       });
+      map.fitWorld();
       L.tileLayer(OSM_TILE_URL, { attribution: OSM_ATTRIBUTION, maxZoom: 19 }).addTo(map);
 
       // Functional interactions: drag/touch pan, +/- zoom buttons, scroll
@@ -161,11 +200,26 @@ export default function HomeMap({
       userLayerRef.current = L.layerGroup().addTo(map);
       container.dataset.singgahMap = "ready";
       setReady(true);
+
+      // Mobile layout timing: panes can measure before the section settles.
+      // invalidateSize() after init (and on every window resize) prevents
+      // visually stacked tiles/layers on phones.
+      invalidateTimer = setTimeout(() => {
+        if (mapRef.current === map) invalidate(map);
+      }, 150);
     })();
+
+    const onWindowResize = () => {
+      const map = mapRef.current;
+      if (map) invalidate(map);
+    };
+    window.addEventListener("resize", onWindowResize);
 
     return () => {
       cancelled = true;
       setReady(false);
+      if (invalidateTimer !== null) clearTimeout(invalidateTimer);
+      window.removeEventListener("resize", onWindowResize);
       const container = containerRef.current;
       if (container) container.dataset.singgahMap = "";
       markerLayerRef.current?.remove();
@@ -181,9 +235,40 @@ export default function HomeMap({
     };
   }, []);
 
-  // Current Location: render/update the user marker from the real
-  // geolocation fix and center the map on it while the user has not taken
-  // over the camera. A pending "Lokasi Saya" request always wins.
+  // Camera anchor: Current Location is the map's center. On the first real
+  // fix the camera focuses the actual location; while a bounded radius is
+  // active the zoom is derived from that radius around the fix. "10 km+"
+  // keeps the current camera (unbounded — no radius refocus). Automatic
+  // moves never steal the camera after real user interaction.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !viewerPosition) return;
+    if (userInteractedRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      if (radiusMeters !== null) {
+        const zoom = await radiusZoom(map, viewerPosition, radiusMeters);
+        if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
+        programmaticMoveRef.current = true;
+        cameraDecidedRef.current = true;
+        map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(3, zoom), { duration: 0.8 });
+        return;
+      }
+      // Unbounded ("10 km+"): focus the actual location once — no radius
+      // re-zoom, and marker refreshes never re-center afterwards.
+      if (!cameraDecidedRef.current) {
+        flyToUser(map, viewerPosition);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, viewerPositionKey, radiusMeters, viewerPosition, flyToUser, radiusZoom]);
+
+  // Render/update the user marker from the real geolocation fix. Camera
+  // decisions live in the anchor effect above.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !viewerPosition) return;
@@ -214,23 +299,16 @@ export default function HomeMap({
       })
         .addTo(layer)
         .bindTooltip("Lokasi Anda", { direction: "top", offset: [0, -10] });
-
-      if (locatePendingRef.current) {
-        locatePendingRef.current = false;
-        flyToUser(map, viewerPosition);
-      } else if (!userInteractedRef.current) {
-        flyToUser(map, viewerPosition);
-      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [ready, viewerPosition, flyToUser]);
+  }, [ready, viewerPosition]);
 
   // "Lokasi Saya": explicit recenter on the latest fix. If the fix has not
-  // arrived yet, the request stays pending and resolves in the effect above
-  // once geolocation returns.
+  // arrived yet, the request stays pending and resolves in the anchor effect
+  // above once geolocation returns.
   useEffect(() => {
     const map = mapRef.current;
     if (!locateNonce || lastLocateNonceRef.current === locateNonce) return;
@@ -242,46 +320,11 @@ export default function HomeMap({
     }
   }, [locateNonce, ready, viewerPosition, flyToUser]);
 
-  // Radius camera: when a bounded distance filter is active (500 m / 1 km /
-  // 5 km) the camera focuses on the area around the REAL Current Location —
-  // never the neutral overview and never a marker-derived viewport. The
-  // zoom is derived from the filter radius itself (getBoundsZoom on a
-  // radius-sized box), so 1 km is wider than 500 m and 5 km wider than 1 km;
-  // "10 km+" stays unbounded and never re-zooms the camera. Runs once per
-  // radius change, never after the user has taken over the camera.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map) return;
-    if (lastRadiusRef.current === radiusMeters) return;
-    lastRadiusRef.current = radiusMeters;
-    if (radiusMeters === null || !viewerPosition || userInteractedRef.current) return;
-
-    let cancelled = false;
-    (async () => {
-      const L = (await import("leaflet")).default;
-      if (cancelled || mapRef.current !== map) return;
-      const lat = viewerPosition.lat;
-      // getBoundsZoom needs a non-degenerate box; project the radius into
-      // degrees (lat degrees are exact, lng degrees widen toward the poles).
-      const latDelta = radiusMeters / 111_320;
-      const lngDelta = radiusMeters / (111_320 * Math.max(0.1, Math.cos((lat * Math.PI) / 180)));
-      const bounds = L.latLngBounds(
-        [lat - latDelta, viewerPosition.lng - lngDelta],
-        [lat + latDelta, viewerPosition.lng + lngDelta],
-      );
-      const radiusZoom = map.getBoundsZoom(bounds) - 0.5; // keep the ring inside the frame
-      programmaticMoveRef.current = true;
-      map.flyTo([lat, viewerPosition.lng], Math.max(3, radiusZoom), { duration: 0.8 });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [ready, radiusMeters, viewerPosition]);
-
   // Rebuild markers whenever the filtered marker set changes. Camera note:
-  // fitBounds is a one-shot initial overview — it never runs again after
-  // the user position centered the map or the user moved the camera.
+  // fitBounds is a one-shot initial overview that runs ONLY while no Current
+  // Location exists. The condition is re-checked after the async import so a
+  // fix that arrives in between can never race it; after the first automatic
+  // decision (or any user interaction) it never runs again.
   useEffect(() => {
     if (!ready) return;
 
@@ -342,7 +385,12 @@ export default function HomeMap({
           .on("click", () => router.push(`/places/${place.id}`));
       }
 
-      if (points.length > 0 && !cameraDecidedRef.current && !userInteractedRef.current) {
+      if (
+        points.length > 0 &&
+        !viewerPositionRef.current &&
+        !cameraDecidedRef.current &&
+        !userInteractedRef.current
+      ) {
         cameraDecidedRef.current = true;
         programmaticMoveRef.current = true;
         map.fitBounds(L.latLngBounds(points), { padding: [48, 48], maxZoom: 16 });

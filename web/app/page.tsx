@@ -21,8 +21,9 @@ export default function Home() {
   // Locked Home filter bar (PO decision 2026-09-20, Policy §12.5 #1):
   // LIVE first/leftmost, then distance radii only. LIVE is a process/status
   // filter (Places with a live session), not a time or category filter.
-  // Default = the unbounded filter so nothing is hidden on first load.
-  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("10 km+");
+  // Default = "500 m": the bounded radius anchors on the real Current
+  // Location (PO: Current Location is the map center; no invented viewport).
+  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("500 m");
   const [liveOnly, setLiveOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [places, setPlaces] = useState<Place[]>([]);

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import SiteNav from "@/components/site-nav";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getProducerApplicationStatus } from "@/lib/producer/application";
@@ -17,17 +18,39 @@ export const metadata = {
  * Producer email/password/identity. An unauthenticated visitor is sent to
  * sign-in with returnTo back here; a signed-in user sees the account that
  * is applying, taken from the authenticated session (never typed freely).
+ *
+ * PRODUCER GATE: an account that already holds an active owner/manager
+ * membership never sees the application form again — it is redirected to
+ * /producer. The check is server-side per request (force-dynamic), so the
+ * decision stays correct after login, refresh, and logout/login again.
  */
 export default async function ProducerOnboardingPage() {
   // Fail-soft session probe: an unconfigured runtime must render the page
   // (with the sign-in CTA), not crash with 500.
   let user = null;
+  let hasProducerMembership = false;
   try {
     const supabase = await createSupabaseServerClient();
     const { data } = await supabase.auth.getUser();
     user = data.user ?? null;
+    if (user) {
+      // RLS memberships_self_read (0001) scopes this read to the session's
+      // own rows; owner/manager is the Producer gate.
+      const { data: memberships } = await supabase
+        .from("producer_memberships")
+        .select("role")
+        .eq("user_id", user.id)
+        .in("role", ["owner", "manager"])
+        .limit(1);
+      hasProducerMembership = (memberships?.length ?? 0) > 0;
+    }
   } catch {
     user = null;
+    hasProducerMembership = false;
+  }
+
+  if (hasProducerMembership) {
+    redirect("/producer");
   }
 
   let application: Awaited<ReturnType<typeof getProducerApplicationStatus>> | null = null;

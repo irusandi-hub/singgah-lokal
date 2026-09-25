@@ -10,8 +10,6 @@ type Props = {
   onChange: (latitude: string, longitude: string) => void;
 };
 
-const DEFAULT_CENTER: [number, number] = [-2.5, 118];
-
 export default function PlaceLocationPicker({ latitude, longitude, onChange }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -47,15 +45,18 @@ export default function PlaceLocationPicker({ latitude, longitude, onChange }: P
       const hasCoordinates =
         Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude));
 
-      const center: [number, number] = hasCoordinates
-        ? [Number(latitude), Number(longitude)]
-        : DEFAULT_CENTER;
-
+      // No invented fallback viewport: with coordinates the camera centers on
+      // the Place's canonical position; without them the map opens on the
+      // neutral world overview until the user clicks/drags/locates.
       const map = L.map(containerRef.current, {
-        center,
-        zoom: hasCoordinates ? 16 : 5,
+        zoom: hasCoordinates ? 16 : 2,
         scrollWheelZoom: true,
       });
+      if (hasCoordinates) {
+        map.setView([Number(latitude), Number(longitude)], 16);
+      } else {
+        map.fitWorld();
+      }
 
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution:

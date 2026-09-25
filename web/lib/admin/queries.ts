@@ -1,20 +1,29 @@
 import "server-only";
 
 import { PlatformModeratorRequiredError, requirePlatformModerator } from "@/lib/live/platform";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 
 /**
  * Admin Center data layer (Authority Master §5: operational oversight only).
  *
  * Rules enforced here:
  * - Every call re-verifies Platform Admin authorization server-side
- *   (`requirePlatformModerator`) — no client-supplied identity.
- * - Data is read from canonical Supabase through the RLS-governed anon-key
- *   server client — never from cache or a search index (AGENTS.md).
+ *   (`requirePlatformModerator`, session-derived) — no client-supplied identity.
+ * - Data is read from canonical Supabase — never from cache or a search index
+ *   (AGENTS.md). The reads use the service-role client because the platform
+ *   scope is intentionally wider than the session's own RLS row scope
+ *   (`memberships_self_read` 0001, `users_self_access`, `live_audit` dark to
+ *   authenticated per 0008): without it the Overview/Membership pages could
+ *   not report platform-wide canonical counts. Authorization stays on the
+ *   session guard above; the service role never reaches the client.
  * - No secrets, tokens, or infrastructure credentials are ever selected or
  *   returned (Authority Master §3).
  * - Query failures surface as thrown errors, never as fabricated empty data.
  */
+
+function canonicalAdminClient() {
+  return createSupabaseServiceClient();
+}
 
 export type AdminOverviewTotals = {
   users: number;
@@ -125,7 +134,7 @@ export type AdminAuditRow = {
 };
 
 async function countRows(table: string): Promise<number> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { count, error } = await supabase.from(table).select("*", { count: "exact", head: true });
   if (error) throw error;
   return count ?? 0;
@@ -184,7 +193,7 @@ export async function getAdminOverview(): Promise<AdminOverview> {
 export async function listAdminUsers(): Promise<AdminUserRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   // MVP read-only scope: id, created_at, platform_role. No email selection —
   // public.users intentionally holds no email and auth.users is not read here.
   const { data, error } = await supabase
@@ -205,7 +214,7 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
 export async function listAdminProducers(): Promise<AdminProducerRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("producers")
     .select("id, display_name, claim_status, created_at")
@@ -225,7 +234,7 @@ export async function listAdminProducers(): Promise<AdminProducerRow[]> {
 export async function listAdminMemberships(): Promise<AdminMembershipRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("producer_memberships")
     .select("user_id, producer_id, place_id, role, created_at")
@@ -246,7 +255,7 @@ export async function listAdminMemberships(): Promise<AdminMembershipRow[]> {
 export async function listAdminPlaces(): Promise<AdminPlaceRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("places")
     .select("id, name, category, type, area, publication_status, claim_status, producer_id, created_at")
@@ -271,7 +280,7 @@ export async function listAdminPlaces(): Promise<AdminPlaceRow[]> {
 export async function listAdminExperiences(): Promise<AdminExperienceRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("experiences")
     .select("id, place_id, title, status, publication_status, created_at")
@@ -293,7 +302,7 @@ export async function listAdminExperiences(): Promise<AdminExperienceRow[]> {
 export async function listAdminVisitIntents(): Promise<AdminVisitIntentRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("visit_intents")
     .select("id, user_id, place_id, experience_id, requested_date, requested_start_time, requested_end_time, status, created_at")
@@ -316,7 +325,7 @@ export async function listAdminVisitIntents(): Promise<AdminVisitIntentRow[]> {
 }
 
 async function listRecentVisitIntents(limit: number): Promise<AdminVisitIntentRow[]> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("visit_intents")
     .select("id, user_id, place_id, experience_id, requested_date, requested_start_time, requested_end_time, status, created_at")
@@ -341,7 +350,7 @@ async function listRecentVisitIntents(limit: number): Promise<AdminVisitIntentRo
 export async function listAdminLiveSessions(): Promise<AdminLiveSessionRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("live_sessions")
     .select("id, place_id, producer_id, stage_id, status, started_at, ended_at, ended_reason, viewer_peak")
@@ -364,7 +373,7 @@ export async function listAdminLiveSessions(): Promise<AdminLiveSessionRow[]> {
 }
 
 async function listRecentLiveSessions(limit: number): Promise<AdminLiveSessionRow[]> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("live_sessions")
     .select("id, place_id, producer_id, stage_id, status, started_at, ended_at, ended_reason, viewer_peak")
@@ -389,7 +398,7 @@ async function listRecentLiveSessions(limit: number): Promise<AdminLiveSessionRo
 export async function listAdminLiveReports(): Promise<AdminLiveReportRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("live_reports")
     .select("id, live_session_id, reporter_id, category, note, created_at")
@@ -409,7 +418,7 @@ export async function listAdminLiveReports(): Promise<AdminLiveReportRow[]> {
 }
 
 async function listRecentLiveReports(limit: number): Promise<AdminLiveReportRow[]> {
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("live_reports")
     .select("id, live_session_id, reporter_id, category, note, created_at")
@@ -431,7 +440,7 @@ async function listRecentLiveReports(limit: number): Promise<AdminLiveReportRow[
 export async function listAdminEligibility(): Promise<AdminEligibilityRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   const { data, error } = await supabase
     .from("live_eligibility")
     .select("producer_id, path, active, granted_at")
@@ -451,7 +460,7 @@ export async function listAdminEligibility(): Promise<AdminEligibilityRow[]> {
 export async function listAdminAudit(): Promise<AdminAuditRow[]> {
   await requireAdmin();
 
-  const supabase = await createSupabaseServerClient();
+  const supabase = canonicalAdminClient();
   // live_audit has no SELECT grant for authenticated (append-only, migration
   // 0008/0013) — reads go through the server client, which is denied by RLS
   // unless the moderator policy applies. Fail closed: an error surfaces as a
