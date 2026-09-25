@@ -125,7 +125,7 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
   }
 
   return (
-    <form className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-5" onSubmit={handleSubmit}>
+    <form className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-5" onSubmit={handleSubmit} autoComplete="off">
       <h2 className="text-xl font-semibold">SINGGAH DI SINI</h2>
       <p className="mt-2 text-sm leading-6 text-black/65">Ajukan niat berkunjung kepada Producer. Belum ada pembayaran atau kepastian reservasi.</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">

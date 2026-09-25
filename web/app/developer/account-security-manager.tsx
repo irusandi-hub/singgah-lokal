@@ -381,13 +381,14 @@ export default function AccountSecurityManager() {
               <label className={labelClass} htmlFor="creator-old-secret-answer">
                 Jawaban lama
               </label>
-              <input
-                id="creator-old-secret-answer"
-                className={inputClass}
-                type="password"
-                value={oldSecretAnswer}
-                onChange={(event) => setOldSecretAnswer(event.target.value)}
-              />
+            <input
+              id="creator-old-secret-answer"
+              className={inputClass}
+              type="password"
+              autoComplete="new-password"
+              value={oldSecretAnswer}
+              onChange={(event) => setOldSecretAnswer(event.target.value)}
+            />
             </div>
           ) : null}
           <div>
@@ -411,6 +412,7 @@ export default function AccountSecurityManager() {
               id="creator-new-secret-answer"
               className={inputClass}
               type="password"
+              autoComplete="new-password"
               maxLength={200}
               value={newAnswer}
               onChange={(event) => setNewAnswer(event.target.value)}
@@ -424,6 +426,7 @@ export default function AccountSecurityManager() {
               id="creator-new-secret-answer-confirmation"
               className={inputClass}
               type="password"
+              autoComplete="new-password"
               maxLength={200}
               value={newAnswerConfirmation}
               onChange={(event) => setNewAnswerConfirmation(event.target.value)}

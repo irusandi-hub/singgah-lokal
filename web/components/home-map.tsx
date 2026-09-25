@@ -105,14 +105,29 @@ export default function HomeMap({
 
   // Create the map once. Leaflet touches window, so it is imported
   // dynamically inside the effect (safe for SSR of this client component).
+  // The container is marked synchronously BEFORE the async import resolves,
+  // so a second setup (React Strict Mode double-mount, fast route
+  // transition, refresh) can never initialize a second Leaflet instance on
+  // the same container — and a cancelled setup releases the mark.
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
-      const L = (await import("leaflet")).default;
-      if (cancelled || !containerRef.current || mapRef.current) return;
+      const container = containerRef.current;
+      if (!container || container.dataset.singgahMap) return;
+      container.dataset.singgahMap = "initializing";
 
-      const map = L.map(containerRef.current, {
+      const L = (await import("leaflet")).default;
+      if (cancelled) {
+        container.dataset.singgahMap = "";
+        return;
+      }
+      if (!containerRef.current || mapRef.current) {
+        container.dataset.singgahMap = "";
+        return;
+      }
+
+      const map = L.map(container, {
         // Neutral overview until markers/user position define the viewport;
         // NEVER a stand-in for the user's position.
         center: [-2.5, 118],
@@ -140,17 +155,24 @@ export default function HomeMap({
       mapRef.current = map;
       markerLayerRef.current = L.layerGroup().addTo(map);
       userLayerRef.current = L.layerGroup().addTo(map);
+      container.dataset.singgahMap = "ready";
       setReady(true);
     })();
 
     return () => {
       cancelled = true;
       setReady(false);
+      const container = containerRef.current;
+      if (container) container.dataset.singgahMap = "";
       markerLayerRef.current?.remove();
       markerLayerRef.current = null;
       userLayerRef.current?.remove();
       userLayerRef.current = null;
-      mapRef.current?.remove();
+      const map = mapRef.current;
+      if (map) {
+        map.off();
+        map.remove();
+      }
       mapRef.current = null;
     };
   }, []);
@@ -293,7 +315,9 @@ export default function HomeMap({
 
   return (
     <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full" aria-label="Peta Place" />
+      {/* touch-none keeps drag/pinch inside the map container so page
+          scroll/navigation never hijacks a map gesture. */}
+      <div ref={containerRef} className="h-full w-full touch-none" aria-label="Peta Place" />
       <button
         type="button"
         onClick={onRequestLocate}

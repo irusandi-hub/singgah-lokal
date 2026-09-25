@@ -6,14 +6,34 @@ import PlaceLocationPicker from "@/components/place-location-picker";
 
 type Props = { place?: Place; onSaved?: (place: Place) => void };
 
+function emptyPlaceForm(): Record<string, string> {
+  return {
+    id: "", name: "", shortDescription: "",
+    category: "Kopi", type: "production", area: "",
+    address: "", contactInformation: "",
+    timezone: "Asia/Jakarta", currency: "IDR",
+    latitude: "", longitude: "",
+  };
+}
+
 export default function PlaceForm({ place, onSaved }: Props) {
-  const [form, setForm] = useState<Record<string, string>>({
-    id: place?.id ?? "", name: place?.name ?? "", shortDescription: place?.shortDescription ?? "",
-    category: place?.category ?? "Kopi", type: place?.type ?? "production", area: place?.area ?? "",
-    address: place?.address ?? "", contactInformation: place?.contactInformation ?? "",
-    timezone: place?.timezone ?? "Asia/Jakarta", currency: place?.currency ?? "IDR",
-    latitude: place?.latitude?.toString() ?? "", longitude: place?.longitude?.toString() ?? "",
-  });
+  // NEW vs EDIT is explicit: `place` present = edit an existing record and
+  // its saved values are the initial state; absent = NEW entry, which always
+  // starts empty. The key marker makes React re-initialize (not reuse) the
+  // form state when switching between NEW and EDIT remounts, so a previous
+  // mount's transient input can never resurrect here.
+  const isEdit = Boolean(place);
+  const [form, setForm] = useState<Record<string, string>>(
+    place
+      ? {
+          id: place.id, name: place.name, shortDescription: place.shortDescription,
+          category: place.category, type: place.type, area: place.area,
+          address: place.address, contactInformation: place.contactInformation,
+          timezone: place.timezone, currency: place.currency,
+          latitude: place.latitude?.toString() ?? "", longitude: place.longitude?.toString() ?? "",
+        }
+      : emptyPlaceForm(),
+  );
   const [message, setMessage] = useState("");
 
   const update = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
@@ -27,11 +47,14 @@ export default function PlaceForm({ place, onSaved }: Props) {
     const data = await response.json();
     if (!response.ok) { setMessage(data.error ?? "Place tidak dapat disimpan"); return; }
     setMessage(`Tersimpan sebagai ${data.publicationStatus}`);
+    // A successful NEW-entry submit resets transient input so reopening the
+    // form (or a route remount) starts empty again.
+    if (!place) setForm(emptyPlaceForm());
     onSaved?.(data);
   }
 
   return (
-    <form className="grid gap-4" onSubmit={submit}>
+    <form key={isEdit ? `edit-${place?.id}` : "new"} className="grid gap-4" onSubmit={submit} autoComplete="off">
       {!place && <label className="grid gap-1 text-sm font-semibold">ID Place<input required value={form.id} onChange={(event) => update("id", event.target.value)} placeholder="nama-place" /></label>}
       {[["name", "Nama Place"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>

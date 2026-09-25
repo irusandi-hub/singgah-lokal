@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import SignOutButton from "./sign-out-button";
 
@@ -42,6 +43,18 @@ export default function AccountMenu() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const containerRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+
+  // Route navigation (item click, back/forward, programmatic) closes the
+  // menu and resets transient group state before the new page paints.
+  // Render-time adjustment (React's recommended pattern) — no effect
+  // setState, so no cascading render and no stacked menu between routes.
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (lastPathname !== pathname) {
+    setLastPathname(pathname);
+    setOpen(false);
+    setExpanded({});
+  }
 
   // Outside pointer + Escape close the whole menu.
   useEffect(() => {
@@ -61,6 +74,13 @@ export default function AccountMenu() {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
+
+  // Closing resets transient group state: reopening the menu always shows
+  // the same collapsed groups — no stacked/resurrected UI state.
+  const closeMenu = useCallback(() => {
+    setOpen(false);
+    setExpanded({});
+  }, []);
 
   const toggleGroup = useCallback((id: string) => {
     setExpanded((current) => ({ ...current, [id]: !current[id] }));
@@ -99,11 +119,11 @@ export default function AccountMenu() {
               role="menuitem"
               href="/account"
               className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
-              onClick={() => setOpen(false)}
+              onClick={closeMenu}
             >
               Account Center
             </Link>
-            <div className="rounded-xl px-1 hover:bg-brand-cream" onClick={() => setOpen(false)}>
+            <div className="rounded-xl px-1 hover:bg-brand-cream" onClick={closeMenu}>
               <SignOutButton variant="menu-item" />
             </div>
           </MenuGroupBlock>
@@ -137,7 +157,7 @@ export default function AccountMenu() {
             role="menuitem"
             href="/"
             className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
-            onClick={() => setOpen(false)}
+            onClick={closeMenu}
           >
             About &amp; Terms
           </Link>

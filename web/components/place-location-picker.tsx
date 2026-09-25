@@ -27,8 +27,22 @@ export default function PlaceLocationPicker({ latitude, longitude, onChange }: P
     let cancelled = false;
 
     (async () => {
+      // Mark the container synchronously before the async Leaflet import
+      // resolves, so Strict-Mode double-mounts and fast remounts can never
+      // initialize a second map instance on the same container.
+      const container = containerRef.current;
+      if (!container || container.dataset.singgahMap) return;
+      container.dataset.singgahMap = "initializing";
+
       const L = (await import("leaflet")).default;
-      if (cancelled || !containerRef.current || mapRef.current) return;
+      if (cancelled) {
+        container.dataset.singgahMap = "";
+        return;
+      }
+      if (!containerRef.current || mapRef.current) {
+        container.dataset.singgahMap = "";
+        return;
+      }
 
       const hasCoordinates =
         Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude));
@@ -71,14 +85,21 @@ export default function PlaceLocationPicker({ latitude, longitude, onChange }: P
         changeRef.current(event.latlng.lat.toString(), event.latlng.lng.toString());
       });
 
+      container.dataset.singgahMap = "ready";
       mapRef.current = map;
     })();
 
     return () => {
       cancelled = true;
+      const container = containerRef.current;
+      if (container) container.dataset.singgahMap = "";
       markerRef.current?.remove();
       markerRef.current = null;
-      mapRef.current?.remove();
+      const map = mapRef.current;
+      if (map) {
+        map.off();
+        map.remove();
+      }
       mapRef.current = null;
     };
   }, []);
@@ -150,7 +171,7 @@ export default function PlaceLocationPicker({ latitude, longitude, onChange }: P
     <div className="grid gap-2">
       <div
         ref={containerRef}
-        className="h-72 w-full overflow-hidden rounded-xl border border-black/10"
+        className="h-72 w-full touch-none overflow-hidden rounded-xl border border-black/10"
         aria-label="Pilih lokasi Place pada peta"
       />
       <div className="flex flex-wrap items-center gap-3">
