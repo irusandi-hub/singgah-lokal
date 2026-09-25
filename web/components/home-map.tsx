@@ -194,9 +194,18 @@ export default function HomeMap({
         // the camera to the single world.
         worldCopyJump: false,
         minZoom: 2,
+        // Root cause of the "map slides out of its frame" bug (PO report,
+        // 2026-09-25): the previous bounds used ±Infinity longitudes. Leaflet
+        // projects ±180 lng to ±Infinity pixels at every zoom, so the drag
+        // limit math (_getBoundsOffset / viscousLimit) produced NaN/Infinity
+        // and NEVER clamped the pane — one strong drag moved the map pane an
+        // unbounded distance inside the container, exposing the background
+        // behind the tiles. Real pan clamping needs FINITE bounds. ±180 with
+        // viscosity 1.0 clamps the pane at the world edge (drag is limited
+        // with the proper Leaflet mechanism, drag itself stays ON).
         maxBounds: [
-          [-85, -Infinity],
-          [85, Infinity],
+          [-85, -180],
+          [85, 180],
         ],
         maxBoundsViscosity: 1.0,
       });
@@ -208,9 +217,11 @@ export default function HomeMap({
         attribution: OSM_ATTRIBUTION,
         maxZoom: 19,
         noWrap: true,
+        // Match the map's FINITE maxBounds: tiles stop at the ±180 world
+        // edge instead of requesting wrapped/empty tiles outside it.
         bounds: [
-          [-85, -Infinity],
-          [85, Infinity],
+          [-85, -180],
+          [85, 180],
         ],
       }).addTo(map);
       tileLayerRef.current = tileLayer;

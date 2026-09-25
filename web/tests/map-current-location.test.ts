@@ -170,8 +170,22 @@ test("Map is single-world: no world-copy jump, wrapped tiles, or Indonesia layer
   assert.match(mapCode, /worldCopyJump: false/);
   assert.match(mapCode, /noWrap: true/);
   // ...and the single OSM tile layer is clamped to the single-world bounds.
-  assert.match(mapCode, /bounds: \[\n\s*\[-85, -Infinity\],/);
+  assert.match(mapCode, /bounds: \[\n\s*\[-85, -180\],/);
   assert.match(mapCode, /maxBoundsViscosity: 1\.0/);
+});
+
+test("Pan clamp uses FINITE maxBounds — ±Infinity longitudes never reach Leaflet (drag-escape root cause)", () => {
+  const mapCode = stripComments(homeMap);
+  // Leaflet projects ±180 lng to ±Infinity pixels; maxBounds with ±Infinity
+  // made the drag-limit math NaN/Infinity so the pane was NEVER clamped and
+  // one strong drag slid the whole map pane out of its frame.
+  assert.match(mapCode, /maxBounds: \[\n\s*\[-85, -180\],\n\s*\[85, 180\],\n\s*\],/);
+  // No ±Infinity survives anywhere in the map options or tile bounds.
+  assert.equal(mapCode.includes("Infinity"), false, "no Infinity in map/tile bounds");
+  // Viscosity 1.0 hard-clamps the pane at the world edge (drag stays ON).
+  assert.match(mapCode, /maxBoundsViscosity: 1\.0/);
+  // Dragging itself is never disabled (the clamp is the real mechanism).
+  assert.equal(mapCode.includes("dragging: false"), false);
 });
 
 test("Exactly one tile layer exists for the map's whole lifetime", () => {
