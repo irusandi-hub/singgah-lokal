@@ -6,6 +6,17 @@ const types: PlaceType[] = ["production", "experience"];
 
 export class PlaceInputError extends Error {}
 
+function parseCoverImageUrl(value: unknown): string | null {
+  // Optional URL; empty/absent clears it. Server-validated (https, bounded).
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") throw new PlaceInputError("place_cover_image_invalid");
+  const trimmed = value.trim();
+  if (!/^https:\/\//i.test(trimmed) || trimmed.length > 2048) {
+    throw new PlaceInputError("place_cover_image_invalid");
+  }
+  return trimmed;
+}
+
 export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
   if (!raw || typeof raw !== "object") throw new PlaceInputError("place_input_invalid");
   const body = raw as Record<string, unknown>;
@@ -39,6 +50,7 @@ export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
     currency: text("currency").toUpperCase(),
     latitude: nullableNumber("latitude", -90, 90),
     longitude: nullableNumber("longitude", -180, 180),
+    coverImageUrl: parseCoverImageUrl(body.coverImageUrl),
   };
   try {
     validatePlaceInput(mutation);

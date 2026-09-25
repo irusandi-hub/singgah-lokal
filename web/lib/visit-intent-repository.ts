@@ -99,6 +99,7 @@ function mapPlace(row: Record<string, unknown>): Place {
     currency: String(row.currency),
     latitude: row.latitude as number | null,
     longitude: row.longitude as number | null,
+    coverImageUrl: (row.cover_image_url as string | null | undefined) ?? null,
     producer: row.producer_id ? { id: String(row.producer_id), displayName: String(row.producer_display_name ?? row.producer_id) } : null,
     claimStatus: row.claim_status as Place["claimStatus"],
     publicationStatus: row.publication_status as Place["publicationStatus"],

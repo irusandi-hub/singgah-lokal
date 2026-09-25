@@ -22,6 +22,7 @@ function mapPlace(row: Record<string, unknown>): Place {
     currency: String(row.currency),
     latitude: row.latitude as number | null,
     longitude: row.longitude as number | null,
+    coverImageUrl: (row.cover_image_url as string | null | undefined) ?? null,
     producer: row.producer_id
       ? { id: String(row.producer_id), displayName: String(row.producer_display_name ?? row.producer_id) }
       : null,
@@ -170,7 +171,7 @@ export class SupabasePlaceExperienceRepository implements PlaceExperienceReposit
   }
 }
 
-export type PlaceMutation = Pick<Place, "id" | "name" | "shortDescription" | "category" | "type" | "area" | "address" | "contactInformation" | "timezone" | "currency" | "latitude" | "longitude">;
+export type PlaceMutation = Pick<Place, "id" | "name" | "shortDescription" | "category" | "type" | "area" | "address" | "contactInformation" | "timezone" | "currency" | "latitude" | "longitude" | "coverImageUrl">;
 
 export type ExperienceMutation = Omit<Experience, "placeId" | "status" | "publicationStatus">;
 
@@ -201,6 +202,7 @@ export class SupabasePlaceManagementRepository {
       id: input.id, name: input.name, short_description: input.shortDescription, category: input.category,
       type: input.type, area: input.area, address: input.address, contact_information: input.contactInformation,
       timezone: input.timezone, currency: input.currency, latitude: input.latitude, longitude: input.longitude,
+      cover_image_url: input.coverImageUrl,
       producer_id: producerId, publication_status: "draft",
     }).select("*, producers(display_name)").single();
     if (error) throw error;
@@ -212,6 +214,7 @@ export class SupabasePlaceManagementRepository {
       name: input.name, short_description: input.shortDescription, category: input.category, type: input.type,
       area: input.area, address: input.address, contact_information: input.contactInformation,
       timezone: input.timezone, currency: input.currency, latitude: input.latitude, longitude: input.longitude,
+      cover_image_url: input.coverImageUrl,
       updated_at: new Date().toISOString(),
     }).eq("id", id).select("*, producers(display_name)").single();
     if (error) throw error;

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { broadcastSessionChanged } from "@/lib/session-events";
 
 /**
  * Real logout through the existing backend endpoint. After the server
@@ -26,9 +27,11 @@ export default function SignOutButton({ variant = "header" }: { variant?: "heade
         setPending(false);
         return;
       }
-      // Server confirmed sign-out (unauthenticated session). Show feedback
+      // Server confirmed sign-out (unauthenticated session). Show feedback,
+      // notify every live auth-state surface (header included) to re-probe,
       // and only then leave the authenticated view.
       setSuccess(true);
+      broadcastSessionChanged();
       router.push("/");
       router.refresh();
     } catch {

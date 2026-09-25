@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { SESSION_CHANGED_EVENT } from "@/lib/session-events";
 import { isActiveNavSection } from "@/lib/navigation";
 import AccountMenu from "./account-menu";
 import BrandLogo from "./brand-logo";
@@ -44,6 +45,29 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
       });
     return () => {
       cancelled = true;
+    };
+  }, [authenticatedProp]);
+
+  // Session flips without a remount in two real mobile cases: Sign Out from
+  // the account menu while already on this page, and a bfcache restore of a
+  // page restored with a dead session. Both re-probe the session here so the
+  // header shows the signed-out state immediately — no manual refresh.
+  useEffect(() => {
+    if (authenticatedProp !== undefined) return;
+    function probe() {
+      fetch("/api/auth/session")
+        .then((response) => (response.ok ? response.json() : { authenticated: false, email: null }))
+        .then((payload: SessionPayload) => setSession(payload))
+        .catch(() => setSession({ authenticated: false, email: null }));
+    }
+    function onPagesShow(event: PageTransitionEvent) {
+      if (event.persisted) probe();
+    }
+    window.addEventListener(SESSION_CHANGED_EVENT, probe);
+    window.addEventListener("pageshow", onPagesShow);
+    return () => {
+      window.removeEventListener(SESSION_CHANGED_EVENT, probe);
+      window.removeEventListener("pageshow", onPagesShow);
     };
   }, [authenticatedProp]);
 
@@ -99,7 +123,8 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
 
           {session === null ? null : authenticated ? (
             // Single ☰ entry point after sign in: email, Kelola Akun, and
-            // Sign Out no longer sit in the header itself.
+            // Sign Out no longer sit in the header itself. Header session
+            // state re-probes on sign-out and bfcache restores (see above).
             <AccountMenu />
           ) : (
             <>

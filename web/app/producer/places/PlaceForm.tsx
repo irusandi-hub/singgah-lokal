@@ -13,6 +13,7 @@ function emptyPlaceForm(): Record<string, string> {
     address: "", contactInformation: "",
     timezone: "Asia/Jakarta", currency: "IDR",
     latitude: "", longitude: "",
+    coverImageUrl: "",
   };
 }
 
@@ -31,6 +32,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           address: place.address, contactInformation: place.contactInformation,
           timezone: place.timezone, currency: place.currency,
           latitude: place.latitude?.toString() ?? "", longitude: place.longitude?.toString() ?? "",
+          coverImageUrl: place.coverImageUrl ?? "",
         }
       : emptyPlaceForm(),
   );
@@ -40,7 +42,12 @@ export default function PlaceForm({ place, onSaved }: Props) {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setMessage("Menyimpan...");
-    const payload = { ...form, latitude: form.latitude ? Number(form.latitude) : null, longitude: form.longitude ? Number(form.longitude) : null };
+    const payload = {
+      ...form,
+      latitude: form.latitude ? Number(form.latitude) : null,
+      longitude: form.longitude ? Number(form.longitude) : null,
+      coverImageUrl: form.coverImageUrl.trim() || null,
+    };
     const response = await fetch(place ? `/api/producer/places/${place.id}` : "/api/producer/places", {
       method: place ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
     });
@@ -56,7 +63,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
   return (
     <form key={isEdit ? `edit-${place?.id}` : "new"} className="grid gap-4" onSubmit={submit} autoComplete="off">
       {!place && <label className="grid gap-1 text-sm font-semibold">ID Place<input required value={form.id} onChange={(event) => update("id", event.target.value)} placeholder="nama-place" /></label>}
-      {[["name", "Nama Place"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"]].map(([key, label]) => (
+      {      [["name", "Nama Place"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"], ["coverImageUrl", "URL Gambar Sampul (https)"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
       <div className="grid gap-2">

@@ -327,7 +327,7 @@ export default function Home() {
                 Hasil
               </p>
               <h2 id="place-results-heading" className="mt-1 text-xl font-semibold">
-                {searchQuery.trim() ? `Hasil untuk “${searchQuery.trim()}”` : "Tempat di sekitar"}
+                {searchQuery.trim() ? `Hasil untuk “${searchQuery.trim()}”` : "Tempat pilihan"}
               </h2>
             </div>
             <span className="text-xs font-bold text-black/45">

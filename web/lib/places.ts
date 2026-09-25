@@ -23,6 +23,9 @@ export type Place = {
   currency: string;
   latitude: number | null;
   longitude: number | null;
+  // Optional public cover image URL (migration 0018). A URL only — never a
+  // storage credential or auth-gated object; read with the Place itself.
+  coverImageUrl: string | null;
   producer: ProducerReference | null;
   claimStatus: ClaimStatus;
   publicationStatus: PublicationStatus;
@@ -44,6 +47,7 @@ export const places: Place[] = [
     currency: "IDR",
     latitude: null,
     longitude: null,
+    coverImageUrl: null,
     producer: null,
     claimStatus: "unverified",
     publicationStatus: "published",
@@ -61,6 +65,7 @@ export const places: Place[] = [
     currency: "IDR",
     latitude: null,
     longitude: null,
+    coverImageUrl: null,
     producer: null,
     claimStatus: "unverified",
     publicationStatus: "published",
@@ -78,6 +83,7 @@ export const places: Place[] = [
     currency: "IDR",
     latitude: null,
     longitude: null,
+    coverImageUrl: null,
     producer: null,
     claimStatus: "unverified",
     publicationStatus: "published",
@@ -117,6 +123,13 @@ export function validatePlace(place: Place): void {
 
   if (place.longitude !== null && (!Number.isFinite(place.longitude) || place.longitude < -180 || place.longitude > 180)) {
     throw new Error(`Invalid longitude for Place ${place.id}`);
+  }
+
+  if (
+    place.coverImageUrl !== null &&
+    (!/^https:\/\//i.test(place.coverImageUrl) || place.coverImageUrl.length > 2048)
+  ) {
+    throw new Error(`Invalid cover image URL for Place ${place.id}`);
   }
 
   if (!isValidTimezone(place.timezone)) {

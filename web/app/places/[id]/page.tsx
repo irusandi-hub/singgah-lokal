@@ -41,29 +41,29 @@ export default async function PlaceDetailPage({
           </p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">{place.name}</h1>
           <p className="mt-2 text-sm text-black/55">{place.area}</p>
+
+          {/* Cover image hero — canonical Place data (cover_image_url,
+              migration 0018). Without a saved cover URL nothing is invented:
+              the hero simply does not render and the page keeps its current
+              identity header. */}
+          {place.coverImageUrl ? (
+            <div className="mt-6 overflow-hidden rounded-[24px] border border-black/10 bg-brand-cream shadow-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element -- external
+                  producer-supplied image URL; next/image would require host
+                  allowlisting that producers cannot configure. */}
+              <img
+                src={place.coverImageUrl}
+                alt={`Gambar sampul ${place.name}`}
+                className="h-56 w-full object-cover sm:h-72"
+                loading="lazy"
+              />
+            </div>
+          ) : null}
+
           <p className="mt-6 text-base leading-7 text-black/70">{place.shortDescription}</p>
 
           {/* Live status (additive; policy §9). Renders nothing without an active Live. */}
           <PlaceLiveStatus placeId={place.id} />
-
-          <dl className="mt-8 grid gap-4 border-t border-black/10 pt-6 sm:grid-cols-2">
-            <div>
-              <dt className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Waktu Place</dt>
-              <dd className="mt-1 text-sm font-semibold">{place.timezone}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Mata uang Place</dt>
-              <dd className="mt-1 text-sm font-semibold">{place.currency}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Status klaim</dt>
-              <dd className="mt-1 text-sm font-semibold">{place.claimStatus}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Producer</dt>
-              <dd className="mt-1 text-sm font-semibold">{place.producer?.displayName ?? "Belum ditautkan"}</dd>
-            </div>
-          </dl>
 
           <section className="mt-10 border-t border-black/10 pt-8" aria-labelledby="experiences-heading">
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Experience di Place ini</p>
