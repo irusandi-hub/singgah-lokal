@@ -14,7 +14,7 @@ const realtimeMigrationSource = readFileSync(
   "utf8",
 );
 const viewerSource = readFileSync(new URL("../app/live/[sessionId]/LiveViewerClient.tsx", import.meta.url), "utf8");
-const homeSource = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+const homeSource = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
 const homeMapSource = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
 
 test("I1: producer start uses a fresh per-attempt idempotency key, never a constant", () => {

@@ -24,7 +24,7 @@ const visitIntentForm = readFileSync(
   new URL("../app/places/[id]/experiences/[experienceId]/VisitIntentForm.tsx", import.meta.url),
   "utf8",
 );
-const homePage = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+const homePage = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
 
 function stripComments(source: string): string {
   return source

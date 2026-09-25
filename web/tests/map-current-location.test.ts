@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 const homeMap = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
-const homePage = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+const homePage = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
 const locationPicker = readFileSync(
   new URL("../components/place-location-picker.tsx", import.meta.url),
   "utf8",

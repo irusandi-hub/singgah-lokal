@@ -26,7 +26,11 @@ export async function POST(request: Request) {
     if (error) {
       return NextResponse.json({ error: "authentication_failed" }, { status: 401 });
     }
-    return NextResponse.json({ authenticated: true });
+    // Session state just flipped — the answer must never come from a cache.
+    return NextResponse.json(
+      { authenticated: true },
+      { headers: { "Cache-Control": "no-store, must-revalidate" } },
+    );
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "authentication_unavailable" }, { status: 503 });
   }

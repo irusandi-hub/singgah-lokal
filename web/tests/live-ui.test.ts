@@ -15,7 +15,7 @@ test("Home filter bar matches the locked PO set exactly: LIVE first, distance on
   assert.deepEqual(DISTANCE_FILTERS, ["500 m", "1 km", "5 km", "10 km+"]);
   // The removed filters must not be re-introduced silently.
   const uiSource = readFileSync(new URL("../lib/live/ui.ts", import.meta.url), "utf8");
-  const homeSource = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const homeSource = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(uiSource, /Di sekitar saya/);
   assert.doesNotMatch(homeSource, /Di sekitar saya/);
   // Time filters are removed from Home entirely (constant + quoted labels +

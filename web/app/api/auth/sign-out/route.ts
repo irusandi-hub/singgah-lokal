@@ -29,7 +29,11 @@ export async function POST() {
     }
     const store = await cookies();
     store.delete(CREATOR_GATE_COOKIE);
-    return NextResponse.json({ authenticated: false });
+    // Session state just flipped — the answer must never come from a cache.
+    return NextResponse.json(
+      { authenticated: false },
+      { headers: { "Cache-Control": "no-store, must-revalidate" } },
+    );
   } catch {
     return NextResponse.json({ error: "authentication_unavailable" }, { status: 503 });
   }

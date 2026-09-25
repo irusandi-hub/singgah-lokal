@@ -2,6 +2,26 @@ export type PlaceCategory = "Kopi" | "Teh" | "Kuliner";
 
 export type PlaceType = "production" | "experience";
 
+/**
+ * "Tempat Pilihan" collections (PO, 2026-09-25). Dapur, Kopi, and Teh are
+ * the curated collections of the Tempat Pilihan layer on Home — they are
+ * NOT categories of the nearby ("Tempat di sekitar") view and NOT a
+ * "lokal" grouping. Each collection label comes from the mockup and maps
+ * to the canonical Place category it collects; no new Place category is
+ * created and the canonical category values stay untouched.
+ */
+export type CuratedCollection = {
+  key: string;
+  label: string;
+  category: PlaceCategory;
+};
+
+export const CURATED_COLLECTIONS: readonly CuratedCollection[] = [
+  { key: "kuliner", label: "Dapur", category: "Kuliner" },
+  { key: "kopi", label: "Kopi", category: "Kopi" },
+  { key: "teh", label: "Teh", category: "Teh" },
+] as const;
+
 export type ClaimStatus = "unverified" | "claimed" | "verified";
 export type PublicationStatus = "draft" | "published" | "paused" | "archived";
 
