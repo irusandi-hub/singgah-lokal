@@ -50,6 +50,12 @@ export default function PlaceForm({ place, onSaved }: Props) {
       : emptyPlaceForm(),
   );
   const [message, setMessage] = useState("");
+  // Editor tabs (PO, 2026-09-26): "Detail Place" holds the existing Place
+  // fields; "Upload" holds the standard photo slots. The Upload tab needs a
+  // SAVED Place (the upload API is keyed by the Place id), so it is disabled
+  // with an explanation while a NEW entry has no id yet — and becomes active
+  // the moment the save succeeds (the parent flips new → edit).
+  const [editorTab, setEditorTab] = useState<"detail" | "upload">("detail");
 
   // MEDIA — standard photo slots (Supabase Storage upload; NO HTTP-URL
   // input). State is restored from the canonical place_photos record on
@@ -148,7 +154,47 @@ export default function PlaceForm({ place, onSaved }: Props) {
 
   return (
     <form key={isEdit ? `edit-${place?.id}` : "new"} className="grid gap-4" onSubmit={submit} autoComplete="off">
-      {!place && <label className="grid gap-1 text-sm font-semibold">ID Place<input required value={form.id} onChange={(event) => update("id", event.target.value)} placeholder="nama-place" /></label>}
+      {/* Editor tabs (PO, 2026-09-26): Detail Place = the Place fields;
+          Upload = the standard photo slots. Upload requires a SAVED Place
+          (the upload API is keyed by the Place id), so the tab stays
+          disabled — with the reason shown — until the form is saved, and
+          becomes active the moment the save succeeds. */}
+      <div className="flex gap-2 border-b border-black/10 pb-3" role="tablist" aria-label="Editor Place">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={editorTab === "detail"}
+          onClick={() => setEditorTab("detail")}
+          className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+            editorTab === "detail" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
+          }`}
+        >
+          Detail Place
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={editorTab === "upload"}
+          disabled={!place}
+          aria-disabled={!place}
+          title={place ? undefined : "Simpan Place dulu — Upload membutuhkan Place yang sudah tersimpan."}
+          onClick={() => setEditorTab("upload")}
+          className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+            editorTab === "upload" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
+          } ${place ? "" : "cursor-not-allowed opacity-50"}`}
+        >
+          Upload
+        </button>
+      </div>
+      {!place && (
+        <p className="text-xs text-black/55" role="note">
+          Tab Upload aktif setelah Place disimpan — Place baru harus tersimpan (memiliki ID) terlebih dahulu.
+        </p>
+      )}
+
+      {editorTab === "detail" && (
+        <>
+          {!place && <label className="grid gap-1 text-sm font-semibold">ID Place<input required value={form.id} onChange={(event) => update("id", event.target.value)} placeholder="nama-place" /></label>}
       {      [["name", "Nama Place"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
@@ -168,10 +214,14 @@ export default function PlaceForm({ place, onSaved }: Props) {
       </div>
       <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
       <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Experience</option></select></label>
+        </>
+      )}
 
-      {/* MEDIA — the ≥5 standard photo slots. Files go to Supabase Storage
-          through the server-side upload API; the HTTP-URL input was removed
-          as a media mechanism (server-side fail-closed validation). */}
+      {/* MEDIA — the ≥5 standard photo slots, on the Upload tab. Files go to
+          Supabase Storage through the server-side upload API; the HTTP-URL
+          input was removed as a media mechanism (server-side fail-closed
+          validation). This tab is reachable only for a SAVED Place. */}
+      {editorTab === "upload" && (
       <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Foto Place">
         <div>
           <span className="text-sm font-semibold">Foto Place ({PLACE_PHOTO_SLOTS.length} slot standar)</span>
@@ -223,12 +273,12 @@ export default function PlaceForm({ place, onSaved }: Props) {
             </div>
           );
         })}
-        {!place && (
-          <p className="text-xs text-black/55">Slot foto aktif setelah Place disimpan (simpan draft Place dulu).</p>
-        )}
       </section>
+      )}
 
-      <button className="rounded-lg bg-brand-ink px-4 py-3 text-sm font-bold text-white" type="submit">Simpan Place</button>
+      {editorTab === "detail" && (
+        <button className="rounded-lg bg-brand-ink px-4 py-3 text-sm font-bold text-white" type="submit">Simpan Place</button>
+      )}
       {message && <p className="text-sm text-black/60" role="status">{message}</p>}
     </form>
   );
@@ -306,7 +356,7 @@ function PlacePhotoInputs({ slot, busy, hasSavedMeta, disabled, onUpload }: {
   );
 }
 
-export function PlaceEditor({ id }: { id: string }) {
+export function PlaceEditor({ id, onSaved }: { id: string; onSaved?: (place: Place) => void }) {
   const [place, setPlace] = useState<Place | null>(null);
   const [error, setError] = useState("");
   useEffect(() => { fetch(`/api/producer/places/${id}`).then(async (response) => response.ok ? setPlace(await response.json()) : setError((await response.json()).error)); }, [id]);
@@ -317,5 +367,5 @@ export function PlaceEditor({ id }: { id: string }) {
     const data = await response.json();
     if (response.ok) setPlace(data); else setError(data.error ?? "Status tidak dapat diubah");
   }
-  return <><div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-black/60">Status: <strong>{place.publicationStatus}</strong><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus(place.publicationStatus === "published" ? "paused" : "published")} type="button">{place.publicationStatus === "published" ? "Pause" : "Publish"}</button><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus("archived")} type="button">Archive</button></div><PlaceForm place={place} onSaved={setPlace} /></>;
+  return <><div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-black/60">Status: <strong>{place.publicationStatus}</strong><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus(place.publicationStatus === "published" ? "paused" : "published")} type="button">{place.publicationStatus === "published" ? "Pause" : "Publish"}</button><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus("archived")} type="button">Archive</button></div><PlaceForm place={place} onSaved={(saved) => { setPlace(saved); onSaved?.(saved); }} /></>;
 }

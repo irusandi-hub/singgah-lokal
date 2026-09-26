@@ -71,11 +71,15 @@ export default async function ProducerDashboardPage() {
           <section aria-label="Place dalam kewenangan" className="mt-8">
             <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Place milikmu</h2>
             <div className="mt-3 grid gap-2">
-              {places.map((place) => (
-                <Link key={place.id} href={`/producer/places/${place.id}`} className="rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-bold hover:bg-black/[0.03]">
-                  {place.name}
-                </Link>
-              ))}
+              {/* Producer Place management is canonical at /producer/places
+                  (PO 2026-09-26): every Place opens there for edit/manage —
+                  no per-Place page as the management entry point. */}
+              <Link
+                href="/producer/places"
+                className="rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-bold hover:bg-black/[0.03]"
+              >
+                {places.length === 1 ? "Kelola 1 Place — Place saya" : `Kelola ${places.length} Place — Place saya`}
+              </Link>
             </div>
           </section>
         )}
