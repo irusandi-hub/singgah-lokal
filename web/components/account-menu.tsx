@@ -35,6 +35,9 @@ const MENU_GROUPS: MenuGroup[] = [
       { label: "Navigation" },
       { label: "App Language" },
       { label: "Video Setting" },
+      // Notification Settings — the preferences surface. This is NOT a second
+      // inbox entry point: the inbox lives behind the header bell only.
+      { label: "Notification Settings", href: "/account/notifications" },
     ],
   },
 ];
@@ -134,17 +137,29 @@ export default function AccountMenu() {
             expanded={expanded.setting === true}
             onToggle={() => toggleGroup("setting")}
           >
-            {MENU_GROUPS[1].items.map((item) => (
-              <span
-                key={item.label}
-                role="menuitem"
-                aria-disabled="true"
-                className="block cursor-default rounded-xl px-3 py-2 text-sm font-medium text-black/45"
-                title="Segera tersedia"
-              >
-                {item.label}
-              </span>
-            ))}
+            {MENU_GROUPS[1].items.map((item) =>
+              item.href ? (
+                <Link
+                  key={item.label}
+                  role="menuitem"
+                  href={item.href}
+                  className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
+                  onClick={closeMenu}
+                >
+                  {item.label}
+                </Link>
+              ) : (
+                <span
+                  key={item.label}
+                  role="menuitem"
+                  aria-disabled="true"
+                  className="block cursor-default rounded-xl px-3 py-2 text-sm font-medium text-black/45"
+                  title="Segera tersedia"
+                >
+                  {item.label}
+                </span>
+              ),
+            )}
           </MenuGroupBlock>
 
           {/* Help — no existing help surface yet; keep safe, no dead link */}

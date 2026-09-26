@@ -7,6 +7,7 @@ import { SESSION_CHANGED_EVENT } from "@/lib/session-events";
 import { isActiveNavSection } from "@/lib/navigation";
 import AccountMenu from "./account-menu";
 import BrandLogo from "./brand-logo";
+import NotificationBell from "./notification-bell";
 
 type SiteNavProps = {
   // Optional server-derived auth state. When omitted the header probes
@@ -125,7 +126,13 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
             // Single ☰ entry point after sign in: email, Kelola Akun, and
             // Sign Out no longer sit in the header itself. Header session
             // state re-probes on sign-out and bfcache restores (see above).
-            <AccountMenu />
+            // Notification bell (signed-in only, unread badge from the
+            // caller's own unread notifications) sits beside it — an additive
+            // entry point, no existing nav item moved or replaced.
+            <>
+              <NotificationBell />
+              <AccountMenu />
+            </>
           ) : (
             <>
               <Link
