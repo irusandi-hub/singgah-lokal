@@ -72,3 +72,29 @@ export function liveDurationLabel(startedAt: string, now: number = Date.now()): 
   if (minutes < 60) return `${minutes} menit`;
   return "60 menit";
 }
+
+/**
+ * Direction (PO 2026-09-26): the maps-navigation target for a Place card,
+ * built ONLY from the Place's real canonical coordinates — never a fallback
+ * point, never an edited database value. A Place without finite coordinates
+ * returns null and the card renders a safe disabled control instead
+ * (fail-closed, AGENTS.md: no invented data). Universal Google Maps
+ * directions URL: no dependency, works on Android/iOS/desktop (HP-first).
+ */
+export function buildDirectionsUrl(place: { latitude: number | null; longitude: number | null }): string | null {
+  if (place.latitude === null || place.longitude === null) return null;
+  if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) return null;
+  return `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}`;
+}
+
+/**
+ * Nested-action guard (PO 2026-09-26): the Direction and LIVE controls live
+ * INSIDE the card link (VisitedLink anchor). They must never trigger the
+ * parent card's navigation — the synthetic event is stopped before it can
+ * reach the anchor's Next Link handler. Structural event type keeps this
+ * module dependency-free and unit-testable in plain Node.
+ */
+export function stopNestedCardAction(event: { preventDefault(): void; stopPropagation(): void }): void {
+  event.preventDefault();
+  event.stopPropagation();
+}

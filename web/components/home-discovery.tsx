@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
@@ -8,10 +9,12 @@ import type { Place } from "@/lib/places";
 import { CURATED_COLLECTIONS } from "@/lib/places";
 import {
   DISTANCE_FILTERS,
+  buildDirectionsUrl,
   distanceMeters,
   formatDistance,
   liveDurationLabel,
   matchesDistance,
+  stopNestedCardAction,
   DISTANCE_FILTER_RADIUS_M,
   type DistanceFilter,
   type LiveDiscoveryItem,
@@ -56,6 +59,11 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
   // Explicit "Lokasi Saya" requests bump this nonce so the map re-centers on
   // the latest fix on demand.
   const [locateNonce, setLocateNonce] = useState(0);
+  // Which Place card currently shows the "not Live" notice (pressed state of
+  // the permanent LIVE indicator). Live state itself is never invented — the
+  // canonical liveByPlaceId feed is the only source.
+  const [nonLiveNoticePlaceId, setNonLiveNoticePlaceId] = useState<string | null>(null);
+  const router = useRouter();
 
   // LIVE discovery feed (canonical live_sessions, published Places only).
   // Performance rule (PO, 2026-09-25): the 15-second poll runs ONLY while
@@ -399,6 +407,9 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {visiblePlaces.map((place) => {
                 const live = liveByPlaceId.get(place.id);
+                // Direction target from the REAL canonical coordinates —
+                // null when the Place has none (safe disabled control).
+                const directionsUrl = buildDirectionsUrl(place);
                 const distance =
                   viewerPosition && place.latitude != null && place.longitude != null
                     ? formatDistance(
@@ -413,7 +424,7 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
                   <VisitedLink
                     key={place.id}
                     href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
-                    className="group rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
+                    className="group flex flex-col rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
                     visitedClassName={live ? "border-live/60 bg-[#fdf6f2]" : "border-brand-accent/35 bg-[#faf6ee]"}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -448,11 +459,87 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
                       {live?.processTitle ?? place.shortDescription}
                     </p>
 
-                    {distance && (
-                      <p className="mt-3 text-[11px] font-bold text-brand-accent">
-                        {distance}
-                      </p>
-                    )}
+                    {/* Card meta row (PO 2026-09-26): real distance (only
+                        when the real viewer fix exists) + Direction from the
+                        Place's canonical coordinates. No operating-hours
+                        status: the Place model has no operating-hours field
+                        yet (DATA GAP), and no hours are ever invented. */}
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      {distance && (
+                        <span className="text-[11px] font-bold text-brand-accent">{distance}</span>
+                      )}
+                      {directionsUrl ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            stopNestedCardAction(event);
+                            window.open(directionsUrl, "_blank", "noopener,noreferrer");
+                          }}
+                          className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-brand-accent/40 px-3 py-1.5 text-[11px] font-bold text-brand-accent transition hover:bg-brand-accent/10"
+                          aria-label={`Petunjuk arah ke ${place.name} di aplikasi peta`}
+                        >
+                          <span aria-hidden>➤</span> Direction
+                        </button>
+                      ) : (
+                        // Fail-closed: no canonical coordinates → no
+                        // navigation target is ever invented.
+                        <span
+                          aria-disabled="true"
+                          title="Koordinat Place belum tersedia"
+                          className="ml-auto inline-flex shrink-0 cursor-not-allowed items-center gap-1 rounded-full border border-black/10 px-3 py-1.5 text-[11px] font-bold text-black/35"
+                        >
+                          <span aria-hidden>➤</span> Direction
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Permanent Live identity (PO 2026-09-26): every Place
+                        card carries its own LIVE affordance in BOTH states.
+                        With an active session it opens the existing
+                        /live/[sessionId] flow; without one it shows the
+                        honest not-live status when pressed. Live state is
+                        never invented — liveByPlaceId (canonical
+                        live_sessions feed) is the only source. */}
+                    <div className="mt-2">
+                      {live ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            stopNestedCardAction(event);
+                            router.push(`/live/${live.sessionId}`);
+                          }}
+                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-live px-3 py-2 text-[11px] font-bold text-white transition hover:opacity-90"
+                          aria-label={`Buka Live di ${place.name}`}
+                        >
+                          <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                          LIVE — Lihat proses sekarang
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            aria-pressed={nonLiveNoticePlaceId === place.id}
+                            onClick={(event) => {
+                              stopNestedCardAction(event);
+                              setNonLiveNoticePlaceId((current) => (current === place.id ? null : place.id));
+                            }}
+                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-live/40 bg-white px-3 py-2 text-[11px] font-bold text-live transition hover:bg-live/10"
+                            aria-label={`Status Live ${place.name}`}
+                          >
+                            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-live/60" />
+                            LIVE — Belum berlangsung
+                          </button>
+                          {nonLiveNoticePlaceId === place.id && (
+                            <p
+                              role="status"
+                              className="mt-1.5 rounded-lg bg-live/10 px-3 py-1.5 text-[11px] font-semibold text-live"
+                            >
+                              {place.name} sedang tidak Live. Place ini dapat memulai Live kapan saja.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </VisitedLink>
                 );
               })}
