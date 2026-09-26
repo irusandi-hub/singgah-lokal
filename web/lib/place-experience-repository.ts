@@ -198,14 +198,51 @@ export class SupabasePlaceManagementRepository {
     return data ? mapPlace({ ...data, producer_display_name: data.producers?.display_name }) : undefined;
   }
 
-  async create(input: PlaceMutation, producerId: string): Promise<Place> {
-    const { data, error } = await this.client.from("places").insert({
+  async create(input: PlaceMutation, producerId: string, creatorUserId?: string): Promise<Place> {
+    // The RLS insert check stays on the caller's client: only a session whose
+    // user holds an owner membership for `producerId` may create a Place.
+    const { error: insertError } = await this.client.from("places").insert({
       id: input.id, name: input.name, short_description: input.shortDescription, category: input.category,
       type: input.type, area: input.area, address: input.address, contact_information: input.contactInformation,
       timezone: input.timezone, currency: input.currency, latitude: input.latitude, longitude: input.longitude,
       cover_image_url: input.coverImageUrl,
       producer_id: producerId, publication_status: "draft",
-    }).select("*, producers(display_name)").single();
+    });
+    if (insertError) throw insertError;
+
+    // PO fix (browser verification, 2026-09-26): the SELECT/UPDATE policies
+    // key on producer_memberships (place_id) and memberships carry NO client
+    // insert policy, so a freshly created Place was invisible to its own
+    // creator — the read-back (new → edit), the roster, and Upload all failed
+    // for a NEW Place. Grant the creator the owner membership for the Place
+    // they just created (the canonical ownership rule) via the service
+    // client, then read the row back server-side. Idempotent on re-submit.
+    if (creatorUserId) {
+      // Lazy import: the service client is server-only and only needed on
+      // this creator path (keeps the module loadable in the test harness).
+      const { createSupabaseServiceClient } = await import("@/lib/supabase/admin");
+      const admin = createSupabaseServiceClient();
+      const { error: membershipError } = await admin.from("producer_memberships").upsert(
+        { user_id: creatorUserId, producer_id: producerId, place_id: input.id, role: "owner" },
+        { onConflict: "user_id,place_id" },
+      );
+      if (membershipError) {
+        // No partial state: the place row is removed again when the creator
+        // cannot receive ownership (e.g. the one-membership-per-user rule,
+        // migration 0020) — a half-created Place must never linger.
+        await admin.from("places").delete().eq("id", input.id);
+        throw membershipError;
+      }
+      const { data: savedRow, error: readError } = await admin
+        .from("places")
+        .select("*, producers(display_name)")
+        .eq("id", input.id)
+        .single();
+      if (readError) throw readError;
+      return mapPlace({ ...savedRow, producer_display_name: savedRow.producers?.display_name });
+    }
+
+    const { data, error } = await this.client.from("places").select("*, producers(display_name)").eq("id", input.id).single();
     if (error) throw error;
     return mapPlace({ ...data, producer_display_name: data.producers?.display_name });
   }

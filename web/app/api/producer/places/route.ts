@@ -31,7 +31,7 @@ export async function POST(request: Request) {
         throw new PlaceInputError("place_id_taken");
       }
     }
-    return NextResponse.json(await repository.create(mutation, actor.producerId as string), { status: 201 });
+    return NextResponse.json(await repository.create(mutation, actor.producerId as string, actor.userId), { status: 201 });
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) return NextResponse.json({ error: "authentication_required" }, { status: 401 });
     if (error instanceof ProducerAuthorizationRequiredError) return NextResponse.json({ error: "producer_authorization_required" }, { status: 403 });
