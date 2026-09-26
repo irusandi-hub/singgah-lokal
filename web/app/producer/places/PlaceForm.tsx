@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import type { Place } from "@/lib/places";
-import { PLACE_MEDIA_ACCEPTED_TYPES, PLACE_MEDIA_MAX_BYTES, PLACE_PHOTO_SLOTS } from "@/lib/place-media";
+import {
+  PLACE_MEDIA_ACCEPTED_TYPES,
+  PLACE_MEDIA_MAX_BYTES,
+  PLACE_PHOTO_SLOTS,
+  PlaceMediaError,
+  validatePlaceMediaFile,
+} from "@/lib/place-media";
 import PlaceLocationPicker from "@/components/place-location-picker";
 import ExperiencesPanel from "./[placeId]/experiences/ExperiencesPanel";
 
@@ -340,10 +346,21 @@ function PlacePhotoInputs({ slot, busy, hasSavedMeta, disabled, onUpload }: {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [pickerError, setPickerError] = useState("");
 
+  // The same locked limits run SERVER-SIDE on every write (lib/place-media);
+  // mirroring them at pick-time gives instant feedback instead of failing
+  // only after a network round-trip. The server remains the authority.
   const onFileChange = (candidate: File | null) => {
     if (!candidate) return;
-    setFile(candidate);
+    try {
+      validatePlaceMediaFile({ type: candidate.type, size: candidate.size });
+      setPickerError("");
+      setFile(candidate);
+    } catch (error) {
+      setFile(null);
+      setPickerError(mediaErrorLabel(error instanceof PlaceMediaError ? error.code : "place_media_upload_failed"));
+    }
   };
 
   return (
@@ -364,6 +381,11 @@ function PlacePhotoInputs({ slot, busy, hasSavedMeta, disabled, onUpload }: {
           onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
         />
       </label>
+      {pickerError && (
+        <p className="text-xs font-semibold text-red-700" role="alert">
+          {pickerError}
+        </p>
+      )}
       <div className="flex gap-2">
         <button
           type="button"

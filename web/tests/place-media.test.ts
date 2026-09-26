@@ -130,6 +130,18 @@ test("Server-side validation limits match the locked media contract", () => {
   assert.match(code, /place_photo_description_invalid/);
 });
 
+test("File picker pre-validates type/size client-side using the same locked limits", () => {
+  const code = stripComments(placeForm);
+  // The picker calls the SHARED contract validator (never a divergent copy)...
+  assert.match(code, /validatePlaceMediaFile\(\{ type: candidate\.type, size: candidate\.size \}\)/);
+  // ...rejects an invalid pick with the SAME error labels as the server...
+  assert.match(code, /mediaErrorLabel\(error instanceof PlaceMediaError \? error\.code/);
+  // ...never keeps an invalid file as the pending selection...
+  assert.match(code, /setFile\(null\);\n\s+setPickerError\(/);
+  // ...and surfaces the rejection as an accessible alert next to the picker.
+  assert.match(code, /pickerError && \(\n\s+<p className="text-xs font-semibold text-red-700" role="alert">/);
+});
+
 test("Reload restores every slot from the canonical record", () => {
   const formCode = stripComments(placeForm);
   // The form fetches the saved slots on mount...
