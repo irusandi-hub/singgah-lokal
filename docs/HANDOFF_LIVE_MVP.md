@@ -11,10 +11,14 @@ Selalu audit `main` + Supabase DEV sebelum perubahan baru.
 
 ## 2. CURRENT MAIN
 Latest verified commit:
-`345619974d96b0e0c04ab18f4d5af2ab55fc6568`
-`Align Live regression harness with end idempotency`
+`aa6cc74022ffc75987cbb82d29323f510616e358`
+`Guard the 100-concurrent Live viewer cap against admission races`
 
-Vercel status: success.
+NOTE: repository history was squashed into a single root commit (the commit
+above); earlier SHAs such as `34561997...` are no longer reachable. Audit
+always re-reads current `main`, never assumes prior SHAs.
+
+Verified 2026-09-26: web test suite 411/411 pass.
 
 ## 3. LIVE IMPLEMENTATION STATUS
 
@@ -38,6 +42,7 @@ Vercel status: success.
 - Realtime viewer admission gate
 - Realtime status broadcast from DB
 - Realtime end broadcast non-blocking
+- Viewer-cap admission race guard (100-concurrent)
 - Home map marker escaping
 - DB regression harness
 - Vercel build/deployment verification
@@ -78,7 +83,7 @@ Current Live RPC contract includes:
 `end_live_session(text,text,text,text)`
 
 Migration through:
-`0012_live_end_idempotency.sql`
+`0027_live_viewer_cap_race_guard.sql`
 
 ## 6. OPERATIONAL BLOCKERS
 These are intentionally not solved by changing application policy:
@@ -126,8 +131,9 @@ Verify:
 3. Comment rate limiting
 4. Realtime publish failure handling
 5. Viewer-cap semantics
-6. Home filter bar matches Master exactly:
-   `LIVE | 500 m | 1 km | 5 km | 10 km+`
+6. Home filter bar matches the current locked set exactly
+   (PO 2026-09-26 removed the 500 m radius — see `lib/live/ui.ts`):
+   `LIVE | 1 km | 5 km | 10 km+`
 7. No stale `Di sekitar saya`
 8. No stale time filters
 9. No TODO/FIXME or duplicate implementation
