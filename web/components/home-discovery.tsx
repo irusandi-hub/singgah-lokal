@@ -6,7 +6,6 @@ import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
-import { CURATED_COLLECTIONS } from "@/lib/places";
 import {
   DISTANCE_FILTERS,
   buildDirectionsUrl,
@@ -36,15 +35,13 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
   // "Tempat Pilihan" beside it, then the distance tabs. Default = "1 km":
   // the smallest remaining bounded radius anchors on the real Current
   // Location (PO: Current Location is the map center; no invented viewport).
-  // Dapur, Kopi, and Teh are the curated collections inside "Tempat
-  // Pilihan" (mapped to canonical Place categories — NOT nearby-view
-  // categories, NOT a "lokal" grouping). It does NOT replace "Tempat di
-  // sekitar", which still appears whenever a bounded radius is active.
+  // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26): it
+  // carries NO category tabs/chips — Place categories (Kopi/Teh/Kuliner)
+  // stay internal data, never a Home filter UI. It does NOT replace
+  // "Tempat di sekitar", which still appears whenever a bounded radius is
+  // active.
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("1 km");
   const [curatedOnly, setCuratedOnly] = useState(false);
-  // Active curated collection (key of CURATED_COLLECTIONS); null resolves to
-  // the first collection when the layer is opened.
-  const [curatedCollectionKey, setCuratedCollectionKey] = useState<string | null>(null);
   const [liveOnly, setLiveOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
@@ -112,12 +109,6 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
     return map;
   }, [liveItems]);
 
-  // Active curated collection (null when the radius/live layer is active).
-  const activeCollection = curatedOnly
-    ? CURATED_COLLECTIONS.find((collection) => collection.key === curatedCollectionKey) ??
-      CURATED_COLLECTIONS[0]
-    : null;
-
   const visiblePlaces = useMemo(() => {
     // Distance filter first (same gate for markers, Place list, and LIVE).
     // Bounded radii match only on viewerPosition + canonical Place lat/lng
@@ -154,16 +145,17 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
     );
     // LIVE filter second: a process/status filter — only Places with an
     // active session, further narrowed by the same distance gate above.
-    // "Tempat Pilihan" (curated layer, PO request 2026-09-25) shows the
-    // active collection's Places — the unbounded set, independent of the
-    // radius; the canonical Place category drives membership.
-    if (curatedOnly && activeCollection) {
-      return searchFiltered.filter((place) => place.category === activeCollection.category);
+    // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
+    // it shows ALL published Places, independent of the radius. There is
+    // no category selection inside it — the canonical Place category
+    // never filters the curated layer.
+    if (curatedOnly) {
+      return searchFiltered;
     }
     let result = distanceFiltered;
     if (liveOnly) result = result.filter((place) => liveByPlaceId.has(place.id));
     return result;
-  }, [places, searchQuery, distanceFilter, liveOnly, curatedOnly, activeCollection, liveByPlaceId, viewerPosition]);
+  }, [places, searchQuery, distanceFilter, liveOnly, curatedOnly, liveByPlaceId, viewerPosition]);
 
   const liveCards = useMemo(() => {
     if (liveItems.length === 0) return [];
@@ -210,8 +202,8 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
             share the row via grid columns — no wrap, no second row, no
             horizontal overflow at 360 px. Compact text [11px]/padding/gap
             keeps everything visible on the smallest supported viewport;
-            labels keep the master copy. Dapur/Kopi/Teh stay INSIDE the
-            Tempat Pilihan layer (secondary row), never as primary tabs. */}
+            labels keep the master copy. "Tempat Pilihan" opens ONE curated
+            discovery layer with no category tabs/chips. */}
         <div className="mb-5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5 pb-1">
           <button
             onClick={() => setLiveOnly((value) => !value)}
@@ -257,31 +249,9 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
           ))}
         </div>
 
-        {/* Curated collections — visible ONLY inside the Tempat Pilihan
-            layer. Dapur/Kopi/Teh are the collections from the mockup, mapped
-            to canonical Place categories; the radius/LIVE bar stays untouched. */}
-        {curatedOnly && (
-          <div className="mb-5 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Koleksi Tempat Pilihan">
-            {CURATED_COLLECTIONS.map((collection) => {
-              const active = activeCollection?.key === collection.key;
-              return (
-                <button
-                  key={collection.key}
-                  onClick={() => setCuratedCollectionKey(collection.key)}
-                  role="tab"
-                  aria-selected={active}
-                  className={`whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-bold transition ${
-                    active
-                      ? "bg-brand-accent text-white"
-                      : "border border-black/10 bg-white text-black/65"
-                  }`}
-                >
-                  {collection.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/* "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
+            no category chips and no secondary category row — Place
+            categories stay internal data, never a Home filter UI. */}
 
         {/* LIVE filter empty state — a clear notice instead of an empty
             screen. Based only on canonical discovery data; no fake Live. */}
@@ -397,7 +367,7 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
                 {searchQuery.trim()
                   ? `Hasil untuk “${searchQuery.trim()}”`
                   : curatedOnly
-                    ? activeCollection?.label ?? "Tempat Pilihan"
+                    ? "Tempat Pilihan"
                     : "Tempat di sekitar"}
               </h2>
             </div>

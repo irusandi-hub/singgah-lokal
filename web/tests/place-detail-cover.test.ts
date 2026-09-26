@@ -27,30 +27,27 @@ function stripComments(source: string): string {
 
 // --- B: Place list heading ---
 
-test("Tempat Pilihan is the dedicated curated layer with Dapur/Kopi/Teh collections; Tempat di sekitar is radius-gated only", () => {
+test("Tempat Pilihan is ONE curated discovery layer with no category filter UI", () => {
   assert.match(homePage, /Tempat Pilihan/);
-  // "Tempat Pilihan" is a separate tab beside the distance group (PO request
-  // 2026-09-25): it toggles the curated state and never reuses the distance
-  // filter state. Dapur/Kopi/Teh are the collections INSIDE the layer —
-  // mapped to the canonical Place categories (no new category, no "lokal"
-  // grouping, no nearby-view category).
+  // PO 2026-09-26: "Tempat Pilihan" carries NO category tabs/chips —
+  // Dapur/Kopi/Teh are canonical Place categories (internal data), never a
+  // Home filter UI. The layer is a single unbounded discovery set.
   const code = stripComments(homePage);
   assert.match(code, /curatedOnly/);
   assert.match(code, /setCuratedOnly\(true\)/);
-  assert.match(code, /CURATED_COLLECTIONS\.map/);
-  assert.match(code, /activeCollection\?\.label/);
-  // Collection membership is decided by the canonical Place category.
-  assert.match(code, /place\.category === activeCollection\.category/);
+  // No category selection anywhere on Home: no collections import, no
+  // chips row, no category-equality branch in the discovery pipeline.
+  assert.equal(code.includes("CURATED_COLLECTIONS"), false);
+  assert.equal(code.includes("Koleksi Tempat Pilihan"), false);
+  assert.equal(code.includes("Dapur"), false);
+  assert.equal(code.includes(">Kopi<"), false);
+  assert.equal(code.includes(">Teh<"), false);
+  assert.equal(/place\.category ===/.test(code), false);
   // The proximity label exists but ONLY under an active bounded radius —
   // the curated layer and the radius tabs are mutually exclusive states.
   assert.match(code, /Tempat di sekitar/);
-  // A Place is never statically labeled "Tempat di sekitar" outside the
-  // curated-state-gated expression (heading ternary keyed on curatedOnly);
-  // the section heading is the single occurrence that may render it.
   const occurrences = code.split("Tempat di sekitar").length - 1;
-  const conditional = (
-    code.match(/curatedOnly\s*\?\s*(?:\n?\s*)?activeCollection\?\.label \?\? "Tempat Pilihan"\s*:\s*"Tempat di sekitar"/g) ?? []
-  ).length;
+  const conditional = (code.match(/curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Tempat di sekitar"/g) ?? []).length;
   assert.ok(
     occurrences === 1 && conditional === 1,
     `expected the heading to be the single curated-state-gated occurrence (got ${occurrences} occurrences, ${conditional} gated)`,
@@ -59,8 +56,8 @@ test("Tempat Pilihan is the dedicated curated layer with Dapur/Kopi/Teh collecti
   // Live-now cards are not part of the curated layer.
   assert.match(code, /curatedOnly \? null : DISTANCE_FILTER_RADIUS_M\[distanceFilter\]/);
   assert.match(code, /!curatedOnly && liveCards\.length > 0/);
-  // Collections come from the canonical model: the mockup labels map onto
-  // the EXISTING Place categories — none is added, renamed, or removed.
+  // Collections remain canonical internal Place data (lib/places.ts) —
+  // removed from the UI, not from the model.
   const modelCode = stripComments(placesModel);
   assert.match(modelCode, /\{ key: "kuliner", label: "Dapur", category: "Kuliner" \}/);
   assert.match(modelCode, /\{ key: "kopi", label: "Kopi", category: "Kopi" \}/);
@@ -149,12 +146,9 @@ test("Home filter bar is a single row: LIVE leftmost, Tempat Pilihan beside it, 
   assert.ok(liveBtn >= 0 && curatedBtn > liveBtn && distanceBtn > curatedBtn, "LIVE | Tempat Pilihan | distance tabs, in order");
   // The filter bar never horizontally scrolls (the old overflow strip).
   assert.equal(/className="mb-5 flex gap-2 overflow-x-auto"/.test(code.slice(0, filterBar)), false);
-  // The only remaining scroll container is the curated-chips row INSIDE the
-  // Tempat Pilihan layer — Dapur/Kopi/Teh never become primary tabs.
-  const chipsIdx = code.indexOf('aria-label="Koleksi Tempat Pilihan"');
-  assert.ok(chipsIdx > filterBar, "collection chips render only inside the Tempat Pilihan layer");
-  const barSlice = code.slice(filterBar, chipsIdx);
-  assert.ok(!barSlice.includes("CURATED_COLLECTIONS"), "no collection is a primary tab");
+  // The curated-chips row was REMOVED (PO 2026-09-26): "Tempat Pilihan"
+  // opens ONE layer with no secondary category row at all.
+  assert.equal(code.includes('aria-label="Koleksi Tempat Pilihan"'), false, "no collection chips anywhere on Home");
   // No Kategori tab/filter exists on Home (categories stay internal data).
   assert.equal(code.includes(">Kategori</button>"), false);
 });

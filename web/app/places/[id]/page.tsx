@@ -5,6 +5,7 @@ import MarkVisited from "@/components/mark-visited";
 import VisitedLink from "@/components/visited-link";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
+import { buildDirectionsUrl } from "@/lib/live/ui";
 import { PlaceLiveStatus } from "./PlaceLiveStatus";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +63,37 @@ export default async function PlaceDetailPage({
 
           <p className="mt-6 text-base leading-7 text-black/70">{place.shortDescription}</p>
 
-          {/* Live status (additive; policy §9). Renders nothing without an active Live. */}
+          {/* Direction — a permanent Place attribute (PO 2026-09-26). The
+              navigation target comes ONLY from the canonical Place
+              coordinates through the shared buildDirectionsUrl helper; with
+              no coordinates the attribute stays visible but disabled and no
+              URL is ever invented. No operating-hours status renders: the
+              canonical Place model has no operating-hours field (DATA GAP). */}
+          <section className="mt-6" aria-label="Aksi Place">
+            {buildDirectionsUrl(place) ? (
+              <a
+                className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white"
+                href={buildDirectionsUrl(place) as string}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Petunjuk arah ke ${place.name} di aplikasi peta`}
+              >
+                <span aria-hidden>➤</span> Direction
+              </a>
+            ) : (
+              <span
+                aria-disabled="true"
+                title="Koordinat Place belum tersedia"
+                className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full border border-black/10 bg-white px-5 py-2.5 text-sm font-bold text-black/35"
+              >
+                <span aria-hidden>➤</span> Direction
+              </span>
+            )}
+          </section>
+
+          {/* Live status — a PERMANENT Place attribute (policy §9, PO
+              2026-09-26): visible in both states; the not-live state expands
+              to the honest "Place ini sedang tidak Live." status. */}
           <PlaceLiveStatus placeId={place.id} />
 
           <section className="mt-10 border-t border-black/10 pt-8" aria-labelledby="experiences-heading">
