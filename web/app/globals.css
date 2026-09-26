@@ -44,3 +44,24 @@ body {
      font-brand/weight classes, body Regular. */
   font-family: var(--font-poppins), Arial, Helvetica, sans-serif;
 }
+
+/* Map overlay color treatment (PO 2026-09-26, colors ONLY): the Leaflet
+   zoom control's translucent-white chrome washed out on busy/light tiles.
+   Brand-green fill + white glyph + heavier elevation keeps it readable;
+   geometry, z-index, stacking context, and Leaflet configuration are
+   untouched (architecture locked by tests/map-stacking.test.ts). */
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  background-color: var(--brand-primary);
+  color: #fff;
+  border-color: var(--brand-ink);
+}
+
+.leaflet-bar a:hover {
+  background-color: var(--brand-primary-deep);
+}
+
+.leaflet-bar {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+  border: 1px solid var(--brand-ink);
+}

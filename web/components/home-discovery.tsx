@@ -363,7 +363,7 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
               (tile 200, map pane 400, tooltip 650, control 1000) in any
               drag/zoom state — the visual fix for the mobile drag bug. */}
           {mapPlaces.length === 0 && (
-            <div className="absolute inset-x-6 top-1/2 z-[1100] -translate-y-1/2 rounded-2xl bg-white/95 p-4 text-center shadow-md">
+            <div className="absolute inset-x-6 top-1/2 z-[1100] -translate-y-1/2 rounded-2xl bg-white/95 p-4 text-center shadow-lg ring-1 ring-brand-ink/10">
               <p className="text-sm font-bold">Belum ada Place dengan koordinat di peta</p>
               <p className="mt-1 text-xs text-black/55">
                 Peta hanya menampilkan Place dengan koordinat resmi. Place lain tetap ada di daftar.
@@ -371,8 +371,11 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
             </div>
           )}
 
-          {/* Radius/status badge — OVERLAY_LADDER above the Leaflet ceiling. */}
-          <div className="absolute left-5 top-5 z-[1100] rounded-full bg-white/90 px-4 py-2 text-xs font-bold shadow-sm">
+          {/* Radius/status badge — OVERLAY_LADDER above the Leaflet ceiling.
+              Color treatment (PO 2026-09-26): deep brand green fill keeps
+              the badge readable on light/busy tiles; the accent ring
+              reiterates the brand hierarchy without moving anything. */}
+          <div className="absolute left-5 top-5 z-[1100] rounded-full bg-brand-primary px-4 py-2 text-xs font-bold text-white shadow-lg ring-2 ring-brand-accent/70">
             {liveOnly ? "LIVE • " : ""}
             {curatedOnly ? "Tempat Pilihan" : distanceFilter}
           </div>
