@@ -59,26 +59,18 @@ export default function ProducerPlacesPage() {
     <main className="min-h-screen bg-brand-cream px-5 py-8 text-brand-ink sm:px-8">
       <div className="mx-auto max-w-3xl">
         <ProducerSubNav active="/producer/places" />
-        <header className="mt-6 flex items-start justify-between gap-4 border-b border-black/10 pb-5">
+        <header className="mt-6 border-b border-black/10 pb-5">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Producer App</p>
             <h1 className="mt-2 text-3xl font-semibold">
               {view.name === "new" ? "Tambah Place" : view.name === "edit" ? "Edit Place" : "Place saya"}
             </h1>
           </div>
-          {view.name === "list" ? (
-            <button
-              type="button"
-              onClick={() => setView({ name: "new" })}
-              className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white"
-            >
-              + Tambah Place
-            </button>
-          ) : (
+          {view.name !== "list" && (
             <button
               type="button"
               onClick={() => setView({ name: "list" })}
-              className="rounded-lg border border-black/15 px-4 py-2 text-sm font-bold"
+              className="mt-4 rounded-lg border border-black/15 px-4 py-2 text-sm font-bold"
             >
               Kembali ke daftar
             </button>
@@ -104,8 +96,18 @@ export default function ProducerPlacesPage() {
               </button>
             ))}
             {places.length === 0 && (
-              <p className="text-sm text-black/60">Belum ada Place yang dapat dikelola. Gunakan + Tambah Place untuk memulai.</p>
+              <p className="text-sm text-black/60">Belum ada Place yang dapat dikelola.</p>
             )}
+            {/* "+ Tambah Place" sits BELOW the roster/empty state as an
+                in-page action (PO, 2026-09-26) — never in the header and never
+                a second route; pressing it swaps this page to the add form. */}
+            <button
+              type="button"
+              onClick={() => setView({ name: "new" })}
+              className="justify-self-start rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white"
+            >
+              + Tambah Place
+            </button>
           </div>
         ) : view.name === "new" ? (
           <section className="mt-6 rounded-xl border border-black/10 bg-white p-5">

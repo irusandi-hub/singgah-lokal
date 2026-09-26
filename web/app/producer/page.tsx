@@ -45,11 +45,10 @@ export default async function ProducerDashboardPage() {
           </p>
         </header>
 
+        {/* Place management has ONE canonical entry: the sub-nav "Places"
+            link to /producer/places (PO, 2026-09-26). The dashboard must not
+            duplicate it with a second Place card/roster entry point. */}
         <section aria-label="Area Producer" className="mt-8 grid gap-3 sm:grid-cols-2">
-          <Link href="/producer/places" className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
-            <h2 className="text-lg font-semibold">Places</h2>
-            <p className="mt-1 text-sm text-black/60">Daftar Place, pengelolaan Place dan Experience.</p>
-          </Link>
           <Link href="/producer/visit-intents" className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
             <h2 className="text-lg font-semibold">Visit Intent Inbox</h2>
             <p className="mt-1 text-sm text-black/60">Niat berkunjung masuk dan respons Producer.</p>
@@ -65,23 +64,6 @@ export default async function ProducerDashboardPage() {
             Belum ada Place dalam kewenanganmu. Ikuti proses verifikasi untuk menjadi Producer —
             lihat <Link href="/producer/onboarding" className="font-bold text-brand-accent underline underline-offset-2">Ajukan menjadi Producer</Link>.
           </p>
-        )}
-
-        {places.length > 0 && (
-          <section aria-label="Place dalam kewenangan" className="mt-8">
-            <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Place milikmu</h2>
-            <div className="mt-3 grid gap-2">
-              {/* Producer Place management is canonical at /producer/places
-                  (PO 2026-09-26): every Place opens there for edit/manage —
-                  no per-Place page as the management entry point. */}
-              <Link
-                href="/producer/places"
-                className="rounded-xl border border-black/10 bg-white px-4 py-3 text-sm font-bold hover:bg-black/[0.03]"
-              >
-                {places.length === 1 ? "Kelola 1 Place — Place saya" : `Kelola ${places.length} Place — Place saya`}
-              </Link>
-            </div>
-          </section>
         )}
       </div>
     </main>

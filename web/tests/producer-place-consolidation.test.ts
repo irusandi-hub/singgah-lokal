@@ -8,8 +8,9 @@ import { readFileSync } from "node:fs";
  * One canonical Producer Place page (/producer/places) owns the whole
  * Place-management surface:
  * - the roster ("Place saya") with an explicit empty state;
- * - the "+ Tambah Place" action opening the add form IN PLACE (view "new")
- *   — no standalone new-Place route as a second UI;
+ * - the "+ Tambah Place" action sitting BELOW the roster/empty state as an
+ *   IN-PLACE action (view "new") — never in the header, never a second UI route;
+ *   (was: header action — corrected per PO, 2026-09-26)
  * - per-Place edit/manage reusing the SAME PlaceForm (view "edit"), loaded
  *   from the canonical GET endpoint;
  * - an explicit list/new/edit view state: a fresh load is always "list"
@@ -19,7 +20,9 @@ import { readFileSync } from "node:fs";
  * - the old per-Place edit page stays reachable (backward compatibility)
  *   and renders the SAME canonical editor — no duplicated logic.
  * The old standalone /producer/places/new route hands off (redirect) to the
- * canonical page.
+ * canonical page. The Producer dashboard (/producer) holds NO Place entry
+ * point of its own: the sub-nav "Places" link is the single canonical entry
+ * (dashboard duplicates removed per PO, 2026-09-26).
  */
 
 const placesPage = readFileSync(new URL("../app/producer/places/page.tsx", import.meta.url), "utf8");
@@ -38,6 +41,12 @@ function stripComments(source: string): string {
 
 const pageCode = stripComments(placesPage);
 const formCode = stripComments(placeForm);
+// The dashboard is a server component (no JSX block comments) — strip "//"
+// lines only, keeping assertions free of comment-literal false matches.
+const dashboardCode = producerDashboard
+  .split("\n")
+  .map((line) => line.replace(/\/\/.*$/, ""))
+  .join("\n");
 
 test("One canonical Producer Places page: roster, in-place add, and edit on the same route", () => {
   // Part 1–4 of the target structure, all in the canonical page.
@@ -49,6 +58,28 @@ test("One canonical Producer Places page: roster, in-place add, and edit on the 
   // The add form renders on the same page via the shared PlaceForm (NEW
   // branch) — no parallel form anywhere.
   assert.match(pageCode, /<PlaceForm onSaved=\{handleSaved\} \/>/);
+});
+
+test("Tambah Place action sits BELOW the roster, not in the header", () => {
+  // The header keeps title + "Kembali ke daftar" (new/edit only) and must
+  // NOT hold the add action — a second entry point in the header is forbidden.
+  const headerStart = pageCode.indexOf("<header");
+  const headerEnd = pageCode.indexOf("</header>");
+  assert.ok(headerStart > -1 && headerEnd > headerStart);
+  const header = pageCode.slice(headerStart, headerEnd);
+  assert.equal(header.includes("+ Tambah Place"), false, "Tambah Place action must not be in the header");
+  assert.equal(header.includes("setView({ name: \"new\" })"), false, "header must not trigger the add view");
+  // The action renders after the roster (or its empty state) and stays
+  // in-page (setView to "new"), never a link/route.
+  const buttonIdx = pageCode.indexOf("+ Tambah Place");
+  assert.ok(buttonIdx > -1);
+  const listIdx = pageCode.indexOf("places.map");
+  const emptyIdx = pageCode.indexOf("Belum ada Place yang dapat dikelola");
+  assert.ok(listIdx > -1 && emptyIdx > -1);
+  assert.ok(buttonIdx > listIdx && buttonIdx > emptyIdx, "Tambah Place action must come after the roster/empty state");
+  const aroundButton = pageCode.slice(Math.max(0, buttonIdx - 400), buttonIdx);
+  assert.match(aroundButton, /onClick=\{\(\) => setView\(\{ name: "new" \}\)\}/);
+  assert.equal(aroundButton.includes("href="), false, "Tambah Place action must be a button, not a link to a second route");
 });
 
 test("The view is an explicit list/new/edit state machine", () => {
@@ -102,10 +133,24 @@ test("The old per-Place edit route stays reachable and renders the same editor",
   assert.equal(editPage.includes("function PlaceEditor"), false);
 });
 
-test("The dashboard entry keeps existing correct information and links the canonical page", () => {
-  // Existing nav + roster surface intact, pointing at /producer/places.
-  assert.match(producerDashboard, /href="\/producer\/places"/);
-  assert.match(producerDashboard, /Place milikmu/);
+test("The dashboard holds NO Place entry point — the sub-nav is the single canonical entry", () => {
+  // FAIL if /producer still duplicates Place access: no Places card linking
+  // /producer/places, no "Place milikmu" roster link (Kelola N Place).
+  assert.equal(dashboardCode.includes('href="/producer/places"'), false, "dashboard must not link /producer/places directly");
+  assert.equal(dashboardCode.includes("Place milikmu"), false, "dashboard must not keep the 'Place milikmu' roster");
+  assert.equal(dashboardCode.includes("Kelola 1 Place"), false, "dashboard must not keep the 'Kelola N Place' link");
+  assert.equal(dashboardCode.includes("Place saya"), false, "dashboard must not keep the roster-link label 'Place saya'");
+  // The surfaces the PO ordered to keep stay intact...
+  assert.match(dashboardCode, /Visit Intent Inbox/);
+  assert.match(dashboardCode, /href="\/producer\/visit-intents"/);
+  assert.match(dashboardCode, /href="\/producer\/live"/);
+  // ...and the sub-nav remains mounted — its "Places" link is THE one
+  // canonical entry to Place management.
+  assert.match(dashboardCode, /<ProducerSubNav active="\/producer" \/>/);
+  // The onboarding empty state keeps its onboarding-only link (never a
+  // Place-management path).
+  assert.match(dashboardCode, /href="\/producer\/onboarding"/);
+  assert.match(dashboardCode, /Belum ada Place dalam kewenanganmu/);
 });
 
 test("Place list data comes from the canonical Producer API", () => {
