@@ -4,15 +4,19 @@ import { readFileSync, readdirSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 
 /**
- * 1 AKUN = 1 PLACE regression (PO request, 2026-09-25).
+ * 1 PRODUCER = N PLACE regression (PO decision, 2026-09-26).
  *
- * A single account may hold at most ONE producer_membership row. Migration
- * 0020 enforces this at the DATABASE level (unique index on user_id) so no
- * application path can bypass it. The harness executes the migration chain
- * on a real Postgres engine (PGlite):
- * - a second membership for a DIFFERENT Place on the same user_id is
- *   rejected by the unique index;
- * - the migration is idempotent (safe to re-run);
+ * A single account may hold producer_memberships for MULTIPLE Places.
+ * Migration 0020 (one-membership-per-user, PO request 2026-09-25) stays in
+ * the migration history untouched; migration 0022 retires its unique index.
+ * The foundation PK (user_id, place_id) from 0001 remains the only
+ * membership constraint: no duplicate (user, place) pairs, but N Places per
+ * account. The harness executes the migration chain on a real Postgres
+ * engine (PGlite):
+ * - 0022 drops the 0020 index and is idempotent (safe to re-run);
+ * - multiple memberships for the same user_id across DIFFERENT Places are
+ *   accepted — the new rule;
+ * - a duplicate (user_id, place_id) pair is still rejected by the PK;
  * - no migration re-seeds Producer data (DEV producers=0 by PO decision —
  *   Bakso Migran stays a demo Place with NO producer).
  */
@@ -46,18 +50,27 @@ const FOUNDATION = [
   "0005_experience_management.sql",
 ] as const;
 
-test("Migration 0020 exists as the next free number and only adds the one-membership-per-user index", () => {
-  const sql = readMigration("0020_one_membership_per_user.sql");
-  assert.match(sql, /create unique index if not exists producer_memberships_one_per_user_idx/);
-  assert.match(sql, /on public\.producer_memberships \(user_id\)/);
-  // The constraint is a pure schema addition: it must never delete or
-  // rewrite membership data (no destructive data migration).
+test("Migration 0022 retires the one-membership-per-user index while 0020 stays in history", () => {
+  const sql = readMigration("0022_allow_multiple_places_per_producer.sql");
+  assert.match(sql, /drop index if exists public\.producer_memberships_one_per_user_idx/);
+  // 0022 must retire the rule, not re-introduce it, and must be a pure
+  // schema change: no destructive data migration, no seeding.
+  assert.doesNotMatch(sql, /create unique index/i);
   assert.doesNotMatch(sql, /delete from|truncate|drop table|drop column/i);
+  assert.doesNotMatch(sql, /\binsert\s+into\b/i);
+
+  // History is preserved: 0020 remains in the chain with its original
+  // unique-index definition (never rewritten to hide the old rule).
+  const files = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql")).sort();
+  assert.ok(files.includes("0020_one_membership_per_user.sql"), "0020 must remain in the migration chain");
+  assert.ok(files.includes("0022_allow_multiple_places_per_producer.sql"), "0022 must exist as the next free number");
+  const migration0020 = readMigration("0020_one_membership_per_user.sql");
+  assert.match(migration0020, /create unique index if not exists producer_memberships_one_per_user_idx/);
+  assert.match(migration0020, /on public\.producer_memberships \(user_id\)/);
 });
 
 test("No migration seeds Producer rows (DEV producers were reset by the PO)", () => {
   const files = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql")).sort();
-  assert.ok(files.includes("0020_one_membership_per_user.sql"), "0020 must exist in the migration chain");
   for (const name of files) {
     const sql = readMigration(name);
     // Migrations never seed the producers table (DEV producers=0 by PO
@@ -69,9 +82,6 @@ test("No migration seeds Producer rows (DEV producers were reset by the PO)", ()
       `${name} must not seed producer rows`,
     );
   }
-  // 0020 itself is schema-only: it inserts no rows at all.
-  const migration0020 = readMigration("0020_one_membership_per_user.sql");
-  assert.doesNotMatch(migration0020, /\binsert\s+into\b/i);
   // The demo Place keeps its canonical coordinates and gains NO producer.
   const bakso = readMigration("0019_bakso_migran_demo_place.sql");
   assert.match(bakso, /26\.3642121/);
@@ -79,7 +89,7 @@ test("No migration seeds Producer rows (DEV producers were reset by the PO)", ()
   assert.doesNotMatch(bakso, /producer_id/);
 });
 
-test("0020 rejects a second membership for the same account on a different Place", async () => {
+test("0022 allows multiple memberships for one account across different Places", async () => {
   const db = new PGlite();
   try {
     await db.exec(SHIMS);
@@ -87,7 +97,10 @@ test("0020 rejects a second membership for the same account on a different Place
     for (const name of FOUNDATION) {
       await db.exec(stripPgcrypto(readMigration(name)));
     }
+    // Apply the old rule first, then retire it: this is the exact upgrade
+    // path of an environment that already ran 0020.
     await db.exec(stripPgcrypto(readMigration("0020_one_membership_per_user.sql")));
+    await db.exec(stripPgcrypto(readMigration("0022_allow_multiple_places_per_producer.sql")));
 
     const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
     const userId = uuid(1);
@@ -99,47 +112,54 @@ test("0020 rejects a second membership for the same account on a different Place
              ('place-b', 'Place B', 'desc', 'Teh', 'production', 'Lembang', 'Asia/Jakarta', 'IDR', 'p-1');
     `);
 
-    // First membership: fine.
+    // THE NEW RULE: the same account may own several Places. Both inserts
+    // must succeed even though 0020 ran first.
     await db.exec(`
       insert into public.producer_memberships (user_id, producer_id, place_id, role)
-      values ('${userId}', 'p-1', 'place-a', 'owner');
+      values ('${userId}', 'p-1', 'place-a', 'owner'),
+             ('${userId}', 'p-1', 'place-b', 'owner');
     `);
 
-    // Second Place on the SAME account: must be refused by the unique index.
+    const rows = ((await db.query(
+      "select place_id, role from public.producer_memberships where user_id = $1 order by place_id",
+      [userId],
+    )).rows ?? []) as { place_id: string; role: string }[];
+    assert.deepEqual(
+      rows.map((row) => ({ place_id: row.place_id, role: row.role })),
+      [
+        { place_id: "place-a", role: "owner" },
+        { place_id: "place-b", role: "owner" },
+      ],
+    );
+
+    // The foundation PK (user_id, place_id) is preserved: a duplicate pair
+    // is still rejected.
     await assert.rejects(
       () =>
         db.query(
           `insert into public.producer_memberships (user_id, producer_id, place_id, role)
-           values ('${userId}', 'p-1', 'place-b', 'manager');`,
+           values ('${userId}', 'p-1', 'place-a', 'owner');`,
         ),
-      /duplicate key|unique constraint|producer_memberships_one_per_user_idx/i,
+      /duplicate key|unique constraint|producer_memberships_pkey/i,
     );
 
-    // Exactly one membership row remains for the account.
-    const rows = ((await db.query(
-      "select place_id, role from public.producer_memberships where user_id = $1",
-      [userId],
-    )).rows ?? []) as { place_id: string; role: string }[];
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].place_id, "place-a");
-
-    // Another ACCOUNT may still hold its own membership (the rule is
-    // per-account, not per-table).
+    // A second ACCOUNT may hold its own membership for the same Places
+    // (membership is per (user, place), never global).
     const other = uuid(2);
     await db.exec(`insert into auth.users (id, email_confirmed_at) values ('${other}', now());`);
     await db.exec(`
       insert into public.producer_memberships (user_id, producer_id, place_id, role)
-      values ('${other}', 'p-1', 'place-b', 'owner');
+      values ('${other}', 'p-1', 'place-a', 'manager');
     `);
     const all = ((await db.query("select count(*)::int as c from public.producer_memberships"))
       .rows ?? []) as { c: number }[];
-    assert.equal(all[0].c, 2);
+    assert.equal(all[0].c, 3);
   } finally {
     await db.close();
   }
 });
 
-test("0020 is idempotent — re-running the migration changes nothing", async () => {
+test("0022 is idempotent and fully removes the 0020 index, keeping the foundation PK", async () => {
   const db = new PGlite();
   try {
     await db.exec(SHIMS);
@@ -148,15 +168,25 @@ test("0020 is idempotent — re-running the migration changes nothing", async ()
       await db.exec(stripPgcrypto(readMigration(name)));
     }
     await db.exec(stripPgcrypto(readMigration("0020_one_membership_per_user.sql")));
-    // Re-apply (Supabase CLI re-runs are no-ops thanks to IF NOT EXISTS).
-    await db.exec(stripPgcrypto(readMigration("0020_one_membership_per_user.sql")));
+    await db.exec(stripPgcrypto(readMigration("0022_allow_multiple_places_per_producer.sql")));
+    // Re-apply (Supabase CLI re-runs are no-ops thanks to IF EXISTS).
+    await db.exec(stripPgcrypto(readMigration("0022_allow_multiple_places_per_producer.sql")));
 
-    const indexes = ((await db.query(
+    const staleIndex = ((await db.query(
       `select indexname from pg_indexes
        where schemaname = 'public' and tablename = 'producer_memberships'
          and indexname = 'producer_memberships_one_per_user_idx'`,
     )).rows ?? []) as { indexname: string }[];
-    assert.equal(indexes.length, 1, "exactly one one-per-user index exists");
+    assert.equal(staleIndex.length, 0, "the one-per-user index must be gone");
+
+    const primaryKey = ((await db.query(
+      `select constraintname from (
+         select conname as constraintname
+         from pg_constraint
+         where conrelid = 'public.producer_memberships'::regclass and contype = 'p'
+       ) t`,
+    )).rows ?? []) as { constraintname: string }[];
+    assert.equal(primaryKey.length, 1, "the (user_id, place_id) primary key must remain");
   } finally {
     await db.close();
   }

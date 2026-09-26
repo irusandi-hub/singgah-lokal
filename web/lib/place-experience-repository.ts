@@ -227,9 +227,10 @@ export class SupabasePlaceManagementRepository {
         { onConflict: "user_id,place_id" },
       );
       if (membershipError) {
-        // No partial state: the place row is removed again when the creator
-        // cannot receive ownership (e.g. the one-membership-per-user rule,
-        // migration 0020) — a half-created Place must never linger.
+        // No partial state: the place row is removed again whenever the
+        // ownership grant fails — a half-created Place must never linger.
+        // (An account may hold memberships for multiple Places; the
+        // rollback is a safety net for any grant failure, not a cap.)
         await admin.from("places").delete().eq("id", input.id);
         throw membershipError;
       }
