@@ -3,33 +3,38 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 /**
- * PRODUCER PLACE CONSOLIDATION (PO, 2026-09-26)
+ * PRODUCER PLACE WORKSPACE (PO, mockup work 2026-09-26)
  *
- * One canonical Producer Place page (/producer/places) owns the whole
- * Place-management surface:
- * - the roster ("Place saya") with an explicit empty state;
- * - the "+ Tambah Place" action sitting BELOW the roster/empty state as an
- *   IN-PLACE action (view "new") — never in the header, never a second UI route;
- *   (was: header action — corrected per PO, 2026-09-26)
- * - per-Place edit/manage reusing the SAME PlaceForm (view "edit"), loaded
- *   from the canonical GET endpoint;
- * - an explicit list/new/edit view state: a fresh load is always "list"
- *   (a refresh can never resurrect a previous session), NEW always starts
- *   empty, and a successful NEW submit transitions new → edit/manage for
- *   the saved Place (id preserved);
- * - the old per-Place edit page stays reachable (backward compatibility)
- *   and renders the SAME canonical editor — no duplicated logic.
- * The old standalone /producer/places/new route hands off (redirect) to the
- * canonical page. The Producer dashboard (/producer) holds NO Place entry
- * point of its own: the sub-nav "Places" link is the single canonical entry
- * (dashboard duplicates removed per PO, 2026-09-26).
+ * The Producer dashboard (/producer) is ONE working page for Place:
+ * - header/branding + "Dashboard Producer" + Visit Intent Inbox + Live cards;
+ * - the "Place milikmu" roster with each Place selectable for management;
+ * - "+ Tambahkan Place baru" BELOW the roster, opening the add form IN PLACE
+ *   (view "new") — save transitions new → edit/manage with the id preserved
+ *   (Upload immediately usable);
+ * - the editor reuses the SAME PlaceForm (Informasi | Experience | Upload
+ *   tabs; Experience tab reuses the standalone experiences surface).
+ *
+ * There is NO second Place list page: /producer/places and /producer/places/new
+ * are pure redirects to /producer (backward-compatible hand-offs, no UI, no
+ * parallel form). The per-Place deep-link routes stay reachable and render the
+ * SAME canonical editor.
+ *
+ * The Upload tab remains REAL: for a saved Place it drives the existing
+ * server-side multipart endpoint (Producer-gated) → Supabase Storage →
+ * place_photos, restores slots on reload; for a NEW Place it is disabled with
+ * the reason shown. PLACE_PHOTO_SLOTS stays the slot source of truth.
+ * The dashboard loads Places server-side from the authenticated user's
+ * owner/manager memberships via the canonical repository — no new API/auth.
  */
 
+const producerDashboard = readFileSync(new URL("../app/producer/page.tsx", import.meta.url), "utf8");
+const workspace = readFileSync(new URL("../app/producer/places/ProducerPlaceWorkspace.tsx", import.meta.url), "utf8");
 const placesPage = readFileSync(new URL("../app/producer/places/page.tsx", import.meta.url), "utf8");
 const newPage = readFileSync(new URL("../app/producer/places/new/page.tsx", import.meta.url), "utf8");
 const placeForm = readFileSync(new URL("../app/producer/places/PlaceForm.tsx", import.meta.url), "utf8");
 const editPage = readFileSync(new URL("../app/producer/places/[placeId]/page.tsx", import.meta.url), "utf8");
-const producerDashboard = readFileSync(new URL("../app/producer/page.tsx", import.meta.url), "utf8");
+const experiencesPage = readFileSync(new URL("../app/producer/places/[placeId]/experiences/page.tsx", import.meta.url), "utf8");
+const experiencesPanel = readFileSync(new URL("../app/producer/places/[placeId]/experiences/ExperiencesPanel.tsx", import.meta.url), "utf8");
 
 function stripComments(source: string): string {
   return source
@@ -39,133 +44,125 @@ function stripComments(source: string): string {
     .join("\n");
 }
 
-const pageCode = stripComments(placesPage);
+const dashboardCode = stripComments(producerDashboard);
+const workspaceCode = stripComments(workspace);
+const placesRedirectCode = stripComments(placesPage); // redirect page checks run comment-free
+const newRedirectCode = stripComments(newPage);
 const formCode = stripComments(placeForm);
-// The dashboard is a server component (no JSX block comments) — strip "//"
-// lines only, keeping assertions free of comment-literal false matches.
-const dashboardCode = producerDashboard
-  .split("\n")
-  .map((line) => line.replace(/\/\/.*$/, ""))
-  .join("\n");
+const experiencesPageCode = stripComments(experiencesPage);
+const experiencesPanelCode = stripComments(experiencesPanel);
 
-test("One canonical Producer Places page: roster, in-place add, and edit on the same route", () => {
-  // Part 1–4 of the target structure, all in the canonical page.
-  assert.match(pageCode, /ProducerSubNav/);
-  assert.match(pageCode, /Place saya/);
-  // "+ Tambah Place" is an in-page action (button), NOT a link to a second UI.
-  assert.match(pageCode, /\+ Tambah Place/);
-  assert.match(pageCode, /onClick=\{\(\) => setView\(\{ name: "new" \}\)\}/);
-  // The add form renders on the same page via the shared PlaceForm (NEW
-  // branch) — no parallel form anywhere.
-  assert.match(pageCode, /<PlaceForm onSaved=\{handleSaved\} \/>/);
+test("The dashboard is the single working page hosting the Place workspace", () => {
+  // No Places shortcut card / no duplicate entry: the dashboard must not
+  // LINK into any Place route (the workspace import path is not a link).
+  assert.equal(dashboardCode.includes('"/producer/places'), false, "dashboard must not link any /producer/places route");
+  assert.equal(dashboardCode.includes("Places<"), false, "no Places shortcut card on the dashboard");
+  // The dashboard keeps the ordered surfaces: sub-nav, title, Inbox, Live...
+  assert.match(dashboardCode, /<ProducerSubNav active="\/producer" \/>/);
+  assert.match(dashboardCode, /Dashboard Producer/);
+  assert.match(dashboardCode, /Visit Intent Inbox/);
+  assert.match(dashboardCode, /href="\/producer\/visit-intents"/);
+  assert.match(dashboardCode, /href="\/producer\/live"/);
+  // ...and hosts the "Place milikmu" workspace (roster + add + edit) in place.
+  assert.match(dashboardCode, /<ProducerPlaceWorkspace initialPlaces=\{places\} showOnboardingHint=\{places\.length === 0\} \/>/);
+  assert.match(workspaceCode, /Place milikmu/);
+  assert.match(workspaceCode, /Tambahkan Place baru/);
 });
 
-test("Tambah Place action sits BELOW the roster, not in the header", () => {
-  // The header keeps title + "Kembali ke daftar" (new/edit only) and must
-  // NOT hold the add action — a second entry point in the header is forbidden.
-  const headerStart = pageCode.indexOf("<header");
-  const headerEnd = pageCode.indexOf("</header>");
-  assert.ok(headerStart > -1 && headerEnd > headerStart);
-  const header = pageCode.slice(headerStart, headerEnd);
-  assert.equal(header.includes("+ Tambah Place"), false, "Tambah Place action must not be in the header");
-  assert.equal(header.includes("setView({ name: \"new\" })"), false, "header must not trigger the add view");
-  // The action renders after the roster (or its empty state) and stays
-  // in-page (setView to "new"), never a link/route.
-  const buttonIdx = pageCode.indexOf("+ Tambah Place");
-  assert.ok(buttonIdx > -1);
-  const listIdx = pageCode.indexOf("places.map");
-  const emptyIdx = pageCode.indexOf("Belum ada Place yang dapat dikelola");
-  assert.ok(listIdx > -1 && emptyIdx > -1);
-  assert.ok(buttonIdx > listIdx && buttonIdx > emptyIdx, "Tambah Place action must come after the roster/empty state");
-  const aroundButton = pageCode.slice(Math.max(0, buttonIdx - 400), buttonIdx);
-  assert.match(aroundButton, /onClick=\{\(\) => setView\(\{ name: "new" \}\)\}/);
-  assert.equal(aroundButton.includes("href="), false, "Tambah Place action must be a button, not a link to a second route");
+test("No intermediary Place list page exists — legacy routes are pure redirects", () => {
+  // The former second list page hands off to the dashboard with NO UI.
+  assert.match(placesRedirectCode, /redirect\("\/producer"\)/);
+  assert.equal(placesRedirectCode.includes("<PlaceForm"), false, "no form on the redirect page");
+  assert.equal(placesRedirectCode.includes("useState"), false, "no view state on the redirect page");
+  assert.equal(placesRedirectCode.includes("Tambahkan Place baru"), false, "no roster UI on the redirect page");
+  assert.equal(placesRedirectCode.includes("Place milikmu"), false, "no roster heading on the redirect page");
+  // The legacy standalone add route also hands off — no second form surface.
+  assert.match(newRedirectCode, /redirect\("\/producer"\)/);
+  assert.equal(newRedirectCode.includes("<PlaceForm"), false);
+  // Nothing links into the legacy routes anymore.
+  for (const code of [dashboardCode, workspaceCode, formCode]) {
+    assert.equal(code.includes("/producer/places/new"), false, "no /producer/places/new links");
+    assert.equal(code.includes('href="/producer/places"'), false, "no plain /producer/places links");
+  }
 });
 
-test("The view is an explicit list/new/edit state machine", () => {
+test("The Place surface is an explicit list/new/edit state machine", () => {
   // Explicit states...
-  assert.match(pageCode, /type ProducerPlacesView =/);
-  assert.match(pageCode, /\{ name: "list" \}/);
-  assert.match(pageCode, /\{ name: "new" \}/);
-  assert.match(pageCode, /\{ name: "edit"; place: Place \}/);
-  // ...with "list" as the only initial state (refresh can never resurrect
-  // a previous new/edit session).
-  assert.match(pageCode, /useState<ProducerPlacesView>\(\{ name: "list" \}\)/);
-  // Selecting a Place switches the whole view state, so edit A can never
-  // leak into edit B.
-  assert.match(pageCode, /setView\(\{ name: "edit", place \}\)/);
+  assert.match(workspaceCode, /type ProducerPlaceWorkspaceView =/);
+  assert.match(workspaceCode, /\{ name: "list" \}/);
+  assert.match(workspaceCode, /\{ name: "new" \}/);
+  assert.match(workspaceCode, /\{ name: "edit"; place: Place \}/);
+  // ...with "list" as the only initial state (a fresh load is always the roster).
+  assert.match(workspaceCode, /useState<ProducerPlaceWorkspaceView>\(\{ name: "list" \}\)/);
+  // Selecting a Place switches the whole view state (edit A never leaks into edit B).
+  assert.match(workspaceCode, /setView\(\{ name: "edit", place \}\)/);
+  // The roster is server-fed (initialPlaces) — no second fetch of the roster API.
+  assert.match(workspaceCode, /initialPlaces: Place\[\]/);
+  assert.equal(workspaceCode.includes('fetch("/api/producer/places")'), false, "roster comes from the server, not a second fetch");
 });
 
 test("NEW starts empty; a successful submit transitions new → edit/manage with the id preserved", () => {
   // The roster gain + new→edit transition happens in ONE save handler.
-  assert.match(pageCode, /function handleSaved\(saved: Place\)/);
-  assert.match(pageCode, /current\.some\(\(place\) => place\.id === saved\.id\)/);
-  assert.match(pageCode, /setView\(\{ name: "edit", place: saved \}\)/);
+  assert.match(workspaceCode, /function handleSaved\(saved: Place\)/);
+  assert.match(workspaceCode, /current\.some\(\(place\) => place\.id === saved\.id\)/);
+  assert.match(workspaceCode, /setView\(\{ name: "edit", place: saved \}\)/);
   // PlaceForm's NEW branch still resets transient input on successful submit
   // (locked separately by tests/lifecycle-form-state.test.ts).
   assert.match(formCode, /if \(!place\) setForm\(emptyPlaceForm\(\)\)/);
-  // The saved record flows back through onSaved (form → page state).
+  // The saved record flows back through onSaved (form → workspace state).
   assert.match(formCode, /onSaved\?\.\(data\)/);
 });
 
-test("Edit reuses the canonical editor and loads the saved record", () => {
+test("Tambahkan Place baru sits BELOW the roster and opens the form in place", () => {
+  // The action renders after the roster (or its empty state)...
+  const buttonIdx = workspaceCode.indexOf("Tambahkan Place baru");
+  assert.ok(buttonIdx > -1);
+  const listIdx = workspaceCode.indexOf("places.map");
+  const emptyIdx = workspaceCode.indexOf("Belum ada Place yang dapat dikelola");
+  assert.ok(listIdx > -1 && emptyIdx > -1);
+  assert.ok(buttonIdx > listIdx && buttonIdx > emptyIdx, "the add action must come after the roster/empty state");
+  // ...and stays IN PAGE: a button calling setView("new"), never a link/route.
+  const aroundButton = workspaceCode.slice(Math.max(0, buttonIdx - 700), buttonIdx);
+  assert.match(aroundButton, /onClick=\{\(\) => setView\(\{ name: "new" \}\)\}/);
+  assert.equal(aroundButton.includes("href="), false, "the add action must be a button, not a link to a second route");
+  // The new form renders on the same page via the shared PlaceForm (NEW branch).
+  assert.match(workspaceCode, /<PlaceForm onSaved=\{handleSaved\} \/>/);
+});
+
+test("Edit reuses the canonical editor; status, Dari Sini, and Experience stay manageable", () => {
   // The edit view uses the SAME PlaceEditor (PlaceForm) — no parallel form.
-  assert.match(pageCode, /<PlaceEditor id=\{view\.place\.id\} onSaved=\{handleSaved\} \/>/);
-  // PlaceEditor loads from the canonical GET endpoint.
+  assert.match(workspaceCode, /<PlaceEditor id=\{view\.place\.id\} onSaved=\{handleSaved\} \/>/);
+  // PlaceEditor loads the saved record from the canonical GET endpoint.
   assert.match(formCode, /fetch\(`\/api\/producer\/places\/\$\{id\}`\)/);
-  // Existing manage links (Dari Sini / Experience) stay reachable in edit.
-  assert.match(pageCode, /\/producer\/places\/\$\{view\.place\.id\}\/production/);
-  assert.match(pageCode, /\/producer\/places\/\$\{view\.place\.id\}\/experiences/);
-});
-
-test("The standalone new-Place route is a redirect, not a second UI", () => {
-  assert.match(newPage, /redirect\("\/producer\/places"\)/);
-  assert.equal(newPage.includes("<PlaceForm"), false, "no duplicated form on the legacy route");
-  // No other UI still links to the legacy route.
-  assert.equal(producerDashboard.includes("/producer/places/new"), false);
-  assert.equal(pageCode.includes("/producer/places/new"), false);
-});
-
-test("The old per-Place edit route stays reachable and renders the same editor", () => {
-  // Backward compatibility: the route exists and reuses PlaceEditor —
-  // no duplicated form logic.
+  // Publication status stays visible in the edit surface; Dari Sini stays reachable.
+  assert.match(workspaceCode, /view\.place\.publicationStatus/);
+  assert.match(workspaceCode, /\/producer\/places\/\$\{view\.place\.id\}\/production/);
+  // The old per-Place edit route stays reachable and renders the same editor.
   assert.match(editPage, /<PlaceEditor id=\{id\}/);
   assert.equal(editPage.includes("function PlaceEditor"), false);
 });
 
-test("The dashboard holds NO Place entry point — the sub-nav is the single canonical entry", () => {
-  // FAIL if /producer still duplicates Place access: no Places card linking
-  // /producer/places, no "Place milikmu" roster link (Kelola N Place).
-  assert.equal(dashboardCode.includes('href="/producer/places"'), false, "dashboard must not link /producer/places directly");
-  assert.equal(dashboardCode.includes("Place milikmu"), false, "dashboard must not keep the 'Place milikmu' roster");
-  assert.equal(dashboardCode.includes("Kelola 1 Place"), false, "dashboard must not keep the 'Kelola N Place' link");
-  assert.equal(dashboardCode.includes("Place saya"), false, "dashboard must not keep the roster-link label 'Place saya'");
-  // The surfaces the PO ordered to keep stay intact...
-  assert.match(dashboardCode, /Visit Intent Inbox/);
-  assert.match(dashboardCode, /href="\/producer\/visit-intents"/);
-  assert.match(dashboardCode, /href="\/producer\/live"/);
-  // ...and the sub-nav remains mounted — its "Places" link is THE one
-  // canonical entry to Place management.
-  assert.match(dashboardCode, /<ProducerSubNav active="\/producer" \/>/);
-  // The onboarding empty state keeps its onboarding-only link (never a
-  // Place-management path).
-  assert.match(dashboardCode, /href="\/producer\/onboarding"/);
-  assert.match(dashboardCode, /Belum ada Place dalam kewenanganmu/);
+test("Editor tabs are Informasi | Experience | Upload, with Experience reusing the standalone panel", () => {
+  assert.match(formCode, /role="tab"/);
+  assert.match(formCode, /Informasi/);
+  assert.match(formCode, /setEditorTab\("experience"\)/);
+  assert.match(formCode, /setEditorTab\("upload"\)/);
+  // The Experience tab reuses the standalone experiences surface (same API,
+  // same links) — no parallel management UI; gated on a saved Place.
+  assert.match(formCode, /\{editorTab === "experience" && place && \(/);
+  assert.match(formCode, /<ExperiencesPanel placeId=\{place\.id\} \/>/);
+  // The standalone page itself reuses the SAME panel (no duplicated list).
+  assert.match(experiencesPageCode, /<ExperiencesPanel placeId=\{placeId\} \/>/);
+  assert.equal(experiencesPageCode.includes("experiences.map"), false, "standalone page must not duplicate the panel list");
+  // The panel keeps the canonical experiences API + deep links.
+  assert.match(experiencesPanelCode, /fetch\(`\/api\/producer\/places\/\$\{placeId\}\/experiences`\)/);
+  assert.match(experiencesPanelCode, /\/producer\/places\/\$\{placeId\}\/experiences\/\$\{experience\.id\}/);
 });
-
-test("Place list data comes from the canonical Producer API", () => {
-  assert.match(pageCode, /fetch\("\/api\/producer\/places"\)/);
-  // Unauthorized producers are routed to login (the API stays the boundary).
-  assert.match(pageCode, /\/auth\?returnTo=%2Fproducer%2Fplaces/);
-});
-
-// --- Upload tab (PO, 2026-09-26; TAHAP 2) ---------------------------------
 
 test("The editor carries an actionable Upload tab gated on a saved Place", () => {
-  // Tab "Upload" exists beside "Detail Place"...
-  assert.match(formCode, /role="tab"/);
-  assert.match(formCode, /Detail Place/);
-  assert.match(formCode, /setEditorTab\("upload"\)/);
+  // Tab "Upload" exists beside "Informasi"/"Experience"...
+  assert.match(formCode, /Detail Place|Informasi/);
+  assert.match(formCode, /Upload/);
   // ...disabled (with the reason) while the Place has no saved id...
   assert.match(formCode, /disabled=\{!place\}/);
   assert.match(formCode, /aria-disabled=\{!place\}/);
@@ -188,4 +185,34 @@ test("Upload/delete failures surface as slot errors (no silent success)", () => 
   // Authorization/auth failures get explicit Indonesian messages.
   assert.match(formCode, /producer_authorization_required:/);
   assert.match(formCode, /authentication_required:/);
+});
+
+test("Dashboard Place data comes from the canonical server-side memberships path", () => {
+  // Authorization stays server-side: session → memberships (owner/manager)
+  // → canonical management repository. No new API, no client-side gate.
+  assert.match(dashboardCode, /AuthenticationRequiredError/);
+  assert.match(dashboardCode, /redirect\("\/auth\?returnTo=%2Fproducer"\)/);
+  assert.match(dashboardCode, /from\("producer_memberships"\)/);
+  assert.match(dashboardCode, /\.in\("role", \["owner", "manager"\]\)/);
+  assert.match(dashboardCode, /getServerPlaceManagementRepository/);
+  // The onboarding empty state keeps its onboarding-only link (never a
+  // Place-management path).
+  assert.match(workspaceCode, /href="\/producer\/onboarding"/);
+  assert.match(workspaceCode, /Belum ada Place yang dapat dikelola/);
+});
+
+test("Producer surfaces share the same cream/light theme (no dark producer page)", () => {
+  // Dashboard, workspace container, and the standalone experiences page use
+  // the existing brand-cream theme...
+  assert.match(dashboardCode, /bg-brand-cream/);
+  assert.match(dashboardCode, /text-brand-ink/);
+  assert.match(experiencesPageCode, /bg-brand-cream/);
+  // ...and the embedded components declare no page of their own at all: no
+  // full-screen wrapper (the dashboard owns the theme) and no dark-surface
+  // signature (bg-brand-ink + text-brand-cream as a page palette). Button
+  // accents in the existing ink color stay untouched.
+  for (const [name, code] of [["workspace", workspaceCode], ["experience panel", experiencesPanelCode], ["editor form", formCode]] as const) {
+    assert.equal(code.includes("min-h-screen"), false, `${name} must not render its own page background`);
+    assert.equal(code.includes("text-brand-cream"), false, `${name} must not switch to the dark palette`);
+  }
 });

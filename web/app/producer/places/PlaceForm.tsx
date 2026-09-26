@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Place } from "@/lib/places";
 import { PLACE_MEDIA_ACCEPTED_TYPES, PLACE_MEDIA_MAX_BYTES, PLACE_PHOTO_SLOTS } from "@/lib/place-media";
 import PlaceLocationPicker from "@/components/place-location-picker";
+import ExperiencesPanel from "./[placeId]/experiences/ExperiencesPanel";
 
 type Props = { place?: Place; onSaved?: (place: Place) => void };
 
@@ -55,7 +56,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
   // SAVED Place (the upload API is keyed by the Place id), so it is disabled
   // with an explanation while a NEW entry has no id yet — and becomes active
   // the moment the save succeeds (the parent flips new → edit).
-  const [editorTab, setEditorTab] = useState<"detail" | "upload">("detail");
+  const [editorTab, setEditorTab] = useState<"detail" | "experience" | "upload">("detail");
 
   // MEDIA — standard photo slots (Supabase Storage upload; NO HTTP-URL
   // input). State is restored from the canonical place_photos record on
@@ -176,7 +177,21 @@ export default function PlaceForm({ place, onSaved }: Props) {
             editorTab === "detail" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
           }`}
         >
-          Detail Place
+          Informasi
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={editorTab === "experience"}
+          disabled={!place}
+          aria-disabled={!place}
+          title={place ? undefined : "Simpan Place dulu — Experience membutuhkan Place yang sudah tersimpan."}
+          onClick={() => setEditorTab("experience")}
+          className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+            editorTab === "experience" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
+          } ${place ? "" : "cursor-not-allowed opacity-50"}`}
+        >
+          Experience
         </button>
         <button
           type="button"
@@ -222,6 +237,15 @@ export default function PlaceForm({ place, onSaved }: Props) {
       <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
       <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Experience</option></select></label>
         </>
+      )}
+
+      {/* The "Experience" tab reuses the standalone experiences surface for
+          this Place (same API, same links) — no parallel management UI.
+          Reachable only for a SAVED Place (the tab needs the id). */}
+      {editorTab === "experience" && place && (
+        <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Experience Place">
+          <ExperiencesPanel placeId={place.id} />
+        </section>
       )}
 
       {/* MEDIA — the ≥5 standard photo slots, on the Upload tab. Files go to

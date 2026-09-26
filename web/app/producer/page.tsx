@@ -4,14 +4,21 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
 import ProducerSubNav from "@/components/producer-sub-nav";
+import ProducerPlaceWorkspace from "@/app/producer/places/ProducerPlaceWorkspace";
+import type { Place } from "@/lib/places";
 
 export const dynamic = "force-dynamic";
 
-// Entry point to the existing Producer area. Everything shown is derived
-// server-side from the authenticated user's owner/manager memberships —
-// no new auth or role system.
+// The Producer dashboard is ONE working page (PO, mockup work 2026-09-26):
+// header/branding, "Dashboard Producer", the Visit Intent Inbox and Live
+// cards, then the "Place milikmu" workspace — roster + in-page add/edit via
+// the shared PlaceForm/PlaceEditor. There is NO second Place list page and
+// no Places shortcut card; the sub-nav "Places" link stays the canonical
+// route entry. Place data is loaded server-side from the authenticated
+// user's owner/manager memberships via the canonical repository — no new
+// auth, no new API.
 export default async function ProducerDashboardPage() {
-  const places: Array<{ id: string; name: string }> = [];
+  const places: Place[] = [];
 
   try {
     const actor = await requireAuthenticatedActor(new Request("http://localhost/producer"));
@@ -24,7 +31,7 @@ export default async function ProducerDashboardPage() {
     const placeRepository = await getServerPlaceManagementRepository();
     for (const membership of memberships ?? []) {
       const place = await placeRepository.getById(String(membership.place_id));
-      if (place) places.push({ id: place.id, name: place.name });
+      if (place) places.push(place);
     }
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
@@ -45,9 +52,6 @@ export default async function ProducerDashboardPage() {
           </p>
         </header>
 
-        {/* Place management has ONE canonical entry: the sub-nav "Places"
-            link to /producer/places (PO, 2026-09-26). The dashboard must not
-            duplicate it with a second Place card/roster entry point. */}
         <section aria-label="Area Producer" className="mt-8 grid gap-3 sm:grid-cols-2">
           <Link href="/producer/visit-intents" className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
             <h2 className="text-lg font-semibold">Visit Intent Inbox</h2>
@@ -59,12 +63,7 @@ export default async function ProducerDashboardPage() {
           </Link>
         </section>
 
-        {places.length === 0 && (
-          <p className="mt-8 rounded-2xl border border-black/10 bg-white p-5 text-sm text-black/65">
-            Belum ada Place dalam kewenanganmu. Ikuti proses verifikasi untuk menjadi Producer —
-            lihat <Link href="/producer/onboarding" className="font-bold text-brand-accent underline underline-offset-2">Ajukan menjadi Producer</Link>.
-          </p>
-        )}
+        <ProducerPlaceWorkspace initialPlaces={places} showOnboardingHint={places.length === 0} />
       </div>
     </main>
   );
