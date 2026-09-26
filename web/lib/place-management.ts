@@ -38,7 +38,10 @@ export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
   const type = text("type") as PlaceType;
   if (!categories.includes(category) || !types.includes(type)) throw new PlaceInputError("place_type_or_category_invalid");
   const mutation: PlaceMutation = {
-    id: id ?? text("id"),
+    // An empty/absent id means "the system generates it" (PO, 2026-09-26):
+    // the Producer never types a technical ID in the UI. The POST route
+    // derives the id from the name and checks uniqueness.
+    id: id ?? (typeof body.id === "string" ? body.id.trim() : ""),
     name: text("name"),
     shortDescription: text("shortDescription"),
     category,
@@ -53,9 +56,25 @@ export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
     coverImageUrl: parseCoverImageUrl(body.coverImageUrl),
   };
   try {
-    validatePlaceInput(mutation);
+    // With a system-generated id pending, validate the rest of the payload
+    // against a stand-in id (the real id is derived + re-validated in POST).
+    validatePlaceInput({ ...mutation, id: mutation.id || "system-generated" });
   } catch {
     throw new PlaceInputError("place_input_invalid");
   }
   return mutation;
+}
+
+/**
+ * Derives the technical Place id from the Place name (PO, 2026-09-26):
+ * latin slug of the name — "Kopi dari Kebun" → "kopi-dari-kebun" — matching
+ * the existing id format. A name without latin/digit characters yields ""
+ * and the caller falls back to a random id. Uniqueness is checked by the
+ * caller against the canonical repository.
+ */
+export function derivePlaceIdFromName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }

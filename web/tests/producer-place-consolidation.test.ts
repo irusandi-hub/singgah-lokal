@@ -35,6 +35,10 @@ const placeForm = readFileSync(new URL("../app/producer/places/PlaceForm.tsx", i
 const editPage = readFileSync(new URL("../app/producer/places/[placeId]/page.tsx", import.meta.url), "utf8");
 const experiencesPage = readFileSync(new URL("../app/producer/places/[placeId]/experiences/page.tsx", import.meta.url), "utf8");
 const experiencesPanel = readFileSync(new URL("../app/producer/places/[placeId]/experiences/ExperiencesPanel.tsx", import.meta.url), "utf8");
+const inbox = readFileSync(new URL("../app/producer/visit-intents/Inbox.tsx", import.meta.url), "utf8");
+const inboxDetail = readFileSync(new URL("../app/producer/visit-intents/[id]/VisitIntentDetail.tsx", import.meta.url), "utf8");
+const placesApiRoute = readFileSync(new URL("../app/api/producer/places/route.ts", import.meta.url), "utf8");
+const placeManagement = readFileSync(new URL("../lib/place-management.ts", import.meta.url), "utf8");
 
 function stripComments(source: string): string {
   return source
@@ -51,14 +55,16 @@ const newRedirectCode = stripComments(newPage);
 const formCode = stripComments(placeForm);
 const experiencesPageCode = stripComments(experiencesPage);
 const experiencesPanelCode = stripComments(experiencesPanel);
+const inboxCode = stripComments(inbox);
+const inboxDetailCode = stripComments(inboxDetail);
+const placesApiCode = stripComments(placesApiRoute);
 
 test("The dashboard is the single working page hosting the Place workspace", () => {
   // No Places shortcut card / no duplicate entry: the dashboard must not
   // LINK into any Place route (the workspace import path is not a link).
   assert.equal(dashboardCode.includes('"/producer/places'), false, "dashboard must not link any /producer/places route");
   assert.equal(dashboardCode.includes("Places<"), false, "no Places shortcut card on the dashboard");
-  // The dashboard keeps the ordered surfaces: sub-nav, title, Inbox, Live...
-  assert.match(dashboardCode, /<ProducerSubNav active="\/producer" \/>/);
+  // The dashboard keeps the ordered surfaces: title, Inbox, Live...
   assert.match(dashboardCode, /Dashboard Producer/);
   assert.match(dashboardCode, /Visit Intent Inbox/);
   assert.match(dashboardCode, /href="\/producer\/visit-intents"/);
@@ -67,6 +73,11 @@ test("The dashboard is the single working page hosting the Place workspace", () 
   assert.match(dashboardCode, /<ProducerPlaceWorkspace initialPlaces=\{places\} showOnboardingHint=\{places\.length === 0\} \/>/);
   assert.match(workspaceCode, /Place milikmu/);
   assert.match(workspaceCode, /Tambahkan Place baru/);
+});
+
+test("The dashboard carries no ProducerSubNav — it is a working surface, not a link hub", () => {
+  // FAIL if the sub-nav (Dashboard/Places/... tabs) returns to /producer.
+  assert.equal(dashboardCode.includes("ProducerSubNav"), false, "dashboard must not render the ProducerSubNav tabs");
 });
 
 test("No intermediary Place list page exists — legacy routes are pure redirects", () => {
@@ -79,8 +90,9 @@ test("No intermediary Place list page exists — legacy routes are pure redirect
   // The legacy standalone add route also hands off — no second form surface.
   assert.match(newRedirectCode, /redirect\("\/producer"\)/);
   assert.equal(newRedirectCode.includes("<PlaceForm"), false);
-  // Nothing links into the legacy routes anymore.
-  for (const code of [dashboardCode, workspaceCode, formCode]) {
+  // Nothing links into the legacy routes anymore (dashboard, workspace,
+  // form, inbox, inbox detail).
+  for (const code of [dashboardCode, workspaceCode, formCode, inboxCode, inboxDetailCode]) {
     assert.equal(code.includes("/producer/places/new"), false, "no /producer/places/new links");
     assert.equal(code.includes('href="/producer/places"'), false, "no plain /producer/places links");
   }
@@ -201,12 +213,36 @@ test("Dashboard Place data comes from the canonical server-side memberships path
   assert.match(workspaceCode, /Belum ada Place yang dapat dikelola/);
 });
 
+test("The Producer never types a Place ID — the system generates it on save", () => {
+  // The user-facing "ID Place" input is REMOVED from the NEW form...
+  assert.equal(formCode.includes("ID Place"), false, "no user-facing ID Place field");
+  assert.equal(formCode.includes('value={form.id}'), false, "the id must not be a typed form field");
+  // ...but the technical id stays internal: the form still submits the id
+  // field it holds (empty for NEW) and the POST route generates it.
+  assert.match(placesApiCode, /derivePlaceIdFromName\(mutation\.name\)/);
+  assert.match(placesApiCode, /repository\.getById\(mutation\.id\)/);
+  // The parser tolerates an empty id (system-generated) while keeping every
+  // other validation, and the slug derivation matches the existing format.
+  assert.match(placeManagement, /mutation\.id \|\| "system-generated"/);
+  assert.match(placeManagement, /export function derivePlaceIdFromName/);
+  // The save flow keeps new → edit with the server-returned record (id set).
+  assert.match(workspaceCode, /setView\(\{ name: "edit", place: saved \}\)/);
+});
+
 test("Producer surfaces share the same cream/light theme (no dark producer page)", () => {
-  // Dashboard, workspace container, and the standalone experiences page use
-  // the existing brand-cream theme...
+  // Dashboard, workspace container, inbox, inbox detail, and the standalone
+  // experiences page use the existing brand-cream theme...
   assert.match(dashboardCode, /bg-brand-cream/);
   assert.match(dashboardCode, /text-brand-ink/);
   assert.match(experiencesPageCode, /bg-brand-cream/);
+  assert.match(inboxCode, /bg-brand-cream/);
+  assert.match(inboxCode, /text-brand-ink/);
+  assert.match(inboxDetailCode, /bg-brand-cream/);
+  // ...the dark window wrappers are GONE from the Visit Intent surfaces...
+  assert.equal(inboxCode.includes("bg-brand-ink"), false, "Inbox must not use the dark window");
+  assert.equal(inboxDetailCode.includes("bg-brand-ink"), false, "Visit Intent detail must not use the dark window");
+  assert.equal(inboxCode.includes("bg-white/10"), false, "Inbox must not use dark-surface cards");
+  assert.equal(inboxDetailCode.includes("bg-white/10"), false, "detail must not use dark-surface cards");
   // ...and the embedded components declare no page of their own at all: no
   // full-screen wrapper (the dashboard owns the theme) and no dark-surface
   // signature (bg-brand-ink + text-brand-cream as a page palette). Button
