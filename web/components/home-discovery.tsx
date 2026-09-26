@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
+import PlaceFollowButton from "@/components/place-follow-button";
 import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
@@ -441,6 +442,11 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
                       {distance && (
                         <span className="text-[11px] font-bold text-brand-accent">{distance}</span>
                       )}
+                      {/* Follow control (User → Place follow foundation for
+                          MASTER 10 notifications): server-derived state only
+                          — Follow / Following, signed-out → /auth. Sits next
+                          to Direction; card navigation/design untouched. */}
+                      {!live && <PlaceFollowButton placeId={place.id} />}
                       {directionsUrl ? (
                         <button
                           type="button"
