@@ -17,7 +17,7 @@ import "leaflet/dist/leaflet.css";
  *   user position — before the first real fix the map starts on the neutral
  *   world overview (fitWorld), never on a stand-in country view.
  * - Camera authority:
- *     · when a bounded distance filter is active (500 m / 1 km / 5 km) the
+ *     · when a bounded distance filter is active (1 km / 5 km) the
  *       zoom is derived from the filter radius around Current Location;
  *     · "10 km+" is unbounded and never re-zooms the camera;
  *     · marker refreshes/API polling never move the camera;
@@ -140,7 +140,7 @@ export default function HomeMap({
     [],
   );
 
-  // Radius refocus (500 m / 1 km / 5 km): ALWAYS re-derives the camera from
+  // Radius refocus (1 km / 5 km): ALWAYS re-derives the camera from
   // the filter radius around the real Current Location — every tab switch to
   // a bounded radius refocuses (no one-shot latch), unless the user has
   // interacted since the last filter change (their pan/zoom wins until the
@@ -283,7 +283,7 @@ export default function HomeMap({
   }, []);
 
   // Camera anchor: Current Location is the map's center. A bounded radius
-  // (500 m / 1 km / 5 km) refocuses on EVERY change of the filter radius —
+  // (1 km / 5 km) refocuses on EVERY change of the filter radius —
   // the camera is re-derived from the filter around the real fix. "10 km+"
   // focuses once (unbounded — no radius re-zoom). Automatic moves never
   // steal the camera after real user interaction, and interactions are
@@ -379,6 +379,11 @@ export default function HomeMap({
   // Location exists. The condition is re-checked after the async import so a
   // fix that arrives in between can never race it; after the first automatic
   // decision (or any user interaction) it never runs again.
+  // Performance (PO 2026-09-26): the effect is keyed on markerKey — the
+  // stable signature of the marker set (ids + live sessions) — NOT on the
+  // places/liveByPlaceId object identities, so discovery state updates that
+  // leave the marker set unchanged no longer trigger clearLayers + a full
+  // marker rebuild (and the tile-layer is never touched here at all).
   useEffect(() => {
     if (!ready) return;
 
@@ -454,7 +459,11 @@ export default function HomeMap({
     return () => {
       cancelled = true;
     };
-  }, [ready, markerKey, places, liveByPlaceId, router]);
+    // places/liveByPlaceId are read through markerKey (exact same set);
+    // router is stable in the App Router. Re-running on their identities
+    // would rebuild identical markers on unrelated state updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, markerKey]);
 
   return (
     <div className="relative h-full w-full">

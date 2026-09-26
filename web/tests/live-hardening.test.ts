@@ -62,8 +62,9 @@ test("E2E: bounded distance radii use matchesDistance and LIVE/markers follow th
   assert.match(homeSource, /locateNonce=\{locateNonce\}/);
   assert.match(homeSource, /onRequestLocate=\{\(\) => setLocateNonce\(\(nonce\) => nonce \+ 1\)\}/);
   assert.doesNotMatch(homeSource, /mapPositionByPlaceId/);
-  // LIVE cards also follow the filtered set.
-  assert.match(homeSource, /visiblePlaces\.some\(\(place\) => place\.id === item\.placeId\)/);
+  // LIVE cards also follow the filtered set (Set membership, O(n)).
+  assert.match(homeSource, /const visibleIds = new Set\(visiblePlaces\.map\(\(place\) => place\.id\)\)/);
+  assert.match(homeSource, /liveItems\.filter\(\(item\) => visibleIds\.has\(item\.placeId\)\)/);
 });
 
 test("E2E: Leaflet map renders only canonical Place coordinates and keeps the Place/Live links", () => {

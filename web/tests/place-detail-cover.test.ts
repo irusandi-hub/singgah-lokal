@@ -131,29 +131,30 @@ test("Producer Place form no longer carries a cover-URL input (media moved to St
   assert.match(code, /PLACE_PHOTO_SLOTS\.map/);
 });
 
-// --- Home tab placement (PO 2026-09-25): no horizontal scroll, fixed order ---
+// --- Home filter bar (PO 2026-09-26): ONE row, no overflow, fixed order ---
 
-test("Primary tabs fit one mobile screen: LIVE leftmost, Tempat Pilihan beside it, Pilihan Jarak after", () => {
+test("Home filter bar is a single row: LIVE leftmost, Tempat Pilihan beside it, distance tabs after", () => {
   const code = stripComments(homePage);
-  // Primary row is a grid (auto + 1fr), not a scroll strip...
-  assert.match(code, /mb-5 grid grid-cols-\[auto_1fr\]/);
-  assert.match(code, /mb-5 grid grid-cols-4/);
-  // ...LIVE is leftmost, Tempat Pilihan directly after it...
-  const primaryBar = code.indexOf("mb-5 grid grid-cols-[auto_1fr]");
-  const liveBtn = code.indexOf("setLiveOnly", primaryBar);
-  const curatedBtn = code.indexOf("setCuratedOnly(true)", primaryBar);
-  assert.ok(liveBtn >= 0 && curatedBtn > liveBtn, "LIVE leftmost, Tempat Pilihan directly beside it");
-  // ...and the locked distance tabs stay available after the primary row.
-  const distanceBar = code.indexOf("mb-5 grid grid-cols-4");
-  assert.ok(distanceBar > primaryBar, "Pilihan Jarak stays available after the primary row");
-  // The distance bar and the primary bar never horizontally scroll.
-  assert.equal(/className="mb-5 flex gap-2 overflow-x-auto"/.test(code.slice(0, distanceBar)), false);
+  // The two former bars are merged into ONE grid row (PO 2026-09-26): no
+  // separate primary row and no separate distance row.
+  assert.match(code, /mb-5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\]/);
+  assert.equal(code.includes("grid-cols-[auto_1fr]"), false, "old two-row primary bar is gone");
+  assert.equal(code.includes("grid-cols-4"), false, "old separate distance bar is gone");
+  // Order is locked: LIVE leftmost, Tempat Pilihan directly beside it, then
+  // the distance tabs.
+  const filterBar = code.indexOf("mb-5 grid grid-cols-[auto_auto_1fr_1fr_1fr]");
+  const liveBtn = code.indexOf("setLiveOnly", filterBar);
+  const curatedBtn = code.indexOf("setCuratedOnly(true)", filterBar);
+  const distanceBtn = code.indexOf("DISTANCE_FILTERS.map", filterBar);
+  assert.ok(liveBtn >= 0 && curatedBtn > liveBtn && distanceBtn > curatedBtn, "LIVE | Tempat Pilihan | distance tabs, in order");
+  // The filter bar never horizontally scrolls (the old overflow strip).
+  assert.equal(/className="mb-5 flex gap-2 overflow-x-auto"/.test(code.slice(0, filterBar)), false);
   // The only remaining scroll container is the curated-chips row INSIDE the
   // Tempat Pilihan layer — Dapur/Kopi/Teh never become primary tabs.
   const chipsIdx = code.indexOf('aria-label="Koleksi Tempat Pilihan"');
-  assert.ok(chipsIdx > distanceBar, "collection chips render only inside the Tempat Pilihan layer");
-  const primarySlice = code.slice(primaryBar, distanceBar);
-  assert.ok(!primarySlice.includes("CURATED_COLLECTIONS"), "no collection is a primary tab");
+  assert.ok(chipsIdx > filterBar, "collection chips render only inside the Tempat Pilihan layer");
+  const barSlice = code.slice(filterBar, chipsIdx);
+  assert.ok(!barSlice.includes("CURATED_COLLECTIONS"), "no collection is a primary tab");
   // No Kategori tab/filter exists on Home (categories stay internal data).
   assert.equal(code.includes(">Kategori</button>"), false);
 });
@@ -200,8 +201,10 @@ test("Home shell renders per request so the header reflects the live session", (
   const appCode = stripComments(appPage);
   assert.match(appCode, /export const dynamic = "force-dynamic"/);
   // The UI itself is a client component mounted by the server wrapper
-  // (route segment config is ignored in "use client" files).
-  assert.match(appCode, /<HomeDiscovery \/>/);
+  // (route segment config is ignored in "use client" files). The wrapper
+  // prefetches public Places server-side (initialPlaces, PO 2026-09-26) so
+  // the client never re-fetches /api/places after hydration.
+  assert.match(appCode, /<HomeDiscovery initialPlaces=\{initialPlaces\} \/>/);
   assert.match(stripComments(homePage), /"use client"/);
 });
 

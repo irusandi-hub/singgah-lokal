@@ -1,4 +1,5 @@
 import HomeDiscovery from "@/components/home-discovery";
+import { getPublicPlaceExperienceRepository } from "@/lib/place-experience-repository";
 
 // The Home shell must render per request: the header's session state
 // (account menu vs Daftar/Masuk) comes from the live session probe. As a
@@ -10,6 +11,14 @@ import HomeDiscovery from "@/components/home-discovery";
 // rendering.
 export const dynamic = "force-dynamic";
 
-export default function Home() {
-  return <HomeDiscovery />;
+export default async function Home() {
+  // Performance (PO 2026-09-26): public discovery data (sessionless client,
+  // published-only RLS) is prefetched server-side so Places render on the
+  // first paint — the client no longer pays a post-hydration /api/places
+  // roundtrip. The sessionless client never touches cookies(), so the auth
+  // shell stays fully dynamic and correct.
+  const initialPlaces = await getPublicPlaceExperienceRepository().then((repository) =>
+    repository.listPublishedPlaces(),
+  );
+  return <HomeDiscovery initialPlaces={initialPlaces} />;
 }

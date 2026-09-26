@@ -10,9 +10,10 @@ import {
 } from "../lib/live/ui";
 
 test("Home filter bar matches the locked PO set exactly: LIVE first, distance only", () => {
-  // Policy §12.5 #1 (PO 2026-09-20): LIVE | 500 m | 1 km | 5 km | 10 km+.
-  // No "Di sekitar saya" and no time filters in the distance set.
-  assert.deepEqual(DISTANCE_FILTERS, ["500 m", "1 km", "5 km", "10 km+"]);
+  // PO 2026-09-26 (amending Policy §12.5 #1): one row — LIVE | Tempat
+  // Pilihan | 1 km | 5 km | 10 km+. "500 m" was removed from the UI, state,
+  // default, and filter logic; no "Di sekitar saya" and no time filters.
+  assert.deepEqual(DISTANCE_FILTERS, ["1 km", "5 km", "10 km+"]);
   // The removed filters must not be re-introduced silently.
   const uiSource = readFileSync(new URL("../lib/live/ui.ts", import.meta.url), "utf8");
   const homeSource = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
@@ -37,8 +38,6 @@ test("Distance matching is bounded by the locked radii and fail-open for the wid
   const mid = { lat: -6.92, lng: 107.6 }; // ~2.2 km
   const far = { lat: -6.99, lng: 107.6 }; // ~10 km
 
-  assert.equal(matchesDistance("500 m", viewer, near), true);
-  assert.equal(matchesDistance("500 m", viewer, mid), false);
   assert.equal(matchesDistance("1 km", viewer, near), true);
   assert.equal(matchesDistance("1 km", viewer, mid), false);
   assert.equal(matchesDistance("5 km", viewer, mid), true);
@@ -47,6 +46,13 @@ test("Distance matching is bounded by the locked radii and fail-open for the wid
   assert.equal(matchesDistance("10 km+", viewer, far), true);
   assert.equal(matchesDistance("10 km+", null, null), true);
   assert.equal(matchesDistance("5 km", null, near), false);
+  // "500 m" is fully removed: the filter value must not exist anymore.
+  const typeSource = readFileSync(new URL("../lib/live/ui.ts", import.meta.url), "utf8");
+  assert.equal(typeSource.includes('"500 m"'), false, '"500 m" must not exist in the filter model');
+  const homeCode = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
+  assert.equal(homeCode.includes('"500 m"'), false, '"500 m" must not exist in Home state/default');
+  // Default is the smallest remaining bounded radius.
+  assert.match(homeCode, /useState<DistanceFilter>\("1 km"\)/);
 });
 
 test("Haversine distance is sane and formatted for the Indonesian UI", () => {

@@ -1,13 +1,15 @@
 /**
- * Home filter bar (locked, PO decision 2026-09-20, Policy §12.5 #1):
- * LIVE first/leftmost, then distance radii only. LIVE is a process/status
- * filter (Places with a live session), not a time or category filter.
- * Time filters and the former geolocation-first filter are removed from
- * the Home bar by explicit product decision.
+ * Home filter bar (PO 2026-09-26, amending the 2026-09-20 locked set):
+ * ONE row — LIVE first/leftmost, "Tempat Pilihan", then the distance radii.
+ * The smallest legacy radius (500 m, unquoted here by test contract) was
+ * removed by explicit PO decision (UI, state, default, and filter logic):
+ * the smallest bounded radius is now 1 km. LIVE remains a
+ * process/status filter (Places with a live session), not a time or category
+ * filter. Time filters and the former geolocation-first filter stay removed.
  */
-export type DistanceFilter = "500 m" | "1 km" | "5 km" | "10 km+";
+export type DistanceFilter = "1 km" | "5 km" | "10 km+";
 
-export const DISTANCE_FILTERS: DistanceFilter[] = ["500 m", "1 km", "5 km", "10 km+"];
+export const DISTANCE_FILTERS: DistanceFilter[] = ["1 km", "5 km", "10 km+"];
 
 export const LIVE_FILTER_LABEL = "LIVE";
 
@@ -29,7 +31,6 @@ export type LiveDiscoveryItem = {
  *   unbounded filter — bounded radii never hide results by assumption.
  */
 export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
-  "500 m": 500,
   "1 km": 1000,
   "5 km": 5000,
   "10 km+": null,

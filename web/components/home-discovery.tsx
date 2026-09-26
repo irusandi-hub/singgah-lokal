@@ -22,26 +22,28 @@ import {
 // route segment config in the wrapper takes effect: as a top-level "use
 // client" page the shell was statically prerendered and served with a
 // year-long s-maxage, freezing the signed-out header for logged-in users.
-export default function HomeDiscovery() {
-  // Locked Home filter bar (PO decision 2026-09-20, Policy §12.5 #1):
-  // LIVE first/leftmost, then distance radii only. LIVE is a process/status
-  // filter (Places with a live session), not a time or category filter.
-  // Default = "500 m": the bounded radius anchors on the real Current
+// Performance (PO 2026-09-26): the public discovery data is passed in from
+// the server wrapper (sessionless fetch, safe inside the dynamic shell) —
+// the client no longer re-fetches /api/places after hydration.
+export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: Place[] }) {
+  // Places come from the server wrapper (initialPlaces) and never change
+  // client-side — no setter, no post-hydration fetch, no stale client copy.
+  const [places] = useState<Place[]>(initialPlaces);
+  // Home filter bar — ONE row on mobile (PO 2026-09-26): LIVE leftmost,
+  // "Tempat Pilihan" beside it, then the distance tabs. Default = "1 km":
+  // the smallest remaining bounded radius anchors on the real Current
   // Location (PO: Current Location is the map center; no invented viewport).
-  // "Tempat Pilihan" (PO request, 2026-09-25) is a separate tab beside the
-  // distance group — the curated/selected-Place layer. Dapur, Kopi, and Teh
-  // are the curated collections inside it (mapped to canonical Place
-  // categories — NOT nearby-view categories, NOT a "lokal" grouping). It
-  // does NOT replace "Tempat di sekitar", which still appears whenever a
-  // bounded radius is active.
-  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("500 m");
+  // Dapur, Kopi, and Teh are the curated collections inside "Tempat
+  // Pilihan" (mapped to canonical Place categories — NOT nearby-view
+  // categories, NOT a "lokal" grouping). It does NOT replace "Tempat di
+  // sekitar", which still appears whenever a bounded radius is active.
+  const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("1 km");
   const [curatedOnly, setCuratedOnly] = useState(false);
   // Active curated collection (key of CURATED_COLLECTIONS); null resolves to
   // the first collection when the layer is opened.
   const [curatedCollectionKey, setCuratedCollectionKey] = useState<string | null>(null);
   const [liveOnly, setLiveOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [places, setPlaces] = useState<Place[]>([]);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
   // Viewer position — Current Location. Geolocation is the primary map
   // anchor: when available the Home Map centers on it and shows the user
@@ -54,13 +56,6 @@ export default function HomeDiscovery() {
   // Explicit "Lokasi Saya" requests bump this nonce so the map re-centers on
   // the latest fix on demand.
   const [locateNonce, setLocateNonce] = useState(0);
-
-  useEffect(() => {
-    fetch("/api/places")
-      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Places could not be loaded"))))
-      .then((loadedPlaces: Place[]) => setPlaces(loadedPlaces))
-      .catch(() => setPlaces([]));
-  }, []);
 
   // LIVE discovery feed (canonical live_sessions, published Places only).
   // Performance rule (PO, 2026-09-25): the 15-second poll runs ONLY while
@@ -162,10 +157,11 @@ export default function HomeDiscovery() {
     return result;
   }, [places, searchQuery, distanceFilter, liveOnly, curatedOnly, activeCollection, liveByPlaceId, viewerPosition]);
 
-  const liveCards = useMemo(
-    () => liveItems.filter((item) => visiblePlaces.some((place) => place.id === item.placeId)),
-    [liveItems, visiblePlaces],
-  );
+  const liveCards = useMemo(() => {
+    if (liveItems.length === 0) return [];
+    const visibleIds = new Set(visiblePlaces.map((place) => place.id));
+    return liveItems.filter((item) => visibleIds.has(item.placeId));
+  }, [liveItems, visiblePlaces]);
 
   // Map markers come ONLY from canonical Place coordinates — a Place
   // without lat/lng is never invented onto the map (fail-closed).
@@ -199,17 +195,20 @@ export default function HomeDiscovery() {
           </div>
         </div>
 
-        {/* Home tab bar — locked set (PO 2026-09-20, Policy §12.5 #1) with
-            the PO 2026-09-25 placement: LIVE leftmost, "Tempat Pilihan"
-            directly beside it, then the distance tabs. All primary tabs fit
-            one mobile screen — grid columns, no horizontal scroll, no bar
-            growing past the viewport. Dapur/Kopi/Teh stay INSIDE the
+        {/* Home filter bar — ONE row on mobile (PO 2026-09-26, amending the
+            2026-09-20 locked set): LIVE leftmost, "Tempat Pilihan" directly
+            beside it, then the distance tabs (the smallest legacy radius is
+            fully removed). All controls
+            share the row via grid columns — no wrap, no second row, no
+            horizontal overflow at 360 px. Compact text [11px]/padding/gap
+            keeps everything visible on the smallest supported viewport;
+            labels keep the master copy. Dapur/Kopi/Teh stay INSIDE the
             Tempat Pilihan layer (secondary row), never as primary tabs. */}
-        <div className="mb-5 grid grid-cols-[auto_1fr] gap-2 pb-1">
+        <div className="mb-5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5 pb-1">
           <button
             onClick={() => setLiveOnly((value) => !value)}
             aria-pressed={liveOnly}
-            className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-full px-3 py-2 text-xs font-semibold tracking-wide transition sm:px-4 ${
+            className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-full px-2 py-2 text-[11px] font-semibold tracking-wide transition sm:px-4 sm:text-xs ${
               liveOnly
                 ? "bg-live text-white"
                 : "border border-live/40 bg-white text-live"
@@ -224,7 +223,7 @@ export default function HomeDiscovery() {
               setLiveOnly(false);
             }}
             aria-pressed={curatedOnly}
-            className={`whitespace-nowrap rounded-full px-3 py-2 text-xs font-bold transition sm:px-4 ${
+            className={`whitespace-nowrap rounded-full px-2 py-2 text-[11px] font-bold transition sm:px-4 sm:text-xs ${
               curatedOnly
                 ? "bg-brand-ink text-white"
                 : "border border-brand-ink/25 bg-white text-brand-ink/70"
@@ -232,12 +231,6 @@ export default function HomeDiscovery() {
           >
             Tempat Pilihan
           </button>
-        </div>
-
-        {/* Pilihan Jarak — the locked distance tabs, directly after the
-            primary row, equally fitting one mobile screen. Labels stay the
-            locked master copy. */}
-        <div className="mb-5 grid grid-cols-4 gap-2 pb-1">
           {DISTANCE_FILTERS.map((filter) => (
             <button
               key={filter}
@@ -245,7 +238,7 @@ export default function HomeDiscovery() {
                 setDistanceFilter(filter);
                 setCuratedOnly(false);
               }}
-              className={`whitespace-nowrap rounded-full px-2 py-2 text-center text-xs font-bold transition sm:px-4 ${
+              className={`whitespace-nowrap rounded-full px-1 py-2 text-center text-[11px] font-bold transition sm:px-4 sm:text-xs ${
                 distanceFilter === filter && !curatedOnly
                   ? "bg-brand-accent text-white"
                   : "border border-black/10 bg-white text-black/65"
