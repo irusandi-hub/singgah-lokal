@@ -113,3 +113,34 @@ test("Place list data comes from the canonical Producer API", () => {
   // Unauthorized producers are routed to login (the API stays the boundary).
   assert.match(pageCode, /\/auth\?returnTo=%2Fproducer%2Fplaces/);
 });
+
+// --- Upload tab (PO, 2026-09-26; TAHAP 2) ---------------------------------
+
+test("The editor carries an actionable Upload tab gated on a saved Place", () => {
+  // Tab "Upload" exists beside "Detail Place"...
+  assert.match(formCode, /role="tab"/);
+  assert.match(formCode, /Detail Place/);
+  assert.match(formCode, /setEditorTab\("upload"\)/);
+  // ...disabled (with the reason) while the Place has no saved id...
+  assert.match(formCode, /disabled=\{!place\}/);
+  assert.match(formCode, /aria-disabled=\{!place\}/);
+  assert.match(formCode, /Tab Upload aktif setelah Place disimpan/);
+  // ...and the photo slots render only inside the Upload tab.
+  assert.match(formCode, /\{editorTab === "upload" && \(/);
+  assert.match(formCode, /PLACE_PHOTO_SLOTS\.map/);
+  // The slot list loads from the canonical place_photos record.
+  assert.match(formCode, /\/api\/producer\/places\/\$\{place\.id\}\/photos/);
+});
+
+test("Upload/delete failures surface as slot errors (no silent success)", () => {
+  // The DELETE path maps backend errors to the slot error state, exactly
+  // like the upload path — the UI never claims success without the API.
+  const removeIdx = formCode.indexOf("async function removeSlot");
+  assert.ok(removeIdx > 0);
+  const removeBlock = formCode.slice(removeIdx, removeIdx + 1400);
+  assert.match(removeBlock, /if \(response\.ok\)/);
+  assert.match(removeBlock, /mediaErrorLabel\(String\(data\.error \?\? "place_media_upload_failed"\)\)/);
+  // Authorization/auth failures get explicit Indonesian messages.
+  assert.match(formCode, /producer_authorization_required:/);
+  assert.match(formCode, /authentication_required:/);
+});

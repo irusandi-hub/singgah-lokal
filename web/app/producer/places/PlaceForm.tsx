@@ -121,11 +121,18 @@ export default function PlaceForm({ place, onSaved }: Props) {
   async function removeSlot(slotKey: string) {
     if (!place) return;
     setSlotBusy((current) => ({ ...current, [slotKey]: true }));
+    setSlotError((current) => ({ ...current, [slotKey]: "" }));
     try {
       const response = await fetch(`/api/producer/places/${place.id}/photos/${slotKey}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
       if (response.ok) {
         setSlots((current) => ({ ...current, [slotKey]: { slotKey, filled: false, photo: null } }));
         setMessage("Foto dihapus.");
+      } else {
+        // No silent failure: a rejected delete (auth, authorization, storage)
+        // surfaces as the slot's error state — the UI must never claim a
+        // success the backend did not confirm.
+        setSlotError((current) => ({ ...current, [slotKey]: mediaErrorLabel(String(data.error ?? "place_media_upload_failed")) }));
       }
     } finally {
       setSlotBusy((current) => ({ ...current, [slotKey]: false }));
@@ -291,6 +298,8 @@ const MEDIA_ERROR_LABELS: Record<string, string> = {
   place_photo_title_invalid: "Judul foto wajib diisi (maksimal 120 karakter).",
   place_photo_description_invalid: "Deskripsi foto wajib diisi (maksimal 1000 karakter).",
   place_media_bucket_missing: "Penyimpanan foto (bucket) belum tersedia. Hubungi pengelola platform.",
+  authentication_required: "Sesi berakhir. Masuk kembali sebagai Producer Place ini.",
+  producer_authorization_required: "Kamu tidak memiliki akses mengelola foto Place ini.",
   place_media_upload_failed: "Foto tidak dapat disimpan. Coba lagi.",
 };
 
