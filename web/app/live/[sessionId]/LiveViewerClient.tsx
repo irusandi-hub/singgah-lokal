@@ -67,17 +67,17 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key) return;
 
-    let channel: ReturnType<{ channel: ReturnType<typeof Object> }["channel"]> | null = null;
+    let client: Awaited<ReturnType<typeof import("@supabase/supabase-js").createClient>> | null = null;
     let cancelled = false;
 
     (async () => {
       const { createClient } = await import("@supabase/supabase-js");
-      const client = createClient(url, key, { realtime: { params: { eventsPerSecond: 5 } } });
+      client = createClient(url, key, { realtime: { params: { eventsPerSecond: 5 } } });
       if (cancelled) {
         void client.removeAllChannels();
         return;
       }
-      channel = client.channel(`live_session:${sessionId}`, { config: { private: true, broadcast: { self: false } } });
+      const channel = client.channel(`live_session:${sessionId}`, { config: { private: true, broadcast: { self: false } } });
       channel.on("broadcast", { event: "comment" }, (message: { payload?: { body?: unknown; sequence?: unknown } }) => {
         const body = typeof message?.payload?.body === "string" ? message.payload.body : "";
         if (!body) return;
@@ -96,7 +96,13 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
 
     return () => {
       cancelled = true;
-      channel?.unsubscribe();
+      // Full teardown: removing all channels unsubscribes and tears down the
+      // dynamic client's socket — no listener or stale realtime state survives
+      // the unmount (tech §6 subscription lifecycle).
+      if (client) {
+        void client.removeAllChannels();
+        client = null;
+      }
     };
   }, [admitted, sessionId]);
 

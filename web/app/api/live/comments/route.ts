@@ -55,7 +55,11 @@ export async function POST(request: Request) {
     // (policy §12.1 item 6; tech §6). Channel: live_session:{id}. Sequence is
     // server-issued and monotonic per session (tech §6).
     const channel = supabase.channel(`live_session:${sessionId}`, { config: { private: true } });
-    await channel.send({
+    // Realtime is display transport only (tech §6): Supabase state stays
+    // canonical, but the publish OUTCOME is still checked — a failed
+    // broadcast (socket down and REST fallback erroring/timing out) must not
+    // be reported as delivered. The viewer gets a retriable failure instead.
+    const delivery = await channel.send({
       type: "broadcast",
       event: "comment",
       payload: {
@@ -65,6 +69,10 @@ export async function POST(request: Request) {
       },
     });
     await channel.unsubscribe();
+
+    if (delivery !== "ok") {
+      return NextResponse.json({ error: "live_comment_delivery_failed" }, { status: 503 });
+    }
 
     return NextResponse.json({ delivered: true });
   } catch (error) {
