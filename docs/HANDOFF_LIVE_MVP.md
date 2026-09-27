@@ -182,3 +182,17 @@ Home/Map
 → Producer
 
 Focus on real technical gaps only.
+
+## 12. NON-NEGOTIABLE WORK DISCIPLINE
+1. Latest actual project state adalah source of truth. Chat history hanya context dan tidak boleh mengalahkan evidence terbaru dari repository, tests, atau Supabase.
+2. Untuk setiap task, tentukan SATU concrete unfinished MVP gap berdasarkan main terbaru + Master yang relevan.
+3. Jangan mengulang pekerjaan yang sudah selesai, stale audit, atau fix yang sudah terverifikasi.
+4. Jangan memperluas scope ke area yang tidak berhubungan langsung dengan task aktif.
+5. Jangan mengarang product decision, copy, category, flow, preference, atau technical requirement.
+6. One task = one goal = one scope = finish. Setelah selesai, lanjut ke gap nyata berikutnya.
+7. Jika pekerjaan dapat dilakukan langsung, lakukan langsung. Jangan mendelegasikan tanpa alasan akses.
+8. Jika agent diperlukan, satu prompt harus lengkap: CODING → TEST → COMMIT → PUSH → VERIFY. Jangan meminta user mengirim prompt berulang untuk task yang sama.
+9. Setelah agent selesai, verifikasi hasil terbaru sebelum menentukan task berikutnya.
+10. Item yang sudah selesai dianggap LOCKED. Jangan disentuh lagi kecuali ada regression atau requirement baru yang dibuktikan.
+11. Jika benar-benar blocked oleh keputusan produk, catat blocker secara spesifik dan jangan membuat implementasi berdasarkan asumsi.
+12. Semua keputusan kerja harus berdasarkan data terbaru, bukan daftar task lama atau riwayat percakapan.
