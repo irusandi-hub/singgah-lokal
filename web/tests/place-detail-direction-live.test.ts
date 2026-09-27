@@ -26,7 +26,7 @@ test("Place detail always renders the Direction attribute (both states)", () => 
   assert.match(pageCode, /href=\{buildDirectionsUrl\(place\) as string\}/);
   // ...and without coordinates: the attribute stays visible but disabled.
   assert.match(pageCode, /aria-disabled="true"/);
-  assert.match(pageCode, /Koordinat Place belum tersedia/);
+  assert.match(pageCode, /Koordinat Tempat belum tersedia/);
 });
 
 test("Direction uses ONLY canonical Place coordinates through the shared helper", () => {
@@ -71,7 +71,7 @@ test("LIVE active → the action opens the real /live/[sessionId] flow", () => {
 });
 
 test("LIVE inactive → honest unavailable status, no fabricated session", () => {
-  assert.match(liveCode, /Place ini sedang tidak Live\./);
+  assert.match(liveCode, /Tempat ini sedang tidak Live\./);
   // No fake session id anywhere — the not-live branch renders no link.
   const notLiveBranch = liveCode.slice(liveCode.indexOf("// Not live"));
   assert.equal(/\/live\//.test(notLiveBranch), false, "not-live branch must not link to a session");

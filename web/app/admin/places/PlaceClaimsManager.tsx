@@ -100,8 +100,8 @@ export default function PlaceClaimsManager() {
         kind: "ok",
         message:
           decision === "approved"
-            ? "Klaim disetujui. Ownership Place diberikan ke akun pengaju."
-            : "Klaim ditolak. Place tetap tanpa pemilik.",
+            ? "Klaim disetujui. Ownership Tempat diberikan ke akun pengaju."
+            : "Klaim ditolak. Tempat tetap tanpa pemilik.",
       });
     } catch {
       setFeedback({ kind: "error", message: "Tidak dapat menghubungi server." });
@@ -140,10 +140,10 @@ export default function PlaceClaimsManager() {
   }
 
   return (
-    <section aria-label="Klaim Place" className="rounded-2xl border border-black/10 bg-white p-5">
-      <h2 className="text-sm font-bold uppercase tracking-wide text-black/50">Klaim Place</h2>
+    <section aria-label="Klaim Tempat" className="rounded-2xl border border-black/10 bg-white p-5">
+      <h2 className="text-sm font-bold uppercase tracking-wide text-black/50">Klaim Tempat</h2>
       <p className="mt-1 text-xs leading-5 text-black/55">
-        Persetujuan adalah satu-satunya jalan memberikan ownership. Place tetap tanpa pemilik selama klaim
+        Persetujuan adalah satu-satunya jalan memberikan ownership. Tempat tetap tanpa pemilik selama klaim
         pending maupun setelah ditolak. Bukti kepemilikan bersifat privat dan hanya dibuka untuk Platform
         Moderator.
       </p>
@@ -154,7 +154,7 @@ export default function PlaceClaimsManager() {
         </p>
       ) : claims.length === 0 ? (
         <p className="mt-4 text-sm text-black/60" role="status">
-          Belum ada klaim Place.
+          Belum ada klaim Tempat.
         </p>
       ) : (
         <ul className="mt-4 divide-y divide-black/5">

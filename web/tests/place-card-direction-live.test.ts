@@ -55,7 +55,7 @@ test("Place without coordinates → Direction is safely disabled (no invented ta
   assert.equal(buildDirectionsUrl({ latitude: -6.9, longitude: Number.NaN }), null);
   // ...rendered as a safe disabled affordance, not a broken link.
   assert.match(code, /aria-disabled="true"/);
-  assert.match(code, /Koordinat Place belum tersedia/);
+  assert.match(code, /Koordinat Tempat belum tersedia/);
   // The disabled affordance must be a <span> — an <a> without href would be
   // invalid HTML inside the card anchor.
   assert.equal(/<a[^>]*aria-disabled/.test(code), false, "disabled Direction must not be an anchor");
@@ -97,7 +97,7 @@ test("Place NOT LIVE → pressing the indicator shows the honest non-live status
   assert.match(code, /setNonLiveNoticePlaceId\(\(current\) => \(current === place\.id \? null : place\.id\)\)/);
   assert.match(code, /aria-pressed=\{nonLiveNoticePlaceId === place\.id\}/);
   assert.match(code, /role="status"/);
-  assert.match(code, /sedang tidak Live\. Place ini dapat memulai Live kapan saja\./);
+  assert.match(code, /sedang tidak Live\. Tempat ini dapat memulai Live kapan saja\./);
 });
 
 // --- Distance --------------------------------------------------------------

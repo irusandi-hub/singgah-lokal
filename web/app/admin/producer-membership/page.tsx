@@ -25,8 +25,8 @@ export default async function AdminProducerMembershipPage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Producer Membership" description="Kewenangan Producer per Place." />
-        <AdminErrorState message="Data Producer Membership tidak dapat dimuat." />
+        <AdminPageHeader title="Pengelola Membership" description="Kewenangan Pengelola per Tempat." />
+        <AdminErrorState message="Data Pengelola Membership tidak dapat dimuat." />
       </div>
     );
   }
@@ -34,8 +34,8 @@ export default async function AdminProducerMembershipPage() {
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Producer Membership"
-        description="Kewenangan Producer per Place (user, producer, place, role)."
+        title="Pengelola Membership"
+        description="Kewenangan Pengelola per Tempat (user, producer, place, role)."
       />
 
       {/* Approval flow: pengajuan terikat user_id pengaju; approval mengaktifkan
@@ -43,11 +43,11 @@ export default async function AdminProducerMembershipPage() {
       <ProducerApplicationsManager places={places} />
       <AdminDataTable
         rows={memberships}
-        emptyMessage="Belum ada Producer Membership."
+        emptyMessage="Belum ada Pengelola Membership."
         columns={[
           { key: "user", header: "User ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.userId)}</span> },
-          { key: "producer", header: "Producer", render: (row) => <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> },
-          { key: "place", header: "Place", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
+          { key: "producer", header: "Pengelola", render: (row) => <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> },
+          { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
           {
             key: "role",
             header: "Role",

@@ -26,7 +26,7 @@ export default async function AdminLivePage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Live" description="Live Session dan eligibility Producer." />
+        <AdminPageHeader title="Live" description="Live Session dan eligibility Pengelola." />
         <AdminErrorState message="Data Live tidak dapat dimuat." />
       </div>
     );
@@ -38,7 +38,7 @@ export default async function AdminLivePage() {
     <div className="space-y-8">
       <AdminPageHeader
         title="Live"
-        description="Live Session dan eligibility Producer. Batas terkunci: global 5 aktif, 1 per Place, 100 penonton, 60 menit."
+        description="Live Session dan eligibility Pengelola. Batas terkunci: global 5 aktif, 1 per Tempat, 100 penonton, 60 menit."
       />
 
       <section aria-label="Ringkasan Live" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -59,8 +59,8 @@ export default async function AdminLivePage() {
           emptyMessage="Belum ada Live Session."
           columns={[
             { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-            { key: "place", header: "Place", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
-            { key: "producer", header: "Producer", render: (row) => <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> },
+            { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
+            { key: "producer", header: "Pengelola", render: (row) => <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> },
             { key: "stage", header: "Proses (stage)", render: (row) => <span className="font-mono text-xs">{formatShortId(row.stageId)}</span> },
             {
               key: "status",
@@ -92,7 +92,7 @@ export default async function AdminLivePage() {
       </section>
 
       <section aria-label="Live Eligibility" className="space-y-3">
-        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Eligibility Producer</h3>
+        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Eligibility Pengelola</h3>
         <p className="text-sm text-black/55">
           Pemberian dan pencabutan eligibility tetap melalui jalur audited yang sudah ada (RPC{' '}
           <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs">grant_live_eligibility</code> /{' '}
@@ -102,7 +102,7 @@ export default async function AdminLivePage() {
           rows={eligibility}
           emptyMessage="Belum ada eligibility yang diberikan."
           columns={[
-            { key: "producer", header: "Producer", render: (row) => <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> },
+            { key: "producer", header: "Pengelola", render: (row) => <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> },
             { key: "path", header: "Path", render: (row) => <AdminStatusBadge value={row.path} tone={row.path === "ADMIN_APPROVED" ? "positive" : "neutral"} /> },
             { key: "active", header: "Aktif", render: (row) => (row.active ? <AdminStatusBadge value="aktif" tone="positive" /> : <AdminStatusBadge value="nonaktif" tone="negative" />) },
             { key: "granted", header: "Diberikan", render: (row) => formatAdminTimestamp(row.grantedAt) },

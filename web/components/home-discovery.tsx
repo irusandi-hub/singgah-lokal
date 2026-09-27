@@ -260,14 +260,14 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
           <div className="mb-5 rounded-2xl border border-live/30 bg-white p-6 text-center shadow-sm">
             <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
             <p className="mt-1 text-xs text-black/55">
-              Ketika sebuah Place memulai Live, proses produksinya otomatis muncul di sini.
+              Ketika sebuah Tempat memulai Live, proses produksinya otomatis muncul di sini.
             </p>
             <button
               type="button"
               onClick={() => setLiveOnly(false)}
               className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white"
             >
-              Lihat Semua Place
+              Lihat Semua Tempat
             </button>
           </div>
         )}
@@ -335,9 +335,9 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
               drag/zoom state — the visual fix for the mobile drag bug. */}
           {mapPlaces.length === 0 && (
             <div className="absolute inset-x-6 top-1/2 z-[1100] -translate-y-1/2 rounded-2xl bg-white/95 p-4 text-center shadow-lg ring-1 ring-brand-ink/10">
-              <p className="text-sm font-bold">Belum ada Place dengan koordinat di peta</p>
+              <p className="text-sm font-bold">Belum ada Tempat dengan koordinat di peta</p>
               <p className="mt-1 text-xs text-black/55">
-                Peta hanya menampilkan Place dengan koordinat resmi. Place lain tetap ada di daftar.
+                Peta hanya menampilkan Tempat dengan koordinat resmi. Tempat lain tetap ada di daftar.
               </p>
             </div>
           )}
@@ -373,7 +373,7 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
               </h2>
             </div>
             <span className="text-xs font-bold text-black/45">
-              {visiblePlaces.length} Place
+              {visiblePlaces.length} Tempat
             </span>
           </div>
 
@@ -426,7 +426,7 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
                     </div>
 
                     <p className="mt-2 text-xs text-black/55">
-                      {place.area} · {place.type === "production" ? "Produksi" : "Experience"}
+                      {place.area} · {place.type === "production" ? "Produksi" : "Kegiatan"}
                     </p>
 
                     <p className="mt-2 line-clamp-2 text-sm leading-5 text-black/65">
@@ -464,7 +464,7 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
                         // navigation target is ever invented.
                         <span
                           aria-disabled="true"
-                          title="Koordinat Place belum tersedia"
+                          title="Koordinat Tempat belum tersedia"
                           className="ml-auto inline-flex shrink-0 cursor-not-allowed items-center gap-1 rounded-full border border-black/10 px-3 py-1.5 text-[11px] font-bold text-black/35"
                         >
                           <span aria-hidden>➤</span> Direction
@@ -513,7 +513,7 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
                               role="status"
                               className="mt-1.5 rounded-lg bg-live/10 px-3 py-1.5 text-[11px] font-semibold text-live"
                             >
-                              {place.name} sedang tidak Live. Place ini dapat memulai Live kapan saja.
+                              {place.name} sedang tidak Live. Tempat ini dapat memulai Live kapan saja.
                             </p>
                           )}
                         </>
@@ -525,7 +525,7 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
             </div>
           ) : (
             <div className="rounded-2xl border border-black/10 bg-white p-6 text-center">
-              <p className="text-sm font-bold">Place tidak ditemukan</p>
+              <p className="text-sm font-bold">Tempat tidak ditemukan</p>
               <p className="mt-1 text-xs text-black/55">
                 Coba kata kunci atau radius yang berbeda.
               </p>

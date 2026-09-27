@@ -92,7 +92,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
 
   async function uploadSlot(slotKey: string, file: File, title: string, description: string, mode: "save" | "replace") {
     if (!place) {
-      setSlotError((current) => ({ ...current, [slotKey]: "Simpan Place dulu sebelum mengunggah foto." }));
+      setSlotError((current) => ({ ...current, [slotKey]: "Simpan Tempat dulu sebelum mengunggah foto." }));
       return;
     }
     setSlotBusy((current) => ({ ...current, [slotKey]: true }));
@@ -158,7 +158,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
       method: place ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
     });
     const data = await response.json();
-    if (!response.ok) { setMessage(data.error ?? "Place tidak dapat disimpan"); return; }
+    if (!response.ok) { setMessage(data.error ?? "Tempat tidak dapat disimpan"); return; }
     setMessage(`Tersimpan sebagai ${data.publicationStatus}`);
     // A successful NEW-entry submit resets transient input so reopening the
     // form (or a route remount) starts empty again.
@@ -173,7 +173,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           (the upload API is keyed by the Place id), so the tab stays
           disabled — with the reason shown — until the form is saved, and
           becomes active the moment the save succeeds. */}
-      <div className="flex gap-2 border-b border-black/10 pb-3" role="tablist" aria-label="Editor Place">
+      <div className="flex gap-2 border-b border-black/10 pb-3" role="tablist" aria-label="Editor Tempat">
         <button
           type="button"
           role="tab"
@@ -191,13 +191,13 @@ export default function PlaceForm({ place, onSaved }: Props) {
           aria-selected={editorTab === "experience"}
           disabled={!place}
           aria-disabled={!place}
-          title={place ? undefined : "Simpan Place dulu — Experience membutuhkan Place yang sudah tersimpan."}
+          title={place ? undefined : "Simpan Tempat dulu — Kegiatan membutuhkan Tempat yang sudah tersimpan."}
           onClick={() => setEditorTab("experience")}
           className={`rounded-full px-4 py-2 text-xs font-bold transition ${
             editorTab === "experience" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
           } ${place ? "" : "cursor-not-allowed opacity-50"}`}
         >
-          Experience
+          Kegiatan
         </button>
         <button
           type="button"
@@ -205,7 +205,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           aria-selected={editorTab === "upload"}
           disabled={!place}
           aria-disabled={!place}
-          title={place ? undefined : "Simpan Place dulu — Upload membutuhkan Place yang sudah tersimpan."}
+          title={place ? undefined : "Simpan Tempat dulu — Upload membutuhkan Tempat yang sudah tersimpan."}
           onClick={() => setEditorTab("upload")}
           className={`rounded-full px-4 py-2 text-xs font-bold transition ${
             editorTab === "upload" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
@@ -216,17 +216,17 @@ export default function PlaceForm({ place, onSaved }: Props) {
       </div>
       {!place && (
         <p className="text-xs text-black/55" role="note">
-          Tab Upload aktif setelah Place disimpan — Place baru harus tersimpan (memiliki ID) terlebih dahulu.
+          Tab Upload aktif setelah Tempat disimpan — Tempat baru harus tersimpan (memiliki ID) terlebih dahulu.
         </p>
       )}
 
       {editorTab === "detail" && (
         <>
-      {      [["name", "Nama Place"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"]].map(([key, label]) => (
+      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
       <div className="grid gap-2">
-        <span className="text-sm font-semibold">Lokasi Place</span>
+        <span className="text-sm font-semibold">Lokasi Tempat</span>
         <PlaceLocationPicker
           latitude={form.latitude}
           longitude={form.longitude}
@@ -240,7 +240,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
         </div>
       </div>
       <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
-      <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Experience</option></select></label>
+      <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Kegiatan</option></select></label>
         </>
       )}
 
@@ -248,7 +248,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           this Place (same API, same links) — no parallel management UI.
           Reachable only for a SAVED Place (the tab needs the id). */}
       {editorTab === "experience" && place && (
-        <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Experience Place">
+        <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Kegiatan Tempat">
           <ExperiencesPanel placeId={place.id} />
         </section>
       )}
@@ -258,9 +258,9 @@ export default function PlaceForm({ place, onSaved }: Props) {
           input was removed as a media mechanism (server-side fail-closed
           validation). This tab is reachable only for a SAVED Place. */}
       {editorTab === "upload" && (
-      <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Foto Place">
+      <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Foto Tempat">
         <div>
-          <span className="text-sm font-semibold">Foto Place ({PLACE_PHOTO_SLOTS.length} slot standar)</span>
+          <span className="text-sm font-semibold">Foto Tempat ({PLACE_PHOTO_SLOTS.length} slot standar)</span>
           <p className="mt-1 text-xs text-black/55">
             Setiap slot memakai judul dan deskripsi sesuai struktur konten Production Story.
             Format {PLACE_MEDIA_ACCEPTED_TYPES.join(", ")} — maksimal {Math.round(PLACE_MEDIA_MAX_BYTES / (1024 * 1024))} MB per foto.
@@ -313,7 +313,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
       )}
 
       {editorTab === "detail" && (
-        <button className="rounded-lg bg-brand-ink px-4 py-3 text-sm font-bold text-white" type="submit">Simpan Place</button>
+        <button className="rounded-lg bg-brand-ink px-4 py-3 text-sm font-bold text-white" type="submit">Simpan Tempat</button>
       )}
       {message && <p className="text-sm text-black/60" role="status">{message}</p>}
     </form>
@@ -327,8 +327,8 @@ const MEDIA_ERROR_LABELS: Record<string, string> = {
   place_photo_title_invalid: "Judul foto wajib diisi (maksimal 120 karakter).",
   place_photo_description_invalid: "Deskripsi foto wajib diisi (maksimal 1000 karakter).",
   place_media_bucket_missing: "Penyimpanan foto (bucket) belum tersedia. Hubungi pengelola platform.",
-  authentication_required: "Sesi berakhir. Masuk kembali sebagai Producer Place ini.",
-  producer_authorization_required: "Kamu tidak memiliki akses mengelola foto Place ini.",
+  authentication_required: "Sesi berakhir. Masuk kembali sebagai Pengelola Tempat ini.",
+  producer_authorization_required: "Kamu tidak memiliki akses mengelola foto Tempat ini.",
   place_media_upload_failed: "Foto tidak dapat disimpan. Coba lagi.",
 };
 
@@ -415,7 +415,7 @@ export function PlaceEditor({ id, onSaved }: { id: string; onSaved?: (place: Pla
   const [error, setError] = useState("");
   useEffect(() => { fetch(`/api/producer/places/${id}`).then(async (response) => response.ok ? setPlace(await response.json()) : setError((await response.json()).error)); }, [id]);
   if (error) return <p className="rounded-lg bg-red-50 p-4 text-sm text-red-800">{error}</p>;
-  if (!place) return <p className="text-sm text-black/60">Memuat Place...</p>;
+  if (!place) return <p className="text-sm text-black/60">Memuat Tempat...</p>;
   async function changeStatus(publicationStatus: Place["publicationStatus"]) {
     const response = await fetch(`/api/producer/places/${id}/publication`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ publicationStatus }) });
     const data = await response.json();

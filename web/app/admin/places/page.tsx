@@ -28,8 +28,8 @@ export default async function AdminPlacesPage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Places" description="Seluruh Place di platform." />
-        <AdminErrorState message="Data Places tidak dapat dimuat." />
+        <AdminPageHeader title="Tempat" description="Seluruh Tempat di platform." />
+        <AdminErrorState message="Data Tempat tidak dapat dimuat." />
       </div>
     );
   }
@@ -37,16 +37,16 @@ export default async function AdminPlacesPage() {
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Places"
-        description="Seluruh Place di platform beserta status publikasi dan klaim. Read-only untuk MVP."
+        title="Tempat"
+        description="Seluruh Tempat di platform beserta status publikasi dan klaim. Read-only untuk MVP."
       />
       <PlaceClaimsManager />
 
       <AdminDataTable
         rows={places}
-        emptyMessage="Belum ada Place."
+        emptyMessage="Belum ada Tempat."
         columns={[
-          { key: "id", header: "Place ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
+          { key: "id", header: "Tempat ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
           { key: "name", header: "Nama", render: (row) => <span className="font-bold">{row.name}</span> },
           { key: "area", header: "Area", render: (row) => `${row.area} · ${row.category} · ${row.type}` },
           {
@@ -69,7 +69,7 @@ export default async function AdminPlacesPage() {
               />
             ),
           },
-          { key: "producer", header: "Producer", render: (row) => (row.producerId ? <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> : <span className="text-black/40">—</span>) },
+          { key: "producer", header: "Pengelola", render: (row) => (row.producerId ? <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> : <span className="text-black/40">—</span>) },
           { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },
         ]}
       />

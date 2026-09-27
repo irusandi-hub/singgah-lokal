@@ -23,7 +23,7 @@ export default async function DeveloperPage() {
         </p>
         <h2 className="mt-2 font-brand text-2xl font-semibold text-brand-ink">Kewenangan tertinggi program</h2>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-brand-ink/60">
-          Developer Center adalah lapisan Creator — terpisah dari Admin Center (operasional), Producer Dashboard,
+          Developer Center adalah lapisan Creator — terpisah dari Admin Center (operasional), Pengelola Dashboard,
           dan area user. Verifikasi kewenangan berjalan server-side di setiap permintaan.
         </p>
       </section>

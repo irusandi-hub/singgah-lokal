@@ -21,7 +21,7 @@ export default function ExperiencesPanel({ placeId }: { placeId: string }) {
       .then(async (response) => {
         if (cancelled) return;
         if (response.ok) { setExperiences(await response.json()); return; }
-        setError((await response.json().catch(() => ({}))).error ?? "Experience tidak dapat dimuat");
+        setError((await response.json().catch(() => ({}))).error ?? "Kegiatan tidak dapat dimuat");
       })
       .catch(() => undefined);
     return () => {
@@ -32,12 +32,12 @@ export default function ExperiencesPanel({ placeId }: { placeId: string }) {
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-black/60">Experience yang dapat dikelola untuk Place ini.</p>
+        <p className="text-sm text-black/60">Kegiatan yang dapat dikelola untuk Tempat ini.</p>
         <Link
           className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white"
           href={`/producer/places/${placeId}/experiences/new`}
         >
-          Tambah Experience
+          Tambah Kegiatan
         </Link>
       </div>
       {error ? (
@@ -57,7 +57,7 @@ export default function ExperiencesPanel({ placeId }: { placeId: string }) {
               <p className="mt-2 text-sm text-black/60">{experience.durationMinutes} menit · {experience.schedules.length} jadwal</p>
             </Link>
           ))}
-          {experiences.length === 0 && <p className="text-sm text-black/60">Belum ada Experience.</p>}
+          {experiences.length === 0 && <p className="text-sm text-black/60">Belum ada Kegiatan.</p>}
         </div>
       )}
     </div>

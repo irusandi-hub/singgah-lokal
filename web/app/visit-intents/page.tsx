@@ -48,16 +48,16 @@ export default async function VisitIntentsPage() {
       <SiteNav />
 
       <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Visit Intent Saya</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Kunjungan Saya</h1>
         <p className="mt-2 text-sm text-black/55">
-          Niat berkunjungmu ke Place. Status diperbarui setelah Producer merespons. Ini bukan pembayaran atau konfirmasi reservasi.
+          Niat berkunjungmu ke Tempat. Status diperbarui setelah Pengelola merespons. Ini bukan pembayaran atau konfirmasi reservasi.
         </p>
 
         {records.length === 0 ? (
           <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
-            <p className="text-sm font-bold">Belum ada Visit Intent</p>
+            <p className="text-sm font-bold">Belum ada Kunjungan</p>
             <p className="mt-1 text-xs text-black/55">
-              Ajukan niat berkunjung dari halaman Experience pada sebuah Place.
+              Ajukan niat berkunjung dari halaman Kegiatan pada sebuah Tempat.
             </p>
             <Link href="/" className="mt-4 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white">
               Jelajahi Tempat
@@ -106,7 +106,7 @@ export default async function VisitIntentsPage() {
 
                 {intent.producerResponseNote && (
                   <p className="mt-3 rounded-xl bg-[#fffaf0] p-3 text-sm text-black/70">
-                    <span className="font-bold">Respons Producer:</span> {intent.producerResponseNote}
+                    <span className="font-bold">Respons Pengelola:</span> {intent.producerResponseNote}
                   </p>
                 )}
 
@@ -123,7 +123,7 @@ export default async function VisitIntentsPage() {
                     className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-bold text-black/70"
                     visitedClassName="border-brand-accent/35 bg-[#faf6ee]"
                   >
-                    Lihat Experience
+                    Lihat Kegiatan
                   </VisitedLink>
                 </div>
               </article>

@@ -61,14 +61,14 @@ export default function HelpPage() {
           </section>
 
           <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Menjadi Producer</h2>
+            <h2 className="text-lg font-semibold tracking-tight">Menjadi Pengelola</h2>
             <ul className="mt-3 space-y-2 text-sm leading-6 text-black/60">
               <li>
-                Ingin menyiarkan Live dan mengelola Place milikmu? Ajukan melalui halaman{" "}
+                Ingin menyiarkan Live dan mengelola Tempat milikmu? Ajukan melalui halaman{" "}
                 <Link href="/producer/onboarding" className="font-semibold text-brand-accent">
-                  pengajuan Producer
+                  pengajuan Pengelola
                 </Link>
-                . Akses Producer diberikan admin platform.
+                . Akses Pengelola diberikan admin platform.
               </li>
             </ul>
           </section>

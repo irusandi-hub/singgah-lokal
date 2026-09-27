@@ -43,7 +43,7 @@ export async function PlaceLiveStatus({ placeId }: { placeId: string }) {
     const stage = await (await getServerProductionStoryRepository()).getById(placeId, session.stage_id, true);
 
     return (
-      <section className="mt-8 overflow-hidden rounded-2xl border border-live/30 bg-live/5" aria-label="Status Live Place">
+      <section className="mt-8 overflow-hidden rounded-2xl border border-live/30 bg-live/5" aria-label="Status Live Tempat">
         <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -72,7 +72,7 @@ export async function PlaceLiveStatus({ placeId }: { placeId: string }) {
   // (no return null): expandable to the honest not-live status. No session
   // id is invented and past sessions never count as live.
   return (
-    <section className="mt-8 overflow-hidden rounded-2xl border border-live/20 bg-white" aria-label="Status Live Place">
+    <section className="mt-8 overflow-hidden rounded-2xl border border-live/20 bg-white" aria-label="Status Live Tempat">
       <details className="group">
         <summary className="flex cursor-pointer items-center gap-2 p-5">
           <span className="h-2 w-2 rounded-full bg-live/50" />
@@ -81,7 +81,7 @@ export async function PlaceLiveStatus({ placeId }: { placeId: string }) {
           </p>
         </summary>
         <p className="border-t border-live/10 px-5 pb-5 pt-3 text-sm font-semibold text-black/65">
-          Place ini sedang tidak Live.
+          Tempat ini sedang tidak Live.
         </p>
       </details>
     </section>

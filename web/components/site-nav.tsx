@@ -117,7 +117,7 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
                     : "border border-brand-accent/40 bg-white text-brand-accent"
                 }`}
               >
-                Visit Intent Saya
+                Kunjungan Saya
               </Link>
             )}
           </nav>

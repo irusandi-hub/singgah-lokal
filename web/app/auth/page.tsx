@@ -97,8 +97,8 @@ function AuthForm() {
           <BrandLogo height={44} className="max-w-full" />
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">Masuk</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
-            Masuk untuk mengirim Visit Intent atau mengelola Place-mu. Niat berkunjung
-            dikirim ke Producer — bukan pembayaran.
+            Masuk untuk mengirim Kunjungan atau mengelola Tempat-mu. Niat berkunjung
+            dikirim ke Pengelola — bukan pembayaran.
           </p>
         </header>
 
@@ -183,10 +183,10 @@ function AuthForm() {
             </Link>
           </p>
           <p className="mt-2 text-center text-xs leading-5 text-black/45">
-            Akses Producer tidak otomatis — setelah mendaftar, admin platform memberikan
-            membership Producer. Area Producer muncul sendiri saat membership aktif.{" "}
+            Akses Pengelola tidak otomatis — setelah mendaftar, admin platform memberikan
+            membership Pengelola. Area Pengelola muncul sendiri saat membership aktif.{" "}
             <Link className="font-bold text-brand-accent underline underline-offset-2" href="/producer/onboarding">
-              Ajukan menjadi Producer
+              Ajukan menjadi Pengelola
             </Link>
           </p>
         </form>

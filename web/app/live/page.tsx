@@ -41,14 +41,14 @@ export default async function LiveIndexPage() {
       <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
         <h1 className="text-2xl font-semibold tracking-tight">Live Sekarang</h1>
         <p className="mt-2 text-sm text-black/55">
-          Proses produksi yang sedang berjalan dari Place terverifikasi. Live tidak direkam.
+          Proses produksi yang sedang berjalan dari Tempat terverifikasi. Live tidak direkam.
         </p>
 
         {loadError ? (
           <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
             <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
             <p className="mt-1 text-xs text-black/55">
-              Coba lagi nanti atau jelajahi Place lain.
+              Coba lagi nanti atau jelajahi Tempat lain.
             </p>
             <Link href="/" className="mt-4 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white">
               Kembali ke Beranda
@@ -58,7 +58,7 @@ export default async function LiveIndexPage() {
           <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
             <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
             <p className="mt-1 text-xs text-black/55">
-              Ketika sebuah Place memulai Live, proses produksinya otomatis muncul di sini.
+              Ketika sebuah Tempat memulai Live, proses produksinya otomatis muncul di sini.
             </p>
             <Link href="/" className="mt-4 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white">
               Kembali ke Beranda

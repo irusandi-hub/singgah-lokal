@@ -23,8 +23,8 @@ export default async function AdminProducersPage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Producers" description="Producer terdaftar beserta status klaim." />
-        <AdminErrorState message="Data Producers tidak dapat dimuat." />
+        <AdminPageHeader title="Pengelola" description="Pengelola terdaftar beserta status klaim." />
+        <AdminErrorState message="Data Pengelola tidak dapat dimuat." />
       </div>
     );
   }
@@ -32,14 +32,14 @@ export default async function AdminProducersPage() {
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Producers"
-        description="Producer terdaftar beserta status klaim. Read-only: belum ada workflow mutasi yang ditetapkan Master."
+        title="Pengelola"
+        description="Pengelola terdaftar beserta status klaim. Read-only: belum ada workflow mutasi yang ditetapkan Master."
       />
       <AdminDataTable
         rows={producers}
-        emptyMessage="Belum ada Producer terdaftar."
+        emptyMessage="Belum ada Pengelola terdaftar."
         columns={[
-          { key: "id", header: "Producer ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
+          { key: "id", header: "Pengelola ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
           { key: "name", header: "Nama", render: (row) => <span className="font-bold">{row.displayName}</span> },
           {
             key: "claim",

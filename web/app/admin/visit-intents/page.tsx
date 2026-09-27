@@ -24,8 +24,8 @@ export default async function AdminVisitIntentsPage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Visit Intents" description="Niat berkunjung di seluruh platform." />
-        <AdminErrorState message="Data Visit Intents tidak dapat dimuat." />
+        <AdminPageHeader title="Kunjungan" description="Niat berkunjung di seluruh platform." />
+        <AdminErrorState message="Data Kunjungan tidak dapat dimuat." />
       </div>
     );
   }
@@ -33,16 +33,16 @@ export default async function AdminVisitIntentsPage() {
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Visit Intents"
-        description="Niat berkunjung (SINGGAH) di seluruh platform. Waktu mengikuti Place timezone. Read-only untuk MVP."
+        title="Kunjungan"
+        description="Niat berkunjung (SINGGAH) di seluruh platform. Waktu mengikuti Tempat timezone. Read-only untuk MVP."
       />
       <AdminDataTable
         rows={intents}
-        emptyMessage="Belum ada Visit Intent."
+        emptyMessage="Belum ada Kunjungan."
         columns={[
           { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-          { key: "place", header: "Place", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
-          { key: "experience", header: "Experience", render: (row) => <span className="font-mono text-xs">{formatShortId(row.experienceId)}</span> },
+          { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
+          { key: "experience", header: "Kegiatan", render: (row) => <span className="font-mono text-xs">{formatShortId(row.experienceId)}</span> },
           { key: "slot", header: "Jadwal", render: (row) => `${row.requestedDate} ${row.requestedStartTime}–${row.requestedEndTime}` },
           {
             key: "status",

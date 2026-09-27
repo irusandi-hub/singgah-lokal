@@ -46,24 +46,24 @@ export default async function AdminOverviewPage() {
       <AdminStatCards
         stats={[
           { label: "Users", value: totals.users },
-          { label: "Producers", value: totals.producers },
+          { label: "Pengelola", value: totals.producers },
           { label: "Memberships", value: totals.producerMemberships },
-          { label: "Places", value: totals.places },
-          { label: "Experiences", value: totals.experiences },
-          { label: "Visit Intents", value: totals.visitIntents },
+          { label: "Tempat", value: totals.places },
+          { label: "Kegiatan", value: totals.experiences },
+          { label: "Kunjungan", value: totals.visitIntents },
           { label: "Live Sessions", value: totals.liveSessions },
           { label: "Live Reports", value: totals.liveReports },
         ]}
       />
 
-      <section aria-label="Visit Intent terbaru" className="space-y-3">
-        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Visit Intent terbaru</h3>
+      <section aria-label="Kunjungan terbaru" className="space-y-3">
+        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Kunjungan terbaru</h3>
         <AdminDataTable
           rows={overview.recentVisitIntents}
-          emptyMessage="Belum ada Visit Intent."
+          emptyMessage="Belum ada Kunjungan."
           columns={[
             { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-            { key: "place", header: "Place", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
+            { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
             { key: "slot", header: "Jadwal", render: (row) => `${row.requestedDate} ${row.requestedStartTime}–${row.requestedEndTime}` },
             { key: "status", header: "Status", render: (row) => <AdminStatusBadge value={row.status} tone={row.status === "accepted" ? "positive" : row.status === "declined" ? "negative" : "neutral"} /> },
             { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },
@@ -78,7 +78,7 @@ export default async function AdminOverviewPage() {
           emptyMessage="Belum ada Live Session."
           columns={[
             { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-            { key: "place", header: "Place", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
+            { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
             { key: "status", header: "Status", render: (row) => <AdminStatusBadge value={row.status} tone={row.status === "live" ? "live" : "neutral"} /> },
             { key: "peak", header: "Puncak penonton", render: (row) => row.viewerPeak },
             { key: "started", header: "Mulai", render: (row) => formatAdminTimestamp(row.startedAt) },

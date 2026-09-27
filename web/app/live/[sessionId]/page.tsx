@@ -110,7 +110,7 @@ export default async function LiveViewerPage({
               className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white"
               href={`/places/${place.id}`}
             >
-              Kembali ke Place
+              Kembali ke Tempat
             </Link>
           </section>
         )}
@@ -125,14 +125,14 @@ export default async function LiveViewerPage({
         )}
 
         <section className="mt-6 rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Tentang Place ini</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Tentang Tempat ini</p>
           <h2 className="mt-2 text-xl font-semibold tracking-tight">{place.name}</h2>
           <p className="mt-1 text-sm text-black/55">{place.area}</p>
           <Link
             className="mt-4 inline-flex rounded-full border border-black/10 bg-brand-cream px-4 py-2 text-sm font-bold"
             href={`/places/${place.id}`}
           >
-            Buka Place
+            Buka Tempat
           </Link>
         </section>
       </div>

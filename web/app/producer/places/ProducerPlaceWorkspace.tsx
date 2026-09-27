@@ -58,9 +58,9 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
 
   if (view.name === "new") {
     return (
-      <section aria-label="Tambah Place" className="mt-8">
+      <section aria-label="Tambah Tempat" className="mt-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Tambah Place</h2>
+          <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Tambah Tempat</h2>
           <button
             type="button"
             onClick={() => setView({ name: "list" })}
@@ -69,7 +69,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             Kembali ke daftar
           </button>
         </div>
-        <p className="mb-4 text-sm text-black/60">Lengkapi informasi Place. Setelah disimpan, kamu dapat menambahkan foto, Experience, dan mengelola Place.</p>
+        <p className="mb-4 text-sm text-black/60">Lengkapi informasi Tempat. Setelah disimpan, kamu dapat menambahkan foto, Kegiatan, dan mengelola Tempat.</p>
         <div className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
           <PlaceForm onSaved={handleSaved} />
         </div>
@@ -79,10 +79,10 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
 
   if (view.name === "edit") {
     return (
-      <section aria-label="Edit Place" className="mt-8">
+      <section aria-label="Edit Tempat" className="mt-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Kelola Place</h2>
+            <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Kelola Tempat</h2>
             <p className="mt-1 text-xs text-black/55">ID: {view.place.id}</p>
           </div>
           <button
@@ -112,8 +112,8 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
   }
 
   return (
-    <section aria-label="Place milikmu" className="mt-8">
-      <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Place milikmu</h2>
+    <section aria-label="Tempat milikmu" className="mt-8">
+      <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Tempat milikmu</h2>
       <div className="mt-3 grid gap-2">
         {places.map((place) => (
           <button
@@ -142,12 +142,12 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
         ))}
         {places.length === 0 && (
           <p className="text-sm text-black/60">
-            Belum ada Place yang dapat dikelola.
+            Belum ada Tempat yang dapat dikelola.
             {showOnboardingHint && (
               <>
-                {" "}Ikuti proses verifikasi untuk menjadi Producer — lihat{" "}
+                {" "}Ikuti proses verifikasi untuk menjadi Pengelola — lihat{" "}
                 <Link href="/producer/onboarding" className="font-bold text-brand-accent underline underline-offset-2">
-                  Ajukan menjadi Producer
+                  Ajukan menjadi Pengelola
                 </Link>.
               </>
             )}
@@ -164,7 +164,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             +
           </span>
           <span>
-            <span className="block font-semibold">Tambahkan Place baru</span>
+            <span className="block font-semibold">Tambahkan Tempat baru</span>
             <span className="mt-0.5 block text-xs text-black/55">Tampilkan proses produksi di SINGGAH LOKAL.</span>
           </span>
         </button>
@@ -181,9 +181,9 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             ⚑
           </span>
           <span>
-            <span className="block font-semibold">Klaim Place yang Sudah Ada</span>
+            <span className="block font-semibold">Klaim Tempat yang Sudah Ada</span>
             <span className="mt-0.5 block text-xs text-black/55">
-              Ajukan kepemilikan untuk Place yang sudah ada di SINGGAH LOKAL.
+              Ajukan kepemilikan untuk Tempat yang sudah ada di SINGGAH LOKAL.
             </span>
           </span>
         </button>

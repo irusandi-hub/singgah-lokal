@@ -2,8 +2,8 @@ import Link from "next/link";
 
 const links = [
   { href: "/producer", label: "Dashboard" },
-  { href: "/producer/places", label: "Places" },
-  { href: "/producer/visit-intents", label: "Visit Intent Inbox" },
+  { href: "/producer/places", label: "Tempat" },
+  { href: "/producer/visit-intents", label: "Kunjungan Inbox" },
   { href: "/producer/live", label: "Live" },
 ];
 
@@ -13,7 +13,7 @@ const links = [
 export default function ProducerSubNav({ active, dark = false }: { active: string; dark?: boolean }) {
   return (
     <nav
-      aria-label="Navigasi Producer"
+      aria-label="Navigasi Pengelola"
       className={`flex flex-wrap items-center gap-2 border-b pb-4 ${dark ? "border-white/15" : "border-black/10"}`}
     >
       {links.map(({ href, label }) => {

@@ -95,17 +95,17 @@ function SignUpForm() {
                 is provisioned by the platform (producer_memberships), never
                 granted from this form. */}
             <div className="mt-4 rounded-xl bg-white p-4 text-sm leading-6 text-black/70">
-              <p className="font-bold">Ingin jadi Producer?</p>
+              <p className="font-bold">Ingin jadi Pengelola?</p>
               <p className="mt-1">
-                Akses Producer tidak otomatis. Hubungi admin platform untuk verifikasi Place dan
-                pemberian membership Producer. Setelah membership aktif, area Producer muncul
+                Akses Pengelola tidak otomatis. Hubungi admin platform untuk verifikasi Tempat dan
+                pemberian membership Pengelola. Setelah membership aktif, area Pengelola muncul
                 otomatis saat kamu masuk.
               </p>
               <Link
                 href="/producer/onboarding"
                 className="mt-3 inline-flex rounded-full bg-brand-accent px-4 py-2 text-xs font-bold text-white"
               >
-                Ajukan menjadi Producer
+                Ajukan menjadi Pengelola
               </Link>
             </div>
 
@@ -139,7 +139,7 @@ function SignUpForm() {
           <BrandLogo height={44} className="max-w-full" />
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">Daftar akun</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
-            Buat akun untuk mengirim Visit Intent ke Producer. Akses Producer diberikan terpisah
+            Buat akun untuk mengirim Kunjungan ke Pengelola. Akses Pengelola diberikan terpisah
             oleh admin platform.
           </p>
         </header>

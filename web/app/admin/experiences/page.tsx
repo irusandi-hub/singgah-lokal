@@ -23,8 +23,8 @@ export default async function AdminExperiencesPage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Experiences" description="Experience per Place." />
-        <AdminErrorState message="Data Experiences tidak dapat dimuat." />
+        <AdminPageHeader title="Kegiatan" description="Kegiatan per Tempat." />
+        <AdminErrorState message="Data Kegiatan tidak dapat dimuat." />
       </div>
     );
   }
@@ -32,16 +32,16 @@ export default async function AdminExperiencesPage() {
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Experiences"
-        description="Experience per Place beserta status publikasi. Read-only untuk MVP."
+        title="Kegiatan"
+        description="Kegiatan per Tempat beserta status publikasi. Read-only untuk MVP."
       />
       <AdminDataTable
         rows={experiences}
-        emptyMessage="Belum ada Experience."
+        emptyMessage="Belum ada Kegiatan."
         columns={[
-          { key: "id", header: "Experience ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
+          { key: "id", header: "Kegiatan ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
           { key: "title", header: "Judul", render: (row) => <span className="font-bold">{row.title}</span> },
-          { key: "place", header: "Place", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
+          { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
           {
             key: "publication",
             header: "Publikasi",

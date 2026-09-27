@@ -43,7 +43,7 @@ export default async function ExperienceDetailPage({
 
         <article className="mt-8 overflow-hidden rounded-[28px] border border-black/10 bg-white shadow-sm">
           <div className="bg-[#d9dfd2] px-6 py-10 sm:px-10">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Experience di {place.name}</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Kegiatan di {place.name}</p>
             <h1 className="mt-3 text-4xl font-semibold tracking-tight">{experience.title}</h1>
             <p className="mt-3 max-w-2xl text-base leading-7 text-black/70">{experience.shortDescription}</p>
           </div>
@@ -59,13 +59,13 @@ export default async function ExperienceDetailPage({
                 <dd className="mt-1 text-sm font-semibold">{experience.minPartySize}-{experience.maxPartySize} orang</dd>
               </div>
               <div>
-                <dt className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Waktu Place</dt>
+                <dt className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Waktu Tempat</dt>
                 <dd className="mt-1 text-sm font-semibold">{place.timezone}</dd>
               </div>
             </dl>
 
             <section className="mt-8">
-              <h2 className="text-xl font-semibold">Tentang Experience</h2>
+              <h2 className="text-xl font-semibold">Tentang Kegiatan</h2>
               <p className="mt-3 text-sm leading-7 text-black/70">{experience.description}</p>
             </section>
 
@@ -89,7 +89,7 @@ export default async function ExperienceDetailPage({
                   <p>
                     {schedule.startTime}-{schedule.endTime} ({schedule.timezone})
                   </p>
-                  <p className="mt-2 font-semibold text-brand-accent">Ketersediaan perlu dikonfirmasi kepada Producer.</p>
+                  <p className="mt-2 font-semibold text-brand-accent">Ketersediaan perlu dikonfirmasi kepada Pengelola.</p>
                 </div>
               ))}
               <p className="mt-4 border-t border-black/10 pt-4 text-sm leading-6 text-black/65">{experience.meetingPoint}</p>

@@ -520,7 +520,7 @@ export default function HomeMap({
       <div
         ref={containerRef}
         className="relative z-0 h-full w-full touch-none"
-        aria-label="Peta Place"
+        aria-label="Peta Tempat"
       />
       {/* Map UI overlays ride ABOVE Leaflet's documented z-index ceiling
           (max control z-index = 1000): 1100+ keeps the React layer strictly

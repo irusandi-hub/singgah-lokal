@@ -70,11 +70,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const sections = [
     { href: "/admin", label: "Overview" },
     { href: "/admin/users", label: "Users" },
-    { href: "/admin/producers", label: "Producers" },
-    { href: "/admin/producer-membership", label: "Producer Membership" },
-    { href: "/admin/places", label: "Places" },
-    { href: "/admin/experiences", label: "Experiences" },
-    { href: "/admin/visit-intents", label: "Visit Intents" },
+    { href: "/admin/producers", label: "Pengelola" },
+    { href: "/admin/producer-membership", label: "Pengelola Membership" },
+    { href: "/admin/places", label: "Tempat" },
+    { href: "/admin/experiences", label: "Kegiatan" },
+    { href: "/admin/visit-intents", label: "Kunjungan" },
     { href: "/admin/live", label: "Live" },
     { href: "/admin/moderation", label: "Moderation" },
   ];

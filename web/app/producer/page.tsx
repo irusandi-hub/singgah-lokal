@@ -43,17 +43,17 @@ export default async function ProducerDashboardPage() {
     <main className="min-h-screen bg-brand-cream px-5 py-6 text-brand-ink sm:px-8">
       <div className="mx-auto max-w-3xl">
         <header className="mt-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Producer App</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Dashboard Producer</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Pengelola App</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Dashboard Pengelola</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-black/60">
-            Kelola Place, Experience, Visit Intent, dan Live untuk Place yang berada dalam kewenanganmu.
+            Kelola Tempat, Kegiatan, Kunjungan, dan Live untuk Tempat yang berada dalam kewenanganmu.
           </p>
         </header>
 
-        <section aria-label="Area Producer" className="mt-8 grid gap-3 sm:grid-cols-2">
+        <section aria-label="Area Pengelola" className="mt-8 grid gap-3 sm:grid-cols-2">
           <Link href="/producer/visit-intents" className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
-            <h2 className="text-lg font-semibold">Visit Intent Inbox</h2>
-            <p className="mt-1 text-sm text-black/60">Niat berkunjung masuk dan respons Producer.</p>
+            <h2 className="text-lg font-semibold">Kunjungan Inbox</h2>
+            <p className="mt-1 text-sm text-black/60">Niat berkunjung masuk dan respons Pengelola.</p>
           </Link>
           <Link href="/producer/live" className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
             <h2 className="text-lg font-semibold">Live</h2>

@@ -99,7 +99,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
     event.preventDefault();
     setFeedback(null);
     if (!selectedId) {
-      setFeedback({ kind: "error", message: "Pilih Place yang ingin diklaim." });
+      setFeedback({ kind: "error", message: "Pilih Tempat yang ingin diklaim." });
       return;
     }
     if (!file) {
@@ -145,14 +145,14 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <section aria-label="Klaim Place yang Sudah Ada" className="mt-8">
+    <section aria-label="Klaim Tempat yang Sudah Ada" className="mt-8">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">
-            Klaim Place yang Sudah Ada
+            Klaim Tempat yang Sudah Ada
           </h2>
           <p className="mt-1 text-xs text-black/55">
-            Hanya Place tanpa pemilik yang dapat diklaim. Place tidak dibuat atau diubah oleh klaim.
+            Hanya Tempat tanpa pemilik yang dapat diklaim. Tempat tidak dibuat atau diubah oleh klaim.
           </p>
         </div>
         <button
@@ -188,7 +188,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
 
       {placesFailed ? (
         <p className="rounded-2xl border border-red-800/20 bg-white p-4 text-sm font-semibold text-red-800" role="alert">
-          Daftar Place tidak dapat dimuat. Coba muat ulang halaman.
+          Daftar Tempat tidak dapat dimuat. Coba muat ulang halaman.
         </p>
       ) : places === null ? (
         <p className="text-sm text-black/60" role="status">
@@ -196,12 +196,12 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
         </p>
       ) : places.length === 0 ? (
         <p className="text-sm text-black/60" role="status">
-          Tidak ada Place tanpa pemilik saat ini. Place yang sudah dimiliki Producer tidak dapat diklaim.
+          Tidak ada Tempat tanpa pemilik saat ini. Tempat yang sudah dimiliki Pengelola tidak dapat diklaim.
         </p>
       ) : (
         <form onSubmit={submit} className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
           <label htmlFor="claim-place" className="block text-sm font-bold">
-            Place yang diklaim
+            Tempat yang diklaim
           </label>
           <select
             id="claim-place"
@@ -209,7 +209,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
             onChange={(event) => setSelectedId(event.target.value)}
             className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
           >
-            <option value="">Pilih Place…</option>
+            <option value="">Pilih Tempat…</option>
             {places.map((place) => (
               <option key={place.id} value={place.id}>
                 {place.name} — {place.area}
@@ -226,7 +226,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
                 <strong>{selected.area}</strong>
               </p>
               <p className="mt-2 text-xs text-black/50">
-                Kategori dan tipe mengikuti Place yang ada dan tidak dapat diubah melalui klaim.
+                Kategori dan tipe mengikuti Tempat yang ada dan tidak dapat diubah melalui klaim.
               </p>
             </div>
           )}

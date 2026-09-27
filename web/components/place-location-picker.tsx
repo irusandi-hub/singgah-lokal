@@ -173,7 +173,7 @@ export default function PlaceLocationPicker({ latitude, longitude, onChange }: P
       <div
         ref={containerRef}
         className="h-72 w-full touch-none overflow-hidden rounded-xl border border-black/10"
-        aria-label="Pilih lokasi Place pada peta"
+        aria-label="Pilih lokasi Tempat pada peta"
       />
       <div className="flex flex-wrap items-center gap-3">
         <button
@@ -181,13 +181,13 @@ export default function PlaceLocationPicker({ latitude, longitude, onChange }: P
           onClick={useMyLocation}
           disabled={locateState === "loading"}
           className="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-bold text-black/70 transition hover:border-black/25 disabled:opacity-60"
-          aria-label="Gunakan lokasi saya sebagai koordinat Place"
+          aria-label="Gunakan lokasi saya sebagai koordinat Tempat"
         >
           <span aria-hidden className="h-2 w-2 rounded-full bg-brand-accent" />
           {locateState === "loading" ? "Mengambil lokasi…" : "Gunakan lokasi saya"}
         </button>
         <p className="text-xs text-black/55">
-          Klik peta atau geser marker untuk menentukan koordinat Place.
+          Klik peta atau geser marker untuk menentukan koordinat Tempat.
         </p>
       </div>
       {locateState === "error" && (

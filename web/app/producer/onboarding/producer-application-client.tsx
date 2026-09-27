@@ -13,7 +13,7 @@ type Status = "none" | "pending" | "approved" | "rejected";
 const STATUS_TEXT: Record<Status, string> = {
   none: "Belum ada pengajuan untuk akun ini.",
   pending: "Pengajuan menunggu verifikasi admin.",
-  approved: "Pengajuan disetujui — membership Producer aktif untuk akun ini.",
+  approved: "Pengajuan disetujui — membership Pengelola aktif untuk akun ini.",
   rejected: "Pengajuan sebelumnya ditolak. Kamu bisa mengajukan kembali.",
 };
 
@@ -144,7 +144,7 @@ export default function ProducerApplicationClient({
               rows={3}
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              placeholder="Place yang ingin dikelola, bukti pengelolaan, dsb."
+              placeholder="Tempat yang ingin dikelola, bukti pengelolaan, dsb."
             />
           </label>
           <button

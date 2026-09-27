@@ -81,9 +81,9 @@ export default async function AccountPage() {
   if (authority.isProducer) {
     entries.push({
       href: "/producer",
-      eyebrow: "Producer",
-      title: "Producer Dashboard",
-      description: "Kelola Place, Experience, Visit Intent, dan Live milikmu.",
+      eyebrow: "Pengelola",
+      title: "Pengelola Dashboard",
+      description: "Kelola Tempat, Kegiatan, Kunjungan, dan Live milikmu.",
     });
   }
   if (authority.isPlatformAdmin) {
@@ -91,7 +91,7 @@ export default async function AccountPage() {
       href: "/admin",
       eyebrow: "Platform Admin",
       title: "Admin Center",
-      description: "Pengelolaan operasional: Users, Producers, Places, Live, Moderation.",
+      description: "Pengelolaan operasional: Users, Pengelola, Tempat, Live, Moderation.",
     });
   }
   if (authority.isCreator) {
@@ -129,14 +129,14 @@ export default async function AccountPage() {
           <section className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-6">
             <h2 className="text-sm font-semibold">Belum ada area khusus</h2>
             <p className="mt-2 text-sm leading-6 text-black/60">
-              Akunmu adalah akun user biasa: discovery, Place, Experience, SINGGAH/Visit Intent, dan Live.
-              Akses Producer diberikan admin platform; akses Platform Admin diberikan Creator.
+              Akunmu adalah akun user biasa: discovery, Tempat, Kegiatan, SINGGAH/Kunjungan, dan Live.
+              Akses Pengelola diberikan admin platform; akses Platform Admin diberikan Creator.
             </p>
             <Link
               href="/producer/onboarding"
               className="mt-4 inline-flex rounded-full bg-brand-accent px-4 py-2 text-xs font-bold text-white"
             >
-              Ajukan menjadi Producer
+              Ajukan menjadi Pengelola
             </Link>
           </section>
         ) : (

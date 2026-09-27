@@ -22,7 +22,7 @@ export default function AboutPage() {
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Tentang</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Tentang SINGGAH LOKAL</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
-            Platform discovery yang berpusat pada Place (Tempat) — tempat cerita di balik produk
+            Platform discovery yang berpusat pada Tempat — tempat cerita di balik produk
             dan pengalaman lokal diceritakan.
           </p>
         </header>
@@ -31,16 +31,16 @@ export default function AboutPage() {
           <section className="rounded-2xl border border-black/10 bg-white p-6">
             <h2 className="text-lg font-semibold tracking-tight">Alur inti</h2>
             <p className="mt-3 text-sm leading-6 text-black/60">
-              Map/Discovery → Place → Story/Production → Experience → SINGGAH → Visit Intent →
-              Producer.
+              Map/Discovery → Tempat → Story/Production → Kegiatan → SINGGAH → Kunjungan →
+              Pengelola.
             </p>
           </section>
 
           <section className="rounded-2xl border border-black/10 bg-white p-6">
             <h2 className="text-lg font-semibold tracking-tight">SINGGAH adalah visit intent</h2>
             <p className="mt-3 text-sm leading-6 text-black/60">
-              SINGGAH mengekspresikan niat berkunjung ke sebuah Place — bukan checkout, keranjang,
-              atau pembayaran. Harga dan tiket yang tampil bersifat informasional dari Producer.
+              SINGGAH mengekspresikan niat berkunjung ke sebuah Tempat — bukan checkout, keranjang,
+              atau pembayaran. Harga dan tiket yang tampil bersifat informasional dari Pengelola.
             </p>
           </section>
 

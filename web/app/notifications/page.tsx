@@ -63,7 +63,7 @@ export default async function NotificationsPage() {
           <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
             <p className="text-sm font-bold">Belum ada notifikasi</p>
             <p className="mt-1 text-xs text-black/55">
-              Ikuti sebuah Place agar kabaran Live-nya sampai ke sini.
+              Ikuti sebuah Tempat agar kabaran Live-nya sampai ke sini.
             </p>
           </div>
         ) : (

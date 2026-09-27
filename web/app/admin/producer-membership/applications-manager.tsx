@@ -61,7 +61,7 @@ export default function ProducerApplicationsManager({ places }: { places: PlaceO
     const producerId = placesById.trim();
     const place = places.find((item) => item.id === placesById);
     if (!producerId || !place) {
-      setFeedback({ kind: "error", message: "Pilih Place tujuan terlebih dahulu." });
+      setFeedback({ kind: "error", message: "Pilih Tempat tujuan terlebih dahulu." });
       return;
     }
     setBusyId(applicationId);
@@ -91,7 +91,7 @@ export default function ProducerApplicationsManager({ places }: { places: PlaceO
       setApplications(rows ?? []);
       setFeedback({
         kind: "ok",
-        message: "Berhasil menyetujui. Membership Producer aktif untuk akun pengaju (user_id sama) — tanpa akun baru.",
+        message: "Berhasil menyetujui. Membership Pengelola aktif untuk akun pengaju (user_id sama) — tanpa akun baru.",
       });
       setPlacesById("");
     } catch {
@@ -113,10 +113,10 @@ export default function ProducerApplicationsManager({ places }: { places: PlaceO
 
   return (
     <section className="rounded-2xl border border-black/10 bg-white p-5">
-      <h2 className="text-sm font-bold uppercase tracking-wide text-black/50">Pengajuan Producer</h2>
+      <h2 className="text-sm font-bold uppercase tracking-wide text-black/50">Pengajuan Pengelola</h2>
       <p className="mt-1 text-xs leading-5 text-black/55">
         Menyetujui akan mengaktifkan membership untuk user_id pengaju — akun SINGGAH LOKAL yang sama
-        otomatis memperoleh akses Producer. Tidak ada akun atau password baru yang dibuat.
+        otomatis memperoleh akses Pengelola. Tidak ada akun atau password baru yang dibuat.
       </p>
 
       {applications === null ? (
@@ -140,12 +140,12 @@ export default function ProducerApplicationsManager({ places }: { places: PlaceO
                 </div>
                 <div className="flex items-center gap-2">
                   <select
-                    aria-label="Place untuk membership"
+                    aria-label="Tempat untuk membership"
                     className="rounded-xl border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-black/75"
                     value={placesById}
                     onChange={(event) => setPlacesById(event.target.value)}
                   >
-                    <option value="">Pilih Place…</option>
+                    <option value="">Pilih Tempat…</option>
                     {places.map((place) => (
                       <option key={place.id} value={place.id}>
                         {place.name}

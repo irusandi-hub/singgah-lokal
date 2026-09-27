@@ -63,16 +63,16 @@ test("The dashboard is the single working page hosting the Place workspace", () 
   // No Places shortcut card / no duplicate entry: the dashboard must not
   // LINK into any Place route (the workspace import path is not a link).
   assert.equal(dashboardCode.includes('"/producer/places'), false, "dashboard must not link any /producer/places route");
-  assert.equal(dashboardCode.includes("Places<"), false, "no Places shortcut card on the dashboard");
+  assert.equal(dashboardCode.includes("Tempat<"), false, "no Tempat shortcut card on the dashboard");
   // The dashboard keeps the ordered surfaces: title, Inbox, Live...
-  assert.match(dashboardCode, /Dashboard Producer/);
-  assert.match(dashboardCode, /Visit Intent Inbox/);
+  assert.match(dashboardCode, /Dashboard Pengelola/);
+  assert.match(dashboardCode, /Kunjungan Inbox/);
   assert.match(dashboardCode, /href="\/producer\/visit-intents"/);
   assert.match(dashboardCode, /href="\/producer\/live"/);
-  // ...and hosts the "Place milikmu" workspace (roster + add + edit) in place.
+  // ...and hosts the "Tempat milikmu" workspace (roster + add + edit) in place.
   assert.match(dashboardCode, /<ProducerPlaceWorkspace initialPlaces=\{places\} showOnboardingHint=\{places\.length === 0\} \/>/);
-  assert.match(workspaceCode, /Place milikmu/);
-  assert.match(workspaceCode, /Tambahkan Place baru/);
+  assert.match(workspaceCode, /Tempat milikmu/);
+  assert.match(workspaceCode, /Tambahkan Tempat baru/);
 });
 
 test("The dashboard carries no ProducerSubNav — it is a working surface, not a link hub", () => {
@@ -85,8 +85,8 @@ test("No intermediary Place list page exists — legacy routes are pure redirect
   assert.match(placesRedirectCode, /redirect\("\/producer"\)/);
   assert.equal(placesRedirectCode.includes("<PlaceForm"), false, "no form on the redirect page");
   assert.equal(placesRedirectCode.includes("useState"), false, "no view state on the redirect page");
-  assert.equal(placesRedirectCode.includes("Tambahkan Place baru"), false, "no roster UI on the redirect page");
-  assert.equal(placesRedirectCode.includes("Place milikmu"), false, "no roster heading on the redirect page");
+  assert.equal(placesRedirectCode.includes("Tambahkan Tempat baru"), false, "no roster UI on the redirect page");
+  assert.equal(placesRedirectCode.includes("Tempat milikmu"), false, "no roster heading on the redirect page");
   // The legacy standalone add route also hands off — no second form surface.
   assert.match(newRedirectCode, /redirect\("\/producer"\)/);
   assert.equal(newRedirectCode.includes("<PlaceForm"), false);
@@ -127,10 +127,10 @@ test("NEW starts empty; a successful submit transitions new → edit/manage with
 
 test("Tambahkan Place baru sits BELOW the roster and opens the form in place", () => {
   // The action renders after the roster (or its empty state)...
-  const buttonIdx = workspaceCode.indexOf("Tambahkan Place baru");
+  const buttonIdx = workspaceCode.indexOf("Tambahkan Tempat baru");
   assert.ok(buttonIdx > -1);
   const listIdx = workspaceCode.indexOf("places.map");
-  const emptyIdx = workspaceCode.indexOf("Belum ada Place yang dapat dikelola");
+  const emptyIdx = workspaceCode.indexOf("Belum ada Tempat yang dapat dikelola");
   assert.ok(listIdx > -1 && emptyIdx > -1);
   assert.ok(buttonIdx > listIdx && buttonIdx > emptyIdx, "the add action must come after the roster/empty state");
   // ...and stays IN PAGE: a button calling setView("new"), never a link/route.
@@ -173,12 +173,12 @@ test("Editor tabs are Informasi | Experience | Upload, with Experience reusing t
 
 test("The editor carries an actionable Upload tab gated on a saved Place", () => {
   // Tab "Upload" exists beside "Informasi"/"Experience"...
-  assert.match(formCode, /Detail Place|Informasi/);
+  assert.match(formCode, /Detail Tempat|Informasi/);
   assert.match(formCode, /Upload/);
   // ...disabled (with the reason) while the Place has no saved id...
   assert.match(formCode, /disabled=\{!place\}/);
   assert.match(formCode, /aria-disabled=\{!place\}/);
-  assert.match(formCode, /Tab Upload aktif setelah Place disimpan/);
+  assert.match(formCode, /Tab Upload aktif setelah Tempat disimpan/);
   // ...and the photo slots render only inside the Upload tab.
   assert.match(formCode, /\{editorTab === "upload" && \(/);
   assert.match(formCode, /PLACE_PHOTO_SLOTS\.map/);
@@ -210,7 +210,7 @@ test("Dashboard Place data comes from the canonical server-side memberships path
   // The onboarding empty state keeps its onboarding-only link (never a
   // Place-management path).
   assert.match(workspaceCode, /href="\/producer\/onboarding"/);
-  assert.match(workspaceCode, /Belum ada Place yang dapat dikelola/);
+  assert.match(workspaceCode, /Belum ada Tempat yang dapat dikelola/);
 });
 
 test("The Producer never types a Place ID — the system generates it on save", () => {

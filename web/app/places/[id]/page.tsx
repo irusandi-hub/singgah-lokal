@@ -38,7 +38,7 @@ export default async function PlaceDetailPage({
 
         <article className="mt-8 rounded-[28px] border border-black/10 bg-white p-6 shadow-sm sm:p-10">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
-            {place.category} • {place.type === "production" ? "Produksi" : "Experience"}
+            {place.category} • {place.type === "production" ? "Produksi" : "Kegiatan"}
           </p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight">{place.name}</h1>
           <p className="mt-2 text-sm text-black/55">{place.area}</p>
@@ -69,7 +69,7 @@ export default async function PlaceDetailPage({
               no coordinates the attribute stays visible but disabled and no
               URL is ever invented. No operating-hours status renders: the
               canonical Place model has no operating-hours field (DATA GAP). */}
-          <section className="mt-6" aria-label="Aksi Place">
+          <section className="mt-6" aria-label="Aksi Tempat">
             {buildDirectionsUrl(place) ? (
               <a
                 className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white"
@@ -83,7 +83,7 @@ export default async function PlaceDetailPage({
             ) : (
               <span
                 aria-disabled="true"
-                title="Koordinat Place belum tersedia"
+                title="Koordinat Tempat belum tersedia"
                 className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full border border-black/10 bg-white px-5 py-2.5 text-sm font-bold text-black/35"
               >
                 <span aria-hidden>➤</span> Direction
@@ -97,7 +97,7 @@ export default async function PlaceDetailPage({
           <PlaceLiveStatus placeId={place.id} />
 
           <section className="mt-10 border-t border-black/10 pt-8" aria-labelledby="experiences-heading">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Experience di Place ini</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Kegiatan di Tempat ini</p>
             <h2 id="experiences-heading" className="mt-2 text-2xl font-semibold tracking-tight">
               Kalau datang, kamu akan melakukan apa?
             </h2>
@@ -112,12 +112,12 @@ export default async function PlaceDetailPage({
                       visitedClassName="bg-[#4a4d44]"
                       href={`/places/${place.id}/experiences/${experience.id}`}
                     >
-                      Lihat Experience
+                      Lihat Kegiatan
                     </VisitedLink>
                   </article>
                 ))
               ) : (
-                <p className="text-sm text-black/60">Experience di Place ini belum tersedia.</p>
+                <p className="text-sm text-black/60">Kegiatan di Tempat ini belum tersedia.</p>
               )}
             </div>
           </section>
@@ -132,7 +132,7 @@ export default async function PlaceDetailPage({
                   <h3 className="mt-1 text-lg font-semibold">{stage.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-black/65">{stage.description}</p>
                 </article>
-              )) : <p className="text-sm text-black/60">Cerita produksi Place ini belum tersedia.</p>}
+              )) : <p className="text-sm text-black/60">Cerita produksi Tempat ini belum tersedia.</p>}
             </div>
           </section>
         </article>

@@ -289,7 +289,7 @@ export function LiveConsole({ places }: Props) {
           <h2 className="mt-1 text-xl font-semibold tracking-tight">Pilih Proses yang akan ditayangkan</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">
-              Place
+              Tempat
               <select
                 value={placeId}
                 onChange={(event) => setPlaceId(event.target.value)}
@@ -453,13 +453,13 @@ function startErrorMessage(error?: string): string {
     case "live_cap_denied":
       return "Batas 5 Live aktif secara global sedang tercapai.";
     case "live_place_busy":
-      return "Place ini sudah memiliki Live aktif (maksimal 1).";
+      return "Tempat ini sudah memiliki Live aktif (maksimal 1).";
     case "live_not_eligible":
-      return "Place/Producer ini belum memenuhi syarat Live.";
+      return "Tempat/Pengelola ini belum memenuhi syarat Live.";
     case "live_stage_not_published":
       return "Proses harus berstatus published untuk ditayangkan.";
     case "producer_authorization_required":
-      return "Kamu tidak memiliki akses Producer untuk Place ini.";
+      return "Kamu tidak memiliki akses Pengelola untuk Tempat ini.";
     case "live_start_busy":
       return "Sedang ada pemulitan Live lain. Coba sesaat lagi.";
     default:
@@ -469,7 +469,7 @@ function startErrorMessage(error?: string): string {
 
 function endErrorMessage(error?: string): string {
   if (error === "producer_authorization_required") {
-    return "Kamu tidak memiliki akses Producer untuk Live ini.";
+    return "Kamu tidak memiliki akses Pengelola untuk Live ini.";
   }
   return "Live tidak dapat diakhiri. Coba lagi.";
 }
