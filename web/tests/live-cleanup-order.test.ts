@@ -97,6 +97,23 @@ test("Cleanup order 4: the ended-input sweep applies the same delete-before-rele
   assert.match(sweepBody, /list_ended_live_inputs/);
 });
 
+test("Orphan sweep accounting: only provider-confirmed deletes count as success", () => {
+  // Regression (2026-09-27): the sweep incremented its counter for any
+  // non-empty outcome, but "failed" is a truthy string — failed deletes were
+  // reported as cleaned while the orphan stayed on the provider.
+  const sweepBody = functionBody(capSource, "sweepOrphanLiveInputs");
+
+  // The outcome must be captured explicitly and counted under the same
+  // provider-confirmed contract as the end path ("deleted" or 404).
+  assert.match(
+    sweepBody,
+    /const outcome: LiveInputDeleteOutcome = await deleteLiveInput\(/,
+  );
+  assert.match(sweepBody, /outcome === "deleted" \|\| isLiveInputDeleteNotFound\(outcome\)/);
+  // The truthy-string bug shape must stay out of the function.
+  assert.doesNotMatch(sweepBody, /if \(await deleteLiveInput\(/);
+});
+
 test("Cleanup order 5: sweep entry stays wired on the status poll (backstop coverage)", () => {
   const statusRouteSource = readFileSync(new URL("../app/api/live/status/route.ts", import.meta.url), "utf8");
   assert.match(statusRouteSource, /sweepEndedLiveInputs\(\)\.catch\(\(\) => 0\)/);
