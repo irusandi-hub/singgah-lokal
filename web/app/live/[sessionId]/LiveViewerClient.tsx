@@ -71,8 +71,25 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
     let cancelled = false;
 
     (async () => {
-      const { createClient } = await import("@supabase/supabase-js");
-      client = createClient(url, key, { realtime: { params: { eventsPerSecond: 5 } } });
+      const { createBrowserClient } = await import("@supabase/ssr");
+      // Realtime authorization (RLS 0009) is the gate: the private channel
+      // join must present the viewer's user JWT, resolved through the
+      // caller-owned token endpoint (the token already lives in the viewer's
+      // own cookies). Without it the join is denied — fail closed; no
+      // pseudo-public fallback channel ever replaces the private one.
+      client = createBrowserClient(url, key, {
+        realtime: { params: { eventsPerSecond: 5 } },
+        accessToken: async () => {
+          try {
+            const response = await fetch("/api/auth/realtime-token", { cache: "no-store" });
+            if (!response.ok) return null;
+            const payload = (await response.json()) as { accessToken?: unknown };
+            return typeof payload.accessToken === "string" ? payload.accessToken : null;
+          } catch {
+            return null;
+          }
+        },
+      });
       if (cancelled) {
         void client.removeAllChannels();
         return;
@@ -91,7 +108,15 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
           setEndedReason(typeof message.payload.endedReason === "string" ? message.payload.endedReason : "ended");
         }
       });
-      channel.subscribe();
+      channel.subscribe((status) => {
+        // Fail closed: an invalid or unauthorized join must not linger as a
+        // stale listener. Tear the client's channels (and socket) down
+        // cleanly; transient join timeouts stay with realtime-js's own
+        // retry/backoff so a flaky network never kills a legitimate stream.
+        if (status === "CHANNEL_ERROR") {
+          void client?.removeAllChannels();
+        }
+      });
     })();
 
     return () => {

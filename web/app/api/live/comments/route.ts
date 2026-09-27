@@ -55,6 +55,14 @@ export async function POST(request: Request) {
     // (policy §12.1 item 6; tech §6). Channel: live_session:{id}. Sequence is
     // server-issued and monotonic per session (tech §6).
     const channel = supabase.channel(`live_session:${sessionId}`, { config: { private: true } });
+    // Realtime authorization (RLS 0009) is the gate: the broadcast socket/
+    // REST fallback must carry the authenticated user's JWT so the send
+    // policy can admit it (admitted viewer or authorized producer). Without
+    // it the private channel denies the publish — fail closed.
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData?.session?.access_token) {
+      supabase.realtime.setAuth(sessionData.session.access_token);
+    }
     // Realtime is display transport only (tech §6): Supabase state stays
     // canonical, but the publish OUTCOME is still checked — a failed
     // broadcast (socket down and REST fallback erroring/timing out) must not

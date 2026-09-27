@@ -19,6 +19,8 @@ import { readFileSync } from "node:fs";
 
 const commentsRouteSource = readFileSync(new URL("../app/api/live/comments/route.ts", import.meta.url), "utf8");
 const viewerSource = readFileSync(new URL("../app/live/[sessionId]/LiveViewerClient.tsx", import.meta.url), "utf8");
+const tokenRouteSource = readFileSync(new URL("../app/api/auth/realtime-token/route.ts", import.meta.url), "utf8");
+const rlsSource = readFileSync(new URL("../supabase/migrations/0009_live_realtime_private_channels.sql", import.meta.url), "utf8");
 
 test("Realtime 1: server publish outcome is checked, failures are not delivered", () => {
   // The broadcast result is captured and gated before reporting success.
@@ -63,7 +65,52 @@ test("Realtime 4: unmount tears down the dynamic client fully (no stale listener
   assert.match(teardown, /removeAllChannels\(\)/);
   assert.match(teardown, /client = null/);
   // The client reference is retained so cleanup can always tear it down.
-  assert.match(viewerSource, /let client: Awaited<ReturnType<typeof import\("@supabase\/supabase-js"\)\.createClient>> \| null = null/);
+  assert.match(viewerSource, /let client: [^=]+\| null = null/);
+});
+
+test("Realtime 6: server publish presents the authenticated user JWT (RLS 0009)", () => {
+  // The private send policy (0009) evaluates auth.uid() from the JWT the
+  // request carries — the server must set it on the realtime client before
+  // broadcasting, or the send is (correctly) denied.
+  const setAuthOffset = commentsRouteSource.indexOf("supabase.realtime.setAuth(");
+  const sendOffset = commentsRouteSource.indexOf("await channel.send(");
+  assert.ok(setAuthOffset > -1, "the server must attach the user JWT to realtime");
+  assert.ok(setAuthOffset < sendOffset, "setAuth must precede the broadcast");
+  assert.match(commentsRouteSource, /auth\.getSession\(\)/);
+  assert.match(commentsRouteSource, /sessionData\?\.session\?\.access_token/);
+});
+
+test("Realtime 7: viewer presents its own JWT via the caller-owned token endpoint", () => {
+  // The dynamic client resolves the viewer's own access token so the private
+  // join passes RLS — through the ssr browser client (cookie session),
+  // never by embedding provider credentials client-side.
+  assert.match(viewerSource, /createBrowserClient/);
+  assert.match(viewerSource, /accessToken: async \(\) =>/);
+  assert.match(viewerSource, /\/api\/auth\/realtime-token/);
+  // Token fetch failures resolve to null — no pseudo-public fallback channel.
+  assert.match(viewerSource, /return null;/);
+  assert.doesNotMatch(viewerSource, /SUPABASE_SERVICE_ROLE|service_role/);
+  // The endpoint hands callers only their OWN token: no service key, no
+  // cross-user data, unauthenticated callers denied, response uncacheable.
+  assert.match(tokenRouteSource, /auth\.getSession\(\)/);
+  assert.match(tokenRouteSource, /authentication_required/);
+  assert.match(tokenRouteSource, /no-store/);
+  assert.doesNotMatch(tokenRouteSource, /service_role|SERVICE_ROLE/);
+});
+
+test("Realtime 8: private-channel RLS remains the authority; invalid joins fail closed", () => {
+  // Migration 0009: receive is admitted-viewer scoped, send is admitted
+  // viewer or owner/manager producer scoped, broadcast extension only.
+  assert.match(rlsSource, /create policy live_realtime_receive/);
+  assert.match(rlsSource, /create policy live_realtime_send/);
+  assert.match(rlsSource, /live_viewers v/);
+  assert.match(rlsSource, /admitted_at > now\(\) - interval '5 minutes'/);
+  assert.match(rlsSource, /producer_memberships/);
+  assert.match(rlsSource, /role in \('owner', 'manager'\)/);
+  assert.match(rlsSource, /extension = 'broadcast'/);
+  // A rejected join tears the client's channels down (no stale listener).
+  assert.match(viewerSource, /status === "CHANNEL_ERROR"/);
+  assert.match(viewerSource, /removeAllChannels\(\)/);
 });
 
 test("Realtime 5: sequence stays server-issued on the gated send path", () => {
