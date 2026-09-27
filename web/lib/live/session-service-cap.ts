@@ -44,7 +44,11 @@ export async function sweepOrphanLiveInputs(): Promise<number> {
     // A never-connected input with no session reference is an orphan once
     // past the TUNABLE sweep threshold (stale starts, provider "null" status).
     if (!referencedIds.has(input.uid) && input.status === null) {
-      if (await deleteLiveInput(input.uid)) {
+      // Count only provider-confirmed cleanup ("deleted" or 404 =
+      // already-cleaned). A "failed" delete stays an orphan and must not
+      // count as success — the next sweep retries it.
+      const outcome: LiveInputDeleteOutcome = await deleteLiveInput(input.uid);
+      if (outcome === "deleted" || isLiveInputDeleteNotFound(outcome)) {
         deleted += 1;
       }
     }
