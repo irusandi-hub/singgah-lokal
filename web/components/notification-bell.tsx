@@ -15,12 +15,28 @@ import { formatUnreadBadge, notificationBellLabel } from "@/lib/notifications-mo
  * - the count comes from the signed-in user's own unread notifications
  *   (GET /api/notifications → notifications where read_at IS NULL); a
  *   signed-out request answers 401 and the bell then stays badge-free;
- * - NO polling and NO realtime: the count is fetched on mount, on route
- *   change, and on the existing session-changed/pageshow events — the same
- *   event-driven pattern the header session probe already uses;
+ * - the count is fetched on mount, on route change, and on the existing
+ *   session-changed/pageshow events — the same event-driven pattern the
+ *   header session probe already uses. That refresh alone left the badge
+ *   stale whenever an event arrived while the tab was open, so the bell now
+ *   ALSO listens on the recipient's own private Realtime topic: the database
+ *   broadcasts an 'unread' signal when a notification is created and when the
+ *   recipient marks one read, and the badge updates with no refresh;
+ * - Realtime is display transport only (MASTER 10 §9/§21): the count itself is
+ *   still the canonical RLS-scoped number, the signal only says "re-read it".
+ *   There is NO polling and no database subscription as a fallback, and a
+ *   denied channel join tears itself down instead of degrading;
  * - a real <a href> (keyboard accessible) that opens the inbox; it never
  *   blocks the user with a click handler.
  */
+
+/** Private Realtime topic of the signed-in user. The database broadcasts the
+ *  unread signal on `notifications:{userId}`; the RLS policy in migration
+ *  0029 only lets a session receive on the topic built from its own
+ *  auth.uid(), so no user can listen to anybody else's notifications. */
+function unreadTopic(userId: string): string {
+  return `notifications:${userId}`;
+}
 
 export function NotificationBellLink({ unreadCount }: { unreadCount: number }) {
   const badge = formatUnreadBadge(unreadCount);
@@ -59,6 +75,7 @@ export function NotificationBellLink({ unreadCount }: { unreadCount: number }) {
 
 export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
+  const [sessionVersion, setSessionVersion] = useState(0);
   const pathname = usePathname();
 
   const load = useCallback(() => {
@@ -102,6 +119,85 @@ export default function NotificationBell() {
       window.removeEventListener("pageshow", onPageShow);
     };
   }, [load]);
+
+  // Sign-in/sign-out re-opens the private topic for the new session, so the
+  // bell can never keep listening as the previous account.
+  useEffect(() => {
+    function onSessionChange() {
+      setSessionVersion((version) => version + 1);
+    }
+    window.addEventListener(SESSION_CHANGED_EVENT, onSessionChange);
+    return () => window.removeEventListener(SESSION_CHANGED_EVENT, onSessionChange);
+  }, []);
+
+  // Realtime unread (MASTER 10 §9): join the recipient's own private channel
+  // and apply the unread count the database broadcast. Fail closed on a denied
+  // join — there is no pseudo-public channel and no polling fallback, so an
+  // unauthorized or failed subscription simply leaves the fetch-driven badge.
+  useEffect(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !key) return;
+
+    let client: Awaited<ReturnType<typeof import("@supabase/supabase-js").createClient>> | null = null;
+    let cancelled = false;
+
+    (async () => {
+      // The token endpoint returns the caller's OWN access token and user id
+      // (no other session, no roles, no memberships), which is exactly what the
+      // private-channel join needs.
+      let accessToken: string | null = null;
+      let userId: string | null = null;
+      try {
+        const response = await fetch("/api/auth/realtime-token", { cache: "no-store" });
+        if (response.ok) {
+          const payload = (await response.json()) as { accessToken?: unknown; userId?: unknown };
+          if (typeof payload.accessToken === "string") accessToken = payload.accessToken;
+          if (typeof payload.userId === "string" && payload.userId) userId = payload.userId;
+        }
+      } catch {
+        return;
+      }
+      if (cancelled || !accessToken || !userId) return;
+
+      const { createBrowserClient } = await import("@supabase/ssr");
+      client = createBrowserClient(url, key, {
+        realtime: { params: { eventsPerSecond: 5 } },
+        accessToken: async () => accessToken,
+      });
+      if (cancelled) {
+        void client.removeAllChannels();
+        client = null;
+        return;
+      }
+
+      const channel = client.channel(unreadTopic(userId), {
+        config: { private: true, broadcast: { self: false } },
+      });
+      channel.on("broadcast", { event: "unread" }, (message: { payload?: { unreadCount?: unknown } }) => {
+        const next = Number(message?.payload?.unreadCount);
+        if (Number.isFinite(next) && next >= 0) {
+          setUnreadCount(Math.floor(next));
+        }
+      });
+      channel.subscribe((status) => {
+        if (status === "CHANNEL_ERROR") {
+          void client?.removeAllChannels();
+          client = null;
+        }
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+      // Full teardown of the dynamic client: channels AND socket, so no stale
+      // listener survives a sign-out, a session change, or an unmount.
+      if (client) {
+        void client.removeAllChannels();
+        client = null;
+      }
+    };
+  }, [sessionVersion]);
 
   return <NotificationBellLink unreadCount={unreadCount} />;
 }
