@@ -162,19 +162,27 @@ export default function AccountMenu() {
             )}
           </MenuGroupBlock>
 
-          {/* Help — no existing help surface yet; keep safe, no dead link */}
-          <div className="px-3 py-2 text-sm font-medium text-black/45" role="menuitem" aria-disabled="true" title="Segera tersedia">
-            Help
-          </div>
-
-          {/* About & Terms — link to home brand footer area (existing content) */}
+          {/* Help — pointer-only surface: guides for existing capabilities
+              (Live report, notifications, Producer onboarding). No invented
+              FAQ/contact/support policy. */}
           <Link
             role="menuitem"
-            href="/"
+            href="/help"
             className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
             onClick={closeMenu}
           >
-            About &amp; Terms
+            Help
+          </Link>
+
+          {/* Tentang — product identity from locked Master facts only.
+              Terms/Privacy have no source-of-truth yet and are NOT claimed. */}
+          <Link
+            role="menuitem"
+            href="/about"
+            className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
+            onClick={closeMenu}
+          >
+            Tentang
           </Link>
         </div>
       ) : null}

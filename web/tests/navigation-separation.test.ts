@@ -50,7 +50,7 @@ test("Signed-in header collapses to a single ☰ account/application menu", () =
   assert.doesNotMatch(authedBlock, /SignOutButton/);
   // The menu itself owns the entries and the real sign-out mechanism.
   const menuCode = readFileSync(new URL("../components/account-menu.tsx", import.meta.url), "utf8");
-  for (const expected of ["Account Center", "Sign Out", "Setting", "Navigation", "App Language", "Video Setting", "Help", "About & Terms", "/account"]) {
+  for (const expected of ["Account Center", "Sign Out", "Setting", "Navigation", "App Language", "Video Setting", "Help", "Tentang", "/account"]) {
     assert.ok(menuCode.includes(expected), `account menu must contain ${expected}`);
   }
   assert.match(menuCode, /SignOutButton/);
