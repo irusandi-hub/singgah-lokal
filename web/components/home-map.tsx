@@ -8,8 +8,10 @@ import "leaflet/dist/leaflet.css";
 /**
  * Real interactive map for Home discovery.
  * - Tiles: OpenStreetMap (attribution required). ONE basemap — no
- *   terrain/satellite/layer selector; pan, +/- zoom, scroll and touch zoom
- *   are all functional.
+ *   terrain/satellite/layer selector; +/- zoom, scroll and touch zoom are
+ *   all functional. One-finger camera control (touch drag + double-tap) is
+ *   LOCKED OFF on touch-primary devices (PO 2026-09-27): a single finger
+ *   never pans/zooms the map — two-finger pan + pinch zoom stay available.
  * - Markers come ONLY from canonical Place lat/lng — a Place without
  *   coordinates never receives a marker (fail-closed, no invented position).
  * - Current Location is the map's anchor: the real browser geolocation fix
@@ -105,6 +107,8 @@ export default function HomeMap({
   const lastLocateNonceRef = useRef(0);
   // Latest fix readable from async callbacks (fitBounds race guard).
   const viewerPositionRef = useRef<HomeMapViewer | null>(null);
+  // Two-finger interaction observer (touch-primary only) — detached in teardown.
+  const touchMoveObserverRef = useRef<((event: TouchEvent) => void) | null>(null);
   const router = useRouter();
   const [ready, setReady] = useState(false);
 
@@ -186,6 +190,18 @@ export default function HomeMap({
         return;
       }
 
+      // Gesture lock (PO task 2026-09-27): ONE finger must never pan or zoom
+      // the Home map — single-finger input stays available for page/UI
+      // interaction outside the map. Leaflet's Draggable is the ONLY
+      // single-finger camera control (its _onDown explicitly finishes on
+      // non-1-touch), and double-tap is the only one-finger ZOOM gesture —
+      // so on touch-primary devices both are disabled on this map instance.
+      // Two-finger gestures stay fully functional: TouchZoom performs BOTH
+      // pinch zoom AND two-finger pan (map._move from the pinch midpoint)
+      // independent of the Draggable handler. Pointer-fine devices (desktop
+      // mouse/trackpad) keep every existing behavior untouched.
+      const touchPrimary = window.matchMedia?.("(pointer: coarse)")?.matches === true;
+
       const map = L.map(container, {
         // Neutral world overview until the real Current Location fix (or, in
         // its absence, the one-shot marker fitBounds) defines the viewport.
@@ -193,6 +209,10 @@ export default function HomeMap({
         zoomControl: false,
         scrollWheelZoom: true,
         attributionControl: true,
+        // 1-finger lock: no touch drag, no double-tap zoom (touch-primary
+        // only — desktop keeps drag, double-click, and wheel zoom as-is).
+        dragging: !touchPrimary,
+        doubleClickZoom: !touchPrimary,
         // Single-world map: panning never repeats the world or shows wrapped
         // copies (the "Indonesia layer" / duplicate-tiles artifact on Android
         // Chrome comes from Leaflet's default world-copy jumping + wrapped
@@ -245,6 +265,17 @@ export default function HomeMap({
       map.on("zoomstart", () => {
         if (!programmaticMoveRef.current) userInteractedRef.current = true;
       });
+      // Two-finger gestures bypass dragstart/zoomstart (TouchZoom moves the
+      // camera directly), so keep the camera-authority guard honest for the
+      // gestures that REMAIN enabled — observe (passively, never preventing
+      // anything) two-finger touches as real user interaction.
+      if (touchPrimary) {
+        const onTwoFingerMove = (event: TouchEvent) => {
+          if (event.touches.length === 2) userInteractedRef.current = true;
+        };
+        container.addEventListener("touchmove", onTwoFingerMove, { passive: true });
+        touchMoveObserverRef.current = onTwoFingerMove;
+      }
 
       mapRef.current = map;
       markerLayerRef.current = L.layerGroup().addTo(map);
@@ -272,7 +303,12 @@ export default function HomeMap({
       if (invalidateTimer !== null) clearTimeout(invalidateTimer);
       window.removeEventListener("resize", onWindowResize);
       const container = containerRef.current;
-      if (container) container.dataset.singgahMap = "";
+      if (container) {
+        container.dataset.singgahMap = "";
+        const observer = touchMoveObserverRef.current;
+        if (observer) container.removeEventListener("touchmove", observer);
+      }
+      touchMoveObserverRef.current = null;
       markerLayerRef.current?.remove();
       markerLayerRef.current = null;
       userLayerRef.current?.remove();
