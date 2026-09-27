@@ -8,12 +8,17 @@ import {
 } from "@/components/admin/ui";
 import { listAdminPlaces, type AdminPlaceRow } from "@/lib/admin/queries";
 import { PlatformModeratorRequiredError } from "@/lib/live/platform";
+import PlaceClaimsManager from "./PlaceClaimsManager";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Admin Places (read-only operational oversight, Authority Master §5).
  * Canonical Supabase places data — no cache/search index.
+ *
+ * The Place Claim review panel is mounted HERE rather than in a new Admin
+ * section: this page already carries the Place/claim view, and Admin approval
+ * is the only path that grants ownership through a claim.
  */
 export default async function AdminPlacesPage() {
   let places: AdminPlaceRow[];
@@ -35,6 +40,8 @@ export default async function AdminPlacesPage() {
         title="Places"
         description="Seluruh Place di platform beserta status publikasi dan klaim. Read-only untuk MVP."
       />
+      <PlaceClaimsManager />
+
       <AdminDataTable
         rows={places}
         emptyMessage="Belum ada Place."

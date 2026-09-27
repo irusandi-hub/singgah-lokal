@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import PlaceForm, { PlaceEditor } from "./PlaceForm";
+import PlaceClaimPanel from "./PlaceClaimPanel";
 import type { Place } from "@/lib/places";
 
 /**
@@ -14,6 +15,10 @@ import type { Place } from "@/lib/places";
  * backend. The view is an explicit state machine:
  * - "list": the roster (the default on every load);
  * - "new": the add form, ALWAYS empty (PlaceForm's NEW branch);
+ * - "claim": "Klaim Place yang Sudah Ada" — claiming an EXISTING unowned
+ *   Place. A separate branch because it must never look like "add Place": it
+ *   files a claim for a Place that already exists and grants nothing until an
+ *   Admin approves it (PlaceClaimPanel);
  * - "edit": the chosen Place, loaded by the existing PlaceEditor.
  * A successful NEW submit transitions new → edit/manage for the saved Place
  * (id preserved, Upload immediately usable), and the roster gains it.
@@ -21,6 +26,7 @@ import type { Place } from "@/lib/places";
 type ProducerPlaceWorkspaceView =
   | { name: "list" }
   | { name: "new" }
+  | { name: "claim" }
   | { name: "edit"; place: Place };
 
 const STATUS_DOT: Record<Place["publicationStatus"], string> = {
@@ -44,6 +50,10 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
         : [...current, saved],
     );
     setView({ name: "edit", place: saved });
+  }
+
+  if (view.name === "claim") {
+    return <PlaceClaimPanel onBack={() => setView({ name: "list" })} />;
   }
 
   if (view.name === "new") {
@@ -156,6 +166,25 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
           <span>
             <span className="block font-semibold">Tambahkan Place baru</span>
             <span className="mt-0.5 block text-xs text-black/55">Tampilkan proses produksi di SINGGAH LOKAL.</span>
+          </span>
+        </button>
+        {/* "Klaim Place yang Sudah Ada" claims an EXISTING unowned Place. It
+            sits below the add button so it never reads as a second way to
+            create a Place: no Place is created here, and ownership only
+            arrives after Admin approval. */}
+        <button
+          type="button"
+          onClick={() => setView({ name: "claim" })}
+          className="flex items-center gap-4 rounded-2xl border border-dashed border-black/20 bg-white p-4 text-left transition hover:bg-black/[0.02]"
+        >
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-black/15 text-xl font-bold text-black/50" aria-hidden>
+            ⚑
+          </span>
+          <span>
+            <span className="block font-semibold">Klaim Place yang Sudah Ada</span>
+            <span className="mt-0.5 block text-xs text-black/55">
+              Ajukan kepemilikan untuk Place yang sudah ada di SINGGAH LOKAL.
+            </span>
           </span>
         </button>
       </div>
