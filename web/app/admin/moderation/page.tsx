@@ -1,4 +1,5 @@
 import {
+  AdminBackToAdminCenter,
   AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
@@ -34,6 +35,7 @@ export default async function AdminModerationPage() {
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Moderation"
         description="Live Report masuk dan jejak audit Live terbaru. Tindakan enforcement tetap melalui jalur RPC yang sudah diaudit."

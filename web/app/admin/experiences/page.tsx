@@ -1,4 +1,5 @@
 import {
+  AdminBackToAdminCenter,
   AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
@@ -31,6 +32,7 @@ export default async function AdminExperiencesPage() {
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Kegiatan"
         description="Kegiatan per Tempat beserta status publikasi. Read-only untuk MVP."

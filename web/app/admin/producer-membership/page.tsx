@@ -1,4 +1,5 @@
 import {
+  AdminBackToAdminCenter,
   AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
@@ -33,6 +34,7 @@ export default async function AdminProducerMembershipPage() {
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Pengelola Membership"
         description="Kewenangan Pengelola per Tempat (user, producer, place, role)."

@@ -1,4 +1,5 @@
 import {
+  AdminBackToAdminCenter,
   AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
@@ -32,6 +33,7 @@ export default async function AdminVisitIntentsPage() {
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Kunjungan"
         description="Niat berkunjung (SINGGAH) di seluruh platform. Waktu mengikuti Tempat timezone. Read-only untuk MVP."

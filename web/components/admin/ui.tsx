@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 /**
@@ -5,6 +6,24 @@ import type { ReactNode } from "react";
  * no authorization logic lives here — pages stay thin and every read is
  * server-side through lib/admin/queries.
  */
+
+/**
+ * The section back-link: up to Admin Center, the parent of every tab (PO,
+ * 2026-09-28). The tab bar is the horizontal map, this is the way up — a
+ * consistent text link, accent + underline + arrow, the same cue every other
+ * navigational link in the Admin area uses. Pages that live DEEPER than a
+ * tab (the Place workspace) render their own parent link above this one.
+ */
+export function AdminBackToAdminCenter(): ReactNode {
+  return (
+    <Link
+      href="/admin"
+      className="inline-flex items-center gap-1 text-xs font-bold text-brand-primary underline underline-offset-2 hover:text-brand-primary-deep"
+    >
+      <span aria-hidden>←</span> Kembali ke Admin Center
+    </Link>
+  );
+}
 
 export function AdminPageHeader({ title, description }: { title: string; description: string }) {
   return (

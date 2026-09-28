@@ -1,4 +1,5 @@
 import {
+  AdminBackToAdminCenter,
   AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
@@ -35,6 +36,7 @@ export default async function AdminUsersPage() {
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Users"
         description="Akun terdaftar di platform. Email hanya ditampilkan pada halaman ini (manajemen user Admin) dan tidak pernah tampil untuk Producer, user lain, atau publik."

@@ -1,4 +1,4 @@
-import { AdminErrorState, AdminPageHeader, AdminStatCards } from "@/components/admin/ui";
+import { AdminBackToAdminCenter, AdminErrorState, AdminPageHeader, AdminStatCards } from "@/components/admin/ui";
 import { getAdminOverview, type AdminOverview } from "@/lib/admin/queries";
 import { PlatformModeratorRequiredError } from "@/lib/live/platform";
 
@@ -39,6 +39,7 @@ export default async function AdminOverviewPage() {
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Overview"
         description="Ringkasan operasional platform dari data canonical Supabase. Angka dihitung langsung dari database saat halaman dimuat."

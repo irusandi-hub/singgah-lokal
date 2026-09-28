@@ -1,4 +1,5 @@
 import {
+  AdminBackToAdminCenter,
   AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
@@ -31,6 +32,7 @@ export default async function AdminProducersPage() {
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Pengelola"
         description="Pengelola terdaftar beserta status klaim. Read-only: belum ada workflow mutasi yang ditetapkan Master."

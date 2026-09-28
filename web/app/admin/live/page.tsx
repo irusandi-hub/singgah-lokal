@@ -1,4 +1,5 @@
 import {
+  AdminBackToAdminCenter,
   AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
@@ -41,6 +42,7 @@ export default async function AdminLivePage() {
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Live"
         description="Laporan Live dan eligibility Pengelola, dibaca saja. Data Live Session milik sebuah Tempat ditampilkan di workspace Tempat tersebut. Batas terkunci: global 5 aktif, 1 per Tempat, 100 penonton, 60 menit."
