@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requireAuthenticatedActor, requireProducerOwner } from "@/lib/auth/server";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
-import { derivePlaceIdFromName, parsePlaceMutation, PlaceInputError } from "@/lib/place-management";
+import { derivePlaceIdFromName, resolvePlaceMutation, PlaceInputError } from "@/lib/place-management";
 
 export async function GET(request: Request) {
   try {
@@ -18,7 +18,10 @@ export async function POST(request: Request) {
   try {
     const actor = await requireProducerOwner(request);
     const body = await request.json();
-    const mutation = parsePlaceMutation(body);
+    // Timezone is server-owned (PO, 2026-09-28): resolved from the Place
+    // coordinates, never taken from the client. A NEW Place without
+    // coordinates fails clearly instead of storing a guessed zone.
+    const mutation = await resolvePlaceMutation(body);
     const repository = await getServerPlaceManagementRepository();
     // System-generated Place ID (PO, 2026-09-26): the Producer never types a
     // technical ID. Derive the slug from the name, fall back to a random id

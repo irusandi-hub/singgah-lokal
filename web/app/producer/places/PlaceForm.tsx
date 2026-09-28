@@ -36,7 +36,7 @@ function emptyPlaceForm(): Record<string, string> {
     category: "Kopi", type: "production", area: "",
     countryCode: "", regionName: "",
     address: "", contactInformation: "",
-    timezone: "Asia/Jakarta", currency: "IDR",
+    currency: "IDR",
     latitude: "", longitude: "",
   };
 }
@@ -55,7 +55,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           category: place.category, type: place.type, area: place.area,
           countryCode: place.countryCode ?? "", regionName: place.regionName ?? "",
           address: place.address, contactInformation: place.contactInformation,
-          timezone: place.timezone, currency: place.currency,
+          currency: place.currency,
           latitude: place.latitude?.toString() ?? "", longitude: place.longitude?.toString() ?? "",
         }
       : emptyPlaceForm(),
@@ -171,7 +171,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
   }
 
   return (
-    <form key={isEdit ? `edit-${place?.id}` : "new"} className="grid gap-4" onSubmit={submit} autoComplete="off">
+    <form key={isEdit ? `edit-${place?.id}` : "new"} className="grid min-w-0 gap-4" onSubmit={submit} autoComplete="off">
       {/* Editor tabs (PO, 2026-09-26): Detail Place = the Place fields;
           Upload = the standard photo slots. Upload requires a SAVED Place
           (the upload API is keyed by the Place id), so the tab stays
@@ -226,10 +226,10 @@ export default function PlaceForm({ place, onSaved }: Props) {
 
       {editorTab === "detail" && (
         <>
-      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone"], ["currency", "Currency"]].map(([key, label]) => (
+      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["currency", "Currency"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
-      <div className="grid gap-2">
+      <div className="grid min-w-0 gap-2">
         <span className="text-sm font-semibold">Lokasi Tempat</span>
         <PlaceLocationPicker
           latitude={form.latitude}
@@ -238,9 +238,9 @@ export default function PlaceForm({ place, onSaved }: Props) {
             setForm((current) => ({ ...current, latitude, longitude }))
           }
         />
-        <div className="grid grid-cols-2 gap-3">
-          <label className="grid gap-1 text-xs font-semibold">Latitude<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} /></label>
-          <label className="grid gap-1 text-xs font-semibold">Longitude<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
+        <div className="grid min-w-0 grid-cols-2 gap-3">
+          <label className="grid min-w-0 gap-1 text-xs font-semibold">Latitude<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} /></label>
+          <label className="grid min-w-0 gap-1 text-xs font-semibold">Longitude<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
         </div>
       </div>
       <PlaceGeoFields
@@ -268,7 +268,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           input was removed as a media mechanism (server-side fail-closed
           validation). This tab is reachable only for a SAVED Place. */}
       {editorTab === "upload" && (
-      <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Foto Tempat">
+      <section className="grid min-w-0 gap-3 rounded-xl border border-black/10 p-4" aria-label="Foto Tempat">
         <div>
           <span className="text-sm font-semibold">Foto Tempat ({PLACE_PHOTO_SLOTS.length} slot)</span>
           <p className="mt-1 text-xs text-black/55">
@@ -283,7 +283,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           const error = slotError[slot.key];
           const hasSavedMeta = Boolean(photo);
           return (
-            <div className="grid gap-2 rounded-lg border border-black/10 p-3" key={slot.key}>
+            <div className="grid min-w-0 gap-2 rounded-lg border border-black/10 p-3" key={slot.key}>
               <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-accent">{slot.label}</p>
               <p className="text-xs text-black/55">{slot.titlePrompt} — {slot.descriptionPrompt}</p>
               {photo?.url && (
@@ -380,8 +380,8 @@ function PlacePhotoInputs({ slot, busy, hasSavedMeta, disabled, onUpload }: {
   };
 
   return (
-    <div className="grid gap-2">
-      <label className="grid gap-1 text-xs font-semibold">
+    <div className="grid min-w-0 gap-2">
+      <label className="grid min-w-0 gap-1 text-xs font-semibold">
         Judul foto
         <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} placeholder={slot.label} />
       </label>

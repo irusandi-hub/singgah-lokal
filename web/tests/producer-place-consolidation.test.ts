@@ -208,6 +208,18 @@ test("The photo picker is a real clickable control, not static OS text", () => {
   assert.match(formCode, /PLACE_MEDIA_ACCEPTED_TYPES\.join\(","\)/);
 });
 
+test("The Producer form never renders a timezone input; the server owns the zone", () => {
+  // PO fix, 2026-09-28: the Timezone field is gone from the Producer form —
+  // coordinates are the source of truth and the zone is resolved server-side
+  // (lib/place-management) before a save is accepted.
+  assert.doesNotMatch(formCode, /Timezone/);
+  assert.doesNotMatch(formCode, /"timezone"/);
+  // The upload area and the location picker row cannot force their parents
+  // wider than the phone frame.
+  assert.match(formCode, /grid min-w-0 gap-4/);
+  assert.match(formCode, /grid min-w-0 gap-2 rounded-lg border border-black\/10 p-3/);
+});
+
 test("Upload/delete failures surface as slot errors (no silent success)", () => {
   // The DELETE path maps backend errors to the slot error state, exactly
   // like the upload path — the UI never claims success without the API.

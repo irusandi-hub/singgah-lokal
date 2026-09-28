@@ -199,10 +199,12 @@ test("Common product words stay untranslated", () => {
 });
 
 test("Database-standard and English leftovers are gone from Producer copy", () => {
-  // Timezone, Currency, Latitude and Longitude are system/data terms a
-  // Producer types on purpose: they keep their name, and the VALUE they hold
-  // is never rewritten — only shortened for reading (see below).
-  assert.match(placeForm, /\["timezone", "Timezone"\]/);
+  // Currency, Latitude and Longitude are system/data terms a Producer types
+  // on purpose: they keep their name, and the VALUE they hold is never
+  // rewritten — only shortened for reading (see below). Timezone is no
+  // longer a Producer input at all (PO, 2026-09-28): the server resolves it
+  // from the Place coordinates, so the form must not render it.
+  assert.doesNotMatch(placeForm, /\["timezone", "Timezone"\]/);
   assert.match(placeForm, /\["currency", "Currency"\]/);
   assert.match(placeForm, />Latitude</);
   assert.match(placeForm, />Longitude</);
