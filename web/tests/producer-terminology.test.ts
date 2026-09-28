@@ -199,15 +199,16 @@ test("Common product words stay untranslated", () => {
 });
 
 test("Database-standard and English leftovers are gone from Producer copy", () => {
-  // Currency, Latitude and Longitude are system/data terms a Producer types
-  // on purpose: they keep their name, and the VALUE they hold is never
-  // rewritten — only shortened for reading (see below). Timezone is no
-  // longer a Producer input at all (PO, 2026-09-28): the server resolves it
-  // from the Place coordinates, so the form must not render it.
+  // Currency keeps its name as a SELECT over the canonical IDR/USD
+  // vocabulary (PO, 2026-09-28); Latitude/Longitude are no longer typed at
+  // all — coordinates come only from the map picker, and the timezone is
+  // resolved server-side from them (no timezone control in the form).
   assert.doesNotMatch(placeForm, /\["timezone", "Timezone"\]/);
-  assert.match(placeForm, /\["currency", "Currency"\]/);
-  assert.match(placeForm, />Latitude</);
-  assert.match(placeForm, />Longitude</);
+  assert.doesNotMatch(placeForm, />Latitude</);
+  assert.doesNotMatch(placeForm, />Longitude</);
+  assert.doesNotMatch(placeForm, /\["currency", "Currency"\]/);
+  assert.match(placeForm, /IDR \u2014 Rupiah Indonesia/);
+  assert.match(placeForm, /USD \u2014 Dolar Amerika Serikat/);
   assert.equal(placeForm.includes("Zona waktu"), false);
   assert.equal(placeForm.includes("Mata uang"), false);
 

@@ -1,8 +1,12 @@
-import { type PlaceCategory, type PlaceType, validatePlaceInput } from "@/lib/places";
+import { type PlaceType, isValidPlaceCategory, validatePlaceInput } from "@/lib/places";
 import { isValidPlaceCountry, isValidPlaceRegion } from "@/lib/geo/countries";
 import type { PlaceMutation } from "@/lib/place-experience-repository";
 
-const categories: PlaceCategory[] = ["Kopi", "Teh", "Kuliner"];
+// The canonical currency vocabulary (PO, 2026-09-28) — exactly IDR and USD,
+// enforced here on every write and in the database by migration 0033's
+// places_currency_check.
+const currencies = ["IDR", "USD"] as const;
+type ValidPlaceCurrency = (typeof currencies)[number];
 const types: PlaceType[] = ["production", "experience"];
 
 export class PlaceInputError extends Error {}
@@ -35,9 +39,12 @@ export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
     }
     return value;
   };
-  const category = text("category") as PlaceCategory;
+  const category = text("category");
   const type = text("type") as PlaceType;
-  if (!categories.includes(category) || !types.includes(type)) throw new PlaceInputError("place_type_or_category_invalid");
+  // A retired category (Kopi/Teh/Kuliner or anything else) is refused HERE,
+  // before it can reach the database CHECK — one check, shared by the Admin
+  // and Producer write paths.
+  if (!isValidPlaceCategory(category) || !types.includes(type)) throw new PlaceInputError("place_type_or_category_invalid");
   // Geography is validated HERE, on the server, for the same reason every
   // other field is: the two dropdowns are a convenience, not the authority.
   // A request that bypasses the form still cannot invent a country, and
@@ -61,7 +68,11 @@ export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
     address: text("address"),
     contactInformation: typeof body.contactInformation === "string" ? body.contactInformation.trim() : "",
     timezone: text("timezone"),
-    currency: text("currency").toUpperCase(),
+    currency: (() => {
+      const value = text("currency").toUpperCase();
+      if (!(currencies as readonly string[]).includes(value)) throw new PlaceInputError("place_currency_invalid");
+      return value as ValidPlaceCurrency;
+    })(),
     latitude: nullableNumber("latitude", -90, 90),
     longitude: nullableNumber("longitude", -180, 180),
     coverImageUrl: parseCoverImageUrl(body.coverImageUrl),

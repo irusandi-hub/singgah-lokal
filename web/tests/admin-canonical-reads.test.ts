@@ -128,10 +128,10 @@ test("All 3 canonical membership rows are visible to a platform-wide reader whil
       insert into public.producers (id, display_name) values ('prod-a', 'Producer A'), ('prod-b', 'Producer B');
       insert into public.places (id, name, short_description, category, type, area, timezone, currency, producer_id)
       values
-        ('place-1', 'Place 1', 'd', 'craft', 'production', 'Yogya', 'Asia/Jakarta', 'IDR', 'prod-a'),
-        ('place-2', 'Place 2', 'd', 'craft', 'production', 'Yogya', 'Asia/Jakarta', 'IDR', 'prod-a'),
-        ('place-3', 'Place 3', 'd', 'craft', 'production', 'Yogya', 'Asia/Jakarta', 'IDR', 'prod-b'),
-        ('place-4', 'Place 4', 'd', 'craft', 'production', 'Yogya', 'Asia/Jakarta', 'IDR', 'prod-b');
+        ('place-1', 'Place 1', 'd', 'Perdagangan & Jasa', 'production', 'Yogya', 'Asia/Jakarta', 'IDR', 'prod-a'),
+        ('place-2', 'Place 2', 'd', 'Perdagangan & Jasa', 'production', 'Yogya', 'Asia/Jakarta', 'IDR', 'prod-a'),
+        ('place-3', 'Place 3', 'd', 'Perdagangan & Jasa', 'production', 'Yogya', 'Asia/Jakarta', 'IDR', 'prod-b'),
+        ('place-4', 'Place 4', 'd', 'Perdagangan & Jasa', 'production', 'Yogya', 'Asia/Jakarta', 'IDR', 'prod-b');
       insert into public.producer_memberships (user_id, producer_id, place_id, role)
       values
         ('00000000-0000-4000-8000-000000000001', 'prod-a', 'place-1', 'owner'),

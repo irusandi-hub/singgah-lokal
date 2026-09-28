@@ -229,7 +229,7 @@ test("12. the existing Create Place flow is untouched by the claim feature", () 
 
   // The existing input gate still behaves exactly as before.
   const valid = {
-    name: "Place Baru", shortDescription: "Cerita lokal", category: "Kopi", type: "production",
+    name: "Place Baru", shortDescription: "Cerita lokal", category: "Sumber Daya Alam", type: "production",
     area: "Bandung", countryCode: "ID", regionName: "Jawa Barat",
     address: "Jalan Lokal 1", timezone: "Asia/Jakarta", currency: "idr",
     latitude: -6.9, longitude: 107.6,

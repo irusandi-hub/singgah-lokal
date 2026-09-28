@@ -47,7 +47,7 @@ const adminQueries = read("../lib/admin/queries.ts");
 const validInput = {
   name: "Tempat Geografi",
   shortDescription: "Cerita lokal",
-  category: "Kopi",
+  category: "Sumber Daya Alam",
   type: "production",
   area: "Bandung",
   countryCode: "ID",

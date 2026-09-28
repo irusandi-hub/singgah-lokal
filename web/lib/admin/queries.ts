@@ -50,6 +50,10 @@ export type AdminProducerRow = {
   displayName: string;
   claimStatus: string;
   createdAt: string;
+  /** Account email of the producer's owning user — Admin context ONLY. */
+  email: string | null;
+  /** Names of every Place this producer owns/manages, in canonical order. */
+  placeNames: string[];
 };
 
 export type AdminMembershipRow = {
@@ -58,6 +62,10 @@ export type AdminMembershipRow = {
   placeId: string;
   role: string;
   createdAt: string;
+  /** Account email of the member — Admin context ONLY. */
+  userEmail: string | null;
+  /** Canonical Place name, for reading and searching the list. */
+  placeName: string | null;
 };
 
 export type AdminPlaceRow = {
@@ -72,6 +80,8 @@ export type AdminPlaceRow = {
   claimStatus: string;
   producerId: string | null;
   createdAt: string;
+  /** Account email of the owner (via membership) — Admin context ONLY. */
+  ownerEmail: string | null;
 };
 
 export type AdminExperienceRow = {
@@ -142,6 +152,47 @@ function requireAdmin(): Promise<{ userId: string }> {
   return requirePlatformModerator();
 }
 
+/**
+ * Bounded canonical read (PO, 2026-09-28): the list pages read the WHOLE
+ * list domain — not the first page of it — so the country → region → name
+ * ordering is computed over the real dataset and a search cannot silently
+ * miss rows that fall outside a small page. The bound is a platform-size
+ * guard, not a page size.
+ */
+const CANONICAL_LIST_LIMIT = 2000;
+
+/** The ordering key of a Place: country → region → name (PO, 2026-09-28). */
+type PlaceOrderTriple = { countryCode: string | null; regionName: string | null; name: string };
+
+function compareByPlaceTriple(a: PlaceOrderTriple, b: PlaceOrderTriple): number {
+  // A Place without geography sorts after every Place that has one (the
+  // sentinel keeps the comparison total without special-casing nulls twice).
+  const country = (a.countryCode ?? "\uffff").localeCompare(b.countryCode ?? "\uffff", "en");
+  if (country !== 0) return country;
+  const region = (a.regionName ?? "\uffff").localeCompare(b.regionName ?? "\uffff", "en");
+  if (region !== 0) return region;
+  return a.name.localeCompare(b.name, "en");
+}
+
+/**
+ * Account emails BY user id, for the Admin lists that show/search them.
+ * Same privacy posture as lib/admin/user-directory: resolved here — server
+ * side, behind requireAdmin — and never sent anywhere else. A missing email
+ * is reported absent, never guessed.
+ */
+async function loadAuthEmails(): Promise<Map<string, string>> {
+  const { data, error } = await canonicalAdminClient().auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (error) throw error;
+  const emails = new Map<string, string>();
+  for (const user of data.users ?? []) {
+    if (user.email) emails.set(String(user.id), user.email);
+  }
+  return emails;
+}
+
 export async function getAdminOverview(): Promise<AdminOverview> {
   await requireAdmin();
 
@@ -160,53 +211,172 @@ export async function getAdminOverview(): Promise<AdminOverview> {
   return { totals: { users, producers, producerMemberships, places, experiences } };
 }
 
+/**
+ * The Pengelola list (PO, 2026-09-28).
+ *
+ * The row now carries the account email (Admin context only, resolved
+ * server-side behind requireAdmin) and the names of the Places the producer
+ * owns or manages, so the page can offer the required single search over
+ * "email OR nama Place". The place names are assembled in the canonical
+ * country → region → place-name order, and the row list itself is ordered
+ * by the same triple taken from the producer's first Place.
+ */
 export async function listAdminProducers(): Promise<AdminProducerRow[]> {
   await requireAdmin();
 
   const supabase = canonicalAdminClient();
-  const { data, error } = await supabase
-    .from("producers")
-    .select("id, display_name, claim_status, created_at")
-    .order("created_at", { ascending: false })
-    .limit(100);
+  const [producerResult, placeResult, membershipResult, emails] = await Promise.all([
+    supabase.from("producers").select("id, display_name, claim_status, created_at").limit(CANONICAL_LIST_LIMIT),
+    supabase
+      .from("places")
+      .select("id, name, producer_id, country_code, region_name")
+      .order("country_code", { ascending: true })
+      .order("region_name", { ascending: true })
+      .order("name", { ascending: true })
+      .limit(CANONICAL_LIST_LIMIT),
+    supabase.from("producer_memberships").select("user_id, producer_id, place_id, role, created_at").order("created_at", { ascending: true }).limit(CANONICAL_LIST_LIMIT),
+    loadAuthEmails(),
+  ]);
 
-  if (error) throw error;
+  for (const result of [producerResult, placeResult, membershipResult]) {
+    if (result.error) throw result.error;
+  }
 
-  return (data ?? []).map((row) => ({
-    id: String(row.id),
-    displayName: String(row.display_name),
-    claimStatus: String(row.claim_status),
-    createdAt: String(row.created_at),
+  const placeById = new Map(
+    (placeResult.data ?? []).map((row) => [
+      String(row.id),
+      { name: String(row.name), countryCode: row.country_code === null ? null : String(row.country_code), regionName: row.region_name === null ? null : String(row.region_name) },
+    ]),
+  );
+  // The canonical order of every Place in the platform, once.
+  const canonicalOrder = [...placeById.values()].sort(compareByPlaceTriple).map((place) => place.name);
+  const orderRank = new Map(canonicalOrder.map((name, index) => [name, index]));
+
+  // Producer → Places: both the ownership link on the Place itself and the
+  // membership rows, so a manager shows the Places they manage too.
+  const producerPlaceNames = new Map<string, string[]>();
+  for (const row of placeResult.data ?? []) {
+    if (row.producer_id === null) continue;
+    const producerId = String(row.producer_id);
+    producerPlaceNames.set(producerId, [...(producerPlaceNames.get(producerId) ?? []), String(row.name)]);
+  }
+  for (const row of membershipResult.data ?? []) {
+    const producerId = String(row.producer_id);
+    const placeName = placeById.get(String(row.place_id))?.name;
+    if (!placeName) continue;
+    const names = producerPlaceNames.get(producerId) ?? [];
+    if (!names.includes(placeName)) producerPlaceNames.set(producerId, [...names, placeName]);
+  }
+  for (const names of producerPlaceNames.values()) {
+    names.sort((a, b) => (orderRank.get(a) ?? Number.MAX_SAFE_INTEGER) - (orderRank.get(b) ?? Number.MAX_SAFE_INTEGER));
+  }
+
+  // Producer → one account email: the owner membership's account first, then
+  // any membership. Absent for a producer with no membership at all.
+  const producerEmail = new Map<string, string>();
+  const roleRank = (role: string) => (role === "owner" ? 0 : 1);
+  const seenProducers = new Set<string>();
+  const orderedMemberships = [...(membershipResult.data ?? [])].sort(
+    (a, b) => roleRank(String(a.role)) - roleRank(String(b.role)) || String(a.created_at).localeCompare(String(b.created_at)),
+  );
+  for (const row of orderedMemberships) {
+    const producerId = String(row.producer_id);
+    if (seenProducers.has(producerId)) continue;
+    const email = emails.get(String(row.user_id));
+    if (email) {
+      producerEmail.set(producerId, email);
+      seenProducers.add(producerId);
+    }
+  }
+
+  const rows = (producerResult.data ?? []).map((row) => {
+    const producerId = String(row.id);
+    const placeNames = producerPlaceNames.get(producerId) ?? [];
+    const firstPlace = placeNames.length
+      ? [...placeById.values()].find((place) => place.name === placeNames[0])
+      : undefined;
+    return {
+      id: producerId,
+      displayName: String(row.display_name),
+      claimStatus: String(row.claim_status),
+      createdAt: String(row.created_at),
+      email: producerEmail.get(producerId) ?? null,
+      placeNames,
+      // Ordering key: the producer's first Place in canonical order.
+      countryCode: firstPlace?.countryCode ?? null,
+      regionName: firstPlace?.regionName ?? null,
+      placeName: firstPlace?.name ?? null,
+    };
+  });
+
+  // Pengelola order: country → region → place name (PO, 2026-09-28); a
+  // producer without any Place sorts after every producer that has one.
+  rows.sort((a, b) => {
+    const order = compareByPlaceTriple(
+      { countryCode: a.countryCode, regionName: a.regionName, name: a.placeName ?? "" },
+      { countryCode: b.countryCode, regionName: b.regionName, name: b.placeName ?? "" },
+    );
+    if (order !== 0) return order;
+    return String(a.createdAt).localeCompare(String(b.createdAt));
+  });
+
+  return rows.map(({ id, displayName, claimStatus, createdAt, email, placeNames }) => ({
+    id,
+    displayName,
+    claimStatus,
+    createdAt,
+    email,
+    placeNames,
   }));
 }
+
 
 export async function listAdminMemberships(): Promise<AdminMembershipRow[]> {
   await requireAdmin();
 
   const supabase = canonicalAdminClient();
-  const { data, error } = await supabase
-    .from("producer_memberships")
-    .select("user_id, producer_id, place_id, role, created_at")
-    .order("created_at", { ascending: false })
-    .limit(100);
+  const [membershipResult, placeResult, emails] = await Promise.all([
+    supabase
+      .from("producer_memberships")
+      .select("user_id, producer_id, place_id, role, created_at")
+      .order("created_at", { ascending: false })
+      .limit(CANONICAL_LIST_LIMIT),
+    supabase
+      .from("places")
+      .select("id, name, country_code, region_name")
+      .order("country_code", { ascending: true })
+      .order("region_name", { ascending: true })
+      .order("name", { ascending: true })
+      .limit(CANONICAL_LIST_LIMIT),
+    loadAuthEmails(),
+  ]);
 
-  if (error) throw error;
+  for (const result of [membershipResult, placeResult]) {
+    if (result.error) throw result.error;
+  }
 
-  return (data ?? []).map((row) => ({
+  const placeNameById = new Map((placeResult.data ?? []).map((row) => [String(row.id), String(row.name)]));
+
+  return (membershipResult.data ?? []).map((row) => ({
     userId: String(row.user_id),
     producerId: String(row.producer_id),
     placeId: String(row.place_id),
     role: String(row.role),
     createdAt: String(row.created_at),
+    userEmail: emails.get(String(row.user_id)) ?? null,
+    placeName: placeNameById.get(String(row.place_id)) ?? null,
   }));
 }
 
 /**
- * Every Place, optionally narrowed by country and then by the subdivision
- * inside that country (PO, 2026-09-28). The filter is applied in the database
- * against the `(country_code, region_name)` index from migration 0032 — not
- * by filtering a page of rows in JavaScript — so a country selection always
- * means "every Place in this country", never "every Place in the first 100".
+ * Every Place, ordered country → region → place name (PO, 2026-09-28),
+ * optionally narrowed by country and then by the subdivision inside that
+ * country (PO, 2026-09-28). The filter is applied in the database against the
+ * `(country_code, region_name)` index from migration 0032 — not by filtering
+ * a page of rows in JavaScript — so a country selection always means "every
+ * Place in this country", never "every Place in the first 100". Each row
+ * carries the owner's account email (through the membership with role
+ * 'owner'), resolved server-side behind requireAdmin — Admin context only.
  */
 export async function listAdminPlaces(filter: { countryCode?: string | null; regionName?: string | null } = {}): Promise<AdminPlaceRow[]> {
   await requireAdmin();
@@ -215,18 +385,43 @@ export async function listAdminPlaces(filter: { countryCode?: string | null; reg
   const countryCode = filter.countryCode?.trim().toUpperCase() ?? "";
   const regionName = filter.regionName?.trim() ?? "";
 
-  let query = supabase
+  const [membershipResult, emails] = await Promise.all([
+    supabase.from("producer_memberships").select("place_id, user_id, role, created_at").order("created_at", { ascending: true }).limit(CANONICAL_LIST_LIMIT),
+    loadAuthEmails(),
+  ]);
+  if (membershipResult.error) throw membershipResult.error;
+
+  let placeQuery = supabase
     .from("places")
     .select("id, name, category, type, area, country_code, region_name, publication_status, claim_status, producer_id, created_at")
-    .order("created_at", { ascending: false })
-    .limit(100);
-  if (countryCode) query = query.eq("country_code", countryCode);
-  if (countryCode && regionName) query = query.eq("region_name", regionName);
+    // The canonical order, applied in the DATABASE (PO, 2026-09-28):
+    // country → region → place name — never a client-side sort of a
+    // truncated page.
+    .order("country_code", { ascending: true })
+    .order("region_name", { ascending: true })
+    .order("name", { ascending: true })
+    .limit(CANONICAL_LIST_LIMIT);
+  if (countryCode) placeQuery = placeQuery.eq("country_code", countryCode);
+  if (countryCode && regionName) placeQuery = placeQuery.eq("region_name", regionName);
 
-  const { data, error } = await query;
-  if (error) throw error;
+  const { data: placeData, error: placeError } = await placeQuery;
+  if (placeError) throw placeError;
 
-  return (data ?? []).map((row) => ({
+  // The owning account of a Place: the owner membership first, then any
+  // membership, then the linked producer — whichever resolves an email first.
+  const emailByPlace = new Map<string, string>();
+  const roleRank = (role: string) => (role === "owner" ? 0 : 1);
+  const orderedMemberships = [...(membershipResult.data ?? [])].sort(
+    (a, b) => roleRank(String(a.role)) - roleRank(String(b.role)) || String(a.created_at).localeCompare(String(b.created_at)),
+  );
+  for (const row of orderedMemberships) {
+    const placeId = String(row.place_id);
+    if (emailByPlace.has(placeId)) continue;
+    const email = emails.get(String(row.user_id));
+    if (email) emailByPlace.set(placeId, email);
+  }
+
+  const rows = (placeData ?? []).map((row) => ({
     id: String(row.id),
     name: String(row.name),
     category: String(row.category),
@@ -238,7 +433,10 @@ export async function listAdminPlaces(filter: { countryCode?: string | null; reg
     claimStatus: String(row.claim_status),
     producerId: row.producer_id === null ? null : String(row.producer_id),
     createdAt: String(row.created_at),
+    ownerEmail: emailByPlace.get(String(row.id)) ?? null,
   }));
+
+  return rows;
 }
 
 export async function listAdminExperiences(): Promise<AdminExperienceRow[]> {

@@ -54,14 +54,19 @@ export type AdminColumn<Row> = {
 };
 
 /**
- * The one Admin data surface (PO, 2026-09-28).
+ * The one Admin data surface (PO, 2026-09-28, reworked). ONE table, everywhere
+ * — there is deliberately no second (card/list) presentation on a phone: the
+ * same `<table>` carries every viewport, so the Admin always reads the same
+ * columns on every device. The viewport is capped
+ * at 75vh with INTERNAL scrolling (`max-h-[75vh] overflow-auto`): a long list
+ * scrolls inside the table instead of pushing the page — and the page's other
+ * panels — out of reach. The sticky head keeps the column labels visible
+ * while that internal scroll happens.
  *
- * Desktop keeps the table it always had. Below `sm` the same rows re-render
- * as stacked field cards: each value keeps its column header as a label, so
- * nothing depends on side-by-side columns being readable. The old wrapper
- * forced `min-w-[640px]` inside an `overflow-x-auto` scroll area — on a phone
- * that meant every wide table left the frame and columns were cut off; there
- * is deliberately no horizontal scroll and no forced minimum width anymore.
+ * Cells keep `min-w-0` + `break-words`, so a long email, URL, or id wraps
+ * inside its cell and can never widen a column past the phone frame —
+ * combined with the wrapper's `max-w-full` the page gains no horizontal
+ * overflow at 360/390px.
  *
  * Structure and authority are unchanged: same columns, same rows, same
  * renderers, pure presentational.
@@ -80,50 +85,30 @@ export function AdminDataTable<Row>({ columns, rows, emptyMessage }: {
   }
 
   return (
-    <>
-      {/* Mobile: one card per row, every field labelled. Long values wrap —
-          break-words keeps a long URL or id from pushing the card wide. */}
-      <ul className="grid gap-3 sm:hidden">
-        {rows.map((row, index) => (
-          <li key={index} className="rounded-2xl border border-black/10 bg-white p-4">
-            <dl className="grid gap-2">
-              {columns.map(({ key, header, render }) => (
-                <div key={key} className="grid gap-0.5">
-                  <dt className="text-[10px] font-bold uppercase tracking-[0.14em] text-black/45">{header}</dt>
-                  <dd className="min-w-0 break-words text-sm text-black/75">{render(row)}</dd>
-                </div>
-              ))}
-            </dl>
-          </li>
-        ))}
-      </ul>
-
-      {/* Desktop: the unchanged table. */}
-      <div className="hidden overflow-x-auto rounded-2xl border border-black/10 bg-white sm:block">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-black/10 bg-black/[0.02]">
-              {columns.map(({ key, header }) => (
-                <th key={key} scope="col" className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.12em] text-black/45">
-                  {header}
-                </th>
+    <div className="max-h-[75vh] max-w-full overflow-auto rounded-2xl border border-black/10 bg-white">
+      <table className="w-full text-left text-sm">
+        <thead className="sticky top-0 z-10 bg-white">
+          <tr className="border-b border-black/10">
+            {columns.map(({ key, header }) => (
+              <th key={key} scope="col" className="border-b border-black/10 bg-black/[0.02] px-4 py-3 text-[11px] font-bold uppercase tracking-[0.12em] text-black/45">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index} className="border-b border-black/5 last:border-b-0">
+              {columns.map(({ key, render }) => (
+                <td key={key} className="min-w-0 max-w-[16rem] px-4 py-3 align-top text-black/75 lg:max-w-xs">
+                  <span className="block break-words">{render(row)}</span>
+                </td>
               ))}
             </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={index} className="border-b border-black/5 last:border-b-0">
-                {columns.map(({ key, render }) => (
-                  <td key={key} className="max-w-[16rem] px-4 py-3 align-top text-black/75 lg:max-w-xs">
-                    <span className="block break-words">{render(row)}</span>
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

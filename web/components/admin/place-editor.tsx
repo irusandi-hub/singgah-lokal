@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Place } from "@/lib/places";
+import { PLACE_CATEGORIES, PLACE_CURRENCIES } from "@/lib/places";
 import PlaceGeoFields from "@/components/place-geo-fields";
+import PlaceLocationPicker from "@/components/place-location-picker";
 
 /**
  * Admin Place editor — "Informasi Tempat" only.
@@ -15,22 +17,34 @@ import PlaceGeoFields from "@/components/place-geo-fields";
  * below it, so an edit can never silently change visibility.
  *
  * The server remains the authority: /api/admin/places re-runs the one shared
- * Place mutation validator and re-verifies Platform Admin authorization.
+ * Place mutation validator plus the server-side timezone resolver, and
+ * re-verifies Platform Admin authorization.
+ *
+ * PO, 2026-09-28: the Timezone field is GONE — the zone is resolved
+ * server-side from the coordinates (the same rule the Producer save path
+ * already used), so the Admin never types or chooses one. Coordinates come
+ * only from the shared map picker: no manual Latitude/Longitude input exists.
+ * Category and Currency are selects over the canonical vocabularies; the
+ * server and the database (migration 0033) refuse anything outside them.
  */
 type Props = { place?: Place };
+
+const CURRENCY_LABEL: Record<string, string> = {
+  IDR: "IDR — Rupiah Indonesia",
+  USD: "USD — Dolar Amerika Serikat",
+};
 
 function emptyForm(): Record<string, string> {
   return {
     name: "",
     shortDescription: "",
-    category: "Kopi",
+    category: "Sumber Daya Alam",
     type: "production",
     area: "",
     countryCode: "",
     regionName: "",
     address: "",
     contactInformation: "",
-    timezone: "Asia/Jakarta",
     currency: "IDR",
     latitude: "",
     longitude: "",
@@ -43,8 +57,6 @@ const TEXT_FIELDS: Array<[string, string, boolean]> = [
   ["area", "Area", true],
   ["address", "Alamat", true],
   ["contactInformation", "Kontak", false],
-  ["timezone", "Timezone", true],
-  ["currency", "Currency", true],
 ];
 
 const FIELD_CLASS =
@@ -64,7 +76,6 @@ export default function AdminPlaceEditor({ place }: Props) {
           regionName: place.regionName ?? "",
           address: place.address,
           contactInformation: place.contactInformation,
-          timezone: place.timezone,
           currency: place.currency,
           latitude: place.latitude?.toString() ?? "",
           longitude: place.longitude?.toString() ?? "",
@@ -127,18 +138,15 @@ export default function AdminPlaceEditor({ place }: Props) {
           />
         </label>
       ))}
-      <PlaceGeoFields
-        countryCode={form.countryCode}
-        regionName={form.regionName}
-        onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
-      />
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="grid gap-1 text-sm font-semibold">
           Kategori
           <select className={FIELD_CLASS} value={form.category} onChange={(event) => update("category", event.target.value)}>
-            <option>Kopi</option>
-            <option>Teh</option>
-            <option>Kuliner</option>
+            {PLACE_CATEGORIES.map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
           </select>
         </label>
         <label className="grid gap-1 text-sm font-semibold">
@@ -149,15 +157,33 @@ export default function AdminPlaceEditor({ place }: Props) {
           </select>
         </label>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <label className="grid gap-1 text-xs font-semibold">
-          Latitude
-          <input className={FIELD_CLASS} value={form.latitude} onChange={(event) => update("latitude", event.target.value)} />
-        </label>
-        <label className="grid gap-1 text-xs font-semibold">
-          Longitude
-          <input className={FIELD_CLASS} value={form.longitude} onChange={(event) => update("longitude", event.target.value)} />
-        </label>
+      <label className="grid gap-1 text-sm font-semibold">
+        Currency
+        <select className={FIELD_CLASS} value={form.currency} onChange={(event) => update("currency", event.target.value)}>
+          {PLACE_CURRENCIES.map((currency) => (
+            <option key={currency} value={currency}>
+              {CURRENCY_LABEL[currency]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <PlaceGeoFields
+        countryCode={form.countryCode}
+        regionName={form.regionName}
+        onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+      />
+      <div className="grid min-w-0 gap-2">
+        <span className="text-sm font-semibold">Lokasi Tempat</span>
+        <PlaceLocationPicker
+          latitude={form.latitude}
+          longitude={form.longitude}
+          onChange={(latitude, longitude) =>
+            setForm((current) => ({ ...current, latitude, longitude }))
+          }
+        />
+        <p className="text-xs leading-5 text-black/55">
+          Zona waktu dihitung otomatis di server dari koordinat peta saat Tempat disimpan.
+        </p>
       </div>
       <p className="text-xs leading-5 text-black/55">
         Negara, provinsi/wilayah, alamat, dan koordinat wajib lengkap sebelum Tempat dapat diterbitkan. Area tetap

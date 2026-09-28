@@ -1,13 +1,10 @@
 import {
   AdminBackToAdminCenter,
-  AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
-  AdminStatusBadge,
-  formatAdminTimestamp,
-  formatShortId,
 } from "@/components/admin/ui";
-import { listAdminDirectoryUsers, type AdminDirectoryUserRow } from "@/lib/admin/user-directory";
+import { listAdminDirectoryUsers } from "@/lib/admin/user-directory";
+import AdminUsersTable from "./AdminUsersTable";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +19,7 @@ export const dynamic = "force-dynamic";
  * layer. No credential, token, or infrastructure secret is ever returned.
  */
 export default async function AdminUsersPage() {
-  let users: AdminDirectoryUserRow[];
+  let users: Awaited<ReturnType<typeof listAdminDirectoryUsers>>;
   try {
     users = await listAdminDirectoryUsers();
   } catch {
@@ -41,21 +38,7 @@ export default async function AdminUsersPage() {
         title="Users"
         description="Akun terdaftar di platform. Email hanya ditampilkan pada halaman ini (manajemen user Admin) dan tidak pernah tampil untuk Producer, user lain, atau publik."
       />
-      <AdminDataTable
-        rows={users}
-        emptyMessage="Belum ada user terdaftar."
-        columns={[
-          { key: "id", header: "User ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-          { key: "email", header: "Email", render: (row) => (row.email ? <span className="text-sm">{row.email}</span> : <span className="text-black/40">—</span>) },
-          { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },
-          {
-            key: "role",
-            header: "Platform Role",
-            render: (row) =>
-              row.platformRole ? <AdminStatusBadge value={row.platformRole} tone="live" /> : <span className="text-black/40">—</span>,
-          },
-        ]}
-      />
+      <AdminUsersTable users={users} />
     </div>
   );
 }

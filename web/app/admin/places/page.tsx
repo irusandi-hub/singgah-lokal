@@ -1,16 +1,14 @@
 import Link from "next/link";
 import {
-  AdminDataTable,
+  AdminBackToAdminCenter,
   AdminErrorState,
   AdminPageHeader,
-  AdminStatusBadge,
-  formatAdminTimestamp,
-  formatShortId,
 } from "@/components/admin/ui";
 import { listAdminPlaces, type AdminPlaceRow } from "@/lib/admin/queries";
 import { PlatformModeratorRequiredError } from "@/lib/live/platform";
 import PlaceClaimsManager from "./PlaceClaimsManager";
 import PlaceGeoFilter from "./PlaceGeoFilter";
+import AdminPlacesTable from "./AdminPlacesTable";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +25,11 @@ export const dynamic = "force-dynamic";
  * section: this page already carries the Place/claim view, and Admin approval
  * is the only path that grants ownership through a claim. Claim review never
  * creates a Place — it only grants ownership on an existing one.
+ *
+ * PO, 2026-09-28: the Place rows carry the owner's account email (resolved
+ * server-side in lib/admin/queries, Admin context only), and the list is
+ * ordered country → region → place name — so the one search box can narrow by
+ * owner email or Place name without a reload.
  */
 export default async function AdminPlacesPage({
   searchParams,
@@ -41,6 +44,7 @@ export default async function AdminPlacesPage({
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
+        <AdminBackToAdminCenter />
         <AdminPageHeader title="Tempat" description="Seluruh Tempat di platform." />
         <AdminErrorState message="Data Tempat tidak dapat dimuat." />
       </div>
@@ -49,6 +53,7 @@ export default async function AdminPlacesPage({
 
   return (
     <div className="space-y-8">
+      <AdminBackToAdminCenter />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <AdminPageHeader
           title="Tempat"
@@ -66,56 +71,7 @@ export default async function AdminPlacesPage({
 
       <PlaceGeoFilter />
 
-      <AdminDataTable
-        rows={places}
-        emptyMessage="Belum ada Tempat."
-        columns={[
-          { key: "id", header: "Tempat ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-          { key: "name", header: "Nama", render: (row) => <span className="font-bold">{row.name}</span> },
-          { key: "area", header: "Area", render: (row) => `${row.area} · ${row.category} · ${row.type}` },
-          {
-            key: "region",
-            header: "Negara / Provinsi",
-            render: (row) =>
-              row.countryCode && row.regionName ? `${row.regionName} · ${row.countryCode}` : <span className="text-black/40">—</span>,
-          },
-          {
-            key: "publication",
-            header: "Publikasi",
-            render: (row) => (
-              <AdminStatusBadge
-                value={row.publicationStatus}
-                tone={row.publicationStatus === "published" ? "positive" : row.publicationStatus === "archived" ? "negative" : "warning"}
-              />
-            ),
-          },
-          {
-            key: "claim",
-            header: "Claim",
-            render: (row) => (
-              <AdminStatusBadge
-                value={row.claimStatus}
-                tone={row.claimStatus === "verified" ? "positive" : row.claimStatus === "claimed" ? "warning" : "neutral"}
-              />
-            ),
-          },
-          { key: "producer", header: "Pengelola", render: (row) => (row.producerId ? <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> : <span className="text-black/40">—</span>) },
-          { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },
-          {
-            key: "manage",
-            header: "",
-            render: (row) => (
-              <Link
-                href={`/admin/places/${row.id}`}
-                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-brand-primary/40 px-3 py-1.5 text-xs font-bold text-brand-primary transition hover:bg-brand-primary/10"
-              >
-                Kelola
-                <span aria-hidden>→</span>
-              </Link>
-            ),
-          },
-        ]}
-      />
+      <AdminPlacesTable places={places} />
     </div>
   );
 }

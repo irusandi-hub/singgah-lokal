@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Place } from "@/lib/places";
+import { PLACE_CATEGORIES } from "@/lib/places";
 import {
   PLACE_MEDIA_ACCEPTED_TYPES,
   PLACE_MEDIA_MAX_BYTES,
@@ -33,7 +34,7 @@ type SlotState = {
 function emptyPlaceForm(): Record<string, string> {
   return {
     id: "", name: "", shortDescription: "",
-    category: "Kopi", type: "production", area: "",
+    category: "Sumber Daya Alam", type: "production", area: "",
     countryCode: "", regionName: "",
     address: "", contactInformation: "",
     currency: "IDR",
@@ -226,7 +227,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
 
       {editorTab === "detail" && (
         <>
-      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["currency", "Currency"]].map(([key, label]) => (
+      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
       <div className="grid min-w-0 gap-2">
@@ -238,10 +239,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
             setForm((current) => ({ ...current, latitude, longitude }))
           }
         />
-        <div className="grid min-w-0 grid-cols-2 gap-3">
-          <label className="grid min-w-0 gap-1 text-xs font-semibold">Latitude<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} /></label>
-          <label className="grid min-w-0 gap-1 text-xs font-semibold">Longitude<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
-        </div>
+        <p className="text-xs leading-5 text-black/55">Koordinat dipilih pada peta — timezone dihitung otomatis di server dari koordinat saat Tempat disimpan.</p>
       </div>
       <PlaceGeoFields
         countryCode={form.countryCode}
@@ -249,8 +247,11 @@ export default function PlaceForm({ place, onSaved }: Props) {
         onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
       />
       <p className="text-xs leading-5 text-black/55">Area diisi dengan nama area lokal; provinsi/wilayah dipilih dari daftar negara di atas.</p>
-      <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
-      <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Kegiatan</option></select></label>
+      <div className="grid min-w-0 gap-2 sm:grid-cols-2">
+        <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}>{PLACE_CATEGORIES.map((category) => (<option key={category} value={category}>{category}</option>))}</select></label>
+        <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Kegiatan</option></select></label>
+      </div>
+      <label className="grid gap-1 text-sm font-semibold">Currency<select value={form.currency} onChange={(event) => update("currency", event.target.value)}><option value="IDR">IDR — Rupiah Indonesia</option><option value="USD">USD — Dolar Amerika Serikat</option></select></label>
         </>
       )}
 

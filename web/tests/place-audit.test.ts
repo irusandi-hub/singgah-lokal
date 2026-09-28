@@ -427,7 +427,7 @@ test("the audit trail holds Place columns only — never user email, credentials
     id: "tempat-audit",
     name: "Tempat Audit",
     shortDescription: "d",
-    category: "Kopi",
+    category: "Perdagangan & Jasa",
     type: "production",
     area: "Bandung",
     countryCode: "ID",
@@ -498,7 +498,8 @@ test("email stays Admin/Creator-only: Admin sees it, Producer and public never d
   // Platform Admin resolves it in user management and for the audit actor.
   assert.match(userDirectory, /export async function listAdminDirectoryUsers/);
   assert.match(userDirectory, /export async function listAdminActorEmails/);
-  assert.match(read("../app/admin/users/page.tsx"), /row\.email/);
+  // The email renders in the list's client table (Admin context only).
+  assert.match(read("../app/admin/users/AdminUsersTable.tsx"), /row\.email/);
   // Both resolvers are session-guarded and return only an address.
   const directory = stripComments(userDirectory);
   assert.equal((directory.match(/await requirePlatformModerator\(\)/g) ?? []).length, 2);

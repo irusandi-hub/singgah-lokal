@@ -1,21 +1,22 @@
 import {
   AdminBackToAdminCenter,
-  AdminDataTable,
   AdminErrorState,
   AdminPageHeader,
-  AdminStatusBadge,
-  formatAdminTimestamp,
-  formatShortId,
 } from "@/components/admin/ui";
 import { listAdminMemberships, listAdminPlaces, type AdminMembershipRow } from "@/lib/admin/queries";
 import { PlatformModeratorRequiredError } from "@/lib/live/platform";
 import ProducerApplicationsManager from "./applications-manager";
+import AdminMembershipTable from "./AdminMembershipTable";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Admin Producer Membership (read-only MVP). Membership is the Producer
  * authorization source (user_id, place_id, role) — shown as canonical data.
+ *
+ * PO, 2026-09-28: the membership rows carry the account email and the Place
+ * name (resolved server-side in lib/admin/queries, Admin context only), so
+ * the one search box can narrow by email or Place name without a reload.
  */
 export default async function AdminProducerMembershipPage() {
   let memberships: AdminMembershipRow[];
@@ -26,6 +27,7 @@ export default async function AdminProducerMembershipPage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
+        <AdminBackToAdminCenter />
         <AdminPageHeader title="Pengelola Membership" description="Kewenangan Pengelola per Tempat." />
         <AdminErrorState message="Data Pengelola Membership tidak dapat dimuat." />
       </div>
@@ -37,29 +39,13 @@ export default async function AdminProducerMembershipPage() {
       <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Pengelola Membership"
-        description="Kewenangan Pengelola per Tempat (user, producer, place, role)."
+        description="Kewenangan Pengelola per Tempat (email Pengelola, Tempat, role)."
       />
 
       {/* Approval flow: pengajuan terikat user_id pengaju; approval mengaktifkan
           membership untuk akun yang sama (tanpa auth user/credential baru). */}
       <ProducerApplicationsManager places={places} />
-      <AdminDataTable
-        rows={memberships}
-        emptyMessage="Belum ada Pengelola Membership."
-        columns={[
-          { key: "user", header: "User ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.userId)}</span> },
-          { key: "producer", header: "Pengelola", render: (row) => <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> },
-          { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
-          {
-            key: "role",
-            header: "Role",
-            render: (row) => (
-              <AdminStatusBadge value={row.role} tone={row.role === "owner" ? "positive" : row.role === "manager" ? "warning" : "neutral"} />
-            ),
-          },
-          { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },
-        ]}
-      />
+      <AdminMembershipTable memberships={memberships} />
     </div>
   );
 }

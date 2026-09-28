@@ -56,13 +56,14 @@ test("Tempat Pilihan is ONE curated discovery layer with no category filter UI",
   // Live-now cards are not part of the curated layer.
   assert.match(code, /curatedOnly \? null : DISTANCE_FILTER_RADIUS_M\[distanceFilter\]/);
   assert.match(code, /!curatedOnly && liveCards\.length > 0/);
-  // Collections remain canonical internal Place data (lib/places.ts) —
-  // removed from the UI, not from the model.
+  // The canonical Place model carries the replacement vocabulary
+  // (PO, 2026-09-28): the three new categories, with the retired
+  // Kopi/Teh/Kuliner values gone from the model entirely.
   const modelCode = stripComments(placesModel);
-  assert.match(modelCode, /\{ key: "kuliner", label: "Dapur", category: "Kuliner" \}/);
-  assert.match(modelCode, /\{ key: "kopi", label: "Kopi", category: "Kopi" \}/);
-  assert.match(modelCode, /\{ key: "teh", label: "Teh", category: "Teh" \}/);
-  assert.match(modelCode, /export type PlaceCategory = "Kopi" \| "Teh" \| "Kuliner";/);
+  assert.match(modelCode, /export type PlaceCategory = "Sumber Daya Alam" \| "Industri & Pengolahan" \| "Perdagangan & Jasa";/);
+  assert.equal(modelCode.includes("\"Kopi\""), false);
+  assert.equal(modelCode.includes("\"Teh\""), false);
+  assert.equal(modelCode.includes("\"Kuliner\""), false);
 });
 
 // --- C: Place detail hero replaces the info block ---

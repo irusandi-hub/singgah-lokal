@@ -1,4 +1,24 @@
-export type PlaceCategory = "Kopi" | "Teh" | "Kuliner";
+export type PlaceCategory = "Sumber Daya Alam" | "Industri & Pengolahan" | "Perdagangan & Jasa";
+
+/**
+ * The complete category vocabulary (PO, 2026-09-28). The former Kopi / Teh /
+ * Kuliner values are retired everywhere — model, forms, server validator, and
+ * the database (migration 0033's `places_category_check`). Any category
+ * outside this list is refused on every write.
+ */
+export const PLACE_CATEGORIES: readonly PlaceCategory[] = [
+  "Sumber Daya Alam",
+  "Industri & Pengolahan",
+  "Perdagangan & Jasa",
+] as const;
+
+/**
+ * The complete currency vocabulary (PO, 2026-09-28): the exact values the
+ * server accepts and migration 0033's `places_currency_check` enforces.
+ */
+export const PLACE_CURRENCIES: readonly PlaceCurrency[] = ["IDR", "USD"] as const;
+
+export type PlaceCurrency = "IDR" | "USD";
 
 export type PlaceType = "production" | "experience";
 
@@ -17,9 +37,9 @@ export type CuratedCollection = {
 };
 
 export const CURATED_COLLECTIONS: readonly CuratedCollection[] = [
-  { key: "kuliner", label: "Dapur", category: "Kuliner" },
-  { key: "kopi", label: "Kopi", category: "Kopi" },
-  { key: "teh", label: "Teh", category: "Teh" },
+  { key: "sda", label: "Sumber Daya Alam", category: "Sumber Daya Alam" },
+  { key: "industri", label: "Industri & Pengolahan", category: "Industri & Pengolahan" },
+  { key: "jasa", label: "Perdagangan & Jasa", category: "Perdagangan & Jasa" },
 ] as const;
 
 export type ClaimStatus = "unverified" | "claimed" | "verified";
@@ -63,7 +83,7 @@ export const places: Place[] = [
     id: "kopi-dari-kebun",
     name: "Kopi dari Kebun",
     shortDescription: "Temukan cerita dan produksi lokal dari tempat ini.",
-    category: "Kopi",
+    category: "Sumber Daya Alam",
     type: "production",
     area: "Bandung",
     countryCode: "ID",
@@ -83,7 +103,7 @@ export const places: Place[] = [
     id: "rumah-teh-lokal",
     name: "Rumah Teh Lokal",
     shortDescription: "Temukan cerita dan produksi lokal dari tempat ini.",
-    category: "Teh",
+    category: "Perdagangan & Jasa",
     type: "experience",
     area: "Lembang",
     countryCode: "ID",
@@ -103,7 +123,7 @@ export const places: Place[] = [
     id: "dapur-rasa",
     name: "Dapur Rasa",
     shortDescription: "Temukan cerita dan produksi lokal dari tempat ini.",
-    category: "Kuliner",
+    category: "Perdagangan & Jasa",
     type: "production",
     area: "Bandung",
     countryCode: "ID",
@@ -130,13 +150,20 @@ function isValidTimezone(timezone: string): boolean {
   }
 }
 
+/**
+ * Whether a raw category string is inside the canonical vocabulary. The ONE
+ * category check: the shared mutation parser (lib/place-management) uses it
+ * so both the Admin and Producer write paths refuse a retired category
+ * before anything reaches the database CHECK.
+ */
+export function isValidPlaceCategory(value: string): value is PlaceCategory {
+  return (PLACE_CATEGORIES as readonly string[]).includes(value);
+}
+
 function isValidCurrency(currency: string): boolean {
-  try {
-    new Intl.NumberFormat("en-US", { style: "currency", currency }).format(0);
-    return /^[A-Z]{3}$/.test(currency);
-  } catch {
-    return false;
-  }
+  // Only the two platform currencies are valid (PO, 2026-09-28); this is the
+  // same vocabulary the database CHECK (migration 0033) enforces.
+  return (PLACE_CURRENCIES as readonly string[]).includes(currency);
 }
 
 export function validatePlace(place: Place): void {

@@ -55,7 +55,7 @@ const placeClaimMigration = readMigration("0028_place_claims.sql");
 const adminPayload = {
   name: "Tempat Tanpa Pengelola",
   shortDescription: "Dicatat oleh Admin, belum ada pemiliknya.",
-  category: "Kuliner",
+  category: "Perdagangan & Jasa",
   type: "production",
   area: "Bandung",
   countryCode: "ID",
@@ -179,8 +179,9 @@ test("Admin can edit Place data, and the edit can never touch ownership or claim
   const code = stripComments(placeWorkspace);
   assert.match(code, /export async function updateAdminPlace/);
   assert.match(code, /await requirePlatformModerator\(\)/);
-  // Reuses the ONE canonical validator + the canonical repository update.
-  assert.match(code, /parsePlaceMutation\(raw, id\)/);
+  // Reuses the ONE canonical validator (through the shared timezone
+  // resolver) + the canonical repository update.
+  assert.match(code, /resolvePlaceMutation\(raw, id/);
   assert.match(code, /repository\.update\(id, mutation\)/);
   // Nothing in the edit path writes owner / claim / publication columns.
   const updateBody = code.slice(code.indexOf("export async function updateAdminPlace"));
@@ -391,7 +392,9 @@ test("Platform Admin can see the User email, in the user-management context only
   assert.match(userDirectory, /await requirePlatformModerator\(\)/);
   assert.match(userDirectory, /auth\.admin\.listUsers/);
   assert.match(userDirectory, /email: emailById/);
-  assert.match(read("../app/admin/users/page.tsx"), /row\.email/);
+  // The email is rendered in the list's client table (still the Admin
+  // user-management context only).
+  assert.match(read("../app/admin/users/AdminUsersTable.tsx"), /row\.email/);
   assert.match(adminUsersRoute, /listAdminDirectoryUsers/);
   // No credential is ever returned next to the email.
   assert.doesNotMatch(stripComments(userDirectory), /password|token|secret|api_key/i);

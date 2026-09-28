@@ -3,7 +3,7 @@ import "server-only";
 import { PlaceAuditError, recordPlaceAudit } from "@/lib/admin/place-audit";
 import { PLACE_AUDIT_ACTIONS, placeAuditSnapshot, type PlaceAuditAction } from "@/lib/place-audit-format";
 import { SupabasePlaceManagementRepository } from "@/lib/place-experience-repository";
-import { derivePlaceIdFromName, parsePlaceMutation, PlaceInputError } from "@/lib/place-management";
+import { derivePlaceIdFromName, resolvePlaceMutation, PlaceInputError } from "@/lib/place-management";
 import {
   canAdminTransitionPlaceStatus,
   isPlacePublicationReady,
@@ -29,10 +29,10 @@ import { createSupabaseServiceClient } from "@/lib/supabase/admin";
  * - The claim flow (place_claims + `submit_place_claim` / `review_place_claim`)
  *   never creates or edits a Place. This module therefore has no claim path at
  *   all: reviewing a claim stays entirely inside /api/admin/place-claims.
- * - `parsePlaceMutation` (lib/place-management) is the ONE Place input
- *   validator, and it already refuses a `producerId` in the payload — so the
- *   Admin can never set an owner by editing fields, and the Place concept
- *   stays owned-by-claim only.
+ * - `resolvePlaceMutation` (lib/place-management) wraps the ONE Place input
+ *   validator and the ONE server-side timezone resolver, and it already
+ *   refuses a `producerId` in the payload — so the Admin can never set an
+ *   owner by editing fields, and the Place concept stays owned-by-claim only.
  * - `SupabasePlaceManagementRepository` (lib/place-experience-repository)
  *   remains the canonical read/update mapping; it is reused, not rebuilt.
  *
@@ -94,6 +94,12 @@ export function adminPlaceErrorMessage(code: string): string {
       return "Kategori atau tipe Tempat tidak valid.";
     case "place_coordinates_invalid":
       return "Koordinat tidak valid.";
+    case "place_currency_invalid":
+      return "Currency hanya menerima IDR atau USD.";
+    case "place_timezone_unavailable":
+      return "Timezone tidak dapat ditentukan dari koordinat. Periksa koneksi koordinat lalu simpan lagi.";
+    case "place_timezone_unresolved":
+      return "Pilih koordinat Tempat pada peta terlebih dahulu — timezone dihitung otomatis dari koordinat.";
     case "place_cover_image_invalid":
       return "URL cover image tidak valid.";
     case "place_status_invalid":
@@ -277,9 +283,14 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
 export async function createAdminPlace(raw: unknown): Promise<Place> {
   const actor = await requirePlatformModerator();
 
+  // The Admin path uses the SAME server-owned timezone rule as the Producer
+  // path (PO, 2026-09-28): coordinates are the source of truth, the zone is
+  // resolved from them on every save, and a Place without coordinates cannot
+  // be created because there is nothing to resolve from and no default would
+  // be honest. A client-sent timezone is always discarded.
   let mutation;
   try {
-    mutation = parsePlaceMutation(raw);
+    mutation = await resolvePlaceMutation(raw);
   } catch (error) {
     if (error instanceof PlaceInputError) throw new AdminPlaceError(error.message);
     throw error;
@@ -362,9 +373,14 @@ export async function updateAdminPlace(placeId: string, raw: unknown): Promise<P
   const existing = await repository.getById(id);
   if (!existing) throw new AdminPlaceError("place_not_found");
 
+  // Same timezone rule as create: the zone is RECOMPUTED from the (possibly
+  // changed) coordinates on every save, so an edit that moves the Place
+  // across a zone boundary updates the stored timezone. The existing Place's
+  // zone is the fallback only for a legacy row whose coordinates are absent —
+  // never a client-supplied value.
   let mutation;
   try {
-    mutation = parsePlaceMutation(raw, id);
+    mutation = await resolvePlaceMutation(raw, id, { fallbackTimezone: existing.timezone });
   } catch (error) {
     if (error instanceof PlaceInputError) throw new AdminPlaceError(error.message);
     throw error;
