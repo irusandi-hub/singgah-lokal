@@ -84,9 +84,16 @@ test("1/2. the unowned-only filter lives in the database, not in the browser or 
   assert.doesNotMatch(claimablePlacesRoute, /\.filter\(/, "the route must not filter client-supplied lists");
   assert.doesNotMatch(claimablePlacesRoute, /producer_memberships|producer_id/, "no ownership logic in the route");
 
-  // The service reads the database function and nothing else.
+  // The service reads the database function and nothing else. Scoped to the
+  // function that BUILDS the list: the Admin review path separately reads the
+  // Place row after a decision, purely to snapshot the outcome into the audit
+  // trail (migration 0031), and that read grants nothing.
+  const listClaimable = claimService.slice(
+    claimService.indexOf("export async function listClaimablePlaces"),
+    claimService.indexOf("export async function submitPlaceClaim"),
+  );
   assert.match(claimService, /rpc\("list_claimable_places"\)/);
-  assert.doesNotMatch(claimService, /\.from\("places"\)/, "the claim list is not assembled from a raw table read");
+  assert.doesNotMatch(listClaimable, /\.from\("places"\)/, "the claim list is not assembled from a raw table read");
 
   // The browser never computes ownership either.
   assert.doesNotMatch(claimPanel, /producer_memberships/, "the Producer UI holds no ownership data");
@@ -124,8 +131,10 @@ test("5. claim evidence is private: no public URL, no client bucket access, shor
   assert.match(claimStorage, /cacheControl: "0"/, "personal documents are not cached");
   assert.doesNotMatch(claimStorage, /NEXT_PUBLIC_/, "no client-visible storage configuration");
 
-  // The claim row stores the object reference, never the file itself.
-  assert.doesNotMatch(claimService, /base64|data:/, "no binary is inlined into the claim record");
+  // The claim row stores the object reference, never the file itself. Matched
+  // on a data-URI scheme specifically, so an ordinary `data:` destructuring
+  // key is not mistaken for an inlined binary.
+  assert.doesNotMatch(claimService, /base64|data:[a-z]+\/[a-z0-9.+-]+;/i, "no binary is inlined into the claim record");
 });
 
 // --- 6 — one Producer cannot read another's evidence ---------------------

@@ -4,6 +4,9 @@ import { AdminErrorState, AdminPageHeader, AdminStatusBadge, formatAdminTimestam
 import AdminPlaceEditor from "@/components/admin/place-editor";
 import AdminPlaceModeration from "@/components/admin/place-moderation";
 import { getAdminPlaceDetail } from "@/lib/admin/place-workspace";
+import { listPlaceAudit, type PlaceAuditRow } from "@/lib/admin/place-audit";
+import { PLACE_AUDIT_ACTION_LABEL, placeAuditChanges } from "@/lib/place-audit-format";
+import { listAdminActorEmails } from "@/lib/admin/user-directory";
 import { isPlacePublicationReady, type PublicationStatus } from "@/lib/places";
 import { publicationStatusLabel } from "@/lib/status-labels";
 import { timezoneLabel } from "@/lib/display-format";
@@ -49,6 +52,22 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
   const { place, memberships, claims, producerName } = detail;
   const status = place.publicationStatus as PublicationStatus;
   const ready = isPlacePublicationReady(place);
+
+  // Riwayat (MASTER 09 §2/§13): the append-only trail of Admin action on this
+  // Place. Read through the service role behind the same moderator guard that
+  // produced the rest of this page, and only here — the table is revoked from
+  // `public`, `anon` and `authenticated`, so no Producer, User, or public
+  // surface can reach it. If migration 0031 has not been applied yet the
+  // workspace still renders and says so, rather than failing the whole page.
+  let audit: PlaceAuditRow[] = [];
+  let auditAvailable = true;
+  let actorEmails = new Map<string, string>();
+  try {
+    audit = await listPlaceAudit(placeId);
+    actorEmails = await listAdminActorEmails(audit.map((entry) => entry.actorId));
+  } catch {
+    auditAvailable = false;
+  }
 
   return (
     <div className="space-y-8">
@@ -181,6 +200,50 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
             </dd>
           </div>
         </dl>
+
+        <h4 className="mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">
+          Jejak tindakan Admin
+        </h4>
+        <p className="mt-1 text-xs leading-5 text-black/55">
+          Setiap tindakan Admin terhadap Tempat ini tercatat permanen dan tidak dapat diubah atau dihapus.
+        </p>
+        {!auditAvailable ? (
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800" role="status">
+            Riwayat tindakan belum tersedia. Terapkan migration 0031 (place_audit) di Supabase SQL Editor.
+          </p>
+        ) : audit.length === 0 ? (
+          <p className="mt-3 text-sm text-black/60">Belum ada tindakan Admin yang tercatat.</p>
+        ) : (
+          <ol className="mt-3 divide-y divide-black/5">
+            {audit.map((entry) => {
+              const changes = placeAuditChanges(entry.before, entry.after);
+              const reviewNote = typeof entry.detail.reviewNote === "string" ? entry.detail.reviewNote : null;
+              return (
+                <li key={entry.id} className="py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-sm font-bold text-black/80">
+                      {PLACE_AUDIT_ACTION_LABEL[entry.action] ?? entry.action}
+                    </span>
+                    <span className="text-xs text-black/50">{formatAdminTimestamp(entry.createdAt)}</span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-black/55">
+                    oleh {actorEmails.get(entry.actorId) ?? `admin ${entry.actorId.slice(0, 8)}…`}
+                  </p>
+                  {changes.length > 0 ? (
+                    <ul className="mt-1.5 space-y-0.5">
+                      {changes.map((change) => (
+                        <li key={change.field} className="text-xs text-black/65">
+                          <span className="font-semibold">{change.label}</span>: {change.from} → {change.to}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {reviewNote ? <p className="mt-1 text-xs italic text-black/55">catatan: {reviewNote}</p> : null}
+                </li>
+              );
+            })}
+          </ol>
+        )}
       </section>
     </div>
   );

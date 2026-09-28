@@ -1,5 +1,7 @@
 import "server-only";
 
+import { PlaceAuditError, recordPlaceAudit } from "@/lib/admin/place-audit";
+import { PLACE_AUDIT_ACTIONS, placeAuditSnapshot, type PlaceAuditAction } from "@/lib/place-audit-format";
 import { SupabasePlaceManagementRepository } from "@/lib/place-experience-repository";
 import { derivePlaceIdFromName, parsePlaceMutation, PlaceInputError } from "@/lib/place-management";
 import {
@@ -43,6 +45,12 @@ import { createSupabaseServiceClient } from "@/lib/supabase/admin";
  *    from the session — never from client input (Master 09 §3: "Role
  *    permissions must be enforced server-side. UI-level access hiding is not
  *    sufficient.").
+ * 3. Every write here is recorded in the append-only `place_audit` trail
+ *    (migration 0031) against the AUTHENTICATED ADMIN's own user id — never
+ *    the service role. The actor comes from the guard's return value, never
+ *    from the request. If the entry cannot be written, the Place write is
+ *    rolled back, because a change with no attributable trail is exactly what
+ *    Master 09 §2/§13 forbids (see lib/admin/place-audit.ts).
  */
 
 export const ADMIN_PUBLICATION_STATUSES: readonly PublicationStatus[] = [
@@ -90,6 +98,8 @@ export function adminPlaceErrorMessage(code: string): string {
       return "URL cover image tidak valid.";
     case "place_status_invalid":
       return "Status publikasi tidak dikenal.";
+    case "place_audit_unavailable":
+      return "Riwayat tindakan tidak dapat dicatat, jadi perubahan tidak disimpan. Coba lagi.";
     case "place_unavailable":
       return "Tempat tidak dapat diproses. Coba lagi.";
     default:
@@ -210,7 +220,7 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
  * existing Place and must never mint a second Place.
  */
 export async function createAdminPlace(raw: unknown): Promise<Place> {
-  await requirePlatformModerator();
+  const actor = await requirePlatformModerator();
 
   let mutation;
   try {
@@ -258,6 +268,27 @@ export async function createAdminPlace(raw: unknown): Promise<Place> {
 
   const created = await repository.getById(id);
   if (!created) throw new AdminPlaceError("place_unavailable");
+
+  // MASTER 09 §2: the action must be recorded and attributable. If the trail
+  // cannot be written the Place must not survive as an unattributed row, so
+  // the row created in THIS request is removed again — the same "no partial
+  // state" rule `SupabasePlaceManagementRepository.create` already applies
+  // when an ownership grant fails. Nothing pre-existing is touched.
+  try {
+    await recordPlaceAudit({
+      placeId: created.id,
+      actorId: actor.userId,
+      action: PLACE_AUDIT_ACTIONS.created,
+      before: null,
+      after: placeAuditSnapshot(created),
+    });
+  } catch (error) {
+    await admin.from("places").delete().eq("id", id);
+    throw error instanceof PlaceAuditError
+      ? new AdminPlaceError("place_audit_unavailable")
+      : error;
+  }
+
   return created;
 }
 
@@ -268,7 +299,7 @@ export async function createAdminPlace(raw: unknown): Promise<Place> {
  * claim-driven and publication stays an explicit moderation act.
  */
 export async function updateAdminPlace(placeId: string, raw: unknown): Promise<Place> {
-  await requirePlatformModerator();
+  const actor = await requirePlatformModerator();
   const id = placeId.trim();
   if (!id) throw new AdminPlaceError("place_not_found");
 
@@ -285,7 +316,40 @@ export async function updateAdminPlace(placeId: string, raw: unknown): Promise<P
   }
   // `update` ignores the id field and writes only the canonical Place
   // columns, so passing the validated mutation straight through is safe.
-  return repository.update(id, mutation);
+  const updated = await repository.update(id, mutation);
+
+  try {
+    await recordPlaceAudit({
+      placeId: id,
+      actorId: actor.userId,
+      action: PLACE_AUDIT_ACTIONS.updated,
+      before: placeAuditSnapshot(existing),
+      after: placeAuditSnapshot(updated),
+    });
+  } catch (error) {
+    // Revert to the pre-edit state rather than leave a change with no trail.
+    await repository
+      .update(id, {
+        name: existing.name,
+        shortDescription: existing.shortDescription,
+        category: existing.category,
+        type: existing.type,
+        area: existing.area,
+        address: existing.address,
+        contactInformation: existing.contactInformation,
+        timezone: existing.timezone,
+        currency: existing.currency,
+        latitude: existing.latitude,
+        longitude: existing.longitude,
+        coverImageUrl: existing.coverImageUrl,
+      })
+      .catch(() => undefined);
+    throw error instanceof PlaceAuditError
+      ? new AdminPlaceError("place_audit_unavailable")
+      : error;
+  }
+
+  return updated;
 }
 
 /**
@@ -303,7 +367,7 @@ export async function setAdminPlacePublicationStatus(
   placeId: string,
   next: unknown,
 ): Promise<Place> {
-  await requirePlatformModerator();
+  const actor = await requirePlatformModerator();
   const id = placeId.trim();
   if (!id) throw new AdminPlaceError("place_not_found");
   if (!ADMIN_PUBLICATION_STATUSES.includes(next as PublicationStatus)) {
@@ -320,5 +384,39 @@ export async function setAdminPlacePublicationStatus(
   if (nextStatus === "published" && !isPlacePublicationReady(place)) {
     throw new AdminPlaceError("place_publication_not_ready");
   }
-  return repository.updatePublicationStatus(id, nextStatus);
+
+  const updated = await repository.updatePublicationStatus(id, nextStatus);
+
+  // One audit action per moderation decision, so "restore" is distinguishable
+  // from "publish" even though both may land on 'published'.
+  try {
+    await recordPlaceAudit({
+      placeId: id,
+      actorId: actor.userId,
+      action: moderationAction(place.publicationStatus, nextStatus),
+      before: placeAuditSnapshot(place),
+      after: placeAuditSnapshot(updated),
+      detail: { fromStatus: place.publicationStatus, toStatus: nextStatus },
+    });
+  } catch (error) {
+    await repository.updatePublicationStatus(id, place.publicationStatus).catch(() => undefined);
+    throw error instanceof PlaceAuditError
+      ? new AdminPlaceError("place_audit_unavailable")
+      : error;
+  }
+
+  return updated;
+}
+
+/**
+ * Which moderation action a transition represents. A restore is recorded as a
+ * restore even when the target status is 'published', because "bringing an
+ * archived Place back" is the decision an operator would want to find later.
+ */
+function moderationAction(from: PublicationStatus, to: PublicationStatus): PlaceAuditAction {
+  if (from === "archived") return PLACE_AUDIT_ACTIONS.restored;
+  if (to === "published") return PLACE_AUDIT_ACTIONS.published;
+  if (to === "paused") return PLACE_AUDIT_ACTIONS.paused;
+  if (to === "archived") return PLACE_AUDIT_ACTIONS.archived;
+  return PLACE_AUDIT_ACTIONS.updated;
 }

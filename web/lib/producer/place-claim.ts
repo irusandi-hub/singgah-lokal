@@ -13,7 +13,37 @@ import {
   removePlaceClaimEvidence,
   uploadPlaceClaimEvidence,
 } from "@/lib/place-claim-storage";
+import { recordPlaceAudit } from "@/lib/admin/place-audit";
+import { PLACE_AUDIT_ACTIONS, placeAuditSnapshot } from "@/lib/place-audit-format";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
+
+/**
+ * Minimal canonical Place mapping for the audit snapshot. `mapPlace` in
+ * lib/place-experience-repository is the canonical mapper and is intentionally
+ * NOT reused here: importing it would drag the client-constructed
+ * repositories into this module for one read. The fields below are the same
+ * canonical columns, read straight off the row.
+ */
+function mapPlaceForAudit(row: Record<string, unknown>) {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    shortDescription: String(row.short_description ?? ""),
+    category: row.category as never,
+    type: row.type as never,
+    area: String(row.area ?? ""),
+    address: String(row.address ?? ""),
+    contactInformation: String(row.contact_information ?? ""),
+    timezone: String(row.timezone ?? ""),
+    currency: String(row.currency ?? ""),
+    latitude: (row.latitude ?? null) as number | null,
+    longitude: (row.longitude ?? null) as number | null,
+    coverImageUrl: (row.cover_image_url ?? null) as string | null,
+    producer: row.producer_id ? { id: String(row.producer_id), displayName: String(row.producer_id) } : null,
+    claimStatus: row.claim_status as never,
+    publicationStatus: row.publication_status as never,
+  };
+}
 
 /**
  * PLACE CLAIM SERVICE — server-side orchestration for claiming an existing
@@ -223,20 +253,74 @@ export async function listPlaceClaimsForReview(): Promise<PlaceClaimReviewRow[]>
  * Admin decision. `approved` is the ONLY path that grants ownership, and it
  * grants it through the existing authorization model (a producer_memberships
  * owner row for the claimant's own user_id). `rejected` grants nothing.
+ *
+ * The claim SEMANTICS are untouched: the same `review_place_claim` RPC with
+ * the same arguments decides the outcome, and nothing here creates or edits a
+ * Place. What is added is the audit trail (migration 0031): a claim decision
+ * is a privileged state change on a Place, so it is recorded in the
+ * append-only `place_audit` against the REVIEWING ADMIN's own user id — never
+ * the service role, never the claimant.
+ *
+ * `actorId` is required: a decision that cannot be attributed is refused
+ * rather than recorded anonymously, which is the point of the trail
+ * (MASTER 09 §2). The single caller is the Admin claim-review route, which
+ * already holds the session-derived Platform Admin identity.
  */
 export async function reviewPlaceClaim(params: {
   claimId: string;
   decision: "approved" | "rejected";
   reviewNote?: string | null;
+  /** The authenticated Platform Admin's own user id. */
+  actorId: string;
 }): Promise<void> {
   if (!params.claimId.trim()) throw new PlaceClaimError("place_claim_not_pending");
+  const actorId = params.actorId.trim();
+  if (!actorId) throw new PlaceClaimError("place_claim_not_pending");
   const reviewNote = normalizePlaceClaimNote(params.reviewNote ?? null);
-  const { error } = await createSupabaseServiceClient().rpc("review_place_claim", {
+  const client = createSupabaseServiceClient();
+
+  // Read the claim's Place BEFORE deciding, so the audit entry can name the
+  // Place the decision was about. A plain read against the service client: it
+  // grants nothing and changes nothing.
+  const { data: claimRow, error: claimReadError } = await client
+    .from("place_claims")
+    .select("place_id, user_id")
+    .eq("id", params.claimId)
+    .maybeSingle<{ place_id: string; user_id: string }>();
+  if (claimReadError) mapDbError(claimReadError);
+  if (!claimRow?.place_id) throw new PlaceClaimError("place_claim_not_pending");
+
+  const { error } = await client.rpc("review_place_claim", {
     p_claim_id: params.claimId,
     p_decision: params.decision,
     p_review_note: reviewNote,
   });
   if (error) mapDbError(error);
+
+  // Snapshot AFTER the decision, so an approval's recorded outcome includes the
+  // ownership it just granted. A write failure here is surfaced, never
+  // swallowed: the Admin must learn the decision was not recorded rather than
+  // assume it was.
+  const { data: placeRow } = await client
+    .from("places")
+    .select("*")
+    .eq("id", claimRow.place_id)
+    .maybeSingle();
+
+  await recordPlaceAudit({
+    placeId: claimRow.place_id,
+    actorId,
+    action:
+      params.decision === "approved" ? PLACE_AUDIT_ACTIONS.claimApproved : PLACE_AUDIT_ACTIONS.claimRejected,
+    before: null,
+    after: placeRow ? placeAuditSnapshot(mapPlaceForAudit(placeRow)) : null,
+    detail: {
+      claimId: params.claimId,
+      claimantUserId: String(claimRow.user_id ?? ""),
+      decision: params.decision,
+      ...(reviewNote ? { reviewNote } : {}),
+    },
+  });
 }
 
 type ReviewClaimRow = { evidence_path: string };

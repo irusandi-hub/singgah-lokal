@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
  *        Approval is the ONLY path that grants ownership, and it grants it
  *        through the existing authorization model. Rejection grants nothing.
  *        Nothing is auto-approved: every decision is an explicit Admin action.
+ *        Every decision is appended to the Place audit trail against the
+ *        session-derived Admin id.
  */
 export async function GET() {
   try {
@@ -36,8 +38,12 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  // The session-derived Admin identity is kept: the audit trail (migration
+  // 0031) records the DECISION against this account, never against the
+  // service role and never against anything the request body claims.
+  let actorId: string;
   try {
-    await requirePlatformModerator();
+    actorId = (await requirePlatformModerator()).userId;
   } catch {
     return NextResponse.json({ error: "Akses admin diperlukan.", code: "admin_required" }, { status: 403 });
   }
@@ -62,7 +68,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    await reviewPlaceClaim({ claimId, decision, reviewNote });
+    await reviewPlaceClaim({ claimId, decision, reviewNote, actorId });
     return NextResponse.json({ ok: true, status: decision });
   } catch (error) {
     if (error instanceof PlaceClaimError) {

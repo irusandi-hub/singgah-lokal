@@ -482,9 +482,23 @@ test("every Admin Place action is authorized server-side, not by hiding UI", () 
 // ---------------------------------------------------------------------------
 
 test("a Place is never hard-deleted as an admin operation, and the Admin read layer stays canonical", () => {
-  // No delete in the Admin Place workspace or the moderation route.
-  assert.doesNotMatch(placeWorkspace, /\.delete\(/);
+  // The edit and moderation paths never delete: archiving is the removal path.
+  const createBody = placeWorkspace.slice(
+    placeWorkspace.indexOf("export async function createAdminPlace"),
+    placeWorkspace.indexOf("export async function updateAdminPlace"),
+  );
+  const rest = placeWorkspace.replace(createBody, "");
+  assert.doesNotMatch(rest, /\.delete\(/);
   assert.doesNotMatch(adminPlacePublicationRoute, /DELETE/);
+  // The single delete in the whole workspace is the create rollback: it runs
+  // only when the audit entry for a just-inserted Place could not be written,
+  // targets only the id this request created, and happens before the Place is
+  // ever returned to the caller — so no pre-existing Place can be removed.
+  assert.match(createBody, /catch \(error\) \{\s*await admin\.from\("places"\)\.delete\(\)\.eq\("id", id\);/);
+  assert.ok(
+    createBody.indexOf("recordPlaceAudit") < createBody.indexOf('delete().eq("id", id)'),
+    "the rollback is only reachable after the audit write was attempted",
+  );
   // The Admin list is still the existing canonical read.
   assert.match(adminPlacesPage, /listAdminPlaces/);
   assert.match(adminQueries, /from\("places"\)/);

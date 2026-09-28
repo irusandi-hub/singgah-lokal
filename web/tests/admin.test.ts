@@ -5,6 +5,10 @@ import { readFileSync, existsSync } from "node:fs";
 const adminQueries = readFileSync(new URL("../lib/admin/queries.ts", import.meta.url), "utf8");
 const adminDirectory = readFileSync(new URL("../lib/admin/user-directory.ts", import.meta.url), "utf8");
 const adminPlaceWorkspace = readFileSync(new URL("../lib/admin/place-workspace.ts", import.meta.url), "utf8");
+const adminPlacePublicationRoute = readFileSync(
+  new URL("../app/api/admin/places/[placeId]/publication/route.ts", import.meta.url),
+  "utf8",
+);
 const adminLayout = readFileSync(new URL("../app/admin/layout.tsx", import.meta.url), "utf8");
 const adminUsers = readFileSync(new URL("../app/admin/users/page.tsx", import.meta.url), "utf8");
 const adminOverview = readFileSync(new URL("../app/admin/page.tsx", import.meta.url), "utf8");
@@ -110,7 +114,14 @@ test("No infrastructure credentials reached the Admin data layer, and the Place 
   // The read layer stays read-only: no insert/update/delete/rpc calls.
   assert.doesNotMatch(adminQueries, /\.insert\(|\.update\(|\.delete\(|\.rpc\(/);
   // A Place may have Experience, Visit Intent, claim, membership, Live, and
-  // history, so hard-delete is never an admin operation — only archive.
-  assert.doesNotMatch(adminPlaceWorkspace, /\.delete\(/);
+  // history, so hard-delete is never an admin operation — only archive. The
+  // one delete in the Place workspace is the create rollback that fires when
+  // an audit entry for a just-created Place cannot be written; it is scoped to
+  // the id that request created and runs before the Place is ever returned.
   assert.doesNotMatch(adminPlaceWorkspace, /removeAdminPlace|hardDelete/);
+  assert.doesNotMatch(adminPlacePublicationRoute, /DELETE/);
+  assert.match(
+    adminPlaceWorkspace,
+    /catch \(error\) \{\s*await admin\.from\("places"\)\.delete\(\)\.eq\("id", id\);/,
+  );
 });

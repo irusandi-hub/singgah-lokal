@@ -68,3 +68,33 @@ export async function listAdminDirectoryUsers(limit = 100): Promise<AdminDirecto
     createdAt: String(row.created_at),
   }));
 }
+
+/**
+ * Resolve a bounded set of account emails BY ID, for the Place audit trail's
+ * actor column — an operator reading "who archived this Place" needs the
+ * account, not a user id.
+ *
+ * Same privacy rule as above: Platform Admin only, session-verified
+ * server-side, ids only (never a search by email from a client), and no
+ * credential or secret is ever returned. A missing email is reported as
+ * absent rather than guessed.
+ */
+export async function listAdminActorEmails(userIds: readonly string[]): Promise<Map<string, string>> {
+  await requirePlatformModerator();
+  const wanted = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
+  const result = new Map<string, string>();
+  if (wanted.length === 0) return result;
+
+  const { data, error } = await createSupabaseServiceClient().auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (error) throw new AdminDirectoryError("directory_unavailable");
+
+  const emailById = new Map((data.users ?? []).map((user) => [user.id, user.email ?? null]));
+  for (const id of wanted) {
+    const email = emailById.get(id);
+    if (email) result.set(id, email);
+  }
+  return result;
+}
