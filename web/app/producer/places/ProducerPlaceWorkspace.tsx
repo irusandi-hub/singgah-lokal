@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import ProducerSubNav from "@/components/producer-sub-nav";
 import PlaceForm, { PlaceEditor } from "./PlaceForm";
 import PlaceClaimPanel from "./PlaceClaimPanel";
 import type { Place } from "@/lib/places";
@@ -92,6 +93,9 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
           >
             Kembali ke daftar
           </button>
+        </div>
+        <div className="mb-5">
+          <ProducerSubNav active="/producer/places" />
         </div>
         <div className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
           <div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-black/60">

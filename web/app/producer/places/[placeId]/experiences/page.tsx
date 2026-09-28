@@ -15,7 +15,10 @@ export default function ProducerExperiencesPage({ params }: { params: Promise<{ 
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Pengelola App</p>
             <h1 className="mt-2 text-3xl font-semibold">Kegiatan</h1>
           </div>
-          <Link className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white" href={placeId ? `/producer/places/${placeId}/experiences/new` : "#"}>Tambah Kegiatan</Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <Link className="text-sm font-bold text-brand-accent" href={placeId ? `/producer/places/${placeId}` : "/producer"}>← Kembali ke Tempat</Link>
+            <Link className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white" href={placeId ? `/producer/places/${placeId}/experiences/new` : "#"}>Tambah Kegiatan</Link>
+          </div>
         </header>
         <div className="mt-6">
           {placeId ? <ExperiencesPanel placeId={placeId} /> : <p className="text-sm text-black/60">Memuat...</p>}

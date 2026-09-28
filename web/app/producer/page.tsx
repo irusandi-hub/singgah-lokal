@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
@@ -9,13 +8,15 @@ import type { Place } from "@/lib/places";
 export const dynamic = "force-dynamic";
 
 // The Producer dashboard is ONE working page (PO, mockup work 2026-09-26):
-// header/branding, "Dashboard Producer", the Visit Intent Inbox and Live
-// cards, then the "Place milikmu" workspace — roster + in-page add/edit via
-// the shared PlaceForm/PlaceEditor. No ProducerSubNav here (the dashboard is
-// the working surface itself, not a hub of links) and NO second Place list
-// page. Place data is loaded server-side from the authenticated user's
-// owner/manager memberships via the canonical repository — no new auth, no
-// new API.
+// header/branding, "Dashboard Producer", then the "Place milikmu" workspace —
+// roster + in-page add/edit via the shared PlaceForm/PlaceEditor. No
+// ProducerSubNav here (the dashboard is the working surface itself, not a hub
+// of links) and NO second Place list page. The former Visit Intent Inbox and
+// Live shortcut cards are GONE: those surfaces stay reachable only from the
+// Place detail surfaces through the shared ProducerSubNav, so the dashboard
+// never links back to itself. Place data is loaded server-side from the
+// authenticated user's owner/manager memberships via the canonical
+// repository — no new auth, no new API.
 export default async function ProducerDashboardPage() {
   const places: Place[] = [];
 
@@ -49,17 +50,6 @@ export default async function ProducerDashboardPage() {
             Kelola Tempat, Kegiatan, Kunjungan, dan Live untuk Tempat yang berada dalam kewenanganmu.
           </p>
         </header>
-
-        <section aria-label="Area Pengelola" className="mt-8 grid gap-3 sm:grid-cols-2">
-          <Link href="/producer/visit-intents" className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
-            <h2 className="text-lg font-semibold">Kunjungan Inbox</h2>
-            <p className="mt-1 text-sm text-black/60">Niat berkunjung masuk dan respons Pengelola.</p>
-          </Link>
-          <Link href="/producer/live" className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm transition hover:shadow-md">
-            <h2 className="text-lg font-semibold">Live</h2>
-            <p className="mt-1 text-sm text-black/60">Tayangkan proses produksi secara real-time.</p>
-          </Link>
-        </section>
 
         <ProducerPlaceWorkspace initialPlaces={places} showOnboardingHint={places.length === 0} />
       </div>

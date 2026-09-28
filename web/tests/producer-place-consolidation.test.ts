@@ -6,7 +6,10 @@ import { readFileSync } from "node:fs";
  * PRODUCER PLACE WORKSPACE (PO, mockup work 2026-09-26)
  *
  * The Producer dashboard (/producer) is ONE working page for Place:
- * - header/branding + "Dashboard Producer" + Visit Intent Inbox + Live cards;
+ * - header/branding + "Dashboard Producer" (the Visit Intent Inbox and Live
+ *   shortcut cards were removed: the dashboard is the main page, so it must not
+ *   carry links back into its own menu — those surfaces stay reachable from the
+ *   Place detail surfaces through the shared ProducerSubNav);
  * - the "Place milikmu" roster with each Place selectable for management;
  * - "+ Tambahkan Place baru" BELOW the roster, opening the add form IN PLACE
  *   (view "new") — save transitions new → edit/manage with the id preserved
@@ -64,11 +67,14 @@ test("The dashboard is the single working page hosting the Place workspace", () 
   // LINK into any Place route (the workspace import path is not a link).
   assert.equal(dashboardCode.includes('"/producer/places'), false, "dashboard must not link any /producer/places route");
   assert.equal(dashboardCode.includes("Tempat<"), false, "no Tempat shortcut card on the dashboard");
-  // The dashboard keeps the ordered surfaces: title, Inbox, Live...
+  // The dashboard keeps the header + the in-place Place workspace...
   assert.match(dashboardCode, /Dashboard Pengelola/);
-  assert.match(dashboardCode, /Kunjungan Inbox/);
-  assert.match(dashboardCode, /href="\/producer\/visit-intents"/);
-  assert.match(dashboardCode, /href="\/producer\/live"/);
+  // ...and no longer hosts the Visit Intent Inbox / Live shortcut cards: the
+  // main page must not carry navigation back into its own menu.
+  assert.equal(dashboardCode.includes("Kunjungan Inbox"), false, "no Kunjungan Inbox card on the dashboard");
+  assert.equal(dashboardCode.includes("/producer/visit-intents"), false, "dashboard must not link the Visit Intent inbox");
+  assert.equal(dashboardCode.includes("/producer/live"), false, "dashboard must not link the Live console");
+  assert.equal(dashboardCode.includes("Area Pengelola"), false, "no shortcut-card section on the dashboard");
   // ...and hosts the "Tempat milikmu" workspace (roster + add + edit) in place.
   assert.match(dashboardCode, /<ProducerPlaceWorkspace initialPlaces=\{places\} showOnboardingHint=\{places\.length === 0\} \/>/);
   assert.match(workspaceCode, /Tempat milikmu/);
