@@ -223,7 +223,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
 
       {editorTab === "detail" && (
         <>
-      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Zona waktu"], ["currency", "Mata uang"]].map(([key, label]) => (
+      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone"], ["currency", "Currency"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
       <div className="grid gap-2">
@@ -236,8 +236,8 @@ export default function PlaceForm({ place, onSaved }: Props) {
           }
         />
         <div className="grid grid-cols-2 gap-3">
-          <label className="grid gap-1 text-xs font-semibold">Lintang<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} /></label>
-          <label className="grid gap-1 text-xs font-semibold">Bujur<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
+          <label className="grid gap-1 text-xs font-semibold">Latitude<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} /></label>
+          <label className="grid gap-1 text-xs font-semibold">Longitude<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
         </div>
       </div>
       <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
@@ -261,9 +261,9 @@ export default function PlaceForm({ place, onSaved }: Props) {
       {editorTab === "upload" && (
       <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Foto Tempat">
         <div>
-          <span className="text-sm font-semibold">Foto Tempat ({PLACE_PHOTO_SLOTS.length} posisi)</span>
+          <span className="text-sm font-semibold">Foto Tempat ({PLACE_PHOTO_SLOTS.length} slot)</span>
           <p className="mt-1 text-xs text-black/55">
-            Setiap foto punya judul dan deskripsi sendiri.
+            Setiap slot memakai judul dan deskripsi sendiri.
             Format {PLACE_MEDIA_ACCEPTED_TYPES.join(", ")} — maksimal {Math.round(PLACE_MEDIA_MAX_BYTES / (1024 * 1024))} MB per foto.
           </p>
         </div>

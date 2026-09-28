@@ -5,11 +5,13 @@ import { readFileSync } from "node:fs";
 import {
   experienceScheduleStatusLabel,
   experienceStatusLabel,
+  placeTypeLabel,
   productionStageStatusLabel,
   publicationStatusLabel,
   visitIntentStatusLabel,
   weekdayLabel,
 } from "../lib/status-labels";
+import { formatPlaceDate, timezoneLabel } from "../lib/display-format";
 
 /**
  * PRODUCER UI LANGUAGE.
@@ -25,6 +27,15 @@ import {
 
 function read(relativePath: string): string {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
+}
+
+/** Comments explain the code; they are never rendered, so they are ignored. */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    .map((line) => line.replace(/\/\/.*$/, ""))
+    .join("\n");
 }
 
 const dashboard = read("app/producer/page.tsx");
@@ -142,6 +153,17 @@ test("No raw database status ever reaches the Producer UI", () => {
   }
 });
 
+test("No stored role or membership jargon reaches the Producer UI", () => {
+  // Comments are not user-facing; only the rendered copy is checked.
+  const liveCode = stripComments(livePage);
+  const onboardingCode = stripComments(onboarding);
+  assert.equal(liveCode.includes("owner/manager"), false, "the Live empty state must not name a stored role");
+  assert.match(liveCode, /hak akses Pengelola/);
+  assert.equal(onboardingCode.includes("owner/manager"), false, "the application steps must not name a stored role");
+  assert.equal(onboardingCode.includes("membership Pengelola"), false);
+  assert.match(onboardingCode, /hak akses Pengelola untuk akun yang mengaju\./);
+});
+
 test("Common product words stay untranslated", () => {
   // Dashboard, Live, Draft and Status are already natural — keep them.
   assert.match(placeForm, /Status: /);
@@ -151,16 +173,63 @@ test("Common product words stay untranslated", () => {
 });
 
 test("Database-standard and English leftovers are gone from Producer copy", () => {
-  assert.equal(placeForm.includes("Timezone IANA"), false);
-  assert.equal(placeForm.includes("Currency ISO 4217"), false);
+  // Timezone, Currency, Latitude and Longitude are system/data terms a
+  // Producer types on purpose: they keep their name, and the VALUE they hold
+  // is never rewritten — only shortened for reading (see below).
+  assert.match(placeForm, /\["timezone", "Timezone"\]/);
+  assert.match(placeForm, /\["currency", "Currency"\]/);
+  assert.match(placeForm, />Latitude</);
+  assert.match(placeForm, />Longitude</);
+  assert.equal(placeForm.includes("Zona waktu"), false);
+  assert.equal(placeForm.includes("Mata uang"), false);
+
   assert.equal(experienceForm.includes("Requires confirmation"), false);
-  assert.equal(experienceForm.includes("Jadwal ({placeTimezone})"), false);
   assert.equal(inboxDetail.includes("Party size"), false);
-  assert.equal(inboxDetail.includes(">Timezone<"), false);
+  assert.equal(inboxDetail.includes("Zona waktu"), false);
   assert.equal(production.includes(">Tambah stage<"), false);
   assert.equal(production.includes("/ Production Story"), false);
   assert.equal(liveConsole.includes("Proses (harus published)"), false);
   assert.equal(liveConsole.includes("Tidak ada Proses published"), false);
+});
+
+test("Dates and timezones read as dates and places, not as stored values", () => {
+  // The stored values never change; only how they are rendered.
+  assert.match(inbox, /formatPlaceDate\(intent\.requestedDate\)/);
+  assert.match(inbox, /timezoneLabel\(intent\.timezone\)/);
+  assert.equal(inbox.includes("{intent.timezone}"), false, "no raw IANA id in the inbox card");
+  assert.match(inboxDetail, /formatPlaceDate\(intent\.requestedDate\)/);
+  assert.equal(inboxDetail.includes("{intent.timezone}"), false, "no raw IANA id in the detail");
+  assert.match(experienceForm, /Jadwal \(Timezone: \{timezoneLabel\(placeTimezone\)\}\)/);
+  assert.equal(experienceForm.includes("Jadwal ({placeTimezone})"), false);
+
+  // A Place type is a stored enum, so the claim surface labels it too.
+  assert.match(claimPanel, /placeTypeLabel\(claim\.type\)/);
+  assert.match(claimPanel, /placeTypeLabel\(selected\.type\)/);
+});
+
+test("The display formatters are safe for any stored value", () => {
+  assert.equal(formatPlaceDate("2026-04-01"), "1 Apr 2026");
+  assert.equal(formatPlaceDate("2026-12-25"), "25 Des 2026");
+  // Anything unexpected is passed through rather than mangled.
+  assert.equal(formatPlaceDate("besok"), "besok");
+  assert.equal(formatPlaceDate("2026-13-45"), "2026-13-45");
+
+  assert.equal(timezoneLabel("Asia/Jakarta"), "Jakarta");
+  assert.equal(timezoneLabel("America/New_York"), "New York");
+  assert.equal(timezoneLabel("Asia/Makassar"), "Makassar");
+  assert.equal(timezoneLabel(""), "");
+});
+
+test("The kept terms survive across the Producer area", () => {
+  // Live, Dashboard and Draft are common product words.
+  assert.match(liveConsole, /Mulai Live/);
+  assert.match(placeDetail, /← Dashboard Pengelola/);
+  assert.match(placeForm, /Status: /);
+  assert.match(production, />Simpan draft</);
+  // "User" never reaches the Producer UI.
+  for (const [name, code] of producerSurfaces) {
+    assert.doesNotMatch(code, />[^<]*\bUser\b[^<]*</, `${name} must not say "User"`);
+  }
 });
 
 test("The label module maps every stored value to Indonesian", () => {
@@ -187,4 +256,8 @@ test("The label module maps every stored value to Indonesian", () => {
 
   assert.equal(weekdayLabel("Monday"), "Senin");
   assert.equal(weekdayLabel("Sunday"), "Minggu");
+
+  assert.equal(placeTypeLabel("production"), "Produksi");
+  assert.equal(placeTypeLabel("experience"), "Kegiatan");
+  assert.equal(placeTypeLabel("Sesuatu"), "Sesuatu");
 });

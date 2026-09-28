@@ -8,6 +8,7 @@ import {
   type PlaceClaimSummary,
   placeClaimErrorMessage,
 } from "@/lib/place-claim";
+import { placeTypeLabel } from "@/lib/status-labels";
 
 /**
  * AJUKAN PENGELOLAAN TEMPAT — the Producer claim surface.
@@ -174,7 +175,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold">{claim.placeName}</span>
                   <span className="text-xs text-black/50">
-                    {claim.category} · {claim.type} · diajukan {new Date(claim.createdAt).toLocaleDateString("id-ID")}
+                    {claim.category} · {placeTypeLabel(claim.type)} · diajukan {new Date(claim.createdAt).toLocaleDateString("id-ID")}
                   </span>
                 </span>
                 <span className="flex items-center gap-2 text-xs font-bold">
@@ -223,7 +224,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
               <p className="text-sm font-bold">{selected.name}</p>
               <p className="mt-1 text-xs leading-5 text-black/60">{selected.shortDescription}</p>
               <p className="mt-2 text-xs text-black/60">
-                Kategori: <strong>{selected.category}</strong> · Tipe: <strong>{selected.type}</strong> · Area:{" "}
+                Kategori: <strong>{selected.category}</strong> · Tipe: <strong>{placeTypeLabel(selected.type)}</strong> · Area:{" "}
                 <strong>{selected.area}</strong>
               </p>
               <p className="mt-2 text-xs text-black/50">

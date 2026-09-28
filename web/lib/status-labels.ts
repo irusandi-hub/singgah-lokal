@@ -4,7 +4,7 @@ import type { ProductionStageStatus } from "./production-story";
 import type { VisitIntentStatus } from "./visit-intents";
 
 /**
- * USER-FACING STATUS LABELS.
+ * USER-FACING ENUM LABELS.
  *
  * The database stores every lifecycle state as a technical English enum
  * ("published", "requires_confirmation", ...). Those values are correct in
@@ -13,7 +13,8 @@ import type { VisitIntentStatus } from "./visit-intents";
  *
  * This module is PRESENTATION ONLY: the stored values, the API payloads and
  * every comparison stay exactly as they are. "Dashboard", "Live", "Draft" and
- * "Status" are common product words and stay untranslated.
+ * "Status" are common product words and stay untranslated, and so do the
+ * system/data terms a Producer types on purpose (Timezone, Currency, ID).
  */
 
 const PUBLICATION_STATUS_LABEL: Record<PublicationStatus, string> = {
@@ -86,4 +87,14 @@ export function visitIntentStatusLabel(status: VisitIntentStatus): string {
 
 export function weekdayLabel(day: string): string {
   return WEEKDAY_LABEL[day] ?? day;
+}
+
+const PLACE_TYPE_LABEL: Record<string, string> = {
+  production: "Produksi",
+  experience: "Kegiatan",
+};
+
+/** A Place type is a stored enum too, and the claim surface shows it raw. */
+export function placeTypeLabel(type: string): string {
+  return PLACE_TYPE_LABEL[type] ?? type;
 }

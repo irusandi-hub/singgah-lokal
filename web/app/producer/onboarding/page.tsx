@@ -133,14 +133,14 @@ export default async function ProducerOnboardingPage() {
             <h2 className="mt-1 text-lg font-semibold">Admin memverifikasi</h2>
             <p className="mt-1 text-sm leading-6 text-black/65">
               Admin platform memverifikasi Tempat dan bukti pengelolaan, lalu mengaktifkan
-              membership Pengelola (owner/manager) untuk akun yang mengaju.
+              hak akses Pengelola untuk akun yang mengaju.
             </p>
           </li>
           <li className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-accent">Langkah 3</p>
             <h2 className="mt-1 text-lg font-semibold">Masuk dengan email &amp; password yang sama</h2>
             <p className="mt-1 text-sm leading-6 text-black/65">
-              Begitu membership aktif, masuk kembali dengan akun yang sama dan area Pengelola
+              Begitu aksesnya aktif, masuk kembali dengan akun yang sama dan area Pengelola
               terbuka otomatis: Dashboard, Tempat, Permintaan Kunjungan, dan Live. Tidak ada akun
               atau password Pengelola kedua.
             </p>

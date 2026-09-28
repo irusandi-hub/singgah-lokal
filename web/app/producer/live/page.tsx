@@ -69,7 +69,7 @@ export default async function ProducerLivePage() {
           {places.length === 0 ? (
             <section className="rounded-2xl border border-black/10 bg-white p-6 shadow-sm">
               <p className="text-sm text-black/65">
-                Kamu belum memiliki Tempat dengan akses owner/manager. Live hanya dapat dimulai dari
+                Kamu belum memiliki Tempat dengan hak akses Pengelola. Live hanya dapat dimulai dari
                 Tempat yang kamu kelola.
               </p>
               <Link className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white" href="/producer">
