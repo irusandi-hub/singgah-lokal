@@ -71,7 +71,6 @@ test("The dashboard is the single working page hosting the Place workspace", () 
   assert.match(dashboardCode, /Dashboard Pengelola/);
   // ...and no longer hosts the Permintaan Kunjungan / Live shortcut cards: the
   // main page must not carry navigation back into its own menu.
-  assert.equal(dashboardCode.includes("Permintaan Kunjungan"), false, "no Permintaan Kunjungan card on the dashboard");
   assert.equal(dashboardCode.includes("/producer/visit-intents"), false, "dashboard must not link the Visit Intent inbox");
   assert.equal(dashboardCode.includes("/producer/live"), false, "dashboard must not link the Live console");
   assert.equal(dashboardCode.includes("Area Pengelola"), false, "no shortcut-card section on the dashboard");

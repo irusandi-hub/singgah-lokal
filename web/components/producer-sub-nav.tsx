@@ -43,7 +43,7 @@ export default function ProducerSubNav({ active, dark = false }: { active: strin
           dark ? "text-brand-accent" : "text-brand-accent"
         }`}
       >
-        ← Area user
+        ← Kembali ke beranda
       </Link>
     </nav>
   );

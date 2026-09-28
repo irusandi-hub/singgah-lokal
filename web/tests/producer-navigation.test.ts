@@ -57,6 +57,8 @@ test("The main Producer page has no navigation back to itself", () => {
 
 test("The Producer menu is owned by the shared sub-nav component only", () => {
   assert.match(subNav, /aria-label="Navigasi Pengelola"/);
+  // The sub-nav's exit points back to the public home.
+  assert.match(subNav, /← Kembali ke beranda/);
   for (const [name, code] of [
     ["dashboard", dashboard],
     ["workspace", workspace],
@@ -140,7 +142,7 @@ test("Place-related pages return to the dashboard or that Place detail", () => {
   assert.match(production, /← Kembali ke Tempat/);
   assert.match(production, /href=\{`\/producer\/places\/\$\{placeId\}`\}/);
   // The dashboard's in-page Place editor returns to the roster.
-  assert.match(workspace, /Kembali ke daftar/);
+  assert.match(workspace, /Kembali ke Tempat/);
 });
 
 test("Kegiatan pages return to the Kegiatan list of the same Place", () => {

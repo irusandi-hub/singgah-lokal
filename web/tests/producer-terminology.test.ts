@@ -101,6 +101,32 @@ test("The dictionary is applied across the Producer area", () => {
   assert.match(livePage, /Tampilkan proses yang sedang berlangsung secara langsung\./);
 });
 
+test("The final Producer copy pass is applied and its old wording is gone", () => {
+  assert.match(dashboard, /Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live\./);
+  assert.equal(dashboard.includes("Kelola Tempat, Kegiatan, Kunjungan, dan Live"), false);
+
+  assert.match(subNav, /← Kembali ke beranda/);
+  assert.equal(subNav.includes("← Area user"), false);
+
+  for (const [name, code] of [
+    ["workspace", workspace],
+    ["place detail", placeDetail],
+  ] as const) {
+    assert.match(code, /Kelola Proses/, `${name} must offer "Kelola Proses"`);
+    assert.equal(code.includes("Kelola Dari Sini"), false, `${name} must not say "Kelola Dari Sini"`);
+  }
+  assert.match(workspace, /Kelola Proses/);
+  assert.match(placeDetail, /Kelola Proses/);
+
+  for (const [name, code] of [
+    ["workspace", workspace],
+    ["claim panel", claimPanel],
+  ] as const) {
+    assert.match(code, /Kembali ke Tempat/, `${name} must return to the Place list`);
+    assert.equal(code.includes("Kembali ke daftar"), false, `${name} must not say "Kembali ke daftar"`);
+  }
+});
+
 test("The retired dictionary wording is gone from the Producer area", () => {
   for (const [name, code] of producerSurfaces) {
     for (const retired of [

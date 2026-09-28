@@ -162,7 +162,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
           onClick={onBack}
           className="rounded-lg border border-black/15 px-4 py-2 text-sm font-bold"
         >
-          Kembali ke daftar
+          Kembali ke Tempat
         </button>
       </div>
 

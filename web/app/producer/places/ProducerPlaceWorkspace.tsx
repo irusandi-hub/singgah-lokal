@@ -68,7 +68,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             onClick={() => setView({ name: "list" })}
             className="rounded-lg border border-black/15 px-4 py-2 text-sm font-bold"
           >
-            Kembali ke daftar
+            Kembali ke Tempat
           </button>
         </div>
         <p className="mb-4 text-sm text-black/60">Lengkapi informasi Tempat. Setelah disimpan, kamu dapat menambahkan foto, Kegiatan, dan mengelola Tempat.</p>
@@ -92,7 +92,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             onClick={() => setView({ name: "list" })}
             className="rounded-lg border border-black/15 px-4 py-2 text-sm font-bold"
           >
-            Kembali ke daftar
+            Kembali ke Tempat
           </button>
         </div>
         <div className="mb-5">
@@ -107,7 +107,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
               className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white"
               href={`/producer/places/${view.place.id}/production`}
             >
-              Kelola Dari Sini
+              Kelola Proses
             </Link>
           </div>
           <PlaceEditor id={view.place.id} onSaved={handleSaved} />

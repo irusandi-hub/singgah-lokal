@@ -47,7 +47,7 @@ export default async function ProducerDashboardPage() {
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Pengelola App</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Dashboard Pengelola</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-black/60">
-            Kelola Tempat, Kegiatan, Kunjungan, dan Live untuk Tempat yang berada dalam kewenanganmu.
+            Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live.
           </p>
         </header>
 
