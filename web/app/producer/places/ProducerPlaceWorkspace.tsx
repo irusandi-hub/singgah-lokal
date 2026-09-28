@@ -61,8 +61,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
   if (view.name === "new") {
     return (
       <section aria-label="Tambah Tempat" className="mt-8">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Tambah Tempat</h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">            <h2 className="break-words text-sm font-bold uppercase tracking-[0.14em] text-black/45">Tambah Tempat</h2>
           <button
             type="button"
             onClick={() => setView({ name: "list" })}
@@ -84,7 +83,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
       <section aria-label="Edit Tempat" className="mt-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Kelola Tempat</h2>
+            <h2 className="break-words text-sm font-bold uppercase tracking-[0.14em] text-black/45">Kelola Tempat</h2>
             <p className="mt-1 text-xs text-black/55">ID: {view.place.id}</p>
           </div>
           <button
@@ -136,7 +135,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
               </span>
             )}
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-semibold">{place.name}</span>
+              <span className="block break-words font-semibold">{place.name}</span>
               <span className="mt-0.5 flex items-center gap-1.5 text-xs text-black/60">
                 <span className={`inline-block h-2 w-2 rounded-full ${STATUS_DOT[place.publicationStatus]}`} aria-hidden />
                 {publicationStatusLabel(place.publicationStatus)}

@@ -52,6 +52,11 @@ test("The main Producer page has no navigation back to itself", () => {
   // cards left behind.
   assert.equal(dashboard.includes("ProducerSubNav"), false, "dashboard must not render the ProducerSubNav tabs");
   assert.equal(dashboard.includes("←"), false, "dashboard must not carry a back link to itself");
+  // PO fix 2026-09-28: the working dashboard is still never a dead end —
+  // it offers the standard way back to the public home (arrow-free, because
+  // a "←" on this page would read as a self-link).
+  assert.match(dashboard, /href="\/"/, "dashboard keeps a way back to the public home");
+  assert.match(dashboard, /Kembali ke Beranda/, "the way back is labelled as a way back");
   assert.equal(dashboard.includes("Area Pengelola"), false, "the shortcut-card section is gone");
 });
 

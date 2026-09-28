@@ -149,7 +149,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
     <section aria-label="Ajukan Pengelolaan Tempat" className="mt-8">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">
+          <h2 className="break-words text-sm font-bold uppercase tracking-[0.14em] text-black/45">
             Ajukan Pengelolaan Tempat
           </h2>
           <p className="mt-1 text-xs text-black/55">

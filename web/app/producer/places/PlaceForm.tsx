@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Place } from "@/lib/places";
 import {
   PLACE_MEDIA_ACCEPTED_TYPES,
@@ -357,6 +357,12 @@ function PlacePhotoInputs({ slot, busy, hasSavedMeta, disabled, onUpload }: {
   const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [pickerError, setPickerError] = useState("");
+  // PO fix 2026-09-28: the file picker control must be a real, clickable
+  // button — the bare file input rendered as static OS text ("Choose File / No
+  // file chosen") that users could not reliably tap on a phone. The hidden
+  // input still owns the file (native validation, accept list, form semantics);
+  // the button only opens its picker, like the claim-evidence flow.
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // The same locked limits run SERVER-SIDE on every write (lib/place-media);
   // mirroring them at pick-time gives instant feedback instead of failing
@@ -383,14 +389,25 @@ function PlacePhotoInputs({ slot, busy, hasSavedMeta, disabled, onUpload }: {
         Deskripsi foto
         <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} rows={2} />
       </label>
-      <label className="grid gap-1 text-xs font-semibold">
-        File foto
+      <div className="grid gap-1">
+        <span className="text-xs font-semibold">File foto</span>
         <input
+          ref={fileInputRef}
           type="file"
+          className="sr-only"
+          aria-hidden="true"
+          tabIndex={-1}
           accept={PLACE_MEDIA_ACCEPTED_TYPES.join(",")}
           onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
         />
-      </label>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full rounded-lg border border-black/15 bg-white px-3 py-2 text-xs font-bold text-black/70 transition hover:border-brand-accent/60 hover:text-brand-ink"
+        >
+          {file ? `File dipilih: ${file.name}` : "Pilih file foto"}
+        </button>
+      </div>
       {pickerError && (
         <p className="text-xs font-semibold text-red-700" role="alert">
           {pickerError}

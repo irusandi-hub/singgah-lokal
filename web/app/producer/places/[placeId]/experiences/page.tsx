@@ -10,7 +10,7 @@ export default function ProducerExperiencesPage({ params }: { params: Promise<{ 
   return (
     <main className="min-h-screen bg-brand-cream px-5 py-8 text-brand-ink sm:px-8">
       <div className="mx-auto max-w-3xl">
-        <header className="flex items-start justify-between gap-4 border-b border-black/10 pb-5">
+        <header className="flex flex-wrap items-start justify-between gap-4 border-b border-black/10 pb-5">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Pengelola App</p>
             <h1 className="mt-2 text-3xl font-semibold">Kegiatan</h1>

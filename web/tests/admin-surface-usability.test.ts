@@ -43,10 +43,13 @@ test("the Admin nav marks the active tab, including a nested route's parent", ()
   // (/admin/places/[placeId] → Tempat).
   assert.match(nav, /exact: true/);
   assert.match(nav, /pathname\.startsWith\(`\$\{href\}\/`/);
-  // The nine tabs, unchanged wording and order.
-  for (const label of ["Overview", "Users", "Pengelola", "Pengelola Membership", "Tempat", "Kegiatan", "Kunjungan", "Live", "Moderation"]) {
+  // The MVP tab set (PO, 2026-09-28): "Kegiatan" and "Kunjungan" are gone
+  // from the Admin navigation; their pages remain reachable by direct URL.
+  for (const label of ["Overview", "Users", "Pengelola", "Pengelola Membership", "Tempat", "Live", "Moderation"]) {
     assert.match(nav, new RegExp(`label: "${label}"`));
   }
+  assert.doesNotMatch(nav, /label: "Kegiatan"/);
+  assert.doesNotMatch(nav, /label: "Kunjungan"/);
   // The layout renders the nav once — no second, divergent nav anywhere.
   assert.match(adminLayout, /<AdminNav \/>/);
   assert.doesNotMatch(adminLayout, /aria-label="Navigasi Admin"/);

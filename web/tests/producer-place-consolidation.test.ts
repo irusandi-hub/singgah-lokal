@@ -194,6 +194,20 @@ test("The editor carries an actionable Upload tab gated on a saved Place", () =>
   assert.match(formCode, /\/api\/producer\/places\/\$\{place\.id\}\/photos/);
 });
 
+test("The photo picker is a real clickable control, not static OS text", () => {
+  // PO fix 2026-09-28: the bare file input rendered as "Choose File / No file
+  // chosen" — OS chrome nobody could tap on a phone. The visible control is a
+  // real button that opens the picker of a hidden, unchanged file input.
+  assert.match(formCode, /ref=\{fileInputRef\}/);
+  assert.match(formCode, /type="file"/);
+  assert.match(formCode, /className="sr-only"/);
+  assert.match(formCode, /onClick=\{\(\) => fileInputRef\.current\?\.click\(\)\}/);
+  assert.match(formCode, /Pilih file foto/);
+  // Same rules as before, unchanged: accepted formats and the 5 MB limit
+  // still run at pick time and again server-side.
+  assert.match(formCode, /PLACE_MEDIA_ACCEPTED_TYPES\.join\(","\)/);
+});
+
 test("Upload/delete failures surface as slot errors (no silent success)", () => {
   // The DELETE path maps backend errors to the slot error state, exactly
   // like the upload path — the UI never claims success without the API.

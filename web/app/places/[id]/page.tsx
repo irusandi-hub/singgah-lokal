@@ -40,7 +40,7 @@ export default async function PlaceDetailPage({
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
             {place.category} • {place.type === "production" ? "Produksi" : "Kegiatan"}
           </p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight">{place.name}</h1>
+          <h1 className="mt-3 break-words text-4xl font-semibold tracking-tight">{place.name}</h1>
           <p className="mt-2 text-sm text-black/55">{place.area}</p>
 
           {/* Cover image hero — canonical Place data (cover_image_url,
@@ -105,7 +105,7 @@ export default async function PlaceDetailPage({
               {placeExperiences.length > 0 ? (
                 placeExperiences.map((experience) => (
                   <article key={experience.id} className="rounded-2xl border border-black/10 bg-brand-cream p-5">
-                    <h3 className="text-lg font-semibold">{experience.title}</h3>
+                    <h3 className="break-words text-lg font-semibold">{experience.title}</h3>
                     <p className="mt-2 text-sm leading-6 text-black/65">{experience.shortDescription}</p>
                     <VisitedLink
                       className="mt-4 inline-flex rounded-full bg-brand-ink px-4 py-2 text-sm font-bold text-white"
@@ -129,7 +129,7 @@ export default async function PlaceDetailPage({
               {productionStages.length > 0 ? productionStages.map((stage) => (
                 <article key={stage.id} className="rounded-2xl border border-black/10 bg-brand-cream p-5">
                   <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-accent">Tahap {stage.sortOrder + 1}</p>
-                  <h3 className="mt-1 text-lg font-semibold">{stage.title}</h3>
+                  <h3 className="mt-1 break-words text-lg font-semibold">{stage.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-black/65">{stage.description}</p>
                 </article>
               )) : <p className="text-sm text-black/60">Cerita produksi Tempat ini belum tersedia.</p>}

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
@@ -43,6 +44,14 @@ export default async function ProducerDashboardPage() {
   return (
     <main className="min-h-screen bg-brand-cream px-5 py-6 text-brand-ink sm:px-8">
       <div className="mx-auto max-w-3xl">
+        {/* PO fix 2026-09-28: the working dashboard still carries the standard
+            way back (same link as every other Producer page) — the sub-nav
+            tabs stay off the list view because the dashboard must never list
+            itself as a tab. */}
+        <Link className="text-sm font-bold text-brand-accent" href="/">
+          Kembali ke Beranda
+        </Link>
+
         <header className="mt-6">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Pengelola App</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Dashboard Pengelola</h1>

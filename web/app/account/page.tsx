@@ -6,8 +6,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 /**
- * Kelola Akun — the single gateway between the main app and every authority
- * area (Authority Master §1–§7).
+ * Account Center — the single gateway between the main app and every authority
+ * area (Authority Master §1–§7). Named "Account Center" to match the account
+ * menu entry that opens it (PO, 2026-09-28): one product term, one structure.
  *
  * The authority probe runs server-side on every request:
  * - Producer  → an owner/manager row in producer_memberships (own resources).
@@ -110,8 +111,8 @@ export default async function AccountPage() {
         </Link>
 
         <header className="mt-8 border-b border-black/10 pb-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Kelola Akun</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Area akun</h1>
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Account Center</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Account Center</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
             {authority.email ? (
               <>

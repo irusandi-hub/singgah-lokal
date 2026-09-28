@@ -142,4 +142,11 @@ test("the Account Center cards carry no role-specific heading", () => {
   // The account email still shows, as before.
   assert.match(page, /Masuk sebagai/);
   assert.match(page, /authority\.email/);
+
+  // PO fix 2026-09-28: the surface is named Account Center — the same term
+  // the account menu entry that opens it uses. No second naming, no new
+  // account system: structure, probe, and links are untouched.
+  assert.match(page, /Account Center/);
+  assert.doesNotMatch(page, /Area akun/);
+  assert.match(page, /Kembali ke Beranda|← Beranda/);
 });

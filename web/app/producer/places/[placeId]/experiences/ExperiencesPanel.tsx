@@ -52,7 +52,7 @@ export default function ExperiencesPanel({ placeId }: { placeId: string }) {
               key={experience.id}
             >
               <div className="flex items-center justify-between gap-4">
-                <h3 className="font-semibold">{experience.title}</h3>
+                <h3 className="break-words font-semibold">{experience.title}</h3>
                 <span className="text-xs font-bold uppercase text-brand-accent">{experienceStatusLabel(experience.status)}</span>
               </div>
               <p className="mt-2 text-sm text-black/60">{experience.durationMinutes} menit · {experience.schedules.length} jadwal</p>

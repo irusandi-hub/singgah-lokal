@@ -13,10 +13,11 @@ import { usePathname } from "next/navigation";
  * both: the exact match is active, and a nested path falls back to the
  * longest matching section, so `/admin/places/[placeId]` lights up "Tempat".
  *
- * The list is the same nine sections the layout already had — unchanged
- * wording, unchanged order, unchanged destinations. Only the active cue is
- * new: filled accent pill for the active tab, the same quiet pill for the
- * rest, so the position in the Admin area is always readable at a glance.
+ * The list is the MVP tab set (PO, 2026-09-28): Overview, Users, Pengelola,
+ * Pengelola Membership, Tempat, Live, Moderation. "Kegiatan" and "Kunjungan"
+ * are NOT MVP Admin tabs and are gone from the navigation; their pages stay
+ * reachable by direct URL (unchanged data layer, unchanged guards) — no dead
+ * links, because nothing links to them anymore.
  */
 const SECTIONS = [
   { href: "/admin", label: "Overview", exact: true },
@@ -24,8 +25,6 @@ const SECTIONS = [
   { href: "/admin/producers", label: "Pengelola", exact: false },
   { href: "/admin/producer-membership", label: "Pengelola Membership", exact: false },
   { href: "/admin/places", label: "Tempat", exact: false },
-  { href: "/admin/experiences", label: "Kegiatan", exact: false },
-  { href: "/admin/visit-intents", label: "Kunjungan", exact: false },
   { href: "/admin/live", label: "Live", exact: false },
   { href: "/admin/moderation", label: "Moderation", exact: false },
 ] as const;

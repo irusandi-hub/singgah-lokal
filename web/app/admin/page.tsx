@@ -56,8 +56,7 @@ export default async function AdminOverviewPage() {
       />
 
       <p className="text-sm text-black/55">
-        Rincian data ada di tab masing-masing: Users, Pengelola, Pengelola Membership, Tempat, Kegiatan, Kunjungan,
-        Live, dan Moderation.
+        Rincian data ada di tab masing-masing: Users, Pengelola, Pengelola Membership, Tempat, Live, dan Moderation.
       </p>
     </div>
   );
