@@ -32,15 +32,11 @@ export type AdminOverviewTotals = {
   places: number;
   experiences: number;
   visitIntents: number;
-  liveSessions: number;
-  liveReports: number;
 };
 
 export type AdminOverview = {
   totals: AdminOverviewTotals;
   recentVisitIntents: AdminVisitIntentRow[];
-  recentLiveSessions: AdminLiveSessionRow[];
-  recentLiveReports: AdminLiveReportRow[];
 };
 
 /**
@@ -72,6 +68,8 @@ export type AdminPlaceRow = {
   category: string;
   type: string;
   area: string;
+  countryCode: string | null;
+  regionName: string | null;
   publicationStatus: string;
   claimStatus: string;
   producerId: string | null;
@@ -149,46 +147,20 @@ function requireAdmin(): Promise<{ userId: string }> {
 export async function getAdminOverview(): Promise<AdminOverview> {
   await requireAdmin();
 
-  const [
-    users,
-    producers,
-    producerMemberships,
-    places,
-    experiences,
-    visitIntents,
-    liveSessions,
-    liveReports,
-  ] = await Promise.all([
+  const [users, producers, producerMemberships, places, experiences, visitIntents] = await Promise.all([
     countRows("users"),
     countRows("producers"),
     countRows("producer_memberships"),
     countRows("places"),
     countRows("experiences"),
     countRows("visit_intents"),
-    countRows("live_sessions"),
-    countRows("live_reports"),
   ]);
 
-  const [recentVisitIntents, recentLiveSessions, recentLiveReports] = await Promise.all([
-    listRecentVisitIntents(5),
-    listRecentLiveSessions(5),
-    listRecentLiveReports(5),
-  ]);
+  const recentVisitIntents = await listRecentVisitIntents(5);
 
   return {
-    totals: {
-      users,
-      producers,
-      producerMemberships,
-      places,
-      experiences,
-      visitIntents,
-      liveSessions,
-      liveReports,
-    },
+    totals: { users, producers, producerMemberships, places, experiences, visitIntents },
     recentVisitIntents,
-    recentLiveSessions,
-    recentLiveReports,
   };
 }
 
@@ -233,16 +205,29 @@ export async function listAdminMemberships(): Promise<AdminMembershipRow[]> {
   }));
 }
 
-export async function listAdminPlaces(): Promise<AdminPlaceRow[]> {
+/**
+ * Every Place, optionally narrowed by country and then by the subdivision
+ * inside that country (PO, 2026-09-28). The filter is applied in the database
+ * against the `(country_code, region_name)` index from migration 0032 — not
+ * by filtering a page of rows in JavaScript — so a country selection always
+ * means "every Place in this country", never "every Place in the first 100".
+ */
+export async function listAdminPlaces(filter: { countryCode?: string | null; regionName?: string | null } = {}): Promise<AdminPlaceRow[]> {
   await requireAdmin();
 
   const supabase = canonicalAdminClient();
-  const { data, error } = await supabase
+  const countryCode = filter.countryCode?.trim().toUpperCase() ?? "";
+  const regionName = filter.regionName?.trim() ?? "";
+
+  let query = supabase
     .from("places")
-    .select("id, name, category, type, area, publication_status, claim_status, producer_id, created_at")
+    .select("id, name, category, type, area, country_code, region_name, publication_status, claim_status, producer_id, created_at")
     .order("created_at", { ascending: false })
     .limit(100);
+  if (countryCode) query = query.eq("country_code", countryCode);
+  if (countryCode && regionName) query = query.eq("region_name", regionName);
 
+  const { data, error } = await query;
   if (error) throw error;
 
   return (data ?? []).map((row) => ({
@@ -251,6 +236,8 @@ export async function listAdminPlaces(): Promise<AdminPlaceRow[]> {
     category: String(row.category),
     type: String(row.type),
     area: String(row.area),
+    countryCode: row.country_code === null ? null : String(row.country_code),
+    regionName: row.region_name === null ? null : String(row.region_name),
     publicationStatus: String(row.publication_status),
     claimStatus: String(row.claim_status),
     producerId: row.producer_id === null ? null : String(row.producer_id),
@@ -353,29 +340,6 @@ export async function listAdminLiveSessions(): Promise<AdminLiveSessionRow[]> {
   }));
 }
 
-async function listRecentLiveSessions(limit: number): Promise<AdminLiveSessionRow[]> {
-  const supabase = canonicalAdminClient();
-  const { data, error } = await supabase
-    .from("live_sessions")
-    .select("id, place_id, producer_id, stage_id, status, started_at, ended_at, ended_reason, viewer_peak")
-    .order("started_at", { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-
-  return (data ?? []).map((row) => ({
-    id: String(row.id),
-    placeId: String(row.place_id),
-    producerId: String(row.producer_id),
-    stageId: String(row.stage_id),
-    status: String(row.status),
-    startedAt: String(row.started_at),
-    endedAt: row.ended_at === null ? null : String(row.ended_at),
-    endedReason: row.ended_reason === null ? null : String(row.ended_reason),
-    viewerPeak: Number(row.viewer_peak),
-  }));
-}
-
 export async function listAdminLiveReports(): Promise<AdminLiveReportRow[]> {
   await requireAdmin();
 
@@ -385,26 +349,6 @@ export async function listAdminLiveReports(): Promise<AdminLiveReportRow[]> {
     .select("id, live_session_id, reporter_id, category, note, created_at")
     .order("created_at", { ascending: false })
     .limit(100);
-
-  if (error) throw error;
-
-  return (data ?? []).map((row) => ({
-    id: String(row.id),
-    liveSessionId: String(row.live_session_id),
-    reporterId: String(row.reporter_id),
-    category: String(row.category),
-    note: row.note === null ? null : String(row.note),
-    createdAt: String(row.created_at),
-  }));
-}
-
-async function listRecentLiveReports(limit: number): Promise<AdminLiveReportRow[]> {
-  const supabase = canonicalAdminClient();
-  const { data, error } = await supabase
-    .from("live_reports")
-    .select("id, live_session_id, reporter_id, category, note, created_at")
-    .order("created_at", { ascending: false })
-    .limit(limit);
 
   if (error) throw error;
 

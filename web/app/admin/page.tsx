@@ -17,6 +17,12 @@ export const dynamic = "force-dynamic";
  * recent operational data come straight from canonical Supabase — no cache,
  * no search index. Failures render an explicit error state, never fabricated
  * data. Data is fetched inside try/catch; JSX renders outside of it.
+ *
+ * Live is deliberately NOT summarised here (PO, 2026-09-28): a Live session
+ * only means something in the Place it happens in, so the Place workspace
+ * shows that Place's sessions and reports, and /admin/live keeps the
+ * read-only report queue. The Overview carries platform counts and the
+ * newest Kunjungan, nothing more.
  */
 export default async function AdminOverviewPage() {
   let overview: AdminOverview;
@@ -51,8 +57,6 @@ export default async function AdminOverviewPage() {
           { label: "Tempat", value: totals.places },
           { label: "Kegiatan", value: totals.experiences },
           { label: "Kunjungan", value: totals.visitIntents },
-          { label: "Live Sessions", value: totals.liveSessions },
-          { label: "Live Reports", value: totals.liveReports },
         ]}
       />
 
@@ -71,34 +75,6 @@ export default async function AdminOverviewPage() {
         />
       </section>
 
-      <section aria-label="Live Session terbaru" className="space-y-3">
-        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Live Session terbaru</h3>
-        <AdminDataTable
-          rows={overview.recentLiveSessions}
-          emptyMessage="Belum ada Live Session."
-          columns={[
-            { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-            { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
-            { key: "status", header: "Status", render: (row) => <AdminStatusBadge value={row.status} tone={row.status === "live" ? "live" : "neutral"} /> },
-            { key: "peak", header: "Puncak penonton", render: (row) => row.viewerPeak },
-            { key: "started", header: "Mulai", render: (row) => formatAdminTimestamp(row.startedAt) },
-          ]}
-        />
-      </section>
-
-      <section aria-label="Live Report terbaru" className="space-y-3">
-        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Live Report terbaru</h3>
-        <AdminDataTable
-          rows={overview.recentLiveReports}
-          emptyMessage="Belum ada Live Report."
-          columns={[
-            { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-            { key: "session", header: "Live Session", render: (row) => <span className="font-mono text-xs">{formatShortId(row.liveSessionId)}</span> },
-            { key: "category", header: "Kategori", render: (row) => <AdminStatusBadge value={row.category} tone={row.category === "other" ? "neutral" : "warning"} /> },
-            { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },
-          ]}
-        />
-      </section>
     </div>
   );
 }

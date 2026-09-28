@@ -32,6 +32,8 @@ function mapPlaceForAudit(row: Record<string, unknown>) {
     category: row.category as never,
     type: row.type as never,
     area: String(row.area ?? ""),
+    countryCode: (row.country_code as string | null | undefined) ?? null,
+    regionName: (row.region_name as string | null | undefined) ?? null,
     address: String(row.address ?? ""),
     contactInformation: String(row.contact_information ?? ""),
     timezone: String(row.timezone ?? ""),

@@ -10,6 +10,7 @@ import {
   validatePlaceMediaFile,
 } from "@/lib/place-media";
 import PlaceLocationPicker from "@/components/place-location-picker";
+import PlaceGeoFields from "@/components/place-geo-fields";
 import { publicationStatusLabel } from "@/lib/status-labels";
 import ExperiencesPanel from "./[placeId]/experiences/ExperiencesPanel";
 
@@ -33,6 +34,7 @@ function emptyPlaceForm(): Record<string, string> {
   return {
     id: "", name: "", shortDescription: "",
     category: "Kopi", type: "production", area: "",
+    countryCode: "", regionName: "",
     address: "", contactInformation: "",
     timezone: "Asia/Jakarta", currency: "IDR",
     latitude: "", longitude: "",
@@ -51,6 +53,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
       ? {
           id: place.id, name: place.name, shortDescription: place.shortDescription,
           category: place.category, type: place.type, area: place.area,
+          countryCode: place.countryCode ?? "", regionName: place.regionName ?? "",
           address: place.address, contactInformation: place.contactInformation,
           timezone: place.timezone, currency: place.currency,
           latitude: place.latitude?.toString() ?? "", longitude: place.longitude?.toString() ?? "",
@@ -240,6 +243,12 @@ export default function PlaceForm({ place, onSaved }: Props) {
           <label className="grid gap-1 text-xs font-semibold">Longitude<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
         </div>
       </div>
+      <PlaceGeoFields
+        countryCode={form.countryCode}
+        regionName={form.regionName}
+        onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+      />
+      <p className="text-xs leading-5 text-black/55">Area diisi dengan nama area lokal; provinsi/wilayah dipilih dari daftar negara di atas.</p>
       <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
       <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Kegiatan</option></select></label>
         </>

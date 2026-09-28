@@ -58,6 +58,8 @@ const adminPayload = {
   category: "Kuliner",
   type: "production",
   area: "Bandung",
+  countryCode: "ID",
+  regionName: "Jawa Barat",
   address: "Jalan Sbomen 1",
   contactInformation: "",
   timezone: "Asia/Jakarta",

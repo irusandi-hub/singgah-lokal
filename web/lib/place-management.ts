@@ -1,4 +1,5 @@
 import { type PlaceCategory, type PlaceType, validatePlaceInput } from "@/lib/places";
+import { isValidPlaceCountry, isValidPlaceRegion } from "@/lib/geo/countries";
 import type { PlaceMutation } from "@/lib/place-experience-repository";
 
 const categories: PlaceCategory[] = ["Kopi", "Teh", "Kuliner"];
@@ -37,6 +38,14 @@ export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
   const category = text("category") as PlaceCategory;
   const type = text("type") as PlaceType;
   if (!categories.includes(category) || !types.includes(type)) throw new PlaceInputError("place_type_or_category_invalid");
+  // Geography is validated HERE, on the server, for the same reason every
+  // other field is: the two dropdowns are a convenience, not the authority.
+  // A request that bypasses the form still cannot invent a country, and
+  // cannot pair a subdivision with a country that does not contain it.
+  const countryCode = text("countryCode").toUpperCase();
+  if (!isValidPlaceCountry(countryCode)) throw new PlaceInputError("place_country_invalid");
+  const regionName = text("regionName");
+  if (!isValidPlaceRegion(countryCode, regionName)) throw new PlaceInputError("place_region_invalid");
   const mutation: PlaceMutation = {
     // An empty/absent id means "the system generates it" (PO, 2026-09-26):
     // the Producer never types a technical ID in the UI. The POST route
@@ -47,6 +56,8 @@ export function parsePlaceMutation(raw: unknown, id?: string): PlaceMutation {
     category,
     type,
     area: text("area"),
+    countryCode,
+    regionName,
     address: text("address"),
     contactInformation: typeof body.contactInformation === "string" ? body.contactInformation.trim() : "",
     timezone: text("timezone"),

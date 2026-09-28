@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Place } from "@/lib/places";
+import PlaceGeoFields from "@/components/place-geo-fields";
 
 /**
  * Admin Place editor — "Informasi Tempat" only.
@@ -25,6 +26,8 @@ function emptyForm(): Record<string, string> {
     category: "Kopi",
     type: "production",
     area: "",
+    countryCode: "",
+    regionName: "",
     address: "",
     contactInformation: "",
     timezone: "Asia/Jakarta",
@@ -57,6 +60,8 @@ export default function AdminPlaceEditor({ place }: Props) {
           category: place.category,
           type: place.type,
           area: place.area,
+          countryCode: place.countryCode ?? "",
+          regionName: place.regionName ?? "",
           address: place.address,
           contactInformation: place.contactInformation,
           timezone: place.timezone,
@@ -122,6 +127,11 @@ export default function AdminPlaceEditor({ place }: Props) {
           />
         </label>
       ))}
+      <PlaceGeoFields
+        countryCode={form.countryCode}
+        regionName={form.regionName}
+        onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+      />
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="grid gap-1 text-sm font-semibold">
           Kategori
@@ -150,7 +160,8 @@ export default function AdminPlaceEditor({ place }: Props) {
         </label>
       </div>
       <p className="text-xs leading-5 text-black/55">
-        Alamat dan koordinat wajib lengkap sebelum Tempat dapat diterbitkan.
+        Negara, provinsi/wilayah, alamat, dan koordinat wajib lengkap sebelum Tempat dapat diterbitkan. Area tetap
+        diisi dengan nama area lokal.
       </p>
       <button
         className="justify-self-start rounded-lg bg-brand-primary px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"

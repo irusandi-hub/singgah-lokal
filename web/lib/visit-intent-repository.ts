@@ -93,6 +93,8 @@ function mapPlace(row: Record<string, unknown>): Place {
     category: row.category as Place["category"],
     type: row.type as Place["type"],
     area: String(row.area),
+    countryCode: (row.country_code as string | null | undefined) ?? null,
+    regionName: (row.region_name as string | null | undefined) ?? null,
     address: String(row.address ?? ""),
     contactInformation: String(row.contact_information ?? ""),
     timezone: String(row.timezone),

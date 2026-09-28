@@ -5,7 +5,8 @@ import { parsePlaceMutation, PlaceInputError } from "../lib/place-management";
 
 const validInput = {
   id: "place-baru", name: "Place Baru", shortDescription: "Cerita lokal", category: "Kopi", type: "production",
-  area: "Bandung", address: "Jalan Lokal 1", contactInformation: "hello@example.test", timezone: "Asia/Jakarta",
+  area: "Bandung", countryCode: "ID", regionName: "Jawa Barat",
+  address: "Jalan Lokal 1", contactInformation: "hello@example.test", timezone: "Asia/Jakarta",
   currency: "idr", latitude: -6.9, longitude: 107.6,
 };
 

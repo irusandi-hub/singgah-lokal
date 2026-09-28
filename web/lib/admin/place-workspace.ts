@@ -124,11 +124,30 @@ export type AdminPlaceMembershipRow = {
   createdAt: string;
 };
 
+export type AdminPlaceLiveSessionRow = {
+  id: string;
+  status: string;
+  stageId: string;
+  startedAt: string;
+  endedAt: string | null;
+  endedReason: string | null;
+  viewerPeak: number;
+};
+
+export type AdminPlaceLiveReportRow = {
+  id: string;
+  category: string;
+  note: string | null;
+  createdAt: string;
+};
+
 export type AdminPlaceDetail = {
   place: Place;
   producerName: string | null;
   memberships: AdminPlaceMembershipRow[];
   claims: AdminPlaceClaimRow[];
+  liveSessions: AdminPlaceLiveSessionRow[];
+  liveReports: AdminPlaceLiveReportRow[];
   experienceCount: number;
   visitIntentCount: number;
   liveSessionCount: number;
@@ -155,7 +174,7 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
   const place = await repository.getById(id);
   if (!place) return undefined;
 
-  const [memberships, claims, experiences, visitIntents, liveSessions, meta] = await Promise.all([
+  const [memberships, claims, experiences, visitIntents, liveSessions, liveSessionCount, meta] = await Promise.all([
     admin
       .from("producer_memberships")
       .select("user_id, producer_id, role, created_at")
@@ -168,13 +187,34 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
       .order("created_at", { ascending: false }),
     admin.from("experiences").select("id", { count: "exact", head: true }).eq("place_id", id),
     admin.from("visit_intents").select("id", { count: "exact", head: true }).eq("place_id", id),
+    admin
+      .from("live_sessions")
+      .select("id, status, stage_id, started_at, ended_at, ended_reason, viewer_peak")
+      .eq("place_id", id)
+      .order("started_at", { ascending: false })
+      .limit(50),
     admin.from("live_sessions").select("id", { count: "exact", head: true }).eq("place_id", id),
     admin.from("places").select("created_at, updated_at").eq("id", id).maybeSingle(),
   ]);
 
-  for (const result of [memberships, claims, experiences, visitIntents, liveSessions, meta]) {
+  for (const result of [memberships, claims, experiences, visitIntents, liveSessions, liveSessionCount, meta]) {
     if (result.error) throw result.error;
   }
+
+  // Live reports belong to a session, and a report is only about a Place
+  // through the session it was filed against — so the report read is scoped
+  // to THIS Place's sessions. Empty session list means no reports, without a
+  // query that would match every report on the platform.
+  const sessionIds = (liveSessions.data ?? []).map((row) => String(row.id));
+  const liveReports = sessionIds.length
+    ? await admin
+        .from("live_reports")
+        .select("id, category, note, created_at")
+        .in("live_session_id", sessionIds)
+        .order("created_at", { ascending: false })
+        .limit(50)
+    : { data: [] as Array<Record<string, unknown>>, error: null };
+  if (liveReports.error) throw liveReports.error;
 
   const producerName = place.producer
     ? ((await admin.from("producers").select("display_name").eq("id", place.producer.id).maybeSingle()).data
@@ -184,6 +224,21 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
   return {
     place,
     producerName: producerName === null ? null : String(producerName),
+    liveSessions: (liveSessions.data ?? []).map((row) => ({
+      id: String(row.id),
+      status: String(row.status),
+      stageId: String(row.stage_id),
+      startedAt: String(row.started_at),
+      endedAt: row.ended_at === null ? null : String(row.ended_at),
+      endedReason: row.ended_reason === null ? null : String(row.ended_reason),
+      viewerPeak: Number(row.viewer_peak ?? 0),
+    })),
+    liveReports: (liveReports.data ?? []).map((row) => ({
+      id: String(row.id),
+      category: String(row.category),
+      note: row.note === null ? null : String(row.note),
+      createdAt: String(row.created_at),
+    })),
     memberships: (memberships.data ?? []).map((row) => ({
       userId: String(row.user_id),
       producerId: String(row.producer_id),
@@ -201,7 +256,7 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
     })),
     experienceCount: experiences.count ?? 0,
     visitIntentCount: visitIntents.count ?? 0,
-    liveSessionCount: liveSessions.count ?? 0,
+    liveSessionCount: liveSessionCount.count ?? 0,
     createdAt: String(meta.data?.created_at ?? ""),
     updatedAt: String(meta.data?.updated_at ?? ""),
   };
@@ -335,6 +390,8 @@ export async function updateAdminPlace(placeId: string, raw: unknown): Promise<P
         category: existing.category,
         type: existing.type,
         area: existing.area,
+        countryCode: existing.countryCode,
+        regionName: existing.regionName,
         address: existing.address,
         contactInformation: existing.contactInformation,
         timezone: existing.timezone,
@@ -378,6 +435,15 @@ export async function setAdminPlacePublicationStatus(
   const repository = adminPlaceRepository();
   const place = await repository.getById(id);
   if (!place) throw new AdminPlaceError("place_not_found");
+  // Re-submitting the status the Place already has is a RETRY, not a
+  // moderation decision: nothing changes, so nothing is written and — the
+  // part that matters here — nothing is recorded. Without this guard, the
+  // "Arsipkan" control on an already-archived Place was labelled a RESTORE
+  // (`from === "archived"` matched before the target was considered), so a
+  // false entry went into an append-only trail that can never be corrected
+  // (Master 09 §13). Returning the Place unchanged also keeps the operation
+  // idempotent when a submit is retried (AGENTS.md).
+  if (place.publicationStatus === nextStatus) return place;
   if (!canAdminTransitionPlaceStatus(place.publicationStatus, nextStatus)) {
     throw new AdminPlaceError("place_status_transition_invalid");
   }
@@ -414,7 +480,10 @@ export async function setAdminPlacePublicationStatus(
  * archived Place back" is the decision an operator would want to find later.
  */
 function moderationAction(from: PublicationStatus, to: PublicationStatus): PlaceAuditAction {
-  if (from === "archived") return PLACE_AUDIT_ACTIONS.restored;
+  // A restore is a Place LEAVING the archive. `to !== "archived"` keeps an
+  // archive-on-archive from ever being recorded as a restore, independently of
+  // the caller's no-op guard above.
+  if (from === "archived" && to !== "archived") return PLACE_AUDIT_ACTIONS.restored;
   if (to === "published") return PLACE_AUDIT_ACTIONS.published;
   if (to === "paused") return PLACE_AUDIT_ACTIONS.paused;
   if (to === "archived") return PLACE_AUDIT_ACTIONS.archived;

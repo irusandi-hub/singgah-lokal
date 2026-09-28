@@ -19,6 +19,8 @@ function mapPlace(row: Record<string, unknown>): Place {
     category: row.category as Place["category"],
     type: row.type as Place["type"],
     area: String(row.area),
+    countryCode: (row.country_code as string | null | undefined) ?? null,
+    regionName: (row.region_name as string | null | undefined) ?? null,
     timezone: String(row.timezone),
     currency: String(row.currency),
     latitude: row.latitude as number | null,
@@ -172,7 +174,7 @@ export class SupabasePlaceExperienceRepository implements PlaceExperienceReposit
   }
 }
 
-export type PlaceMutation = Pick<Place, "id" | "name" | "shortDescription" | "category" | "type" | "area" | "address" | "contactInformation" | "timezone" | "currency" | "latitude" | "longitude" | "coverImageUrl">;
+export type PlaceMutation = Pick<Place, "id" | "name" | "shortDescription" | "category" | "type" | "area" | "countryCode" | "regionName" | "address" | "contactInformation" | "timezone" | "currency" | "latitude" | "longitude" | "coverImageUrl">;
 
 export type ExperienceMutation = Omit<Experience, "placeId" | "status" | "publicationStatus">;
 
@@ -204,6 +206,7 @@ export class SupabasePlaceManagementRepository {
     const { error: insertError } = await this.client.from("places").insert({
       id: input.id, name: input.name, short_description: input.shortDescription, category: input.category,
       type: input.type, area: input.area, address: input.address, contact_information: input.contactInformation,
+      country_code: input.countryCode, region_name: input.regionName,
       timezone: input.timezone, currency: input.currency, latitude: input.latitude, longitude: input.longitude,
       cover_image_url: input.coverImageUrl,
       producer_id: producerId, publication_status: "draft",
@@ -252,6 +255,7 @@ export class SupabasePlaceManagementRepository {
     const { data, error } = await this.client.from("places").update({
       name: input.name, short_description: input.shortDescription, category: input.category, type: input.type,
       area: input.area, address: input.address, contact_information: input.contactInformation,
+      country_code: input.countryCode, region_name: input.regionName,
       timezone: input.timezone, currency: input.currency, latitude: input.latitude, longitude: input.longitude,
       cover_image_url: input.coverImageUrl,
       updated_at: new Date().toISOString(),

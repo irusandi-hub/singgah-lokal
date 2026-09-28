@@ -25,6 +25,11 @@ export const dynamic = "force-dynamic";
  *                      the decision is made once, in /admin/places (Klaim
  *                      Tempat), and it never creates a second Place.
  *   Moderasi         — Terbitkan / Jeda / Arsipkan / Pulihkan dari arsip.
+ *   Live             — this Place's Live sessions and Live reports, READ-ONLY.
+ *                      Live belongs to the Place it happens in, so it is read
+ *                      here alongside the Place's own data. Nothing on this
+ *                      surface starts, ends, or moderates a Live session: the
+ *                      existing Producer and RPC-gated Live flows are untouched.
  *   Riwayat          — what the existing infrastructure can support: creation
  *                      and last-edit time, the claim timeline, and how much
  *                      data depends on this Place (no audit table is invented).
@@ -49,7 +54,7 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
 
   if (!detail) notFound();
 
-  const { place, memberships, claims, producerName } = detail;
+  const { place, memberships, claims, producerName, liveSessions, liveReports } = detail;
   const status = place.publicationStatus as PublicationStatus;
   const ready = isPlacePublicationReady(place);
 
@@ -176,6 +181,54 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
           Admin.
         </p>
         <AdminPlaceModeration placeId={place.id} status={status} />
+      </section>
+
+      <section aria-label="Live" className="rounded-2xl border border-black/10 bg-white p-5">
+        <h3 className="text-sm font-bold uppercase tracking-wide text-black/50">Live</h3>
+        <p className="mt-1 mb-3 text-xs text-black/55">
+          Data Live milik Tempat ini, dibaca saja. Mulai, akhiri, dan moderasi Live tetap mengikuti alur Producer
+          yang sudah ada.
+        </p>
+
+        <h4 className="text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Live Session</h4>
+        {liveSessions.length === 0 ? (
+          <p className="mt-1 text-sm text-black/60">Belum ada Live Session untuk Tempat ini.</p>
+        ) : (
+          <ul className="mt-1 divide-y divide-black/5">
+            {liveSessions.map((session) => (
+              <li key={session.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs text-black/70">
+                <span className="font-mono">{session.id}</span>
+                <AdminStatusBadge
+                  value={session.status}
+                  tone={session.status === "live" ? "live" : session.endedReason === "moderation" ? "negative" : "neutral"}
+                />
+                <span>mulai {formatAdminTimestamp(session.startedAt)}</span>
+                <span className="text-black/50">
+                  selesai {session.endedAt ? formatAdminTimestamp(session.endedAt) : "—"}
+                  {session.endedReason ? ` · ${session.endedReason}` : ""}
+                </span>
+                <span className="text-black/50">proses (stage) {session.stageId}</span>
+                <span className="text-black/50">puncak {session.viewerPeak}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <h4 className="mt-4 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Live Report</h4>
+        {liveReports.length === 0 ? (
+          <p className="mt-1 text-sm text-black/60">Belum ada Live Report untuk Tempat ini.</p>
+        ) : (
+          <ul className="mt-1 divide-y divide-black/5">
+            {liveReports.map((report) => (
+              <li key={report.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 text-xs text-black/70">
+                <span className="font-mono">{report.id}</span>
+                <AdminStatusBadge value={report.category} tone={report.category === "other" ? "neutral" : "warning"} />
+                <span className="text-black/50">{formatAdminTimestamp(report.createdAt)}</span>
+                {report.note ? <span className="w-full text-black/55">{report.note}</span> : null}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section aria-label="Riwayat" className="rounded-2xl border border-black/10 bg-white p-5">

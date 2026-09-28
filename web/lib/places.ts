@@ -37,6 +37,11 @@ export type Place = {
   category: PlaceCategory;
   type: PlaceType;
   area: string;
+  // Canonical world geography (PO, 2026-09-28, migration 0032): the ISO
+  // 3166-1 alpha-2 country code and the ISO 3166-2 subdivision name. `area`
+  // stays exactly as it was — free local area, never a country or a province.
+  countryCode: string | null;
+  regionName: string | null;
   address: string;
   contactInformation: string;
   timezone: string;
@@ -61,6 +66,8 @@ export const places: Place[] = [
     category: "Kopi",
     type: "production",
     area: "Bandung",
+    countryCode: "ID",
+    regionName: "Jawa Barat",
     address: "",
     contactInformation: "",
     timezone: "Asia/Jakarta",
@@ -79,6 +86,8 @@ export const places: Place[] = [
     category: "Teh",
     type: "experience",
     area: "Lembang",
+    countryCode: "ID",
+    regionName: "Jawa Barat",
     address: "",
     contactInformation: "",
     timezone: "Asia/Jakarta",
@@ -97,6 +106,8 @@ export const places: Place[] = [
     category: "Kuliner",
     type: "production",
     area: "Bandung",
+    countryCode: "ID",
+    regionName: "Jawa Barat",
     address: "",
     contactInformation: "",
     timezone: "Asia/Jakarta",

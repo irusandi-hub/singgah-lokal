@@ -20,6 +20,11 @@ export const dynamic = "force-dynamic";
  * Areas the account does not hold are not rendered at all — no dead links,
  * no hints about who holds which authority. Dashboard layers themselves keep
  * their own guards; this page only decides what to offer.
+ *
+ * The cards carry no role heading (PO, 2026-09-28): a card says what the area
+ * is for and links to it, and nothing else. The role a person holds is an
+ * internal distinction; the area they can enter is the useful information.
+ * Every link and its access check are unchanged.
  */
 
 type AccountAuthority = {
@@ -76,29 +81,23 @@ export default async function AccountPage() {
     redirect("/auth?returnTo=%2Faccount");
   }
 
-  const entries: Array<{ href: string; eyebrow: string; title: string; description: string }> = [];
+  const entries: Array<{ href: string; description: string }> = [];
 
   if (authority.isProducer) {
     entries.push({
       href: "/producer",
-      eyebrow: "Pengelola",
-      title: "Pengelola Dashboard",
       description: "Kelola Tempat, Kegiatan, Kunjungan, dan Live milikmu.",
     });
   }
   if (authority.isPlatformAdmin) {
     entries.push({
       href: "/admin",
-      eyebrow: "Platform Admin",
-      title: "Admin Center",
       description: "Pengelolaan operasional: Users, Pengelola, Tempat, Live, Moderation.",
     });
   }
   if (authority.isCreator) {
     entries.push({
       href: "/developer",
-      eyebrow: "Creator / Owner / Developer",
-      title: "Developer Center",
       description: "Kewenangan tertinggi: kelola Platform Admin dan akses area lain.",
     });
   }
@@ -141,18 +140,14 @@ export default async function AccountPage() {
           </section>
         ) : (
           <div className="mt-8 grid gap-3">
-            {entries.map(({ href, eyebrow, title, description }) => (
+            {entries.map(({ href, description }) => (
               <Link
                 key={href}
                 href={href}
-                className="group rounded-2xl border border-black/10 bg-white p-6 transition hover:border-brand-accent/40 hover:shadow-sm"
+                className="group flex items-center justify-between gap-4 rounded-2xl border border-black/10 bg-white p-6 transition hover:border-brand-accent/40 hover:shadow-sm"
               >
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-brand-accent">{eyebrow}</p>
-                <div className="mt-1 flex items-center justify-between gap-3">
-                  <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-                  <span aria-hidden className="text-brand-accent transition group-hover:translate-x-0.5">→</span>
-                </div>
-                <p className="mt-2 text-sm leading-6 text-black/60">{description}</p>
+                <p className="text-sm leading-6 text-black/70">{description}</p>
+                <span aria-hidden className="shrink-0 text-brand-accent transition group-hover:translate-x-0.5">→</span>
               </Link>
             ))}
           </div>

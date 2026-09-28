@@ -10,6 +10,7 @@ import {
 import { listAdminPlaces, type AdminPlaceRow } from "@/lib/admin/queries";
 import { PlatformModeratorRequiredError } from "@/lib/live/platform";
 import PlaceClaimsManager from "./PlaceClaimsManager";
+import PlaceGeoFilter from "./PlaceGeoFilter";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +28,15 @@ export const dynamic = "force-dynamic";
  * is the only path that grants ownership through a claim. Claim review never
  * creates a Place — it only grants ownership on an existing one.
  */
-export default async function AdminPlacesPage() {
+export default async function AdminPlacesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ country?: string; region?: string }>;
+}) {
+  const { country, region } = await searchParams;
   let places: AdminPlaceRow[];
   try {
-    places = await listAdminPlaces();
+    places = await listAdminPlaces({ countryCode: country ?? null, regionName: region ?? null });
   } catch (error) {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
@@ -58,6 +64,8 @@ export default async function AdminPlacesPage() {
 
       <PlaceClaimsManager />
 
+      <PlaceGeoFilter />
+
       <AdminDataTable
         rows={places}
         emptyMessage="Belum ada Tempat."
@@ -65,6 +73,12 @@ export default async function AdminPlacesPage() {
           { key: "id", header: "Tempat ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
           { key: "name", header: "Nama", render: (row) => <span className="font-bold">{row.name}</span> },
           { key: "area", header: "Area", render: (row) => `${row.area} · ${row.category} · ${row.type}` },
+          {
+            key: "region",
+            header: "Negara / Provinsi",
+            render: (row) =>
+              row.countryCode && row.regionName ? `${row.regionName} · ${row.countryCode}` : <span className="text-black/40">—</span>,
+          },
           {
             key: "publication",
             header: "Publikasi",

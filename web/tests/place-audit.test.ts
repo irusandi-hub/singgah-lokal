@@ -310,12 +310,31 @@ test("create, edit, publish, pause, archive, and restore each record their own a
   // The moderation mapping is what distinguishes publish / pause / archive,
   // and a restore is recorded as a restore even when it lands on 'published'.
   assert.match(code, /function moderationAction\(from: PublicationStatus, to: PublicationStatus\)/);
-  assert.match(code, /if \(from === "archived"\) return PLACE_AUDIT_ACTIONS\.restored;/);
+  assert.match(code, /if \(from === "archived" && to !== "archived"\) return PLACE_AUDIT_ACTIONS\.restored;/);
   assert.match(code, /if \(to === "published"\) return PLACE_AUDIT_ACTIONS\.published;/);
   assert.match(code, /if \(to === "paused"\) return PLACE_AUDIT_ACTIONS\.paused;/);
   assert.match(code, /if \(to === "archived"\) return PLACE_AUDIT_ACTIONS\.archived;/);
   // A status change records where it came from and where it went.
   assert.match(code, /detail: \{ fromStatus: place\.publicationStatus, toStatus: nextStatus \}/);
+});
+
+test("re-submitting the current status is a retry: no write, no trail entry", () => {
+  const code = stripComments(placeWorkspace);
+  const guard = code.indexOf("if (place.publicationStatus === nextStatus) return place;");
+  const transition = code.indexOf("canAdminTransitionPlaceStatus(place.publicationStatus, nextStatus)");
+  const write = code.indexOf("repository.updatePublicationStatus(id, nextStatus)");
+  const audit = code.indexOf("recordPlaceAudit({", transition);
+
+  // The guard stands BEFORE the write and before the audit call, so a no-op
+  // moderation submit can never reach the append-only trail. It also returns
+  // instead of throwing, which keeps a retried submit idempotent.
+  assert.ok(guard > -1, "the no-op guard must exist");
+  assert.ok(transition > guard, "the guard must precede the transition check");
+  assert.ok(write > transition, "the write must follow the transition check");
+  assert.ok(audit > write, "the audit call must follow the write");
+  // Independently of the guard, an archive-on-archive can never be labelled a
+  // restore — a false entry here is uncorrectable, the trail is append-only.
+  assert.match(code, /if \(from === "archived" && to !== "archived"\) return PLACE_AUDIT_ACTIONS\.restored;/);
 });
 
 test("claim approval and rejection are recorded without changing the claim semantics", () => {
@@ -411,6 +430,8 @@ test("the audit trail holds Place columns only — never user email, credentials
     category: "Kopi",
     type: "production",
     area: "Bandung",
+    countryCode: "ID",
+    regionName: "Jawa Barat",
     address: "Jalan Sbomen 1",
     contactInformation: "",
     timezone: "Asia/Jakarta",

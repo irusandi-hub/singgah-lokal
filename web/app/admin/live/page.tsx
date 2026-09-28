@@ -6,87 +6,57 @@ import {
   formatAdminTimestamp,
   formatShortId,
 } from "@/components/admin/ui";
-import { listAdminEligibility, listAdminLiveSessions, type AdminEligibilityRow, type AdminLiveSessionRow } from "@/lib/admin/queries";
+import { listAdminEligibility, listAdminLiveReports, type AdminEligibilityRow, type AdminLiveReportRow } from "@/lib/admin/queries";
 import { PlatformModeratorRequiredError } from "@/lib/live/platform";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Admin Live (Authority Master §5 + Policy §5.1: moderation authority =
- * Platform Admin). Sessions and eligibility are canonical Supabase reads.
- * Moderation actions remain in the existing RPC-gated API surface — this page
- * observes and links out; it never mutates Live state.
+ * Admin Live — READ-ONLY report queue and Producer eligibility
+ * (PO, 2026-09-28).
+ *
+ * Live Session and Live summary cards are GONE from this page. A Live session
+ * belongs to the Place it happens in, so it is read in the Place workspace
+ * (/admin/places/[placeId]) next to the Place's own data instead of being
+ * listed platform-wide here. What remains is the read-only report queue and
+ * the eligibility table, and the existing RPC-gated eligibility actions.
+ *
+ * This page observes. It never starts, ends, or moderates a Live session —
+ * those flows are unchanged.
  */
 export default async function AdminLivePage() {
-  let sessions: AdminLiveSessionRow[];
+  let reports: AdminLiveReportRow[];
   let eligibility: AdminEligibilityRow[];
   try {
-    [sessions, eligibility] = await Promise.all([listAdminLiveSessions(), listAdminEligibility()]);
+    [reports, eligibility] = await Promise.all([listAdminLiveReports(), listAdminEligibility()]);
   } catch (error) {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Live" description="Live Session dan eligibility Pengelola." />
+        <AdminPageHeader title="Live" description="Live Report dan eligibility Pengelola." />
         <AdminErrorState message="Data Live tidak dapat dimuat." />
       </div>
     );
   }
 
-  const activeCount = sessions.filter((session) => session.status === "live").length;
-
   return (
     <div className="space-y-8">
       <AdminPageHeader
         title="Live"
-        description="Live Session dan eligibility Pengelola. Batas terkunci: global 5 aktif, 1 per Tempat, 100 penonton, 60 menit."
+        description="Laporan Live dan eligibility Pengelola, dibaca saja. Data Live Session milik sebuah Tempat ditampilkan di workspace Tempat tersebut. Batas terkunci: global 5 aktif, 1 per Tempat, 100 penonton, 60 menit."
       />
 
-      <section aria-label="Ringkasan Live" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-2xl border border-black/10 bg-white p-4">
-          <div className="text-2xl font-semibold tabular-nums">{activeCount}/5</div>
-          <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Live aktif</div>
-        </div>
-        <div className="rounded-2xl border border-black/10 bg-white p-4">
-          <div className="text-2xl font-semibold tabular-nums">{sessions.length}</div>
-          <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Total sesi (100 terakhir)</div>
-        </div>
-      </section>
-
-      <section aria-label="Live Sessions" className="space-y-3">
-        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Live Sessions</h3>
+      <section aria-label="Live Report" className="space-y-3">
+        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Live Report</h3>
         <AdminDataTable
-          rows={sessions}
-          emptyMessage="Belum ada Live Session."
+          rows={reports}
+          emptyMessage="Belum ada Live Report."
           columns={[
             { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-            { key: "place", header: "Tempat", render: (row) => <span className="font-mono text-xs">{formatShortId(row.placeId)}</span> },
-            { key: "producer", header: "Pengelola", render: (row) => <span className="font-mono text-xs">{formatShortId(row.producerId)}</span> },
-            { key: "stage", header: "Proses (stage)", render: (row) => <span className="font-mono text-xs">{formatShortId(row.stageId)}</span> },
-            {
-              key: "status",
-              header: "Status",
-              render: (row) => (
-                <AdminStatusBadge
-                  value={row.status}
-                  tone={row.status === "live" ? "live" : row.endedReason === "moderation" ? "negative" : "neutral"}
-                />
-              ),
-            },
-            { key: "peak", header: "Puncak", render: (row) => row.viewerPeak },
-            { key: "started", header: "Mulai", render: (row) => formatAdminTimestamp(row.startedAt) },
-            {
-              key: "ended",
-              header: "Selesai",
-              render: (row) =>
-                row.endedAt ? (
-                  <span>
-                    {formatAdminTimestamp(row.endedAt)}
-                    {row.endedReason ? <span className="block text-[11px] text-black/45">{row.endedReason}</span> : null}
-                  </span>
-                ) : (
-                  <span className="text-black/40">—</span>
-                ),
-            },
+            { key: "session", header: "Live Session", render: (row) => <span className="font-mono text-xs">{formatShortId(row.liveSessionId)}</span> },
+            { key: "category", header: "Kategori", render: (row) => <AdminStatusBadge value={row.category} tone={row.category === "other" ? "neutral" : "warning"} /> },
+            { key: "note", header: "Keterangan", render: (row) => row.note ?? <span className="text-black/40">—</span> },
+            { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },
           ]}
         />
       </section>
