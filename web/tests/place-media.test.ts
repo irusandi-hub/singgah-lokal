@@ -100,6 +100,23 @@ test("Upload sends file + title + description to the server-side multipart endpo
   assert.match(code, /removeSlot/);
 });
 
+test("Mobile form safety: editor tabs wrap and controls follow their parent's width", () => {
+  // PO fix, 2026-09-28: the tab row of the editor never pushes past the
+  // phone frame — it wraps like every other producer action row.
+  assert.match(
+    placeForm,
+    /flex flex-wrap gap-2 border-b border-black\/10 pb-3/,
+    "the editor tablist must wrap",
+  );
+  // Native form controls keep a large intrinsic width (~278px), which is
+  // wider than the form card on narrow phones. The global stylesheet caps
+  // every input/textarea/select at its parent's width, so no control can
+  // push the layout past the viewport — without changing card or desktop
+  // geometry.
+  const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(globals, /input,\s*textarea,\s*select \{[\s\S]*?max-width: 100%;/);
+});
+
 test("Upload route is server-side, Producer-gated, and service-role only", () => {
   const code = stripComments(uploadRoute);
   // The Producer gate runs BEFORE any storage or DB write.

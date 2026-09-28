@@ -360,7 +360,7 @@ export function LiveConsole({ places }: Props) {
             Saya menggunakan 1 kamera statis tanpa gerakan (tanpa handheld, vlog, panning, following,
             multi-kamera, drone, body-cam).
           </label>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               disabled={!camera?.passed || !attested}
               onClick={() => setStep("preview")}
@@ -389,7 +389,7 @@ export function LiveConsole({ places }: Props) {
           <p className="mt-3 text-xs text-black/55">
             Kualitas dikunci 720p/30fps • 1 kamera statis • Live tidak direkam • tanpa monetisasi.
           </p>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               disabled={busy}
               onClick={startLive}

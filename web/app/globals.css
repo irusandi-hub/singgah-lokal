@@ -45,6 +45,17 @@ body {
   font-family: var(--font-poppins), Arial, Helvetica, sans-serif;
 }
 
+/* Mobile form safety (PO, 2026-09-28): native form controls keep a large
+   intrinsic width (~278px); on narrow phones that is wider than the form
+   card itself, pushing inputs, textareas, selects, and date/time pickers
+   past the viewport edge. Controls follow their parent's width instead —
+   cards and desktop layouts are unchanged. */
+input,
+textarea,
+select {
+  max-width: 100%;
+}
+
 /* Map overlay color treatment (PO 2026-09-26, colors ONLY): the Leaflet
    zoom control's translucent-white chrome washed out on busy/light tiles.
    Brand-green fill + white glyph + heavier elevation keeps it readable;

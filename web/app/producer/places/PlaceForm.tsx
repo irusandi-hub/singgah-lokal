@@ -177,7 +177,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           (the upload API is keyed by the Place id), so the tab stays
           disabled — with the reason shown — until the form is saved, and
           becomes active the moment the save succeeds. */}
-      <div className="flex gap-2 border-b border-black/10 pb-3" role="tablist" aria-label="Editor Tempat">
+      <div className="flex flex-wrap gap-2 border-b border-black/10 pb-3" role="tablist" aria-label="Editor Tempat">
         <button
           type="button"
           role="tab"
