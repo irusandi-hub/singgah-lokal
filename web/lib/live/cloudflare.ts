@@ -245,16 +245,27 @@ export async function listAppLiveInputs(): Promise<LiveInputSummary[] | null> {
       return null;
     }
 
+    // The list endpoint wraps the collection: result.liveInputs is the array
+    // (PO fix, 2026-09-28). The old parser read `result` itself as the array,
+    // so every sweep saw "no inputs" — malformed. A success envelope without
+    // a usable result.liveInputs array is fail-closed: null means "cannot
+    // sweep", never "nothing to sweep".
     const payload = (await response.json()) as {
       success?: boolean;
-      result?: Array<{ uid?: string; status?: string | null; meta?: Record<string, string> | null }>;
+      result?: {
+        liveInputs?: Array<{
+          uid?: string;
+          status?: string | null;
+          meta?: Record<string, string> | null;
+        }>;
+      } | null;
     };
 
-    if (!payload.success || !Array.isArray(payload.result)) {
+    if (!payload.success || !payload.result || !Array.isArray(payload.result.liveInputs)) {
       return null;
     }
 
-    return payload.result
+    return payload.result.liveInputs
       .filter((input) => input.uid && input.meta?.purpose === "singgah-lokal-live")
       .map((input) => ({ uid: input.uid as string, status: input.status ?? null }));
   } catch {
