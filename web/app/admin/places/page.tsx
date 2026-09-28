@@ -107,9 +107,10 @@ export default async function AdminPlacesPage({
             render: (row) => (
               <Link
                 href={`/admin/places/${row.id}`}
-                className="rounded-full border border-black/10 px-3 py-1.5 text-xs font-bold text-black/60 transition hover:bg-black/5"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-brand-primary/40 px-3 py-1.5 text-xs font-bold text-brand-primary transition hover:bg-brand-primary/10"
               >
                 Kelola
+                <span aria-hidden>→</span>
               </Link>
             ),
           },

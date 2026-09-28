@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PlatformModeratorRequiredError, requirePlatformModerator } from "@/lib/live/platform";
+import AdminNav from "@/components/admin/admin-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -67,42 +68,23 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     );
   }
 
-  const sections = [
-    { href: "/admin", label: "Overview" },
-    { href: "/admin/users", label: "Users" },
-    { href: "/admin/producers", label: "Pengelola" },
-    { href: "/admin/producer-membership", label: "Pengelola Membership" },
-    { href: "/admin/places", label: "Tempat" },
-    { href: "/admin/experiences", label: "Kegiatan" },
-    { href: "/admin/visit-intents", label: "Kunjungan" },
-    { href: "/admin/live", label: "Live" },
-    { href: "/admin/moderation", label: "Moderation" },
-  ];
-
   return (
     <div className="min-h-screen bg-brand-cream text-brand-ink">
       <header className="border-b border-black/5 bg-white">
         <div className="mx-auto max-w-6xl px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">SINGGAH LOKAL</p>
               <h1 className="text-xl font-semibold tracking-tight">Admin Center</h1>
             </div>
-            <Link href="/" className="rounded-full border border-black/10 px-4 py-2 text-xs font-bold text-black/60 hover:bg-black/5">
-              ← Area user
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1 rounded-full border border-black/10 px-4 py-2 text-xs font-bold text-brand-primary hover:bg-brand-primary/10"
+            >
+              <span aria-hidden>←</span> Kembali ke Beranda
             </Link>
           </div>
-          <nav aria-label="Navigasi Admin" className="mt-3 flex flex-wrap gap-2">
-            {sections.map(({ href, label }) => (
-              <Link
-                key={href}
-                href={href}
-                className="rounded-full border border-black/10 bg-white px-3.5 py-1.5 text-xs font-bold text-black/60 transition hover:bg-brand-accent/10 hover:text-brand-accent"
-              >
-                {label}
-              </Link>
-            ))}
-          </nav>
+          <AdminNav />
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-5 py-6">{children}</main>

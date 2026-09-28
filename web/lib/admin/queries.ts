@@ -31,12 +31,10 @@ export type AdminOverviewTotals = {
   producerMemberships: number;
   places: number;
   experiences: number;
-  visitIntents: number;
 };
 
 export type AdminOverview = {
   totals: AdminOverviewTotals;
-  recentVisitIntents: AdminVisitIntentRow[];
 };
 
 /**
@@ -147,21 +145,19 @@ function requireAdmin(): Promise<{ userId: string }> {
 export async function getAdminOverview(): Promise<AdminOverview> {
   await requireAdmin();
 
-  const [users, producers, producerMemberships, places, experiences, visitIntents] = await Promise.all([
+  // Counts only — no row reads. The Overview is a totals screen; the detail
+  // behind every number lives on its own Admin page (PO, 2026-09-28: the
+  // Overview no longer pre-reads Kunjungan rows for a "terbaru" table, and
+  // carries no Kunjungan count — /admin/visit-intents owns that data).
+  const [users, producers, producerMemberships, places, experiences] = await Promise.all([
     countRows("users"),
     countRows("producers"),
     countRows("producer_memberships"),
     countRows("places"),
     countRows("experiences"),
-    countRows("visit_intents"),
   ]);
 
-  const recentVisitIntents = await listRecentVisitIntents(5);
-
-  return {
-    totals: { users, producers, producerMemberships, places, experiences, visitIntents },
-    recentVisitIntents,
-  };
+  return { totals: { users, producers, producerMemberships, places, experiences } };
 }
 
 export async function listAdminProducers(): Promise<AdminProducerRow[]> {
@@ -276,29 +272,6 @@ export async function listAdminVisitIntents(): Promise<AdminVisitIntentRow[]> {
     .select("id, user_id, place_id, experience_id, requested_date, requested_start_time, requested_end_time, status, created_at")
     .order("created_at", { ascending: false })
     .limit(100);
-
-  if (error) throw error;
-
-  return (data ?? []).map((row) => ({
-    id: String(row.id),
-    userId: String(row.user_id),
-    placeId: String(row.place_id),
-    experienceId: String(row.experience_id),
-    requestedDate: String(row.requested_date),
-    requestedStartTime: String(row.requested_start_time).slice(0, 5),
-    requestedEndTime: String(row.requested_end_time).slice(0, 5),
-    status: String(row.status),
-    createdAt: String(row.created_at),
-  }));
-}
-
-async function listRecentVisitIntents(limit: number): Promise<AdminVisitIntentRow[]> {
-  const supabase = canonicalAdminClient();
-  const { data, error } = await supabase
-    .from("visit_intents")
-    .select("id, user_id, place_id, experience_id, requested_date, requested_start_time, requested_end_time, status, created_at")
-    .order("created_at", { ascending: false })
-    .limit(limit);
 
   if (error) throw error;
 

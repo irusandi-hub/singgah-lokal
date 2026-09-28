@@ -33,8 +33,11 @@ export default async function AdminNewPlacePage() {
         title="Tambah Tempat"
         description="Buat Tempat tanpa Pengelola. Tempat masuk sebagai Draft dan bisa diterbitkan lewat moderasi. Pemilik sah dapat mengajukan klaim atas Tempat ini nanti."
       />
-      <Link href="/admin/places" className="inline-block text-xs font-bold text-black/55 hover:text-brand-accent">
-        ← Kembali ke daftar Tempat
+      <Link
+        href="/admin/places"
+        className="inline-flex items-center gap-1 text-xs font-bold text-brand-primary underline underline-offset-2 hover:text-brand-primary-deep"
+      >
+        <span aria-hidden>←</span> Kembali ke daftar Tempat
       </Link>
       <section className="rounded-2xl border border-black/10 bg-white p-5">
         <h3 className="text-sm font-bold uppercase tracking-wide text-black/50">Informasi Tempat</h3>

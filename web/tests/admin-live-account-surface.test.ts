@@ -64,12 +64,38 @@ test("the Admin Overview has no Live Session or Live Report cards", () => {
   assert.doesNotMatch(page, /liveSession|recentLiveSession|recentLiveReport/);
   // The Overview keeps the platform counts it is for.
   assert.match(page, /label: "Tempat"/);
-  assert.match(page, /label: "Kunjungan"/);
   // And the query no longer computes what the page must not show.
   const queries = stripComments(adminQueries);
   assert.doesNotMatch(queries, /recentLiveSessions|recentLiveReports/);
   assert.doesNotMatch(queries, /countRows\("live_sessions"\)/);
   assert.doesNotMatch(queries, /countRows\("live_reports"\)/);
+});
+
+test("the Admin Overview carries no Kunjungan — counts only, no row reads", () => {
+  // PO, 2026-09-28: the Kunjungan stat and the "Kunjungan terbaru" table are
+  // gone from the Overview; /admin/visit-intents owns that data. The Overview
+  // is a totals screen and must stay one.
+  const page = stripComments(overviewPage);
+  // No Kunjungan STAT CARD and no Kunjungan TABLE — the word may appear only
+  // as the pointer to the tab that owns the data.
+  assert.doesNotMatch(page, /label: "Kunjungan"/);
+  assert.doesNotMatch(page, /aria-label="Kunjungan/);
+  assert.doesNotMatch(page, /recentVisitIntents|visitIntent/);
+  assert.doesNotMatch(page, /AdminDataTable/);
+
+  const queries = stripComments(adminQueries);
+  assert.doesNotMatch(queries, /listRecentVisitIntents/);
+  assert.doesNotMatch(queries, /countRows\("visit_intents"\)/);
+  assert.doesNotMatch(queries, /visitIntents: number/);
+  // The Overview still counts what it exists to count.
+  assert.match(queries, /countRows\("users"\)/);
+  assert.match(queries, /countRows\("places"\)/);
+  assert.match(queries, /countRows\("experiences"\)/);
+  // The Kunjungan system itself is untouched: the Admin list page and its
+  // read both remain.
+  const visitPage = read("../app/admin/visit-intents/page.tsx");
+  assert.match(visitPage, /listAdminVisitIntents/);
+  assert.match(queries, /export async function listAdminVisitIntents/);
 });
 
 test("/admin/live is a read-only report queue outside the Place workspace", () => {

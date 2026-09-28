@@ -34,6 +34,19 @@ export type AdminColumn<Row> = {
   render: (row: Row) => ReactNode;
 };
 
+/**
+ * The one Admin data surface (PO, 2026-09-28).
+ *
+ * Desktop keeps the table it always had. Below `sm` the same rows re-render
+ * as stacked field cards: each value keeps its column header as a label, so
+ * nothing depends on side-by-side columns being readable. The old wrapper
+ * forced `min-w-[640px]` inside an `overflow-x-auto` scroll area — on a phone
+ * that meant every wide table left the frame and columns were cut off; there
+ * is deliberately no horizontal scroll and no forced minimum width anymore.
+ *
+ * Structure and authority are unchanged: same columns, same rows, same
+ * renderers, pure presentational.
+ */
 export function AdminDataTable<Row>({ columns, rows, emptyMessage }: {
   columns: AdminColumn<Row>[];
   rows: readonly Row[];
@@ -48,30 +61,50 @@ export function AdminDataTable<Row>({ columns, rows, emptyMessage }: {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-black/10 bg-white">
-      <table className="w-full min-w-[640px] text-left text-sm">
-        <thead>
-          <tr className="border-b border-black/10 bg-black/[0.02]">
-            {columns.map(({ key, header }) => (
-              <th key={key} scope="col" className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.12em] text-black/45">
-                {header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={index} className="border-b border-black/5 last:border-b-0">
-              {columns.map(({ key, render }) => (
-                <td key={key} className="px-4 py-3 align-top text-black/75">
-                  {render(row)}
-                </td>
+    <>
+      {/* Mobile: one card per row, every field labelled. Long values wrap —
+          break-words keeps a long URL or id from pushing the card wide. */}
+      <ul className="grid gap-3 sm:hidden">
+        {rows.map((row, index) => (
+          <li key={index} className="rounded-2xl border border-black/10 bg-white p-4">
+            <dl className="grid gap-2">
+              {columns.map(({ key, header, render }) => (
+                <div key={key} className="grid gap-0.5">
+                  <dt className="text-[10px] font-bold uppercase tracking-[0.14em] text-black/45">{header}</dt>
+                  <dd className="min-w-0 break-words text-sm text-black/75">{render(row)}</dd>
+                </div>
+              ))}
+            </dl>
+          </li>
+        ))}
+      </ul>
+
+      {/* Desktop: the unchanged table. */}
+      <div className="hidden overflow-x-auto rounded-2xl border border-black/10 bg-white sm:block">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-black/10 bg-black/[0.02]">
+              {columns.map(({ key, header }) => (
+                <th key={key} scope="col" className="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.12em] text-black/45">
+                  {header}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={index} className="border-b border-black/5 last:border-b-0">
+                {columns.map(({ key, render }) => (
+                  <td key={key} className="max-w-[16rem] px-4 py-3 align-top text-black/75 lg:max-w-xs">
+                    <span className="block break-words">{render(row)}</span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

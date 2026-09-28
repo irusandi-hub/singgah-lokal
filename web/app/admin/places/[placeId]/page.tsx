@@ -80,8 +80,11 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
         title={place.name}
         description={`${place.area} · ${place.category} · ${place.type} · ${place.id}`}
       />
-      <Link href="/admin/places" className="inline-block text-xs font-bold text-black/55 hover:text-brand-accent">
-        ← Kembali ke daftar Tempat
+      <Link
+        href="/admin/places"
+        className="inline-flex items-center gap-1 text-xs font-bold text-brand-primary underline underline-offset-2 hover:text-brand-primary-deep"
+      >
+        <span aria-hidden>←</span> Kembali ke daftar Tempat
       </Link>
 
       <section aria-label="Informasi Tempat" className="rounded-2xl border border-black/10 bg-white p-5">
