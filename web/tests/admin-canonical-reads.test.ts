@@ -47,10 +47,11 @@ test("Admin overview/membership reads canonical producer_memberships via service
 test("Every admin read re-verifies platform moderator authorization server-side", () => {
   // The service client must never be reachable without the session guard.
   const code = stripComments(adminQueries);
-  // Guard runs inside every exported list/read function.
+  // Guard runs inside every exported list/read function. The Admin user list
+  // is no longer here: it moved to lib/admin/user-directory.ts (the one read
+  // that may also resolve an account email), and it is asserted there.
   for (const name of [
     "getAdminOverview",
-    "listAdminUsers",
     "listAdminProducers",
     "listAdminMemberships",
     "listAdminPlaces",

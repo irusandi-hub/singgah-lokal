@@ -186,6 +186,34 @@ export function canTransitionPlaceStatus(current: PublicationStatus, next: Publi
   }[current].includes(next);
 }
 
+/**
+ * Platform Admin publication transitions (Authority Master §5: Admin holds
+ * operational authority over Place, moderation, and enforcement).
+ *
+ * The Producer rule above keeps `archived` terminal and stays unchanged. An
+ * Admin may additionally restore an archived Place, because moderation
+ * decisions must be reversible when appropriate rather than a one-way door
+ * (Master 09 §5 "Moderation decisions should be reversible when appropriate,
+ * with a new audit event rather than silent overwriting"; §8 "Restoring
+ * publication requires the appropriate authorization and revalidation"), and
+ * because an archived Place must stay traceable instead of being deleted
+ * (Master 09 §15). Revalidation on restore is enforced by the caller through
+ * `isPlacePublicationReady` before a Place may go back to `published`.
+ *
+ * Every other transition is the shared Producer rule — Admin gets no shortcut
+ * around the existing status set (draft / published / paused / archived).
+ */
+export function canAdminTransitionPlaceStatus(
+  current: PublicationStatus,
+  next: PublicationStatus,
+): boolean {
+  if (current === next) return true;
+  if (current === "archived") {
+    return next === "draft" || next === "paused" || next === "published";
+  }
+  return canTransitionPlaceStatus(current, next);
+}
+
 export function validatePlaces(placeList: readonly Place[]): void {
   const ids = new Set<string>();
 

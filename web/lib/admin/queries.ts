@@ -43,11 +43,13 @@ export type AdminOverview = {
   recentLiveReports: AdminLiveReportRow[];
 };
 
-export type AdminUserRow = {
-  id: string;
-  createdAt: string;
-  platformRole: string | null;
-};
+/**
+ * NOTE: there is deliberately no Admin user read here. The single canonical
+ * Admin user list — the one that also resolves the account email, because
+ * user management is the only context that may see it — lives in
+ * lib/admin/user-directory.ts. Two overlapping user reads would be a second
+ * source of truth.
+ */
 
 export type AdminProducerRow = {
   id: string;
@@ -188,27 +190,6 @@ export async function getAdminOverview(): Promise<AdminOverview> {
     recentLiveSessions,
     recentLiveReports,
   };
-}
-
-export async function listAdminUsers(): Promise<AdminUserRow[]> {
-  await requireAdmin();
-
-  const supabase = canonicalAdminClient();
-  // MVP read-only scope: id, created_at, platform_role. No email selection —
-  // public.users intentionally holds no email and auth.users is not read here.
-  const { data, error } = await supabase
-    .from("users")
-    .select("id, created_at, platform_role")
-    .order("created_at", { ascending: false })
-    .limit(100);
-
-  if (error) throw error;
-
-  return (data ?? []).map((row) => ({
-    id: String(row.id),
-    createdAt: String(row.created_at),
-    platformRole: row.platform_role ?? null,
-  }));
 }
 
 export async function listAdminProducers(): Promise<AdminProducerRow[]> {
