@@ -141,15 +141,20 @@ export default async function ProducerOnboardingPage() {
             <h2 className="mt-1 text-lg font-semibold">Masuk dengan email &amp; password yang sama</h2>
             <p className="mt-1 text-sm leading-6 text-black/65">
               Begitu membership aktif, masuk kembali dengan akun yang sama dan area Pengelola
-              terbuka otomatis: Dashboard, Tempat, Kunjungan Inbox, dan Live. Tidak ada akun
+              terbuka otomatis: Dashboard, Tempat, Permintaan Kunjungan, dan Live. Tidak ada akun
               atau password Pengelola kedua.
             </p>
           </li>
         </ol>
 
-        <Link href="/" className="mt-6 inline-block text-sm font-bold text-brand-accent">
-          ← Kembali ke beranda
-        </Link>
+        <div className="mt-6 flex flex-wrap items-center gap-4">
+          <Link href="/producer" className="text-sm font-bold text-brand-accent">
+            ← Dashboard Pengelola
+          </Link>
+          <Link href="/" className="text-sm font-bold text-brand-accent">
+            ← Kembali ke beranda
+          </Link>
+        </div>
       </section>
     </main>
   );

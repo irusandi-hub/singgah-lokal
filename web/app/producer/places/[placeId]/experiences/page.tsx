@@ -16,6 +16,7 @@ export default function ProducerExperiencesPage({ params }: { params: Promise<{ 
             <h1 className="mt-2 text-3xl font-semibold">Kegiatan</h1>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <Link className="text-sm font-bold text-brand-accent" href="/producer">← Dashboard Pengelola</Link>
             <Link className="text-sm font-bold text-brand-accent" href={placeId ? `/producer/places/${placeId}` : "/producer"}>← Kembali ke Tempat</Link>
             <Link className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white" href={placeId ? `/producer/places/${placeId}/experiences/new` : "#"}>Tambah Kegiatan</Link>
           </div>

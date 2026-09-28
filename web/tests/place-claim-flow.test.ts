@@ -14,7 +14,7 @@ import {
 import { parsePlaceMutation } from "../lib/place-management";
 
 /**
- * Application-layer regression for "Klaim Place yang Sudah Ada".
+ * Application-layer regression for "Ajukan Pengelolaan Tempat".
  *
  * The engine-level semantics live in tests/place-claim-migration.test.ts
  * (migration 0028 on a real Postgres engine). This file covers the layers
@@ -206,7 +206,7 @@ test("claiming never creates a Place and never changes the canonical category", 
   assert.match(claimPanel, /selected\.type/);
 
   // The claim entry point is clearly separate from "add Place".
-  assert.match(placeWorkspace, /Klaim Place yang Sudah Ada/);
+  assert.match(placeWorkspace, /Ajukan Pengelolaan Tempat/);
   assert.match(placeWorkspace, /\{ name: "claim" \}/);
   assert.match(placeWorkspace, /Tambahkan Place baru/);
 });

@@ -3,7 +3,7 @@ import Link from "next/link";
 const links = [
   { href: "/producer", label: "Dashboard" },
   { href: "/producer/places", label: "Tempat" },
-  { href: "/producer/visit-intents", label: "Kunjungan Inbox" },
+  { href: "/producer/visit-intents", label: "Permintaan Kunjungan" },
   { href: "/producer/live", label: "Live" },
 ];
 

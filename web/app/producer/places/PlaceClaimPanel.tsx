@@ -10,7 +10,7 @@ import {
 } from "@/lib/place-claim";
 
 /**
- * KLAIM PLACE YANG SUDAH ADA — the Producer claim surface.
+ * AJUKAN PENGELOLAAN TEMPAT — the Producer claim surface.
  *
  * The flow the PO locked: list → pick an existing Place → see its canonical
  * data → upload proof of ownership → submit → the claim sits at "pending"
@@ -145,14 +145,15 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <section aria-label="Klaim Tempat yang Sudah Ada" className="mt-8">
+    <section aria-label="Ajukan Pengelolaan Tempat" className="mt-8">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">
-            Klaim Tempat yang Sudah Ada
+            Ajukan Pengelolaan Tempat
           </h2>
           <p className="mt-1 text-xs text-black/55">
-            Hanya Tempat tanpa pemilik yang dapat diklaim. Tempat tidak dibuat atau diubah oleh klaim.
+            Hanya Tempat yang belum memiliki Pengelola yang dapat diajukan. Pengajuan tidak membuat
+            atau mengubah data Tempat.
           </p>
         </div>
         <button
@@ -166,7 +167,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
 
       {claims.length > 0 && (
         <div className="mb-5 rounded-2xl border border-black/10 bg-white p-4">
-          <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Status klaim kamu</h3>
+          <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Status pengajuanmu</h3>
           <ul className="mt-2 divide-y divide-black/5">
             {claims.map((claim) => (
               <li key={claim.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
@@ -196,12 +197,12 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
         </p>
       ) : places.length === 0 ? (
         <p className="text-sm text-black/60" role="status">
-          Tidak ada Tempat tanpa pemilik saat ini. Tempat yang sudah dimiliki Pengelola tidak dapat diklaim.
+          Tidak ada Tempat tanpa Pengelola saat ini. Tempat yang sudah dikelola Pengelola lain tidak dapat diajukan.
         </p>
       ) : (
         <form onSubmit={submit} className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
           <label htmlFor="claim-place" className="block text-sm font-bold">
-            Tempat yang diklaim
+            Tempat yang ingin kamu kelola
           </label>
           <select
             id="claim-place"
@@ -226,7 +227,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
                 <strong>{selected.area}</strong>
               </p>
               <p className="mt-2 text-xs text-black/50">
-                Kategori dan tipe mengikuti Tempat yang ada dan tidak dapat diubah melalui klaim.
+                Kategori dan tipe mengikuti Tempat yang ada dan tidak dapat diubah lewat pengajuan.
               </p>
             </div>
           )}
@@ -265,7 +266,7 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
             disabled={busy}
             className="mt-4 rounded-xl bg-brand-primary px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
           >
-            {busy ? "Mengirim…" : "Kirim klaim"}
+            {busy ? "Mengirim…" : "Kirim pengajuan"}
           </button>
         </form>
       )}

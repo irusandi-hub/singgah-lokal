@@ -106,6 +106,28 @@ test("Top-level Producer pages return to the dashboard", () => {
   assert.match(inbox, /← Dashboard Pengelola/);
 });
 
+test("Every Producer page below the dashboard can return to the dashboard", () => {
+  // Every descendant page carries its own "← Dashboard Pengelola" link, so no
+  // page is ever stranded: a Place page returns to the dashboard (and to that
+  // Place detail), any other page returns to its own Producer parent.
+  for (const [name, code] of [
+    ["live", livePage],
+    ["permintaan kunjungan", inbox],
+    ["permintaan kunjungan detail", inboxDetail],
+    ["place detail", placeDetail],
+    ["experiences", experiences],
+    ["new experience", newExperience],
+    ["edit experience", editExperience],
+    ["production", production],
+    ["onboarding", onboarding],
+  ] as const) {
+    assert.match(code, /href="\/producer"/, `${name} must link back to the dashboard`);
+    assert.match(code, /← Dashboard Pengelola/, `${name} must show a back link to the dashboard`);
+  }
+  // ...and the dashboard itself never links back to itself.
+  assert.equal(dashboard.includes('href="/producer"'), false, "the dashboard must not link to itself");
+});
+
 test("Place-related pages return to the dashboard or that Place detail", () => {
   // Place detail (/producer/places/[placeId]) is the dashboard's Place detail
   // route, so it goes back to the dashboard — NOT to the redirect-only
@@ -131,9 +153,9 @@ test("Kegiatan pages return to the Kegiatan list of the same Place", () => {
   }
 });
 
-test("The Kunjungan detail returns to the Kunjungan inbox", () => {
+test("The Kunjungan detail returns to the Permintaan Kunjungan list", () => {
   assert.match(inboxDetail, /href="\/producer\/visit-intents"/);
-  assert.match(inboxDetail, /← Kembali ke inbox/);
+  assert.match(inboxDetail, /← Kembali ke Permintaan Kunjungan/);
 });
 
 test("Legacy Place list/add routes stay pure redirects (no page, no nav)", () => {
@@ -147,8 +169,8 @@ test("Legacy Place list/add routes stay pure redirects (no page, no nav)", () =>
 });
 
 test("The Producer application page stays on the user-area navigation", () => {
-  // Onboarding runs before any membership exists, so its correct parent is the
-  // public home — it reuses the shared SiteNav, not the Producer menu.
+  // Onboarding runs before any membership exists, so it keeps the public home
+  // as its parent and reuses the shared SiteNav rather than the Producer menu.
   assert.match(onboarding, /<SiteNav \/>/);
   assert.match(onboarding, /← Kembali ke beranda/);
   assert.equal(onboarding.includes("ProducerSubNav"), false);

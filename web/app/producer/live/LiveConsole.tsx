@@ -303,13 +303,13 @@ export function LiveConsole({ places }: Props) {
               </select>
             </label>
             <label className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">
-              Proses (harus published)
+              Proses (harus Tayang)
               <select
                 value={effectiveStageId}
                 onChange={(event) => setStageId(event.target.value)}
                 className="mt-1 w-full rounded-xl border border-black/10 bg-brand-cream px-3 py-2.5 text-sm font-semibold text-brand-ink"
               >
-                {stages.length === 0 && <option value="">Tidak ada Proses published</option>}
+                {stages.length === 0 && <option value="">Tidak ada Proses yang Tayang</option>}
                 {stages.map((stage) => (
                   <option key={stage.id} value={stage.id}>
                     Tahap {stage.sortOrder + 1} • {stage.title}
@@ -418,8 +418,8 @@ export function LiveConsole({ places }: Props) {
           </div>
           <h2 className="mt-1 text-xl font-semibold tracking-tight">Live sedang berjalan</h2>
           <p className="mt-2 text-sm text-black/65">
-            Penonton maksimal 100 concurrent • durasi maksimal 60 menit • Live berakhir otomatis bila
-            Proses ditarik dari published.
+            Penonton maksimal 100 secara bersamaan • durasi maksimal 60 menit • Live berakhir otomatis bila
+            Proses ditarik dari status Tayang.
           </p>
           <p className="mt-2 text-xs font-bold text-live">
             {publishing
@@ -457,7 +457,7 @@ function startErrorMessage(error?: string): string {
     case "live_not_eligible":
       return "Tempat/Pengelola ini belum memenuhi syarat Live.";
     case "live_stage_not_published":
-      return "Proses harus berstatus published untuk ditayangkan.";
+      return "Proses harus berstatus Tayang untuk ditayangkan.";
     case "producer_authorization_required":
       return "Kamu tidak memiliki akses Pengelola untuk Tempat ini.";
     case "live_start_busy":

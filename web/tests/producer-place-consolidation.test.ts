@@ -10,8 +10,8 @@ import { readFileSync } from "node:fs";
  *   shortcut cards were removed: the dashboard is the main page, so it must not
  *   carry links back into its own menu — those surfaces stay reachable from the
  *   Place detail surfaces through the shared ProducerSubNav);
- * - the "Place milikmu" roster with each Place selectable for management;
- * - "+ Tambahkan Place baru" BELOW the roster, opening the add form IN PLACE
+ * - the "Tempat yang Kamu Kelola" roster with each Place selectable for management;
+ * - "+ Tambahkan Tempat" BELOW the roster, opening the add form IN PLACE
  *   (view "new") — save transitions new → edit/manage with the id preserved
  *   (Upload immediately usable);
  * - the editor reuses the SAME PlaceForm (Informasi | Experience | Upload
@@ -69,16 +69,16 @@ test("The dashboard is the single working page hosting the Place workspace", () 
   assert.equal(dashboardCode.includes("Tempat<"), false, "no Tempat shortcut card on the dashboard");
   // The dashboard keeps the header + the in-place Place workspace...
   assert.match(dashboardCode, /Dashboard Pengelola/);
-  // ...and no longer hosts the Visit Intent Inbox / Live shortcut cards: the
+  // ...and no longer hosts the Permintaan Kunjungan / Live shortcut cards: the
   // main page must not carry navigation back into its own menu.
-  assert.equal(dashboardCode.includes("Kunjungan Inbox"), false, "no Kunjungan Inbox card on the dashboard");
+  assert.equal(dashboardCode.includes("Permintaan Kunjungan"), false, "no Permintaan Kunjungan card on the dashboard");
   assert.equal(dashboardCode.includes("/producer/visit-intents"), false, "dashboard must not link the Visit Intent inbox");
   assert.equal(dashboardCode.includes("/producer/live"), false, "dashboard must not link the Live console");
   assert.equal(dashboardCode.includes("Area Pengelola"), false, "no shortcut-card section on the dashboard");
-  // ...and hosts the "Tempat milikmu" workspace (roster + add + edit) in place.
+  // ...and hosts the "Tempat yang Kamu Kelola" workspace (roster + add + edit) in place.
   assert.match(dashboardCode, /<ProducerPlaceWorkspace initialPlaces=\{places\} showOnboardingHint=\{places\.length === 0\} \/>/);
-  assert.match(workspaceCode, /Tempat milikmu/);
-  assert.match(workspaceCode, /Tambahkan Tempat baru/);
+  assert.match(workspaceCode, /Tempat yang Kamu Kelola/);
+  assert.match(workspaceCode, /Tambahkan Tempat/);
 });
 
 test("The dashboard carries no ProducerSubNav — it is a working surface, not a link hub", () => {
@@ -91,8 +91,8 @@ test("No intermediary Place list page exists — legacy routes are pure redirect
   assert.match(placesRedirectCode, /redirect\("\/producer"\)/);
   assert.equal(placesRedirectCode.includes("<PlaceForm"), false, "no form on the redirect page");
   assert.equal(placesRedirectCode.includes("useState"), false, "no view state on the redirect page");
-  assert.equal(placesRedirectCode.includes("Tambahkan Tempat baru"), false, "no roster UI on the redirect page");
-  assert.equal(placesRedirectCode.includes("Tempat milikmu"), false, "no roster heading on the redirect page");
+  assert.equal(placesRedirectCode.includes("Tambahkan Tempat"), false, "no roster UI on the redirect page");
+  assert.equal(placesRedirectCode.includes("Tempat yang Kamu Kelola"), false, "no roster heading on the redirect page");
   // The legacy standalone add route also hands off — no second form surface.
   assert.match(newRedirectCode, /redirect\("\/producer"\)/);
   assert.equal(newRedirectCode.includes("<PlaceForm"), false);
@@ -117,6 +117,9 @@ test("The Place surface is an explicit list/new/edit state machine", () => {
   // The roster is server-fed (initialPlaces) — no second fetch of the roster API.
   assert.match(workspaceCode, /initialPlaces: Place\[\]/);
   assert.equal(workspaceCode.includes('fetch("/api/producer/places")'), false, "roster comes from the server, not a second fetch");
+  // The publication status is never shown as a raw database value.
+  assert.equal(workspaceCode.includes("{place.publicationStatus}"), false, "no raw publication status in the roster");
+  assert.equal(workspaceCode.includes("{view.place.publicationStatus}"), false, "no raw publication status in the editor header");
 });
 
 test("NEW starts empty; a successful submit transitions new → edit/manage with the id preserved", () => {
@@ -131,9 +134,9 @@ test("NEW starts empty; a successful submit transitions new → edit/manage with
   assert.match(formCode, /onSaved\?\.\(data\)/);
 });
 
-test("Tambahkan Place baru sits BELOW the roster and opens the form in place", () => {
+test("Tambahkan Tempat sits BELOW the roster and opens the form in place", () => {
   // The action renders after the roster (or its empty state)...
-  const buttonIdx = workspaceCode.indexOf("Tambahkan Tempat baru");
+  const buttonIdx = workspaceCode.indexOf("Tambahkan Tempat");
   assert.ok(buttonIdx > -1);
   const listIdx = workspaceCode.indexOf("places.map");
   const emptyIdx = workspaceCode.indexOf("Belum ada Tempat yang dapat dikelola");
@@ -153,7 +156,7 @@ test("Edit reuses the canonical editor; status, Dari Sini, and Experience stay m
   // PlaceEditor loads the saved record from the canonical GET endpoint.
   assert.match(formCode, /fetch\(`\/api\/producer\/places\/\$\{id\}`\)/);
   // Publication status stays visible in the edit surface; Dari Sini stays reachable.
-  assert.match(workspaceCode, /view\.place\.publicationStatus/);
+  assert.match(workspaceCode, /publicationStatusLabel\(view\.place\.publicationStatus\)/);
   assert.match(workspaceCode, /\/producer\/places\/\$\{view\.place\.id\}\/production/);
   // The old per-Place edit route stays reachable and renders the same editor.
   assert.match(editPage, /<PlaceEditor id=\{id\}/);

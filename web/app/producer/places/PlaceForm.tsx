@@ -10,6 +10,7 @@ import {
   validatePlaceMediaFile,
 } from "@/lib/place-media";
 import PlaceLocationPicker from "@/components/place-location-picker";
+import { publicationStatusLabel } from "@/lib/status-labels";
 import ExperiencesPanel from "./[placeId]/experiences/ExperiencesPanel";
 
 type Props = { place?: Place; onSaved?: (place: Place) => void };
@@ -159,7 +160,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
     });
     const data = await response.json();
     if (!response.ok) { setMessage(data.error ?? "Tempat tidak dapat disimpan"); return; }
-    setMessage(`Tersimpan sebagai ${data.publicationStatus}`);
+    setMessage(`Tersimpan — Status: ${publicationStatusLabel(data.publicationStatus)}`);
     // A successful NEW-entry submit resets transient input so reopening the
     // form (or a route remount) starts empty again.
     if (!place) setForm(emptyPlaceForm());
@@ -222,7 +223,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
 
       {editorTab === "detail" && (
         <>
-      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Timezone IANA"], ["currency", "Currency ISO 4217"]].map(([key, label]) => (
+      {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"], ["timezone", "Zona waktu"], ["currency", "Mata uang"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
       <div className="grid gap-2">
@@ -235,8 +236,8 @@ export default function PlaceForm({ place, onSaved }: Props) {
           }
         />
         <div className="grid grid-cols-2 gap-3">
-          <label className="grid gap-1 text-xs font-semibold">Latitude<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} /></label>
-          <label className="grid gap-1 text-xs font-semibold">Longitude<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
+          <label className="grid gap-1 text-xs font-semibold">Lintang<input value={form.latitude} onChange={(event) => update("latitude", event.target.value)} /></label>
+          <label className="grid gap-1 text-xs font-semibold">Bujur<input value={form.longitude} onChange={(event) => update("longitude", event.target.value)} /></label>
         </div>
       </div>
       <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}><option>Kopi</option><option>Teh</option><option>Kuliner</option></select></label>
@@ -260,9 +261,9 @@ export default function PlaceForm({ place, onSaved }: Props) {
       {editorTab === "upload" && (
       <section className="grid gap-3 rounded-xl border border-black/10 p-4" aria-label="Foto Tempat">
         <div>
-          <span className="text-sm font-semibold">Foto Tempat ({PLACE_PHOTO_SLOTS.length} slot standar)</span>
+          <span className="text-sm font-semibold">Foto Tempat ({PLACE_PHOTO_SLOTS.length} posisi)</span>
           <p className="mt-1 text-xs text-black/55">
-            Setiap slot memakai judul dan deskripsi sesuai struktur konten Production Story.
+            Setiap foto punya judul dan deskripsi sendiri.
             Format {PLACE_MEDIA_ACCEPTED_TYPES.join(", ")} — maksimal {Math.round(PLACE_MEDIA_MAX_BYTES / (1024 * 1024))} MB per foto.
           </p>
         </div>
@@ -421,5 +422,5 @@ export function PlaceEditor({ id, onSaved }: { id: string; onSaved?: (place: Pla
     const data = await response.json();
     if (response.ok) setPlace(data); else setError(data.error ?? "Status tidak dapat diubah");
   }
-  return <><div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-black/60">Status: <strong>{place.publicationStatus}</strong><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus(place.publicationStatus === "published" ? "paused" : "published")} type="button">{place.publicationStatus === "published" ? "Pause" : "Publish"}</button><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus("archived")} type="button">Archive</button></div><PlaceForm place={place} onSaved={(saved) => { setPlace(saved); onSaved?.(saved); }} /></>;
+  return <><div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-black/60">Status: <strong>{publicationStatusLabel(place.publicationStatus)}</strong><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus(place.publicationStatus === "published" ? "paused" : "published")} type="button">{place.publicationStatus === "published" ? "Jeda" : "Tayangkan"}</button><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus("archived")} type="button">Arsipkan</button></div><PlaceForm place={place} onSaved={(saved) => { setPlace(saved); onSaved?.(saved); }} /></>;
 }

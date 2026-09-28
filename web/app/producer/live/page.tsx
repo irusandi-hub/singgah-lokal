@@ -57,10 +57,10 @@ export default async function ProducerLivePage() {
 
         <header className="mt-6">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Pengelola Live</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Tayangkan Proses secara real-time</h1>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Tampilkan Proses Secara Langsung</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-black/60">
-            Live menampilkan proses produksi asli dari Tempat-mu. 1 kamera statis, 720p/30fps,
-            maksimal 100 penonton concurrent, durasi maksimal 60 menit. Live tidak direkam dan
+            Tampilkan proses yang sedang berlangsung secara langsung. 1 kamera statis, 720p/30fps,
+            maksimal 100 penonton secara bersamaan, durasi maksimal 60 menit. Live tidak direkam dan
             tidak memuat monetisasi.
           </p>
         </header>
@@ -72,8 +72,8 @@ export default async function ProducerLivePage() {
                 Kamu belum memiliki Tempat dengan akses owner/manager. Live hanya dapat dimulai dari
                 Tempat yang kamu kelola.
               </p>
-              <Link className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white" href="/producer/places">
-                Buka daftar Tempat
+              <Link className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white" href="/producer">
+                Buka Dashboard Pengelola
               </Link>
             </section>
           ) : (

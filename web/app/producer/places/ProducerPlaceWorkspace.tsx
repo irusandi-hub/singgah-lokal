@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useState } from "react";
 import ProducerSubNav from "@/components/producer-sub-nav";
+import { publicationStatusLabel } from "@/lib/status-labels";
 import PlaceForm, { PlaceEditor } from "./PlaceForm";
 import PlaceClaimPanel from "./PlaceClaimPanel";
 import type { Place } from "@/lib/places";
 
 /**
- * PLACE MILIKMU — the Place working surface of the Producer dashboard
+ * PLACE MILIKMU (Tempat yang Kamu Kelola) — the Place working surface of the Producer dashboard
  * (PO, mockup work 2026-09-26). The roster, the add form, and the editor all
  * live HERE, so the dashboard is one working page and no intermediary
  * "Place saya → Tambah Place" page exists. Reuses the existing PlaceForm /
@@ -16,7 +17,7 @@ import type { Place } from "@/lib/places";
  * backend. The view is an explicit state machine:
  * - "list": the roster (the default on every load);
  * - "new": the add form, ALWAYS empty (PlaceForm's NEW branch);
- * - "claim": "Klaim Place yang Sudah Ada" — claiming an EXISTING unowned
+ * - "claim": "Ajukan Pengelolaan Tempat" — asking to manage an EXISTING unowned
  *   Place. A separate branch because it must never look like "add Place": it
  *   files a claim for a Place that already exists and grants nothing until an
  *   Admin approves it (PlaceClaimPanel);
@@ -100,7 +101,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
         <div className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
           <div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-black/60">
             <span>
-              Status: <strong>{view.place.publicationStatus}</strong>
+              Status: <strong>{publicationStatusLabel(view.place.publicationStatus)}</strong>
             </span>
             <Link
               className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white"
@@ -116,8 +117,8 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
   }
 
   return (
-    <section aria-label="Tempat milikmu" className="mt-8">
-      <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Tempat milikmu</h2>
+    <section aria-label="Tempat yang Kamu Kelola" className="mt-8">
+      <h2 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Tempat yang Kamu Kelola</h2>
       <div className="mt-3 grid gap-2">
         {places.map((place) => (
           <button
@@ -138,7 +139,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
               <span className="block truncate font-semibold">{place.name}</span>
               <span className="mt-0.5 flex items-center gap-1.5 text-xs text-black/60">
                 <span className={`inline-block h-2 w-2 rounded-full ${STATUS_DOT[place.publicationStatus]}`} aria-hidden />
-                {place.publicationStatus}
+                {publicationStatusLabel(place.publicationStatus)}
               </span>
             </span>
             <span aria-hidden className="text-black/30">›</span>
@@ -168,11 +169,11 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             +
           </span>
           <span>
-            <span className="block font-semibold">Tambahkan Tempat baru</span>
-            <span className="mt-0.5 block text-xs text-black/55">Tampilkan proses produksi di SINGGAH LOKAL.</span>
+            <span className="block font-semibold">Tambahkan Tempat</span>
+            <span className="mt-0.5 block text-xs text-black/55">Bagikan kegiatan dan proses yang berlangsung di Tempatmu.</span>
           </span>
         </button>
-        {/* "Klaim Place yang Sudah Ada" claims an EXISTING unowned Place. It
+        {/* "Ajukan Pengelolaan Tempat" targets an EXISTING unowned Place. It
             sits below the add button so it never reads as a second way to
             create a Place: no Place is created here, and ownership only
             arrives after Admin approval. */}
@@ -185,9 +186,9 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             ⚑
           </span>
           <span>
-            <span className="block font-semibold">Klaim Tempat yang Sudah Ada</span>
+            <span className="block font-semibold">Ajukan Pengelolaan Tempat</span>
             <span className="mt-0.5 block text-xs text-black/55">
-              Ajukan kepemilikan untuk Tempat yang sudah ada di SINGGAH LOKAL.
+              Ajukan akses untuk mengelola Tempat yang sudah ada di SINGGAH LOKAL.
             </span>
           </span>
         </button>

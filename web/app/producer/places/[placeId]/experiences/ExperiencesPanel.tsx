@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { Experience } from "@/lib/experiences";
+import { experienceStatusLabel } from "@/lib/status-labels";
 
 /**
  * Experience management for ONE Place — extracted from the standalone
@@ -52,7 +53,7 @@ export default function ExperiencesPanel({ placeId }: { placeId: string }) {
             >
               <div className="flex items-center justify-between gap-4">
                 <h3 className="font-semibold">{experience.title}</h3>
-                <span className="text-xs font-bold uppercase text-brand-accent">{experience.status}</span>
+                <span className="text-xs font-bold uppercase text-brand-accent">{experienceStatusLabel(experience.status)}</span>
               </div>
               <p className="mt-2 text-sm text-black/60">{experience.durationMinutes} menit · {experience.schedules.length} jadwal</p>
             </Link>
