@@ -171,7 +171,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
   }
 
   return (
-    <form key={isEdit ? `edit-${place?.id}` : "new"} className="grid min-w-0 gap-4" onSubmit={submit} autoComplete="off">
+    <form key={isEdit ? `edit-${place?.id}` : "new"} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4" onSubmit={submit} autoComplete="off">
       {/* Editor tabs (PO, 2026-09-26): Detail Place = the Place fields;
           Upload = the standard photo slots. Upload requires a SAVED Place
           (the upload API is keyed by the Place id), so the tab stays
@@ -219,7 +219,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
         </button>
       </div>
       {!place && (
-        <p className="text-xs text-black/55" role="note">
+        <p className="min-w-0 break-words text-xs text-black/55" role="note">
           Tab Upload aktif setelah Tempat disimpan — Tempat baru harus tersimpan (memiliki ID) terlebih dahulu.
         </p>
       )}

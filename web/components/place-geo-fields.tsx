@@ -31,8 +31,12 @@ export default function PlaceGeoFields({ countryCode, regionName, onChange }: Pr
   const regions = placeRegionsFor(countryCode);
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      <label className="grid gap-1 text-sm font-semibold">
+    // minmax(0,1fr) instead of an implicit auto track: a wide select option
+    // (a long country/region name) must widen the ITEM, never the track —
+    // otherwise one option pushes the whole form past the phone frame.
+    // Desktop is unchanged: sm:grid-cols-2 keeps its two columns.
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-2">
+      <label className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 text-sm font-semibold">
         Negara
         <select
           className={FIELD_CLASS}
@@ -52,7 +56,7 @@ export default function PlaceGeoFields({ countryCode, regionName, onChange }: Pr
           ))}
         </select>
       </label>
-      <label className="grid gap-1 text-sm font-semibold">
+      <label className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1 text-sm font-semibold">
         Provinsi / Wilayah
         <select
           className={FIELD_CLASS}

@@ -169,7 +169,7 @@ export default function PlaceLocationPicker({ latitude, longitude, onChange }: P
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2">
       <div
         ref={containerRef}
         className="h-72 w-full touch-none overflow-hidden rounded-xl border border-black/10"

@@ -214,9 +214,10 @@ test("The Producer form never renders a timezone input; the server owns the zone
   // (lib/place-management) before a save is accepted.
   assert.doesNotMatch(formCode, /Timezone/);
   assert.doesNotMatch(formCode, /"timezone"/);
-  // The upload area and the location picker row cannot force their parents
-  // wider than the phone frame.
-  assert.match(formCode, /grid min-w-0 gap-4/);
+  // The form grid, the upload area, and the location picker row cannot force
+  // their parents wider than the phone frame: the tracks are pinned to the
+  // container width (minmax(0,1fr)), so wide content widens the item instead.
+  assert.match(formCode, /grid min-w-0 grid-cols-\[minmax\(0,1fr\)\] gap-4/);
   assert.match(formCode, /grid min-w-0 gap-2 rounded-lg border border-black\/10 p-3/);
 });
 
