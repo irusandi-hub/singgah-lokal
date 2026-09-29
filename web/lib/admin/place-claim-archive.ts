@@ -1,5 +1,6 @@
 import "server-only";
 
+import { PlatformModeratorRequiredError, requirePlatformModerator } from "@/lib/live/platform";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 
 /**
@@ -57,6 +58,12 @@ export async function searchPlaceClaimArchives(filters: {
   email?: string | null;
   claimId?: string | null;
 }): Promise<PlaceClaimArchiveRow[]> {
+  // The session-derived moderator guard runs HERE first, so the caller's
+  // identity is established before any archive read, and again INSIDE the RPC
+  // (fail closed, every call). The service-role client carries no session of
+  // its own — the RPC's auth.uid() check is independent of this guard.
+  await requirePlatformModerator();
+
   const { data, error } = await createSupabaseServiceClient()
     .rpc("search_place_claim_archives", {
       p_place_id: normalize(filters.placeId),
@@ -64,7 +71,16 @@ export async function searchPlaceClaimArchives(filters: {
       p_email: normalize(filters.email),
       p_claim_id: normalize(filters.claimId),
     });
-  if (error) throw new Error("place_claim_archive_search_failed");
+  if (error) {
+    // The RPC's own moderator refusal surfaces as the SAME error type the
+    // layout guard uses, so a mid-session revocation renders the 403 surface,
+    // never a fabricated empty result.
+    if (error.message.includes("platform_moderator_required")) {
+      throw new PlatformModeratorRequiredError();
+    }
+    console.error("[admin/place-claim-archive] RPC search failed:", error.message);
+    throw new Error("place_claim_archive_search_failed");
+  }
 
   return ((data ?? []) as ArchiveRpcRow[]).map((row) => ({
     id: String(row.id),

@@ -6,7 +6,7 @@ import {
   formatShortId,
 } from "@/components/admin/ui";
 import type { PlaceClaimArchiveRow } from "@/lib/admin/place-claim-archive";
-import { ARCHIVE_SEARCH_LABELS, type ArchiveSearchKey } from "./ClaimArchiveSearch";
+import { ARCHIVE_SEARCH_LABELS, type ArchiveSearchKey } from "@/lib/admin/archive-search";
 
 /**
  * The archive RESULT table: claim metadata only. Evidence file CONTENTS are

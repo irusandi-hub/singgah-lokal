@@ -1,6 +1,7 @@
 import { AdminBackToAdminCenter, AdminErrorState, AdminPageHeader } from "@/components/admin/ui";
 import { PlatformModeratorRequiredError } from "@/lib/live/platform";
-import ClaimArchiveSearch, { ARCHIVE_SEARCH_KEYS } from "./ClaimArchiveSearch";
+import { isArchiveSearchKey, type ArchiveSearchKey } from "@/lib/admin/archive-search";
+import ClaimArchiveSearch from "./ClaimArchiveSearch";
 import ClaimArchiveResults from "./ClaimArchiveResults";
 import { searchPlaceClaimArchives, type PlaceClaimArchiveRow } from "@/lib/admin/place-claim-archive";
 
@@ -30,9 +31,7 @@ export default async function AdminClaimArchivePage({
 }) {
   const params = await searchParams;
   const requestedKey = typeof params.key === "string" ? params.key : "";
-  const searchKey = (ARCHIVE_SEARCH_KEYS as readonly string[]).includes(requestedKey)
-    ? (requestedKey as (typeof ARCHIVE_SEARCH_KEYS)[number])
-    : "placeId";
+  const searchKey: ArchiveSearchKey = isArchiveSearchKey(requestedKey) ? requestedKey : "placeId";
   const query = typeof params.q === "string" ? params.q.trim() : "";
 
   let results: PlaceClaimArchiveRow[] | null = null;

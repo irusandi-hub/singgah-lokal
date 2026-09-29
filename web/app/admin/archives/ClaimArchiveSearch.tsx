@@ -2,6 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import {
+  ARCHIVE_SEARCH_KEYS,
+  ARCHIVE_SEARCH_LABELS,
+  type ArchiveSearchKey,
+} from "@/lib/admin/archive-search";
 
 /**
  * The archive search form: ONE input, ONE key selector, ONE search button.
@@ -9,19 +14,10 @@ import { useState } from "react";
  * Submitting navigates to `/admin/archives?key=…&q=…`, so the search is
  * shareable, survives a refresh, and is executed by the server component —
  * the same URL-state pattern the Place list's geo filter uses. No client
- * fetch, no client-side authorization logic.
+ * fetch, no client-side authorization logic. The key vocabulary lives in the
+ * shared server-safe module (lib/admin/archive-search) so the server page and
+ * this form read the SAME keys.
  */
-
-export const ARCHIVE_SEARCH_KEYS = ["placeId", "userId", "email", "claimId"] as const;
-
-export type ArchiveSearchKey = (typeof ARCHIVE_SEARCH_KEYS)[number];
-
-export const ARCHIVE_SEARCH_LABELS: Record<ArchiveSearchKey, string> = {
-  placeId: "Place ID",
-  userId: "Pengelola ID",
-  email: "Email",
-  claimId: "Claim ID",
-};
 
 export default function ClaimArchiveSearch({ searchKey }: { searchKey: ArchiveSearchKey }) {
   const router = useRouter();
