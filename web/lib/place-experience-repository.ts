@@ -1,14 +1,30 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DiscoveryPlaceInput } from "@/lib/discovery/scoring";
 import { experiences, type Experience, type ExperienceSchedule, validateExperience } from "@/lib/experiences";
 import { places, type Place, validatePlace } from "@/lib/places";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getPublicSupabaseClient } from "@/lib/supabase/public-client";
+
+/** Discovery signal assembly reads the locked engine's own input types. */
+export type { DiscoveryPlaceInput };
 
 export type PlaceExperienceRepository = {
   listPublishedPlaces(): Promise<Place[]>;
   getPublishedPlaceById(id: string): Promise<Place | undefined>;
   listPublishedExperiencesForPlace(placeId: string): Promise<Experience[]>;
   getPublishedExperienceById(id: string): Promise<Experience | undefined>;
+  /**
+   * Ids of PUBLISHED Places carrying the Tempat Pilihan flag (migration
+   * 0035). The ONLY curated read path; Discovery never consumes it.
+   */
+  listCuratedPublishedPlaceIds(): Promise<Set<string>>;
+  /**
+   * Canonical signal assembly for the Discovery engine (contract v1.0 §1):
+   * published Places with their canonical live/follow/visit/experience/media
+   * signals. Server-side (service role) because the engagement aggregates
+   * live behind self-only RLS.
+   */
+  listDiscoveryInputs(now: Date): Promise<DiscoveryPlaceInput[]>;
 };
 
 function mapPlace(row: Record<string, unknown>): Place {
@@ -31,11 +47,83 @@ function mapPlace(row: Record<string, unknown>): Place {
       : null,
     claimStatus: row.claim_status as Place["claimStatus"],
     publicationStatus: row.publication_status as Place["publicationStatus"],
+    isCurated: row.is_curated === true,
     address: String(row.address ?? ""),
     contactInformation: String(row.contact_information ?? ""),
   };
   validatePlace(place);
   return place;
+}
+
+/**
+ * Canonical signal counts for ONE Place (contract §1) — pure assembly, no
+ * scoring. Missing/optional signals stay zero, never crash.
+ */
+function toDiscoveryInput(
+  place: Place,
+  signals: {
+    live: { status: string; started_at: string | null } | null;
+    followers: number;
+    visitIntents: number;
+    publishedExperiences: number;
+    photos: number;
+  },
+): DiscoveryPlaceInput {
+  const liveStatus = signals.live?.status;
+  const live: DiscoveryPlaceInput["signals"]["live"] =
+    liveStatus === "live" || liveStatus === "scheduled"
+      ? { status: liveStatus, startedAt: signals.live?.started_at ?? null }
+      : signals.live?.started_at
+        ? { status: "ended", startedAt: signals.live.started_at }
+        : null;
+  return {
+    place: {
+      id: place.id,
+      name: place.name,
+      shortDescription: place.shortDescription,
+      area: place.area,
+      address: place.address,
+      latitude: place.latitude,
+      longitude: place.longitude,
+      claimStatus: place.claimStatus,
+      publicationStatus: place.publicationStatus,
+    },
+    signals: {
+      live,
+      engagement: {
+        followers: Number.isFinite(signals.followers) ? signals.followers : 0,
+        visitIntents: Number.isFinite(signals.visitIntents) ? signals.visitIntents : 0,
+        publishedExperiences: Number.isFinite(signals.publishedExperiences) ? signals.publishedExperiences : 0,
+        hasCoverImage: place.coverImageUrl !== null,
+        photoCount: Number.isFinite(signals.photos) ? signals.photos : 0,
+      },
+    },
+  };
+}
+
+/** Canonical live-session fact for one Place, read with the service role. */
+async function fetchLiveSignal(
+  admin: SupabaseClient,
+  placeId: string,
+): Promise<{ status: string; started_at: string | null } | null> {
+  const { data, error } = await admin
+    .from("live_sessions")
+    .select("status, started_at")
+    .eq("place_id", placeId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  return data ? { status: String(data.status), started_at: data.started_at as string | null } : null;
+}
+
+async function countRows(admin: SupabaseClient, table: string, placeId: string): Promise<{ count: number | null; error: boolean }> {
+  const { count, error } = await admin
+    .from(table)
+    .select("*", { count: "exact", head: true })
+    .eq("place_id", placeId);
+  if (error) return { count: null, error: true };
+  return { count, error: false };
 }
 
 function mapExperience(row: Record<string, unknown>, scheduleRows: Record<string, unknown>[], place: Place): Experience {
@@ -73,6 +161,33 @@ export class InMemoryPlaceExperienceRepository implements PlaceExperienceReposit
       validatePlace(place);
       return place.publicationStatus === "published";
     });
+  }
+
+  async listCuratedPublishedPlaceIds(): Promise<Set<string>> {
+    return new Set(
+      places
+        .filter((place) => place.publicationStatus === "published" && place.isCurated)
+        .map((place) => place.id),
+    );
+  }
+
+  async listDiscoveryInputs(now: Date): Promise<DiscoveryPlaceInput[]> {
+    void now;
+    const published = places.filter((place) => place.publicationStatus === "published");
+    return published.map((place) =>
+      toDiscoveryInput(place, {
+        live: null,
+        followers: 0,
+        visitIntents: 0,
+        publishedExperiences: experiences.filter(
+          (experience) =>
+            experience.placeId === place.id &&
+            experience.status === "published" &&
+            experience.publicationStatus === "published",
+        ).length,
+        photos: 0,
+      }),
+    );
   }
 
   async getPublishedPlaceById(id: string): Promise<Place | undefined> {
@@ -118,6 +233,71 @@ export class SupabasePlaceExperienceRepository implements PlaceExperienceReposit
       .order("id");
     if (error) throw error;
     return (data ?? []).map((row) => mapPlace({ ...row, producer_display_name: row.producers?.display_name }));
+  }
+
+  async listCuratedPublishedPlaceIds(): Promise<Set<string>> {
+    // Public (anon) read — the flag is visible with the Place row itself
+    // (published Places are public; the flag is layer metadata, not a secret).
+    const { data, error } = await this.client
+      .from("places")
+      .select("id")
+      .eq("publication_status", "published")
+      .eq("is_curated", true);
+    if (error) {
+      // Before migration 0035 lands on an environment the column does not
+      // exist; degrade to the locked PRE-0035 layer semantics (the UI's
+      // empty-set fallback shows the full published set) instead of breaking
+      // Home. Logged server-side — never silently swallowed.
+      console.error("listCuratedPublishedPlaceIds failed:", error.message);
+      return new Set();
+    }
+    return new Set((data ?? []).map((row) => String(row.id)));
+  }
+
+  async listDiscoveryInputs(now: Date): Promise<DiscoveryPlaceInput[]> {
+    // Engagement aggregates (place_follows 0023, visit_intents 0001) sit
+    // behind self-only RLS, so signal assembly uses the service role
+    // (same pattern as the create() ownership grant). The returned inputs
+    // carry no identity data — only published Places and their counts.
+    const { createSupabaseServiceClient } = await import("@/lib/supabase/admin");
+    const admin = createSupabaseServiceClient();
+
+    const { data: placeRows, error: placesError } = await admin
+      .from("places")
+      .select("*, producers(display_name)")
+      .eq("publication_status", "published")
+      .order("id");
+    if (placesError) throw placesError;
+
+    const result: DiscoveryPlaceInput[] = [];
+    for (const row of placeRows ?? []) {
+      const place = mapPlace({ ...row, producer_display_name: row.producers?.display_name });
+      const [live, follows, intents, photos] = await Promise.all([
+        fetchLiveSignal(admin, place.id),
+        countRows(admin, "place_follows", place.id),
+        countRows(admin, "visit_intents", place.id),
+        countRows(admin, "place_photos", place.id),
+      ]);
+      // Experiences contribute only when BOTH status fields are 'published'
+      // (the locked contract §1 definition).
+      const { count: publishedExperiences } = await admin
+        .from("experiences")
+        .select("*", { count: "exact", head: true })
+        .eq("place_id", place.id)
+        .eq("status", "published")
+        .eq("publication_status", "published");
+      result.push(
+        toDiscoveryInput(place, {
+          live,
+          followers: follows.count ?? 0,
+          visitIntents: intents.count ?? 0,
+          publishedExperiences: publishedExperiences ?? 0,
+          photos: photos.count ?? 0,
+        }),
+      );
+    }
+    void now;
+    return result;
   }
 
   async getPublishedPlaceById(id: string): Promise<Place | undefined> {

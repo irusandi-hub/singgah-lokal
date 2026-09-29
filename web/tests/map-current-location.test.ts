@@ -312,8 +312,14 @@ test("Curated camera radius never filters the curated Place set", () => {
   // The curated layer still returns the full (search-filtered) set — the
   // 50 km value appears ONLY as the camera prop, never in the filter
   // pipeline (matchesDistance / distanceMeters calls stay radius-filter
-  // only).
-  assert.match(pageCode, /if \(curatedOnly\) \{\n\s*return searchFiltered;/);
+  // only). Stage 3: with the 0035 flag present the layer narrows to the
+  // curated ids; with an empty selection it stays the FULL search-filtered
+  // set — never a radius-filtered one, and never an empty screen.
+  assert.match(pageCode, /if \(curatedOnly\) \{/);
+  assert.match(
+    pageCode,
+    /curatedIdSet\.size > 0\s*\?\s*searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)\s*:\s*searchFiltered;/,
+  );;
   const cameraUses = pageCode.match(/CURATED_CAMERA_RADIUS_M/g) ?? [];
   assert.equal(cameraUses.length, 2, "import + camera prop only — never a filter input");
   assert.doesNotMatch(pageCode, /matchesDistance\([^)]*CURATED/);

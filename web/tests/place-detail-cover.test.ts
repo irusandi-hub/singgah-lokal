@@ -43,15 +43,13 @@ test("Tempat Pilihan is ONE curated discovery layer with no category filter UI",
   assert.equal(code.includes(">Kopi<"), false);
   assert.equal(code.includes(">Teh<"), false);
   assert.equal(/place\.category ===/.test(code), false);
-  // The proximity label exists but ONLY under an active bounded radius —
-  // the curated layer and the radius tabs are mutually exclusive states.
-  assert.match(code, /Tempat di sekitar/);
-  const occurrences = code.split("Tempat di sekitar").length - 1;
-  const conditional = (code.match(/curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Tempat di sekitar"/g) ?? []).length;
-  assert.ok(
-    occurrences === 1 && conditional === 1,
-    `expected the heading to be the single curated-state-gated occurrence (got ${occurrences} occurrences, ${conditional} gated)`,
-  );
+  // Stage 3 renamed the default heading to "Discovery Place". The locked
+  // properties: exactly ONE curated-state-gated heading ternary exists, and
+  // every "Discovery Place" occurrence is either that heading, the Baris 2
+  // row label, or its empty state — never a filter or a category chip.
+  assert.match(code, /Discovery Place/);
+  const conditional = (code.match(/curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Discovery Place"/g) ?? []).length;
+  assert.equal(conditional, 1, "the heading is the single curated-state-gated occurrence");
   // Curated mode carries its own 50 km camera preset (PO, 2026-09-29) and
   // the Live-now cards are not part of the curated layer.
   assert.match(code, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
@@ -199,7 +197,7 @@ test("Home shell renders per request so the header reflects the live session", (
   // (route segment config is ignored in "use client" files). The wrapper
   // prefetches public Places server-side (initialPlaces, PO 2026-09-26) so
   // the client never re-fetches /api/places after hydration.
-  assert.match(appCode, /<HomeDiscovery initialPlaces=\{initialPlaces\} \/>/);
+  assert.match(appCode, /<HomeDiscovery\n?\s*initialPlaces=\{initialPlaces\}\n?\s*discovery=\{discovery\}\n?\s*\/>/);
   assert.match(stripComments(homePage), /"use client"/);
 });
 

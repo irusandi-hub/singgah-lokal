@@ -442,6 +442,7 @@ test("the audit trail holds Place columns only — never user email, credentials
     producer: null,
     claimStatus: "unverified",
     publicationStatus: "draft",
+    isCurated: false,
   });
   assert.deepEqual(Object.keys(snapshot).sort(), [
     "address",

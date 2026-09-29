@@ -1,4 +1,5 @@
 import HomeDiscovery from "@/components/home-discovery";
+import { loadDiscoveryViewModel } from "@/lib/discovery/home-service";
 import { getPublicPlaceExperienceRepository } from "@/lib/place-experience-repository";
 
 // The Home shell must render per request: the header's session state
@@ -17,8 +18,13 @@ export default async function Home() {
   // first paint — the client no longer pays a post-hydration /api/places
   // roundtrip. The sessionless client never touches cookies(), so the auth
   // shell stays fully dynamic and correct.
-  const initialPlaces = await getPublicPlaceExperienceRepository().then((repository) =>
-    repository.listPublishedPlaces(),
-  );
-  return <HomeDiscovery initialPlaces={initialPlaces} />;
+  //
+  // Stage 3: the Discovery view model (canonical engine output — stars +
+  // rank only, numeric score never leaves the server) is built on the same
+  // server pass. The client NEVER recomputes it (no second scoring path).
+  const [initialPlaces, discovery] = await Promise.all([
+    getPublicPlaceExperienceRepository().then((repository) => repository.listPublishedPlaces()),
+    loadDiscoveryViewModel(),
+  ]);
+  return <HomeDiscovery initialPlaces={initialPlaces} discovery={discovery} />;
 }

@@ -164,7 +164,7 @@ test("Admin can create a Place without a Producer — producer_id is nullable an
 
 test("a Place without a Producer stays valid — the canonical Place validator accepts it", () => {
   const mutation = parsePlaceMutation(adminPayload);
-  const place = { ...mutation, producer: null, claimStatus: "unverified" as const, publicationStatus: "draft" as const };
+  const place = { ...mutation, producer: null, claimStatus: "unverified" as const, publicationStatus: "draft" as const, isCurated: false as const };
   // isPlacePublicationReady is a content rule, never an ownership rule.
   assert.equal(isPlacePublicationReady(place), true);
   assert.equal(canTransitionPlaceStatus(place.publicationStatus, "published"), true);

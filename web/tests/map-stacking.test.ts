@@ -91,9 +91,10 @@ test("No Place preview/bottom sheet may ever cover the map surface", () => {
 
 test("Place detail still lives in the results section below the map", () => {
   const pageCode = stripComments(homeDiscovery);
-  // The discovery list below the map stays the Place-detail surface.
+  // The discovery list below the map stays the Place-detail surface
+  // (Stage 3 renamed its default heading to "Discovery Place").
   assert.match(pageCode, /aria-labelledby="place-results-heading"/);
-  assert.match(pageCode, /Tempat di sekitar/);
+  assert.match(pageCode, /Discovery Place/);
   assert.match(pageCode, /href=\{live \? `\/live\/\$\{live.sessionId\}` : `\/places\/\$\{place.id\}`\}/);
 });
 

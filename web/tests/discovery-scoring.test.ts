@@ -8,7 +8,6 @@ import {
   type DiscoveryEngagementSignal,
   type DiscoveryLiveSignal,
   type DiscoveryPlaceInput,
-  type DiscoverySignalSet,
 } from "../lib/discovery/scoring";
 
 /**

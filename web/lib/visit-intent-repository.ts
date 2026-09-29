@@ -105,6 +105,7 @@ function mapPlace(row: Record<string, unknown>): Place {
     producer: row.producer_id ? { id: String(row.producer_id), displayName: String(row.producer_display_name ?? row.producer_id) } : null,
     claimStatus: row.claim_status as Place["claimStatus"],
     publicationStatus: row.publication_status as Place["publicationStatus"],
+    isCurated: row.is_curated === true,
   };
 }
 

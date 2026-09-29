@@ -7,6 +7,7 @@ import PlaceFollowButton from "@/components/place-follow-button";
 import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
+import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
@@ -29,7 +30,18 @@ import {
 // Performance (PO 2026-09-26): the public discovery data is passed in from
 // the server wrapper (sessionless fetch, safe inside the dynamic shell) —
 // the client no longer re-fetches /api/places after hydration.
-export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: Place[] }) {
+//
+// Stage 3: the `discovery` prop carries the server-built view model from the
+// canonical Discovery engine (stars + rank only — the numeric score never
+// leaves the server). The client NEVER recomputes eligibility, score, stars,
+// or ranking; it only joins card data by id and renders the engine order.
+export default function HomeDiscovery({
+  initialPlaces = [],
+  discovery,
+}: {
+  initialPlaces?: Place[];
+  discovery?: DiscoveryViewModel;
+}) {
   // Places come from the server wrapper (initialPlaces) and never change
   // client-side — no setter, no post-hydration fetch, no stale client copy.
   const [places] = useState<Place[]>(initialPlaces);
@@ -65,6 +77,22 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
   // canonical liveByPlaceId feed is the only source.
   const [nonLiveNoticePlaceId, setNonLiveNoticePlaceId] = useState<string | null>(null);
   const router = useRouter();
+
+  // Stage 3: server-built Discovery view model (engine output) + the
+  // Tempat Pilihan flag ids (migration 0035, read through the canonical
+  // repository). Both are lookup-only here — no curation or score logic.
+  const curatedIdSet = useMemo(
+    () => new Set(discovery?.curatedPlaceIds ?? []),
+    [discovery],
+  );
+  const placeById = useMemo(() => new Map(places.map((place) => [place.id, place])), [places]);
+  const rankById = useMemo(
+    () =>
+      new Map(
+        (discovery?.discovery ?? []).map((entry) => [entry.placeId, entry.rank] as const),
+      ),
+    [discovery],
+  );
 
   // LIVE discovery feed (canonical live_sessions, published Places only).
   // Performance rule (PO, 2026-09-25): the 15-second poll runs ONLY while
@@ -119,12 +147,14 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
   // and the map dataset must never shrink because a radius tab was chosen
   // (zooming out would otherwise never reveal Places that an upstream
   // radius filter had already discarded).
-  const visiblePlaces = useMemo(() => {
+  //
+  // Search is extracted as its own step so EVERY layer (existing results,
+  // the Tempat Pilihan row, and the Discovery rows) applies the exact same
+  // query semantics — one search behavior, no second implementation.
+  const searchFiltered = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase("id-ID");
-
-    const searchFiltered = places.filter((place) => {
-      if (!normalizedQuery) return true;
-
+    if (!normalizedQuery) return places;
+    return places.filter((place) => {
       const liveProcess = liveByPlaceId.get(place.id)?.processTitle ?? "";
       const haystack = [
         place.name,
@@ -136,22 +166,34 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
       ]
         .join(" ")
         .toLocaleLowerCase("id-ID");
-
       return haystack.includes(normalizedQuery);
     });
+  }, [places, searchQuery, liveByPlaceId]);
 
-    // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
-    // it shows ALL published Places, independent of the radius. There is
-    // no category selection inside it — the canonical Place category
-    // never filters the curated layer.
+  const searchFilteredIds = useMemo(
+    () => new Set(searchFiltered.map((place) => place.id)),
+    [searchFiltered],
+  );
+
+  const visiblePlaces = useMemo(() => {
+    // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26), now
+    // backed by the canonical is_curated flag (PO Stage 3, migration 0035):
+    // published + curated only. The flag arrives through the server view
+    // model — the client computes no curation and no score. Until any flag
+    // exists (empty selection), the layer falls back to ALL published
+    // search-filtered Places so it can never render as an empty screen.
+    // There is no category selection inside it — the canonical Place
+    // category never filters the curated layer.
     if (curatedOnly) {
-      return searchFiltered;
+      return curatedIdSet.size > 0
+        ? searchFiltered.filter((place) => curatedIdSet.has(place.id))
+        : searchFiltered;
     }
     // LIVE: a process/status filter — only Places with an active session.
     let result = searchFiltered;
     if (liveOnly) result = result.filter((place) => liveByPlaceId.has(place.id));
     return result;
-  }, [places, searchQuery, liveOnly, curatedOnly, liveByPlaceId]);
+  }, [searchFiltered, liveOnly, curatedOnly, curatedIdSet, liveByPlaceId]);
 
   // LIST-ONLY radius gate (PO, 2026-09-29): the Place results below the map
   // keep their existing proximity semantics — a bounded radius narrows the
@@ -177,6 +219,34 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
     return liveItems.filter((item) => listedIds.has(item.placeId));
   }, [liveItems, listedPlaces]);
 
+  // Stage 3 — DISCOVERY ROW (canonical engine ranking): search-filtered,
+  // list-gate applied, in ENGINE ORDER. Never re-sorted, never deduplicated
+  // against the curated row: a Place in both layers appears in both rows.
+  const discoveryListed = useMemo(() => {
+    const ranked = (discovery?.discovery ?? []).flatMap((entry) => {
+      const place = placeById.get(entry.placeId);
+      return place && searchFilteredIds.has(place.id) ? [place] : [];
+    });
+    if (curatedOnly || distanceFilter === "10 km+") return ranked;
+    return ranked.filter((place) =>
+      matchesDistance(
+        distanceFilter,
+        viewerPosition,
+        place.latitude !== null && place.longitude !== null
+          ? { lat: place.latitude, lng: place.longitude }
+          : null,
+      ),
+    );
+  }, [discovery, placeById, searchFilteredIds, curatedOnly, distanceFilter, viewerPosition]);
+
+  // Stage 3 — TEMPAT PILIHAN ROW (Baris 1): published + is_curated only,
+  // through the same list gate (unbounded in the curated layer), server
+  // order — curation is Admin-promoted, never engine-ranked.
+  const curatedListed = useMemo(
+    () => visiblePlaces.filter((place) => curatedIdSet.has(place.id)),
+    [visiblePlaces, curatedIdSet],
+  );
+
   // MAP DATASET (PO, 2026-09-29): every content-filtered Place with
   // canonical coordinates, independent of the camera radius. Zooming out
   // after choosing 1 km/5 km now reveals Places that were simply outside
@@ -192,6 +262,174 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
       ),
     [visiblePlaces],
   );
+
+  // Stage 3 — DEFAULT row: the existing list gate with its exact content
+  // behavior (search + LIVE + radius), now ORDERED by the canonical engine
+  // rank (eligible ranked Places first; Places the engine could not rank —
+  // e.g. missing canonical coordinates — keep their existing relative order
+  // after them, so nothing published ever disappears from the list).
+  const orderedListed = useMemo(() => {
+    if (rankById.size === 0) return listedPlaces;
+    return [...listedPlaces].sort((a, b) => {
+      const ra = rankById.get(a.id);
+      const rb = rankById.get(b.id);
+      if (ra !== undefined && rb !== undefined) return ra - rb;
+      if (ra !== undefined) return -1;
+      if (rb !== undefined) return 1;
+      return 0;
+    });
+  }, [listedPlaces, rankById]);
+
+  // ONE card renderer for every row: the existing card design verbatim; the
+  // only addition is the optional "✦ Tempat Pilihan" marker so an overlap
+  // Place stays recognizable inside the Discovery row. No numeric score is
+  // ever rendered anywhere.
+  const renderPlaceCard = (place: Place, isCurated: boolean) => {
+    const live = liveByPlaceId.get(place.id);
+    // Direction target from the REAL canonical coordinates —
+    // null when the Place has none (safe disabled control).
+    const directionsUrl = buildDirectionsUrl(place);
+    const distance =
+      viewerPosition && place.latitude != null && place.longitude != null
+        ? formatDistance(
+            distanceMeters(viewerPosition, {
+              lat: place.latitude,
+              lng: place.longitude,
+            }),
+          )
+        : null;
+
+    return (
+      <VisitedLink
+        key={place.id}
+        href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
+        className="group flex flex-col rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
+        visitedClassName={live ? "border-live/60 bg-[#fdf6f2]" : "border-brand-accent/35 bg-[#faf6ee]"}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-accent">
+              {place.category}
+            </p>
+            <h3 className="mt-1 text-base font-semibold">{place.name}</h3>
+          </div>
+          {live ? (
+            <span className="shrink-0 rounded-full bg-live px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-white">
+              LIVE
+            </span>
+          ) : (
+            // Mockup affordance: a right-side chevron invites the
+            // tap-through to the Place (visual only — navigation
+            // already happens through the card link).
+            <span
+              aria-hidden
+              className="shrink-0 self-center text-lg font-bold text-brand-accent transition group-hover:translate-x-0.5"
+            >
+              ›
+            </span>
+          )}
+        </div>
+
+        <p className="mt-2 text-xs text-black/55">
+          {place.area} · {place.type === "production" ? "Produksi" : "Kegiatan"}
+        </p>
+
+        <p className="mt-2 line-clamp-2 text-sm leading-5 text-black/65">
+          {live?.processTitle ?? place.shortDescription}
+        </p>
+
+        {/* Card meta row (PO 2026-09-26): real distance (only
+            when the real viewer fix exists) + Direction from the
+            Place's canonical coordinates. No operating-hours
+            status: the Place model has no operating-hours field
+            yet (DATA GAP), and no hours are ever invented. */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          {isCurated && (
+            <span className="text-[10px] font-bold text-brand-ink/70">✦ Tempat Pilihan</span>
+          )}
+          {distance && (
+            <span className="text-[11px] font-bold text-brand-accent">{distance}</span>
+          )}
+          {/* Follow control (User → Place follow foundation for
+              MASTER 10 notifications): server-derived state only
+              — Follow / Following, signed-out → /auth. Sits next
+              to Direction; card navigation/design untouched. */}
+          {!live && <PlaceFollowButton placeId={place.id} />}
+          {directionsUrl ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                stopNestedCardAction(event);
+                window.open(directionsUrl, "_blank", "noopener,noreferrer");
+              }}
+              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-brand-accent/40 px-3 py-1.5 text-[11px] font-bold text-brand-accent transition hover:bg-brand-accent/10"
+              aria-label={`Petunjuk arah ke ${place.name} di aplikasi peta`}
+            >
+              <span aria-hidden>➤</span> Direction
+            </button>
+          ) : (
+            // Fail-closed: no canonical coordinates → no
+            // navigation target is ever invented.
+            <span
+              aria-disabled="true"
+              title="Koordinat Tempat belum tersedia"
+              className="ml-auto inline-flex shrink-0 cursor-not-allowed items-center gap-1 rounded-full border border-black/10 px-3 py-1.5 text-[11px] font-bold text-black/35"
+            >
+              <span aria-hidden>➤</span> Direction
+            </span>
+          )}
+        </div>
+
+        {/* Permanent Live identity (PO 2026-09-26): every Place
+            card carries its own LIVE affordance in BOTH states.
+            With an active session it opens the existing
+            /live/[sessionId] flow; without one it shows the
+            honest not-live status when pressed. Live state is
+            never invented — liveByPlaceId (canonical
+            live_sessions feed) is the only source. */}
+        <div className="mt-2">
+          {live ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                stopNestedCardAction(event);
+                router.push(`/live/${live.sessionId}`);
+              }}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-live px-3 py-2 text-[11px] font-bold text-white transition hover:opacity-90"
+              aria-label={`Buka Live di ${place.name}`}
+            >
+              <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+              LIVE — Lihat proses sekarang
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                aria-pressed={nonLiveNoticePlaceId === place.id}
+                onClick={(event) => {
+                  stopNestedCardAction(event);
+                  setNonLiveNoticePlaceId((current) => (current === place.id ? null : place.id));
+                }}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-live/40 bg-white px-3 py-2 text-[11px] font-bold text-live transition hover:bg-live/10"
+                aria-label={`Status Live ${place.name}`}
+              >
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-live/60" />
+                LIVE — Belum berlangsung
+              </button>
+              {nonLiveNoticePlaceId === place.id && (
+                <p
+                  role="status"
+                  className="mt-1.5 rounded-lg bg-live/10 px-3 py-1.5 text-[11px] font-semibold text-live"
+                >
+                  {place.name} sedang tidak Live. Tempat ini dapat memulai Live kapan saja.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </VisitedLink>
+    );
+  };
 
   return (
     <main className="min-h-screen bg-brand-cream text-brand-ink">
@@ -384,7 +622,13 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
 
         {/* Place results — the LIST gate: content-filtered Places further
             narrowed by the selected radius (list-only semantics; the MAP
-            dataset above is independent of the camera radius). */}
+            dataset above is independent of the camera radius). Inside the
+            Tempat Pilihan layer the results render as TWO ordered rows —
+            Baris 1: Tempat Pilihan, Baris 2: Discovery Place — while every
+            other mode renders the single existing list, headed "Discovery
+            Place" and ordered by the canonical engine rank. No layer ever
+            deduplicates the other: a Place in both layers appears in both
+            rows (OVERLAP rule). */}
         <section className="mt-6" aria-labelledby="place-results-heading">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
@@ -396,159 +640,57 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
                   ? `Hasil untuk “${searchQuery.trim()}”`
                   : curatedOnly
                     ? "Tempat Pilihan"
-                    : "Tempat di sekitar"}
+                    : "Discovery Place"}
               </h2>
             </div>
             <span className="text-xs font-bold text-black/45">
-              {listedPlaces.length} Tempat
+              {curatedOnly
+                ? `${curatedListed.length + discoveryListed.length} Tempat`
+                : `${listedPlaces.length} Tempat`}
             </span>
           </div>
 
-          {listedPlaces.length > 0 ? (
+          {/* Baris 1 (curated layer only): the Admin-promoted selection. */}
+          {curatedOnly && curatedListed.length > 0 && (
+            <>
+              <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
+                Tempat Pilihan
+              </p>
+              <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {curatedListed.map((place) => renderPlaceCard(place, place.isCurated))}
+              </div>
+            </>
+          )}
+
+          {/* Baris 2 (curated layer) / default row: the canonical Discovery
+              ranking — engine order, stars only, no numeric score. In the
+              default mode the row is the existing list gate ordered by the
+              engine (unranked published Places keep their existing order). */}
+          {curatedOnly ? (
+            discoveryListed.length > 0 ? (
+              <>
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
+                  Discovery Place
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {discoveryListed.map((place) =>
+                    renderPlaceCard(place, curatedIdSet.has(place.id)),
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="rounded-2xl border border-black/10 bg-white p-6 text-center">
+                <p className="text-sm font-bold">Belum ada Discovery Place</p>
+                <p className="mt-1 text-xs text-black/55">
+                  Tempat yang siap tayang akan muncul di sini secara otomatis.
+                </p>
+              </div>
+            )
+          ) : orderedListed.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {listedPlaces.map((place) => {
-                const live = liveByPlaceId.get(place.id);
-                // Direction target from the REAL canonical coordinates —
-                // null when the Place has none (safe disabled control).
-                const directionsUrl = buildDirectionsUrl(place);
-                const distance =
-                  viewerPosition && place.latitude != null && place.longitude != null
-                    ? formatDistance(
-                        distanceMeters(viewerPosition, {
-                          lat: place.latitude,
-                          lng: place.longitude,
-                        }),
-                      )
-                    : null;
-
-                return (
-                  <VisitedLink
-                    key={place.id}
-                    href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
-                    className="group flex flex-col rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
-                    visitedClassName={live ? "border-live/60 bg-[#fdf6f2]" : "border-brand-accent/35 bg-[#faf6ee]"}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-accent">
-                          {place.category}
-                        </p>
-                        <h3 className="mt-1 text-base font-semibold">{place.name}</h3>
-                      </div>
-                      {live ? (
-                        <span className="shrink-0 rounded-full bg-live px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-white">
-                          LIVE
-                        </span>
-                      ) : (
-                        // Mockup affordance: a right-side chevron invites the
-                        // tap-through to the Place (visual only — navigation
-                        // already happens through the card link).
-                        <span
-                          aria-hidden
-                          className="shrink-0 self-center text-lg font-bold text-brand-accent transition group-hover:translate-x-0.5"
-                        >
-                          ›
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="mt-2 text-xs text-black/55">
-                      {place.area} · {place.type === "production" ? "Produksi" : "Kegiatan"}
-                    </p>
-
-                    <p className="mt-2 line-clamp-2 text-sm leading-5 text-black/65">
-                      {live?.processTitle ?? place.shortDescription}
-                    </p>
-
-                    {/* Card meta row (PO 2026-09-26): real distance (only
-                        when the real viewer fix exists) + Direction from the
-                        Place's canonical coordinates. No operating-hours
-                        status: the Place model has no operating-hours field
-                        yet (DATA GAP), and no hours are ever invented. */}
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      {distance && (
-                        <span className="text-[11px] font-bold text-brand-accent">{distance}</span>
-                      )}
-                      {/* Follow control (User → Place follow foundation for
-                          MASTER 10 notifications): server-derived state only
-                          — Follow / Following, signed-out → /auth. Sits next
-                          to Direction; card navigation/design untouched. */}
-                      {!live && <PlaceFollowButton placeId={place.id} />}
-                      {directionsUrl ? (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            stopNestedCardAction(event);
-                            window.open(directionsUrl, "_blank", "noopener,noreferrer");
-                          }}
-                          className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-brand-accent/40 px-3 py-1.5 text-[11px] font-bold text-brand-accent transition hover:bg-brand-accent/10"
-                          aria-label={`Petunjuk arah ke ${place.name} di aplikasi peta`}
-                        >
-                          <span aria-hidden>➤</span> Direction
-                        </button>
-                      ) : (
-                        // Fail-closed: no canonical coordinates → no
-                        // navigation target is ever invented.
-                        <span
-                          aria-disabled="true"
-                          title="Koordinat Tempat belum tersedia"
-                          className="ml-auto inline-flex shrink-0 cursor-not-allowed items-center gap-1 rounded-full border border-black/10 px-3 py-1.5 text-[11px] font-bold text-black/35"
-                        >
-                          <span aria-hidden>➤</span> Direction
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Permanent Live identity (PO 2026-09-26): every Place
-                        card carries its own LIVE affordance in BOTH states.
-                        With an active session it opens the existing
-                        /live/[sessionId] flow; without one it shows the
-                        honest not-live status when pressed. Live state is
-                        never invented — liveByPlaceId (canonical
-                        live_sessions feed) is the only source. */}
-                    <div className="mt-2">
-                      {live ? (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            stopNestedCardAction(event);
-                            router.push(`/live/${live.sessionId}`);
-                          }}
-                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-live px-3 py-2 text-[11px] font-bold text-white transition hover:opacity-90"
-                          aria-label={`Buka Live di ${place.name}`}
-                        >
-                          <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-                          LIVE — Lihat proses sekarang
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            aria-pressed={nonLiveNoticePlaceId === place.id}
-                            onClick={(event) => {
-                              stopNestedCardAction(event);
-                              setNonLiveNoticePlaceId((current) => (current === place.id ? null : place.id));
-                            }}
-                            className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-live/40 bg-white px-3 py-2 text-[11px] font-bold text-live transition hover:bg-live/10"
-                            aria-label={`Status Live ${place.name}`}
-                          >
-                            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-live/60" />
-                            LIVE — Belum berlangsung
-                          </button>
-                          {nonLiveNoticePlaceId === place.id && (
-                            <p
-                              role="status"
-                              className="mt-1.5 rounded-lg bg-live/10 px-3 py-1.5 text-[11px] font-semibold text-live"
-                            >
-                              {place.name} sedang tidak Live. Tempat ini dapat memulai Live kapan saja.
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </VisitedLink>
-                );
-              })}
+              {orderedListed.map((place) =>
+                renderPlaceCard(place, curatedIdSet.has(place.id)),
+              )}
             </div>
           ) : (
             <div className="rounded-2xl border border-black/10 bg-white p-6 text-center">

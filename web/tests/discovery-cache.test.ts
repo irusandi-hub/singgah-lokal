@@ -112,7 +112,9 @@ test("No Place bottom sheet may cover the map surface", () => {
   assert.equal(code.includes("z-[1200]"), false, "no bottom-sheet overlay layer");
   assert.equal(code.includes("Lihat Tempat"), false, "no Place CTA floating over the map");
   assert.equal(/rounded-t-\[28px\]\s+bg-white/.test(code), false, "no bottom-sheet card over the map");
-  // Place detail stays served below the map.
+  // Place detail stays served below the map. Stage 3 renamed the default
+  // results heading to "Discovery Place" (the canonical engine layer); the
+  // proximity label survives only inside the BOUNDED list-gate comment.
   assert.match(code, /aria-labelledby="place-results-heading"/);
-  assert.match(code, /Tempat di sekitar/);
+  assert.match(code, /Discovery Place/);
 });

@@ -44,6 +44,7 @@ function mapPlaceForAudit(row: Record<string, unknown>) {
     producer: row.producer_id ? { id: String(row.producer_id), displayName: String(row.producer_id) } : null,
     claimStatus: row.claim_status as never,
     publicationStatus: row.publication_status as never,
+    isCurated: row.is_curated === true,
   };
 }
 

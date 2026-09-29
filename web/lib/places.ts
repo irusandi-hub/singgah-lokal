@@ -74,6 +74,15 @@ export type Place = {
   producer: ProducerReference | null;
   claimStatus: ClaimStatus;
   publicationStatus: PublicationStatus;
+  /**
+   * Tempat Pilihan layer membership (PO, Stage 3, migration 0035).
+   * `true` = the Place belongs to the Admin-promoted "Tempat Pilihan" Home
+   * layer. This is LAYER metadata — never a category, never a publication
+   * state, never a Discovery input: the canonical Discovery engine
+   * (lib/discovery/scoring.ts) is curated-blind and never reads it, so one
+   * Place may live in both layers and the layers cannot cancel each other.
+   */
+  isCurated: boolean;
 };
 
 const placeIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -98,6 +107,7 @@ export const places: Place[] = [
     producer: null,
     claimStatus: "unverified",
     publicationStatus: "published",
+    isCurated: false,
   },
   {
     id: "rumah-teh-lokal",
@@ -118,6 +128,7 @@ export const places: Place[] = [
     producer: null,
     claimStatus: "unverified",
     publicationStatus: "published",
+    isCurated: false,
   },
   {
     id: "dapur-rasa",
@@ -138,6 +149,7 @@ export const places: Place[] = [
     producer: null,
     claimStatus: "unverified",
     publicationStatus: "published",
+    isCurated: false,
   },
 ];
 
@@ -199,8 +211,10 @@ export function validatePlace(place: Place): void {
   }
 }
 
-export function validatePlaceInput(place: Omit<Place, "producer" | "claimStatus" | "publicationStatus">): void {
-  validatePlace({ ...place, producer: null, claimStatus: "unverified", publicationStatus: "draft" });
+export function validatePlaceInput(
+  place: Omit<Place, "producer" | "claimStatus" | "publicationStatus" | "isCurated">,
+): void {
+  validatePlace({ ...place, producer: null, claimStatus: "unverified", publicationStatus: "draft", isCurated: false });
 }
 
 export function isPlacePublicationReady(place: Place): boolean {

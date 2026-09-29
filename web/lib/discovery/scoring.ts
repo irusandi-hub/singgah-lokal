@@ -127,6 +127,7 @@ export function evaluateDiscoveryEligibility(place: DiscoveryPlaceBase): boolean
     countryCode: null,
     regionName: null,
     coverImageUrl: null,
+    isCurated: false,
     producer: null,
   });
 }
