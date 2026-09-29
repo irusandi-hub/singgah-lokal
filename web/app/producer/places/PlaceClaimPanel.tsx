@@ -154,7 +154,17 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
           </h2>
           <p className="mt-1 text-xs text-black/55">
             Hanya Tempat yang belum memiliki Pengelola yang dapat diajukan. Pengajuan tidak membuat
-            atau mengubah data Tempat.
+            atau mengubah data Tempat. Bukti kepemilikan tersimpan privat dan diarsipkan maksimal
+            30 hari untuk kebutuhan operasional — lihat{" "}
+            <a
+              href="/policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold text-brand-primary underline underline-offset-2"
+            >
+              Kebijakan
+            </a>
+            .
           </p>
         </div>
         <button

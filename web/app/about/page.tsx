@@ -58,6 +58,18 @@ export default function AboutPage() {
               Pasar awal: Indonesia. Bahasa utama: Bahasa Indonesia.
             </p>
           </section>
+
+          <section className="rounded-2xl border border-black/10 bg-white p-6">
+            <h2 className="text-lg font-semibold tracking-tight">Kebijakan</h2>
+            <p className="mt-3 text-sm leading-6 text-black/60">
+              Retensi arsip klaim Tempat (30 hari), sifat privat bukti kepemilikan, dan
+              batas tanggung jawab platform terhadap sengketa kepemilikan dirangkum di{" "}
+              <Link href="/policy" className="font-bold text-brand-primary underline underline-offset-2">
+                halaman Kebijakan
+              </Link>
+              .
+            </p>
+          </section>
         </div>
       </div>
     </main>

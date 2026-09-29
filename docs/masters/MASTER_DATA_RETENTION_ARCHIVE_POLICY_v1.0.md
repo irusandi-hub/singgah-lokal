@@ -118,7 +118,7 @@ The deletion order is LOCKED:
 | 12 | Legal determination | Competent authority in the Place's jurisdiction only |
 | 13 | Public policy | Retention clause mandatory in Terms/Privacy/Policy |
 | 14 | Change control | New master version for retention/evidence/legal-boundary changes |
-| 16 | Technical annex | Claim archive design of record; implementation status audited per §16.7 |
+| 16 | Technical annex | Claim archive design of record; implementation synchronized with `main` (§16.7) |
 
 ---
 
@@ -210,20 +210,20 @@ instead of describing fiction.
 - Until the public policy surfaces exist in the app, the §13 disclosure gap
   stands and blocks shipping the retention/cleanup implementation.
 
-### 16.7 Implementation status (audited on `main`, 2026-09-29)
+### 16.7 Implementation status (audited on `main`, 2026-09-29; updated 2026-09-29 after DEV synchronization)
 
-Audited honestly against the repository — **not** invented:
+Audited honestly against the repository and the active Supabase DEV
+environment — **not** invented:
 
 | Component | Status |
 | --- | --- |
 | Claim submission, review, evidence upload/signed read | **EXISTS** — `web/supabase/migrations/0028_place_claims.sql` (fail-closed RLS, private bucket, one-active-claim gate), `web/lib/place-claim-storage.ts` (private bucket writes, 300-second signed URLs, `removePlaceClaimEvidence` via the Storage object API), `web/app/api/admin/place-claims/*`, `web/app/api/producer/place-claims/*` |
-| Claim archive schema/function (migration) | **NOT YET BUILT** — no archive migration exists in `web/supabase/migrations/` (latest is 0033) |
-| Archive search (internal, Admin-only) | **NOT YET BUILT** |
-| Cleanup worker | **NOT YET BUILT** |
-| Scheduler wiring | **NOT YET BUILT** |
-| Terms/Privacy/Policy disclosure surfaces | **NOT YET BUILT** — no policy pages exist in the app; the §13 gap stands |
+| Claim archive schema/function (migration) | **EXISTS** — `web/supabase/migrations/0034_place_claim_archive.sql`: `place_claim_archives` (30-day `archived_at` horizon, `finalized_at` marker), fail-closed RLS, and the moderator-gated `search_place_claim_archives` RPC. Mirrors the implementation already ACTIVE on Supabase DEV (table live, 4 archive rows) |
+| Archive search (internal, Admin-only) | **EXISTS** — the `search_place_claim_archives` RPC (re-verifies `platform_role = 'platform_moderator'` from the session on every call) plus the internal route `web/app/api/admin/place-claim-archives` (GET, Platform Moderator session required). Searchable by Place ID, Pengelola ID, claimant email, claim ID. Mounted on NO Dashboard page (§4) |
+| Cleanup worker | **EXISTS** — Edge Function `cleanup-place-claim-archives` (v2), source at `web/supabase/functions/cleanup-place-claim-archives/index.ts`: storage-first via the Storage object API, DB finalization only on storage success, re-processable retry on failure, idempotent re-runs; service-role secret required (401 otherwise); per-run outcomes `removed` / `retry_scheduled` / aggregate counts. Verified on DEV: authorized invoke 200, unauthorized 401 |
+| Scheduler wiring | **EXISTS** — pg_cron job `place-claim-archive-cleanup` on Supabase DEV, daily at 00:00 UTC, invoking the Edge Function with the service-role secret. The schedule lives in the DEV infrastructure (Creator-controlled, per the Authority Master §2), not in the repository |
+| Terms/Privacy/Policy disclosure surfaces | **EXISTS** — `web/app/policy/page.tsx` discloses the 30-day retention, the private/short-lived evidence nature, the application-level (never legal) claim approval, and the between-the-parties/competent-authority boundary; linked from the About page and the Producer claim panel (§13 satisfied) |
 
-The annex above is the **design of record** the implementation must follow.
-Building any of the missing components is future work under this master and
-requires no re-litigation of these rules — only the master change-control rule
-of §14 applies when the design itself changes.
+The annex above is the **design of record** the implementation follows. The
+implementation is now synchronized with the repository source; only the master
+change-control rule of §14 applies when the design itself changes.
