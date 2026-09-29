@@ -57,6 +57,15 @@ type HomeMapProps = {
   onRequestLocate: () => void;
   /** Active distance-filter radius in meters; null = unbounded ("10 km+"). */
   radiusMeters: number | null;
+  /**
+   * "Tempat Pilihan" camera coverage (PO, 2026-09-29): when set, the camera
+   * zooms so the frame covers this radius (50 km) around the real Current
+   * Location. It is a CAMERA value only — the marker set is decided upstream
+   * and this radius never filters Places.
+   */
+  cameraRadiusMeters?: number | null;
+  /** Curated-layer marker treatment: larger, distinctly framed Place pins. */
+  curatedMarkers?: boolean;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -88,6 +97,8 @@ export default function HomeMap({
   locateNonce,
   onRequestLocate,
   radiusMeters,
+  cameraRadiusMeters = null,
+  curatedMarkers = false,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -327,11 +338,13 @@ export default function HomeMap({
   // Camera anchor: Current Location is the map's center. A bounded radius
   // (1 km / 5 km) refocuses on EVERY change of the filter radius —
   // the camera is re-derived from the filter around the real fix. "10 km+"
-  // focuses once (unbounded — no radius re-zoom). Automatic moves never
-  // steal the camera after real user interaction, and interactions are
-  // re-armed when a new radius is chosen so the next bounded tab can
-  // refocus. One-shot overviews (fitBounds / 10 km+ focus) stay one-shot via
-  // cameraDecidedRef.
+  // focuses once (unbounded — no radius re-zoom). In "Tempat Pilihan" the
+  // CAMERA covers the curated radius (50 km) around the real fix — the
+  // marker set stays whatever the curated layer shows upstream. Automatic
+  // moves never steal the camera after real user interaction, and
+  // interactions are re-armed when a new radius is chosen so the next
+  // bounded tab can refocus. One-shot overviews (fitBounds / 10 km+ focus)
+  // stay one-shot via cameraDecidedRef.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !viewerPosition) return;
@@ -351,6 +364,19 @@ export default function HomeMap({
         map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(3, zoom), { duration: 0.8 });
         return;
       }
+      // "Tempat Pilihan": the camera covers the curated radius (50 km)
+      // around the REAL Current Location — same center, radius-derived
+      // zoom, no invented position. It refocuses on every curated entry
+      // (the unbounded latch does not apply) unless the user has panned/
+      // zoomed since entering the layer.
+      if (cameraRadiusMeters !== null) {
+        const zoom = await radiusZoom(map, viewerPosition, cameraRadiusMeters);
+        if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
+        programmaticMoveRef.current = true;
+        cameraDecidedRef.current = true;
+        map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { duration: 0.8 });
+        return;
+      }
       // Unbounded ("10 km+"): focus the actual location once — no radius
       // re-zoom, and marker refreshes never re-center afterwards.
       if (!cameraDecidedRef.current) {
@@ -361,7 +387,7 @@ export default function HomeMap({
     return () => {
       cancelled = true;
     };
-  }, [ready, viewerPositionKey, radiusMeters, viewerPosition, flyToUser, radiusZoom]);
+  }, [ready, viewerPositionKey, radiusMeters, cameraRadiusMeters, viewerPosition, flyToUser, radiusZoom]);
 
   // Render/update the user marker from the real geolocation fix. Camera
   // decisions live in the anchor effect above.
@@ -386,15 +412,29 @@ export default function HomeMap({
           fillOpacity: 0.12,
         }).addTo(layer);
       }
+      // Current Location marker — unmistakably the USER's position and never
+      // mistakable for a Place pin: a white-core dot in a deep brand-green
+      // disc with a white ring (Place pins are the inverse: brown disc, emoji
+      // glyph, name label; LIVE pins are the red badge). No click behavior —
+      // it is not a navigation target.
       L.circleMarker([viewerPosition.lat, viewerPosition.lng], {
-        radius: 9,
+        radius: 13,
         color: "#ffffff",
-        weight: 3,
-        fillColor: BRAND_BROWN,
+        weight: 4,
+        fillColor: BRAND_PIN,
         fillOpacity: 1,
       })
+        .addTo(layer);
+      L.circleMarker([viewerPosition.lat, viewerPosition.lng], {
+        radius: 5,
+        color: BRAND_PIN,
+        weight: 0,
+        fillColor: "#ffffff",
+        fillOpacity: 1,
+        interactive: false,
+      })
         .addTo(layer)
-        .bindTooltip("Lokasi Anda", { direction: "top", offset: [0, -10] });
+        .bindTooltip("Lokasi Anda", { direction: "top", offset: [0, -14] });
     })();
 
     return () => {
@@ -469,14 +509,22 @@ export default function HomeMap({
             .on("click", () => router.push(`/live/${live.sessionId}`));
         }
 
-        // Place pin → /places/[id].
+        // Place pin → /places/[id]. In "Tempat Pilihan" the pin is larger
+        // with a brand-green ring — clearly distinct from the normal pin and
+        // still below the LIVE pin's priority. Click/navigation unchanged.
+        const pinSize = curatedMarkers ? 56 : 48;
+        const pinFontSize = curatedMarkers ? 21 : 18;
+        const pinRing = curatedMarkers ? `border:4px solid #fff;outline:3px solid ${BRAND_PIN};` : "border:4px solid #fff;";
+        const pinShadow = curatedMarkers
+          ? "box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3),0 0 0 6px rgb(255 255 255 / 0.35);"
+          : "box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);";
         L.marker(position, {
           icon: L.divIcon({
             className: "singgah-map-marker",
             iconSize: [0, 0],
             html: `<div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
-              <div style="display:flex;height:48px;width:48px;align-items:center;justify-content:center;border-radius:9999px;border:4px solid #fff;background:${BRAND_BROWN};font-size:18px;box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);">📍</div>
-              <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:${BRAND_PIN};padding:4px 10px;font-size:11px;font-weight:700;color:#fff;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${escapeHtml(place.name)}</div>
+              <div style="display:flex;height:${pinSize}px;width:${pinSize}px;align-items:center;justify-content:center;border-radius:9999px;${pinRing}background:${BRAND_BROWN};font-size:${pinFontSize}px;${pinShadow}">📍</div>
+              <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:${curatedMarkers ? BRAND_PIN : BRAND_BROWN};padding:${curatedMarkers ? "5px 12px" : "4px 10px"};font-size:${curatedMarkers ? "12px" : "11px"};font-weight:700;color:#fff;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${escapeHtml(place.name)}</div>
             </div>`,
           }),
           zIndexOffset: live ? 0 : 500,

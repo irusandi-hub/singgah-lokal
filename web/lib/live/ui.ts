@@ -36,6 +36,14 @@ export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
   "10 km+": null,
 };
 
+/**
+ * "Tempat Pilihan" camera coverage (PO, 2026-09-29): when the curated layer
+ * is active the map zooms so its frame ideally covers a 50 km radius around
+ * the real Current Location. This is a CAMERA value only — the curated layer
+ * still shows ALL published Places and never filters by this radius.
+ */
+export const CURATED_CAMERA_RADIUS_M = 50_000;
+
 export function distanceMeters(
   from: { lat: number; lng: number },
   to: { lat: number; lng: number },

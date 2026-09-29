@@ -238,3 +238,63 @@ test("Remount/refresh safety: container claim, full teardown, and size re-measur
   assert.match(mapCode, /map\.invalidateSize\(\)/);
   assert.match(mapCode, /window\.addEventListener\("resize"/);
 });
+
+// --- "Tempat Pilihan" curated mode (PO, 2026-09-29) ---
+
+test("Curated mode centers the camera on Current Location with 50 km coverage", () => {
+  const pageCode = stripComments(homePage);
+  const mapCode = stripComments(homeMap);
+  // Home passes the 50 km curated camera radius ONLY while curated is on;
+  // normal modes keep the existing radius mapping untouched.
+  assert.match(pageCode, /CURATED_CAMERA_RADIUS_M/);
+  assert.match(pageCode, /cameraRadiusMeters=\{curatedOnly \? CURATED_CAMERA_RADIUS_M : null\}/);
+  // The map flies to the REAL fix with radius-derived zoom — no fallback
+  // coordinate is ever introduced (the no-fake-position test above still
+  // applies to every setViewerPosition/flyTo call).
+  assert.match(mapCode, /cameraRadiusMeters !== null/);
+  assert.match(mapCode, /radiusZoom\(map, viewerPosition, cameraRadiusMeters\)/);
+  assert.match(mapCode, /map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\)/);
+});
+
+test("Curated camera radius never filters the curated Place set", () => {
+  const pageCode = stripComments(homePage);
+  // The curated layer still returns the full (search-filtered) set — the
+  // 50 km value appears ONLY as the camera prop, never in the filter
+  // pipeline (matchesDistance / distanceMeters calls stay radius-filter
+  // only).
+  assert.match(pageCode, /if \(curatedOnly\) \{\n\s*return searchFiltered;/);
+  const cameraUses = pageCode.match(/CURATED_CAMERA_RADIUS_M/g) ?? [];
+  assert.equal(cameraUses.length, 2, "import + camera prop only — never a filter input");
+  assert.doesNotMatch(pageCode, /matchesDistance\([^)]*CURATED/);
+  assert.doesNotMatch(pageCode, /distanceMeters\([^)]*CURATED/);
+});
+
+test("Curated Place pins are visually distinct but keep their click navigation", () => {
+  const mapCode = stripComments(homeMap);
+  // Larger pin + brand ring while curated is active...
+  assert.match(mapCode, /curatedMarkers \? 56 : 48/);
+  assert.match(mapCode, /outline:3px solid \$\{BRAND_PIN\}/);
+  // ...and the click target is unchanged: /places/[id] for every pin.
+  assert.match(mapCode, /router\.push\(`\/places\/\$\{place\.id\}`\)/);
+});
+
+test("Current Location marker is visually distinct from every Place pin", () => {
+  const mapCode = stripComments(homeMap);
+  // A deep-green disc with a white core (Place pins are the brown inverse),
+  // no click behavior, and the Lokasi Saya tooltip/label stays.
+  assert.match(mapCode, /fillColor: BRAND_PIN/);
+  assert.match(mapCode, /fillColor: "#ffffff"/);
+  assert.match(mapCode, /Lokasi Anda/);
+  // Accuracy circle is preserved.
+  assert.match(mapCode, /radius: accuracy/);
+});
+
+test("LIVE pin priority and /live/[sessionId] navigation survive the curated changes", () => {
+  const mapCode = stripComments(homeMap);
+  assert.match(mapCode, /zIndexOffset: 1000/);
+  assert.match(mapCode, /router\.push\(`\/live\/\$\{live\.sessionId\}`\)/);
+  // LIVE keeps the strongest pin priority over curated Place pins (500).
+  const liveOffset = mapCode.indexOf("zIndexOffset: 1000");
+  const placeOffset = mapCode.indexOf("zIndexOffset: live ? 0 : 500");
+  assert.ok(liveOffset >= 0 && placeOffset > liveOffset);
+});

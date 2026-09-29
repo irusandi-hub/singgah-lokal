@@ -8,6 +8,7 @@ import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
 import {
+  CURATED_CAMERA_RADIUS_M,
   DISTANCE_FILTERS,
   buildDirectionsUrl,
   distanceMeters,
@@ -325,6 +326,10 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
             locateNonce={locateNonce}
             onRequestLocate={() => setLocateNonce((nonce) => nonce + 1)}
             radiusMeters={curatedOnly ? null : DISTANCE_FILTER_RADIUS_M[distanceFilter]}
+            /* Curated camera coverage: 50 km around the real Current
+               Location; unbounded modes keep the existing behavior. */
+            cameraRadiusMeters={curatedOnly ? CURATED_CAMERA_RADIUS_M : null}
+            curatedMarkers={curatedOnly}
           />
 
           {/* Clear empty state when no visible Place carries canonical
