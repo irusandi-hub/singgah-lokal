@@ -285,9 +285,11 @@ test("the action vocabulary covers exactly the required Admin Place actions", ()
   assert.deepEqual(Object.values(PLACE_AUDIT_ACTIONS).sort(), [
     "admin_place_archived",
     "admin_place_created",
+    "admin_place_curated",
     "admin_place_paused",
     "admin_place_published",
     "admin_place_restored",
+    "admin_place_uncurated",
     "admin_place_updated",
     "place_claim_approved",
     "place_claim_rejected",
@@ -296,8 +298,12 @@ test("the action vocabulary covers exactly the required Admin Place actions", ()
   for (const action of Object.values(PLACE_AUDIT_ACTIONS)) {
     assert.ok(PLACE_AUDIT_ACTION_LABEL[action], `${action} needs a label`);
   }
-  // The vocabulary in code is the vocabulary the database enforces.
-  const sql = stripComments(readMigration("0031_place_audit.sql"));
+  // The vocabulary in code is the vocabulary the database enforces — the
+  // workspace actions in 0031 and the Stage 4 curation actions in 0036
+  // (which replaced the CHECK additively).
+  const sql =
+    stripComments(readMigration("0031_place_audit.sql")) +
+    stripComments(readMigration("0036_place_curated_admin.sql"));
   for (const action of Object.values(PLACE_AUDIT_ACTIONS)) {
     assert.match(sql, new RegExp(`'${action}'`));
   }
@@ -359,11 +365,12 @@ test("claim approval and rejection are recorded without changing the claim seman
 
 test("every audit entry is attributed to the authenticated Admin, never the service role", () => {
   const workspace = stripComments(placeWorkspace);
-  // The guard's return value is the actor source, in all three workspace
-  // write actions (create, edit, moderate).
+  // The guard's return value is the actor source, in all FOUR workspace
+  // write actions (create, edit, moderate, Tempat Pilihan promotion — the
+  // curation function from Stage 4).
   const actors = workspace.match(/const actor = await requirePlatformModerator\(\);/g) ?? [];
-  assert.equal(actors.length, 3, "every Place workspace write must capture the Admin identity");
-  assert.equal((workspace.match(/actorId: actor\.userId/g) ?? []).length, 3);
+  assert.equal(actors.length, 4, "every Place workspace write must capture the Admin identity");
+  assert.equal((workspace.match(/actorId: actor\.userId/g) ?? []).length, 4);
 
   // The claim review takes the same session-derived identity from its route.
   const route = stripComments(claimRoute);
@@ -452,6 +459,7 @@ test("the audit trail holds Place columns only — never user email, credentials
     "contact_information",
     "cover_image_url",
     "currency",
+    "is_curated",
     "latitude",
     "longitude",
     "name",

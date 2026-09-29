@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { AdminErrorState, AdminPageHeader, AdminStatusBadge, formatAdminTimestamp } from "@/components/admin/ui";
 import AdminPlaceEditor from "@/components/admin/place-editor";
 import AdminPlaceModeration from "@/components/admin/place-moderation";
-import { getAdminPlaceDetail } from "@/lib/admin/place-workspace";
+import AdminPlaceCuration from "@/components/admin/place-curation";
+import { getAdminPlaceDetail, getAdminPlaceDiscoveryView } from "@/lib/admin/place-workspace";
+import { formatDiscoveryStars, DISCOVERY_BREAKDOWN_LABELS } from "@/lib/admin/discovery-view";
 import { listPlaceAudit, type PlaceAuditRow } from "@/lib/admin/place-audit";
 import { PLACE_AUDIT_ACTION_LABEL, placeAuditChanges } from "@/lib/place-audit-format";
 import { listAdminActorEmails } from "@/lib/admin/user-directory";
@@ -74,6 +76,11 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
     auditAvailable = false;
   }
 
+  // Stage 4: the canonical engine's current evaluation of this Place —
+  // READ-ONLY (stars + rank + breakdown; the numeric score never leaves the
+  // server). A degraded engine read must never break the workspace.
+  const discoveryView = await getAdminPlaceDiscoveryView(placeId).catch(() => undefined);
+
   return (
     <div className="space-y-8">
       <AdminPageHeader
@@ -116,6 +123,58 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
             <dd className="mt-1 text-sm text-black/70">{timezoneLabel(place.timezone)}</dd>
           </div>
         </dl>
+      </section>
+
+      {/* Stage 4: Discovery visibility (READ-ONLY) + the Tempat Pilihan
+          decision. One section keeps the layered relationship explicit:
+          Discovery is computed by the engine and cannot be set; Tempat
+          Pilihan is the only Admin decision here, and it never changes
+          publication, claim, ownership, or any Discovery value. */}
+      <section aria-label="Discovery dan Tempat Pilihan" className="rounded-2xl border border-black/10 bg-white p-5">
+        <h3 className="text-sm font-bold uppercase tracking-wide text-black/50">Discovery & Tempat Pilihan</h3>
+        <div className="mt-3 grid gap-5 lg:grid-cols-2">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Discovery Place</p>
+            {discoveryView ? (
+              <>
+                <p className="mt-1 text-2xl font-bold tracking-tight text-brand-primary" aria-label={`Discovery ${discoveryView.stars} bintang`}>
+                  {formatDiscoveryStars(discoveryView.stars)}
+                </p>
+                <p className="mt-1 text-xs text-black/55">
+                  {discoveryView.eligible
+                    ? discoveryView.rank !== null
+                      ? `Peringkat #${discoveryView.rank} di Discovery — dihitung sistem dari data kanonik.`
+                      : "Eligible — peringkat mengikuti perhitungan platform."
+                    : "Belum eligible — lengkapi data kanonik Tempat."}
+                </p>
+                <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  {DISCOVERY_BREAKDOWN_LABELS.map(({ key, label }) => {
+                    const value = discoveryView.breakdown[key as keyof typeof discoveryView.breakdown] ?? 0;
+                    return (
+                      <div key={key} className="flex items-center justify-between gap-2">
+                        <dt className="text-xs text-black/55">{label}</dt>
+                        <dd className="text-xs font-bold text-black/75">{value}</dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+                <p className="mt-2 text-[11px] text-black/40">
+                  Breakdown bersifat baca-saja. Nilai berasal dari canonical Discovery engine.
+                </p>
+              </>
+            ) : (
+              <p className="mt-1 text-xs text-black/55">
+                Penilaian Discovery belum tersedia untuk Tempat ini.
+              </p>
+            )}
+          </div>
+          <div className="lg:border-l lg:border-black/10 lg:pl-5">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Tempat Pilihan</p>
+            <div className="mt-2">
+              <AdminPlaceCuration placeId={place.id} isCurated={place.isCurated} />
+            </div>
+          </div>
+        </div>
       </section>
 
       <section aria-label="Pengelola" className="rounded-2xl border border-black/10 bg-white p-5">

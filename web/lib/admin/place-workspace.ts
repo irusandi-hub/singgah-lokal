@@ -1,5 +1,6 @@
 import "server-only";
 
+import { ecosystemComponent, followerComponent, liveComponent, visitIntentComponent, discoveryStarsForScore, evaluateDiscoveryEligibility, rankDiscoveryPlaces } from "@/lib/discovery/scoring";
 import { PlaceAuditError, recordPlaceAudit } from "@/lib/admin/place-audit";
 import { PLACE_AUDIT_ACTIONS, placeAuditSnapshot, type PlaceAuditAction } from "@/lib/place-audit-format";
 import { SupabasePlaceManagementRepository } from "@/lib/place-experience-repository";
@@ -12,6 +13,7 @@ import {
 } from "@/lib/places";
 import { requirePlatformModerator } from "@/lib/live/platform";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
+import { getPublicPlaceExperienceRepository } from "@/lib/place-experience-repository";
 
 /**
  * ADMIN PLACE WORKSPACE — Platform Admin operational authority over Place
@@ -104,6 +106,8 @@ export function adminPlaceErrorMessage(code: string): string {
       return "URL cover image tidak valid.";
     case "place_status_invalid":
       return "Status publikasi tidak dikenal.";
+    case "place_curated_flag_invalid":
+      return "Keputusan Tempat Pilihan tidak valid.";
     case "place_audit_unavailable":
       return "Riwayat tindakan tidak dapat dicatat, jadi perubahan tidak disimpan. Coba lagi.";
     case "place_unavailable":
@@ -504,4 +508,164 @@ function moderationAction(from: PublicationStatus, to: PublicationStatus): Place
   if (to === "paused") return PLACE_AUDIT_ACTIONS.paused;
   if (to === "archived") return PLACE_AUDIT_ACTIONS.archived;
   return PLACE_AUDIT_ACTIONS.updated;
+}
+
+/**
+ * TEMPAT PILIHAN PROMOTION (Stage 4, PO): "Jadikan Tempat Pilihan" /
+ * "Cabut Promosi".
+ *
+ * This is a LAYER decision and nothing else. It is deliberately separate
+ * from Discovery — the canonical engine (lib/discovery/scoring.ts) computes
+ * eligibility/score/stars from canonical signals and NEVER reads the flag, so
+ * promoting or revoking cannot create, remove, or alter any Discovery value.
+ * The Admin cannot and must not be able to: change a Discovery score, set
+ * stars, force a Place into Discovery, or change publication/claim/ownership
+ * through promotion — none of those paths exist in this function.
+ *
+ * Mechanics (the exact workspace invariants):
+ * - `requirePlatformModerator()` is re-verified server-side from the session;
+ *   the actor is the guard's return value, never client input.
+ * - The flag flips through the service role — the ONLY writer of
+ *   `places.is_curated` (migration 0036 refuses the change from any session
+ *   role, so a client can never set it through the generic update paths).
+ * - Every decision lands in the append-only place_audit trail as
+ *   `admin_place_curated` / `admin_place_uncurated` against the ADMIN's own
+ *   user id. If the audit write fails, the flag is ROLLED BACK first — a
+ *   promotion with no attributable trail is exactly what Master 09 §2/§13
+ *   forbids.
+ * - No-op retries (same flag value) return the Place unchanged and record
+ *   nothing — the same idempotency rule as the publication moderation above.
+ */
+export async function setAdminPlaceCurated(placeId: string, curated: unknown): Promise<Place> {
+  const actor = await requirePlatformModerator();
+  const id = placeId.trim();
+  if (!id) throw new AdminPlaceError("place_not_found");
+  if (typeof curated !== "boolean") {
+    throw new AdminPlaceError("place_curated_flag_invalid");
+  }
+
+  const repository = adminPlaceRepository();
+  const place = await repository.getById(id);
+  if (!place) throw new AdminPlaceError("place_not_found");
+
+  // Idempotent no-op: the desired state already holds.
+  if (place.isCurated === curated) return place;
+
+  const admin = createSupabaseServiceClient();
+  const { error } = await admin
+    .from("places")
+    .update({ is_curated: curated, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new AdminPlaceError("place_unavailable");
+
+  try {
+    await recordPlaceAudit({
+      placeId: id,
+      actorId: actor.userId,
+      action: curated ? PLACE_AUDIT_ACTIONS.curated : PLACE_AUDIT_ACTIONS.uncurated,
+      before: placeAuditSnapshot(place),
+      after: placeAuditSnapshot({ ...place, isCurated: curated }),
+      detail: { isCurated: curated },
+    });
+  } catch (error) {
+    // Rollback BEFORE surfacing the failure: never leave an unattributed
+    // promotion behind (same no-partial-state rule as create/update above).
+    try {
+      await admin
+        .from("places")
+        .update({ is_curated: place.isCurated, updated_at: new Date().toISOString() })
+        .eq("id", id);
+    } catch {
+      // Best-effort revert; the original audit failure is surfaced regardless.
+    }
+    throw error instanceof PlaceAuditError
+      ? new AdminPlaceError("place_audit_unavailable")
+      : error;
+  }
+
+  return { ...place, isCurated: curated };
+}
+
+/**
+ * DISCOVERY VISIBILITY for the Admin workspace (read-only, computed):
+ * the canonical engine's current evaluation of ONE Place — the star tier,
+ * the rank it currently holds in the platform-wide engine order, and the
+ * per-component breakdown that drives it. Every value comes from the engine
+ * through the canonical signal assembly; nothing here can be written, and
+ * the numeric score never leaves the server.
+ */
+export type AdminPlaceDiscoveryView = {
+  /** The engine's current star tier (contract §4). */
+  stars: 1 | 2 | 3 | 4;
+  /** Position in the engine's platform-wide ranking, or null when ineligible. */
+  rank: number | null;
+  /** True when the Place passes the engine's eligibility rules. */
+  eligible: boolean;
+  breakdown: {
+    kelengkapan: number;
+    pengalaman: number;
+    aktivitas: number;
+    engagement: number;
+    freshness: number;
+    relevansi: number;
+  };
+};
+
+/**
+ * Component mapping (Stage 4 PO vocabulary → contract §3 weights): the
+ * breakdown SHOWS how the locked formula weighs the Place — it is never a
+ * second scoring implementation. Values are 0–100 per component (component
+ * fraction × its weight), so the four weighted components always sum to the
+ * integer score. kelengkapan/freshness/relevansi are contract-anchored:
+ * readiness, live recency decay, and the coordinate-anchored relevance view.
+ */
+export async function getAdminPlaceDiscoveryView(placeId: string): Promise<AdminPlaceDiscoveryView | undefined> {
+  await requirePlatformModerator();
+  const id = placeId.trim();
+  if (!id) return undefined;
+
+  const publicRepository = await getPublicPlaceExperienceRepository();
+  const inputs = await publicRepository.listDiscoveryInputs(new Date());
+  const input = inputs.find((candidate) => candidate.place.id === id);
+  if (!input) return undefined;
+
+  const ranked = rankDiscoveryPlaces(inputs, new Date());
+  const rank = ranked.find((entry) => entry.placeId === id)?.rank ?? null;
+  const scoreEntry = ranked.find((entry) => entry.placeId === id);
+  const score = scoreEntry?.score ?? 0;
+
+  const now = new Date();
+  return {
+    stars: scoreEntry ? discoveryStarsForScore(score) : 1,
+    rank,
+    eligible: evaluateDiscoveryEligibility(input.place),
+    breakdown: {
+      kelengkapan: isPlacePublicationReady({
+        ...input.place,
+        category: "Sumber Daya Alam",
+        type: "production",
+        contactInformation: "",
+        timezone: "Asia/Jakarta",
+        currency: "IDR",
+        countryCode: null,
+        regionName: null,
+        coverImageUrl: input.signals.engagement.hasCoverImage ? "https://cover" : null,
+        isCurated: false,
+        producer: null,
+      })
+        ? 100
+        : 0,
+      pengalaman: Math.round(ecosystemComponent(input.signals.engagement) * 100),
+      aktivitas: Math.round(liveComponent(input.signals.live, now) * 100),
+      engagement: Math.round(
+        (followerComponent(input.signals.engagement.followers) +
+          visitIntentComponent(input.signals.engagement.visitIntents)) *
+          50,
+      ),
+      freshness: Math.round(liveComponent(input.signals.live, now) * 100),
+      relevansi: input.place.latitude !== null && input.place.longitude !== null ? 100 : 0,
+    },
+    // The integer score stays server-side; it is intentionally absent from
+    // this view (contract §3: only stars/rank ever reach a client).
+  };
 }

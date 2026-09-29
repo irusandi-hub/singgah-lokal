@@ -91,6 +91,8 @@ export type AdminPlaceRow = {
   regionName: string | null;
   publicationStatus: string;
   claimStatus: string;
+  /** Stage 4: the Tempat Pilihan flag (migration 0035), Admin-visible. */
+  isCurated: boolean;
   producerId: string | null;
   createdAt: string;
   /** Account email of the owner (via membership) — Admin context ONLY. */
@@ -379,7 +381,7 @@ export async function listAdminPlaces(filter: { countryCode?: string | null; reg
 
   let placeQuery = supabase
     .from("places")
-    .select("id, name, category, type, area, country_code, region_name, publication_status, claim_status, producer_id, created_at")
+    .select("id, name, category, type, area, country_code, region_name, publication_status, claim_status, producer_id, is_curated, created_at")
     // The canonical order, applied in the DATABASE (PO, 2026-09-28):
     // country → region → place name — never a client-side sort of a
     // truncated page.
@@ -417,6 +419,8 @@ export async function listAdminPlaces(filter: { countryCode?: string | null; reg
     regionName: row.region_name === null ? null : String(row.region_name),
     publicationStatus: String(row.publication_status),
     claimStatus: String(row.claim_status),
+    /** Stage 4: the Tempat Pilihan flag, surfaced read-only in Admin. */
+    isCurated: row.is_curated === true,
     producerId: row.producer_id === null ? null : String(row.producer_id),
     createdAt: String(row.created_at),
     ownerEmail: emailByPlace.get(String(row.id)) ?? null,

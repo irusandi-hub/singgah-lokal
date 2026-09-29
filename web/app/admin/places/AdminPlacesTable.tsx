@@ -39,10 +39,19 @@ export default function AdminPlacesTable({ places }: { places: AdminPlaceRow[] }
       key: "publication",
       header: "Publikasi",
       render: (row) => (
-        <AdminStatusBadge
-          value={row.publicationStatus}
-          tone={row.publicationStatus === "published" ? "positive" : row.publicationStatus === "archived" ? "negative" : "warning"}
-        />
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <AdminStatusBadge
+            value={row.publicationStatus}
+            tone={row.publicationStatus === "published" ? "positive" : row.publicationStatus === "archived" ? "negative" : "warning"}
+          />
+          {/* Stage 4: Tempat Pilihan status — read-only visibility here; the
+              promotion/revocation decision lives in the Place workspace. */}
+          {row.isCurated && (
+            <span className="inline-flex rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-bold text-white">
+              ✦ Tempat Pilihan
+            </span>
+          )}
+        </span>
       ),
     },
     {
