@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import {
+  CAMERA_PRESET_RADIUS_M,
+  CURATED_CAMERA_RADIUS_M,
+} from "../lib/live/ui";
 
 const homeMap = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
 const homePage = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
@@ -136,29 +140,76 @@ test("Distance filtering stays anchored to the real Current Location", () => {
   assert.match(pageCode, /formatDistance\(distanceMeters\(viewerPosition/);
 });
 
+test("Every distance tab is a deterministic camera preset through ONE mechanism", () => {
+  const pageCode = stripComments(homePage);
+  const mapCode = stripComments(homeMap);
+  // One preset mechanism: the camera frame covers a preset radius around the
+  // REAL Current Location via radiusZoom — no unbounded camera path is left.
+  assert.match(mapCode, /cameraRadiusMeters !== null/);
+  assert.match(mapCode, /radiusZoom\(map, viewerPosition, cameraRadiusMeters\)/);
+  assert.match(mapCode, /map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\)/);
+  // Home feeds every mode into that ONE camera prop: distance tabs through
+  // the ordered preset mapping, curated through its 50 km value.
+  assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  // The zoom is derived from the preset radius, never from the current zoom:
+  // no Math.max(map.getZoom()...) preset flight survives.
+  assert.doesNotMatch(mapCode, /Math\.max\(map\.getZoom\(\), \d+\)[^\n]*preset/i);
+  // flyToUser appears exactly twice: the explicit Lokasi Saya recenter and
+  // the one-shot null-preset fallback (no Home mode reaches it — every mode
+  // passes a preset). No distance tab uses the current-zoom-based flight.
+  const flyToUserCalls = mapCode.match(/flyToUser\(map, viewerPosition\)/g) ?? [];
+  assert.equal(flyToUserCalls.length, 2, "recenter + one-shot fallback only");
+});
+
+// --- Camera preset ordering (PO, 2026-09-29) ---
+
+test("Camera preset radii are strictly ordered: 1 km < 5 km < 10 km+ < curated 50 km", () => {
+  // The preset table is the single source of the ordering...
+  assert.deepEqual(CAMERA_PRESET_RADIUS_M, { "1 km": 1_000, "5 km": 5_000, "10 km+": 12_000 });
+  assert.equal(CURATED_CAMERA_RADIUS_M, 50_000);
+  // ...and the ordering is locked MATHEMATICALLY: at a fixed center the
+  // pixel footprint of the radius box scales linearly with the radius, so
+  // the derived zoom differs by exactly log2(ratio) — INDEPENDENT of the
+  // current zoom, the viewport size, or the latitude. Each adjacent ratio
+  // is > 2, i.e. every step zooms out by MORE than one full level, which
+  // also keeps the order strict after Leaflet's zoomSnap (0.25) rounding:
+  // adjacent real zooms can only floor to the same snap bucket when they
+  // are < 1 level apart — impossible at these ratios.
+  const orderings: [string, string, number, number][] = [
+    ["1 km", "5 km", CAMERA_PRESET_RADIUS_M["1 km"], CAMERA_PRESET_RADIUS_M["5 km"]],
+    ["5 km", "10 km+", CAMERA_PRESET_RADIUS_M["5 km"], CAMERA_PRESET_RADIUS_M["10 km+"]],
+    ["10 km+", "curated", CAMERA_PRESET_RADIUS_M["10 km+"], CURATED_CAMERA_RADIUS_M],
+  ];
+  for (const [narrow, wide, narrowR, wideR] of orderings) {
+    const ratio = wideR / narrowR;
+    assert.ok(ratio > 2, `${wide} (${wideR}) must cover more than 2× ${narrow} (${narrowR})`);
+    assert.ok(Math.log2(ratio) > 1, `${wide} must zoom out more than one full level vs ${narrow}`);
+  }
+});
+
 test("Bounded radius focuses the camera on the real Current Location, never on markers or Indonesia", () => {
   const mapCode = stripComments(homeMap);
-  // The camera effect is driven by the active filter radius...
-  assert.match(mapCode, /radiusMeters/);
+  // The camera effect is driven by the preset radius...
+  assert.match(mapCode, /cameraRadiusMeters/);
   // ...centers on the REAL geolocation fix...
   assert.match(mapCode, /map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\]/);
   // ...derives zoom from the radius itself (radius-sized bounds box)...
   assert.match(mapCode, /getBoundsZoom\(bounds\)/);
   assert.match(mapCode, /latDelta = radiusMeters \/ 111_320/);
-  // ...skips unbounded "10 km+" radius re-zoom and never steals the camera
-  // from the user (interactions latch; the latch re-arms on a NEW radius
-  // choice so the next bounded tab can refocus).
-  assert.match(mapCode, /radiusMeters !== null/);
+  // ...never steals the camera from the user (interactions latch; the latch
+  // re-arms on a NEW preset choice so the next tab can refocus).
   assert.match(mapCode, /userInteractedRef\.current\) return/);
-  // Home passes the locked filter's radius mapping as the camera source
-  // (unbounded in curated mode).
+  // Home passes ONE camera preset mapping for every mode (distance tabs or
+  // curated 50 km).
   const pageCode = stripComments(homePage);
-  assert.match(pageCode, /radiusMeters=\{curatedOnly \? null : DISTANCE_FILTER_RADIUS_M\[distanceFilter\]\}/);
+  assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
 });
 
-test("Unbounded 10 km+ never re-zooms the camera from a radius refocus", () => {
+test("No-preset fallback keeps the one-shot unbounded focus; it is not a distance tab", () => {
   const mapCode = stripComments(homeMap);
-  // Unbounded path: single focus on the actual location, no radius zoom.
+  // The null-preset fallback exists ONLY for safety (no Home mode reaches
+  // it) and stays a one-shot focus on the actual location, never a radius
+  // re-zoom.
   assert.match(mapCode, /if \(!cameraDecidedRef\.current\) \{\n\s*flyToUser\(map, viewerPosition\);\n\s*\}/);
 });
 
@@ -199,28 +250,28 @@ test("Exactly one tile layer exists for the map's whole lifetime", () => {
   assert.match(mapCode, /tileLayerRef\.current = null/);
 });
 
-test("Zoom controls stay available and user zoom/pan latches are re-armed per filter", () => {
+test("Zoom controls stay available and user zoom/pan latches are re-armed per preset", () => {
   const mapCode = stripComments(homeMap);
   // +/- controls remain a real Leaflet zoom control...
   assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright" \}\)/);
-  // ...and interactions are re-armed on a new radius choice so a bounded tab
-  // can refocus after the user dragged on the previous one.
+  // ...and interactions are re-armed on a new preset choice so a new tab can
+  // refocus after the user dragged on the previous one.
   assert.match(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
-  assert.match(mapCode, /lastRadiusRef\.current = radiusMeters/);
+  assert.match(mapCode, /lastRadiusRef\.current = cameraRadiusMeters/);
 });
 
-test("Bounded radius refocuses the camera on every radius change (tab-switch regression)", () => {
+test("A new preset refocuses deterministically; manual pan/zoom wins between choices", () => {
   const mapCode = stripComments(homeMap);
-  // The refocus is driven by radius change, not a one-shot latch...
-  assert.match(mapCode, /const radiusChanged = lastRadiusRef\.current !== radiusMeters/);
+  // The refocus is driven by the preset change, not a one-shot latch...
+  assert.match(mapCode, /const radiusChanged = lastRadiusRef\.current !== cameraRadiusMeters/);
   // ...re-arms the interaction latch for the new tab...
   assert.match(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
-  // ...and still centers on the REAL geolocation fix with radius-derived zoom.
+  // ...and still centers on the REAL geolocation fix with preset-derived zoom.
   assert.match(mapCode, /map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\]/);
   assert.match(mapCode, /getBoundsZoom\(bounds\)/);
-  // Home passes the locked filter radius (or unbounded in curated mode).
+  // Home passes the ONE preset mapping (curated 50 km or the tab preset).
   const pageCode = stripComments(homePage);
-  assert.match(pageCode, /radiusMeters=\{curatedOnly \? null : DISTANCE_FILTER_RADIUS_M\[distanceFilter\]\}/);
+  assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
 });
 
 test("Remount/refresh safety: container claim, full teardown, and size re-measure", () => {
@@ -245,9 +296,9 @@ test("Curated mode centers the camera on Current Location with 50 km coverage", 
   const pageCode = stripComments(homePage);
   const mapCode = stripComments(homeMap);
   // Home passes the 50 km curated camera radius ONLY while curated is on;
-  // normal modes keep the existing radius mapping untouched.
+  // normal modes keep the distance-tab preset mapping untouched.
   assert.match(pageCode, /CURATED_CAMERA_RADIUS_M/);
-  assert.match(pageCode, /cameraRadiusMeters=\{curatedOnly \? CURATED_CAMERA_RADIUS_M : null\}/);
+  assert.match(pageCode, /cameraRadiusMeters=\{\n?\s*curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]\n?\s*\}/);
   // The map flies to the REAL fix with radius-derived zoom — no fallback
   // coordinate is ever introduced (the no-fake-position test above still
   // applies to every setViewerPosition/flyTo call).
@@ -269,40 +320,84 @@ test("Curated camera radius never filters the curated Place set", () => {
   assert.doesNotMatch(pageCode, /distanceMeters\([^)]*CURATED/);
 });
 
-test("Curated Place pins are compact teardrops with the curated identity, label only on selection", () => {
+// --- Unified marker system (PO, 2026-09-29): base pin + treatments ---
+
+test("ONE base Place marker: compact teardrop, no emoji, treatments not different models", () => {
   const mapCode = stripComments(homeMap);
-  // Compact 34 px teardrop in the SECONDARY brand green with the ✦ glyph —
-  // visually distinct from the normal brown pin, light on the map.
-  assert.match(mapCode, /curatedMarkers \? curatedPin : normalPin/);
-  assert.match(mapCode, /width:34px;height:44px/);
-  assert.match(mapCode, /background:\$\{BRAND_SECONDARY\}/);
+  // One marker builder for every Place: the SAME teardrop shape in all
+  // modes — only the fill color (and the curated accent) differ.
+  assert.match(mapCode, /const pinColor = curatedMarkers \? BRAND_SECONDARY : BRAND_BROWN/);
   assert.match(mapCode, /border-radius:9999px 9999px 9999px 0/);
+  // Exactly one Place-pin builder: no second model, no emoji glyphs.
+  assert.equal((mapCode.match(/const placePin = /g) ?? []).length, 1);
+  assert.doesNotMatch(mapCode, /📍/);
+  // Compact: 28×36 px pin, 28 px head — light on a dense mobile map.
+  assert.match(mapCode, /width:28px;height:36px/);
+  // "Tempat Pilihan" is a treatment of the base: secondary green fill + ✦
+  // accent on the SAME shape, never a different object.
+  assert.match(mapCode, /background:\$\{pinColor\}/);
+  assert.match(mapCode, /BRAND_SECONDARY/);
   assert.match(mapCode, /✦/);
-  // No always-on name label in curated mode: the name appears in a Leaflet
-  // tooltip bound on selection only (the normal pin keeps its label).
-  assert.match(mapCode, /bindTooltip\(escapeHtml\(place\.name\)/);
-  assert.match(mapCode, /if \(curatedMarkers\) \{\n\s*marker\.bindTooltip/);
-  // ...and the click target is unchanged: /places/[id] for every pin.
+  // Click/navigation flow unchanged: every pin routes to /places/[id].
   assert.match(mapCode, /router\.push\(`\/places\/\$\{place\.id\}`\)/);
+});
+
+test("Declutter: Place names appear only on hover/focus/selection, never as always-on labels", () => {
+  const mapCode = stripComments(homeMap);
+  // The name tooltip is bound unconditionally (hover/focus/selection ONLY —
+  // Leaflet does not render it persistently), with NO always-on name chip.
+  assert.match(mapCode, /marker\.bindTooltip\(escapeHtml\(place\.name\)/);
+  assert.doesNotMatch(mapCode, /max-width:180px[^\n]*font-weight:700[^\n]*\$\{escapeHtml\(place\.name\)\}/);
+  // No curated-only label branch is left (decluttering covers all modes).
+  assert.doesNotMatch(mapCode, /if \(curatedMarkers\) \{\n\s*marker\.bindTooltip/);
+  // The LIVE pin has no name label either — its identity is the LIVE chip.
+  assert.doesNotMatch(mapCode, /bindTooltip\(liveTitle/);
+});
+
+test("LIVE treatment: same teardrop language, unmistakably live-red, still compact", () => {
+  const mapCode = stripComments(homeMap);
+  // The LIVE pin keeps the teardrop silhouette (one visual language)...
+  const liveIdx = mapCode.indexOf("Live sekarang di");
+  const placeIdx = mapCode.indexOf("const placePin = ");
+  assert.ok(liveIdx >= 0 && placeIdx > liveIdx, "LIVE pin shares the Place pin language");
+  assert.match(mapCode, /border-radius:9999px 9999px 9999px 0/);
+  // ...in the live red with a white pulsing core and a small LIVE chip...
+  assert.match(mapCode, /background:\$\{BRAND_LIVE\}/);
+  assert.match(mapCode, /singgah-live-pulse/);
+  // ...compact (30 px head + 9 px chip, total ≈38 px tall), not a 48 px badge.
+  assert.match(mapCode, /width:30px;height:38px/);
+  assert.doesNotMatch(mapCode, /height:48px;width:48px/);
+  // Global stylesheet carries the pulse animation + reduced-motion opt-out.
+  const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(globals, /@keyframes singgah-live-pulse/);
+  assert.match(globals, /prefers-reduced-motion/);
+  // Accessibility: every marker keeps a correct aria-label; LIVE keeps its
+  // top z-priority over Place pins and the /live/[sessionId] flow.
+  assert.match(mapCode, /aria-label="Live sekarang di \$\{escapeHtml\(place\.name\)\} — lihat proses produksi"/);
+  assert.match(mapCode, /zIndexOffset: 1000/);
+  assert.match(mapCode, /router\.push\(`\/live\/\$\{live\.sessionId\}`\)/);
+  const liveOffset = mapCode.indexOf("zIndexOffset: 1000");
+  const placeOffset = mapCode.indexOf("zIndexOffset: live ? 0 : 500");
+  assert.ok(liveOffset >= 0 && placeOffset > liveOffset);
+});
+
+test("Every marker carries an accessible aria-label", () => {
+  const mapCode = stripComments(homeMap);
+  // Place pins (normal + curated) announce the Place; LIVE pins announce
+  // the live status and flow; the user marker keeps its own tooltip.
+  const placePinAria = (mapCode.match(/aria-label="Lihat \$\{escapeHtml\(place\.name\)\}"/g) ?? []).length;
+  assert.equal(placePinAria, 1, "exactly one Place-pin aria-label builder");
+  assert.match(mapCode, /aria-label="Live sekarang di/);
+  assert.match(mapCode, /Lokasi Anda/);
 });
 
 test("Current Location marker is visually distinct from every Place pin", () => {
   const mapCode = stripComments(homeMap);
-  // A deep-green disc with a white core (Place pins are the brown inverse),
-  // no click behavior, and the Lokasi Saya tooltip/label stays.
+  // A deep-green disc with a white core (Place pins are teardrops — never
+  // discs), no click behavior, and the Lokasi Saya tooltip/label stays.
   assert.match(mapCode, /fillColor: BRAND_PIN/);
   assert.match(mapCode, /fillColor: "#ffffff"/);
   assert.match(mapCode, /Lokasi Anda/);
   // Accuracy circle is preserved.
   assert.match(mapCode, /radius: accuracy/);
-});
-
-test("LIVE pin priority and /live/[sessionId] navigation survive the curated changes", () => {
-  const mapCode = stripComments(homeMap);
-  assert.match(mapCode, /zIndexOffset: 1000/);
-  assert.match(mapCode, /router\.push\(`\/live\/\$\{live\.sessionId\}`\)/);
-  // LIVE keeps the strongest pin priority over curated Place pins (500).
-  const liveOffset = mapCode.indexOf("zIndexOffset: 1000");
-  const placeOffset = mapCode.indexOf("zIndexOffset: live ? 0 : 500");
-  assert.ok(liveOffset >= 0 && placeOffset > liveOffset);
 });

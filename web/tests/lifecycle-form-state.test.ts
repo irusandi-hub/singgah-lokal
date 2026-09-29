@@ -51,7 +51,13 @@ test("Map teardown destroys listeners, layers, and the instance itself", () => {
   const mapCode = stripComments(homeMap);
   const cleanupStart = mapCode.indexOf("return () => {\n      cancelled = true;");
   assert.ok(cleanupStart >= 0, "init effect must register cleanup");
-  const cleanup = mapCode.slice(cleanupStart, cleanupStart + 700);
+  // The teardown block (comment-stripped) is longer than the historical
+  // 700-char window: it now also removes the tile layer and the two-finger
+  // observer before tearing down the map itself. Read the whole cleanup —
+  // up to the closing of the init effect — so the assertions below test
+  // the REAL teardown order instead of a truncated slice.
+  const cleanupEnd = mapCode.indexOf("}, []);", cleanupStart);
+  const cleanup = mapCode.slice(cleanupStart, cleanupEnd > cleanupStart ? cleanupEnd : cleanupStart + 1600);
   assert.match(cleanup, /markerLayerRef\.current\?\.remove\(\)/);
   assert.match(cleanup, /userLayerRef\.current\?\.remove\(\)/);
   assert.match(cleanup, /map\.off\(\)/);

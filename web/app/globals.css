@@ -76,3 +76,46 @@ select {
   box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
   border: 1px solid var(--brand-ink);
 }
+
+/* Home map marker system (PO, 2026-09-29): ONE base Place pin — a compact
+   teardrop that anchors on the Place's canonical coordinate — with per-mode
+   treatments only (brown base → secondary-green "Tempat Pilihan" → red
+   LIVE). No emoji glyphs, no always-on name labels (names live in tooltips
+   on hover/focus so dense maps stay readable), no decorative extras. The
+   pin tip sits exactly on the coordinate; the hover/focus lift is pure
+   feedback for the tap target. */
+.singgah-map-marker {
+  transition: filter 0.15s ease;
+}
+
+.singgah-map-marker:hover,
+.singgah-map-marker:focus-within {
+  filter: brightness(1.08);
+}
+
+@keyframes singgah-live-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.15;
+  }
+}
+
+.singgah-live-pulse {
+  animation: singgah-live-pulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .singgah-live-pulse {
+    animation: none;
+  }
+}
+
+.singgah-map-marker:focus-visible {
+  outline: 2px solid var(--brand-ink);
+  outline-offset: 2px;
+}

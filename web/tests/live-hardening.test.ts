@@ -92,7 +92,6 @@ test("E2E: Home Leaflet marker content is HTML-escaped", () => {
   // Leaflet marker HTML is assembled manually, so canonical Place/process
   // text must be escaped before interpolation.
   assert.match(homeMapSource, /function escapeHtml\(value: string\)/);
-  assert.match(homeMapSource, /escapeHtml\(live\.processTitle \?\? place\.name\)/);
   assert.match(homeMapSource, /escapeHtml\(place\.name\)/);
   assert.equal(homeMapSource.includes("${place.name}"), false);
 });

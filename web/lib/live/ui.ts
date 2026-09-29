@@ -24,11 +24,14 @@ export type LiveDiscoveryItem = {
 };
 
 /**
- * Distance filter semantics (MASTER_LIVE_POLICY §9 amended §12.5, MASTER_LIVE_TECH §9):
+ * Distance LIST-filter semantics (MASTER_LIVE_POLICY §9 amended §12.5,
+ * MASTER_LIVE_TECH §9) — the Place LIST below the map keeps its existing
+ * proximity contract:
  * - Bounded radii match Places whose canonical lat/lng is within the radius;
  *   "10 km+" is unbounded.
  * - A Place without canonical coordinates stays visible only under the
  *   unbounded filter — bounded radii never hide results by assumption.
+ * The MAP camera does not use this mapping — see CAMERA_PRESET_RADIUS_M.
  */
 export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
   "1 km": 1000,
@@ -43,6 +46,22 @@ export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
  * still shows ALL published Places and never filters by this radius.
  */
 export const CURATED_CAMERA_RADIUS_M = 50_000;
+
+/**
+ * Distance-tab CAMERA presets (PO, 2026-09-29 — amending the "10 km+ is
+ * unbounded" camera behavior): EVERY distance tab drives ONE deterministic
+ * camera mechanism — the map frame covers this radius around the real
+ * Current Location. The coverage radii are strictly ordered
+ * 1 km < 5 km < 10 km+ (< curated 50 km), so the derived zoom levels are
+ * strictly ordered the opposite way — independent of the current zoom.
+ * CAMERA-ONLY values: they never filter the map dataset (the Place-list
+ * proximity gate keeps its own mapping in DISTANCE_FILTER_RADIUS_M).
+ */
+export const CAMERA_PRESET_RADIUS_M: Record<DistanceFilter, number> = {
+  "1 km": 1_000,
+  "5 km": 5_000,
+  "10 km+": 12_000,
+};
 
 export function distanceMeters(
   from: { lat: number; lng: number },

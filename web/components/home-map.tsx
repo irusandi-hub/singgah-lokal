@@ -18,10 +18,13 @@ import "leaflet/dist/leaflet.css";
  *   becomes the camera center. There is NO fallback viewport and NO invented
  *   user position — before the first real fix the map starts on the neutral
  *   world overview (fitWorld), never on a stand-in country view.
- * - Camera authority:
- *     · when a bounded distance filter is active (1 km / 5 km) the
- *       zoom is derived from the filter radius around Current Location;
- *     · "10 km+" is unbounded and never re-zooms the camera;
+ * - Camera authority (PO, 2026-09-29): ONE deterministic preset mechanism —
+ *   every mode (1 km / 5 km / 10 km+ / "Tempat Pilihan") is a radius preset:
+ *   the camera flies so the frame covers exactly that radius around the real
+ *   Current Location. Preset radii are strictly ordered (1 < 5 < 12 < 50 km),
+ *   so the derived zoom is strictly ordered the opposite way and is NEVER
+ *   derived from the current zoom. A newly chosen preset always applies
+ *   (deterministic refocus); manual pan/zoom wins between choices;
  *     · marker refreshes/API polling never move the camera;
  *     · the one-shot marker fitBounds runs ONLY while no Current Location
  *       exists and is re-checked after its async import so it can never race
@@ -31,8 +34,12 @@ import "leaflet/dist/leaflet.css";
  *   and fast route transitions cannot initialize twice), and teardown fully
  *   removes listeners, layers, and the map itself. invalidateSize() runs on
  *   init and window resize so mobile remounts never leave stacked tiles.
- * - Marker click navigates to /places/[id]; a Place with an active Live
- *   session shows a LIVE overlay pin that navigates to /live/[sessionId].
+ * - Marker system (PO, 2026-09-29): ONE compact teardrop base pin for every
+ *   Place. Modes are treatments of that base, never different models:
+ *   Place biasa (brown) → Tempat Pilihan (secondary green + ✦ accent) →
+ *   LIVE (live red, pulsing core, small LIVE chip, top z-priority, navigates
+ *   to /live/[sessionId]). No emoji glyphs, no always-on name labels — names
+ *   appear in hover/focus tooltips so dense maps stay readable.
  */
 export type HomeMapPlace = {
   id: string;
@@ -55,16 +62,17 @@ type HomeMapProps = {
   viewerPosition: HomeMapViewer | null;
   locateNonce: number;
   onRequestLocate: () => void;
-  /** Active distance-filter radius in meters; null = unbounded ("10 km+"). */
-  radiusMeters: number | null;
   /**
-   * "Tempat Pilihan" camera coverage (PO, 2026-09-29): when set, the camera
-   * zooms so the frame covers this radius (50 km) around the real Current
-   * Location. It is a CAMERA value only — the marker set is decided upstream
-   * and this radius never filters Places.
+   * THE camera preset (PO, 2026-09-29): when set, the camera flies so the
+   * frame covers exactly this radius around the real Current Location —
+   * through ONE deterministic radiusZoom mechanism shared by every mode
+   * (1 km / 5 km / 10 km+ tabs and "Tempat Pilihan" 50 km). Strictly ordered
+   * radii produce strictly ordered zoom levels, independent of the current
+   * zoom. It is a CAMERA value only — the marker set is decided upstream and
+   * this radius never filters Places.
    */
   cameraRadiusMeters?: number | null;
-  /** Curated-layer marker treatment: larger, distinctly framed Place pins. */
+  /** "Tempat Pilihan" treatment on the SAME base Place marker. */
   curatedMarkers?: boolean;
 };
 
@@ -75,15 +83,11 @@ const OSM_ATTRIBUTION =
 const BRAND_BROWN = "var(--brand-accent)";
 const BRAND_LIVE = "var(--live)";
 const BRAND_PIN = "var(--brand-primary-deep)";
-// "Tempat Pilihan" pin color (PO, 2026-09-29): the secondary brand green —
-// clearly different from the normal brown Place pin, still on-brand, and
-// distinct from both the deep-green Current Location and the red LIVE.
+// Marker system colors (PO, 2026-09-29): ONE base Place pin (brand brown)
+// with per-mode treatments — "Tempat Pilihan" uses the secondary brand
+// green, LIVE uses the live red, and the Current Location disc keeps the
+// deep brand green (BRAND_PIN) so the user marker never looks like a Place.
 const BRAND_SECONDARY = "var(--brand-secondary)";
-// Map-overlay color treatment (PO 2026-09-26): Place pins/labels use the
-// deep brand green — dark enough to stay readable on busy/light tiles while
-// the LIVE red keeps the strongest priority and the accent brown stays
-// reserved for the viewer's own location. Colors only: position, size,
-// shape, z-index, and Leaflet configuration are untouched.
 
 function escapeHtml(value: string): string {
   return value
@@ -100,7 +104,6 @@ export default function HomeMap({
   viewerPosition,
   locateNonce,
   onRequestLocate,
-  radiusMeters,
   cameraRadiusMeters = null,
   curatedMarkers = false,
 }: HomeMapProps) {
@@ -141,14 +144,18 @@ export default function HomeMap({
   );
 
   // Fly to the real user position. Marks the camera as decided so marker
-  // refreshes cannot take the viewport back afterwards.
+  // refreshes cannot take the viewport back afterwards. Used only for the
+  // explicit "Lokasi Saya" recenter (user intent, not a tab preset).
   const flyToUser = useCallback((map: LeafletMap, position: { lat: number; lng: number }) => {
     programmaticMoveRef.current = true;
     cameraDecidedRef.current = true;
     map.flyTo([position.lat, position.lng], Math.max(map.getZoom(), 15), { duration: 0.8 });
   }, []);
 
-  // Zoom that fits a distance-filter radius around Current Location.
+  // THE preset mechanism (PO, 2026-09-29): the zoom that makes the frame
+  // cover a given radius around Current Location. Purely a function of the
+  // radius (never of the current zoom) — strictly ordered radii produce
+  // strictly ordered, deterministic zoom levels for every tab.
   const radiusZoom = useCallback(
     async (map: LeafletMap, position: { lat: number; lng: number }, radiusMeters: number) => {
       const L = (await import("leaflet")).default;
@@ -165,11 +172,11 @@ export default function HomeMap({
     [],
   );
 
-  // Radius refocus (1 km / 5 km): ALWAYS re-derives the camera from
-  // the filter radius around the real Current Location — every tab switch to
-  // a bounded radius refocuses (no one-shot latch), unless the user has
-  // interacted since the last filter change (their pan/zoom wins until the
-  // next explicit filter choice). "10 km+" is unbounded and never re-zooms.
+  // Preset refocus: re-derives the camera from the preset radius around the
+  // real Current Location on EVERY preset choice — switching tabs (1 km /
+  // 5 km / 10 km+) or entering "Tempat Pilihan" always applies the new
+  // preset deterministically, unless the user has interacted since the last
+  // choice (their pan/zoom wins until the next explicit preset choice).
   const lastRadiusRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -339,41 +346,30 @@ export default function HomeMap({
     };
   }, []);
 
-  // Camera anchor: Current Location is the map's center. A bounded radius
-  // (1 km / 5 km) refocuses on EVERY change of the filter radius —
-  // the camera is re-derived from the filter around the real fix. "10 km+"
-  // focuses once (unbounded — no radius re-zoom). In "Tempat Pilihan" the
-  // CAMERA covers the curated radius (50 km) around the real fix — the
-  // marker set stays whatever the curated layer shows upstream. Automatic
-  // moves never steal the camera after real user interaction, and
-  // interactions are re-armed when a new radius is chosen so the next
-  // bounded tab can refocus. One-shot overviews (fitBounds / 10 km+ focus)
-  // stay one-shot via cameraDecidedRef.
+  // Camera anchor: Current Location is the map's center. EVERY mode is a
+  // cameraRadiusMeters preset (distance tabs from CAMERA_PRESET_RADIUS_M,
+  // "Tempat Pilihan" = curated 50 km): a new preset ALWAYS refocuses
+  // deterministically through the one radiusZoom mechanism — zoom is derived
+  // from the preset radius, never from the current zoom. Manual pan/zoom
+  // wins between choices (latch re-arms on each new preset choice). One-shot
+  // marker overview (fitBounds, no-fix case) stays one-shot via
+  // cameraDecidedRef and can never override a preset.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !viewerPosition) return;
-    if (userInteractedRef.current && lastRadiusRef.current === radiusMeters) return;
+    if (userInteractedRef.current && lastRadiusRef.current === cameraRadiusMeters) return;
 
-    const radiusChanged = lastRadiusRef.current !== radiusMeters;
-    lastRadiusRef.current = radiusMeters;
+    const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters;
+    lastRadiusRef.current = cameraRadiusMeters;
 
     let cancelled = false;
     (async () => {
-      if (radiusMeters !== null) {
-        if (radiusChanged) userInteractedRef.current = false;
-        const zoom = await radiusZoom(map, viewerPosition, radiusMeters);
-        if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
-        programmaticMoveRef.current = true;
-        cameraDecidedRef.current = true;
-        map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(3, zoom), { duration: 0.8 });
-        return;
-      }
-      // "Tempat Pilihan": the camera covers the curated radius (50 km)
-      // around the REAL Current Location — same center, radius-derived
-      // zoom, no invented position. It refocuses on every curated entry
-      // (the unbounded latch does not apply) unless the user has panned/
-      // zoomed since entering the layer.
+      // ONE preset path for every mode (PO, 2026-09-29): distance tabs and
+      // "Tempat Pilihan" all fly through the same radiusZoom preset — a new
+      // preset always applies (deterministic), manual pan/zoom in between is
+      // respected (latch re-arms only on the new preset choice).
       if (cameraRadiusMeters !== null) {
+        if (radiusChanged) userInteractedRef.current = false;
         const zoom = await radiusZoom(map, viewerPosition, cameraRadiusMeters);
         if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
         programmaticMoveRef.current = true;
@@ -381,8 +377,9 @@ export default function HomeMap({
         map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { duration: 0.8 });
         return;
       }
-      // Unbounded ("10 km+"): focus the actual location once — no radius
-      // re-zoom, and marker refreshes never re-center afterwards.
+      // No preset at all (cameraRadiusMeters === null): focus the actual
+      // location once — no radius re-zoom, and marker refreshes never
+      // re-center afterwards.
       if (!cameraDecidedRef.current) {
         flyToUser(map, viewerPosition);
       }
@@ -391,7 +388,7 @@ export default function HomeMap({
     return () => {
       cancelled = true;
     };
-  }, [ready, viewerPositionKey, radiusMeters, cameraRadiusMeters, viewerPosition, flyToUser, radiusZoom]);
+  }, [ready, viewerPositionKey, cameraRadiusMeters, viewerPosition, flyToUser, radiusZoom]);
 
   // Render/update the user marker from the real geolocation fix. Camera
   // decisions live in the anchor effect above.
@@ -481,8 +478,7 @@ export default function HomeMap({
       const layer = markerLayerRef.current;
       if (cancelled || !map || !layer) return;
 
-      layer.clearLayers();
-      const currentPlaces = places;
+      layer.clearLayers();      const currentPlaces = places;
       if (currentPlaces.length === 0) return;
 
       const points: [number, number][] = [];
@@ -493,17 +489,20 @@ export default function HomeMap({
         points.push(position);
         const live = liveByPlaceId.get(place.id);
 
-        // LIVE overlay pin — a live-state badge on the same canonical
-        // Place coordinate, never a fabricated position.
+        // LIVE treatment on the SAME base pin shape: a clean live-red teardrop
+        // with a pulsing core and a small "LIVE" chip — instantly readable,
+        // still compact, top z-priority, navigating to /live/[sessionId].
         if (live) {
-          const liveTitle = escapeHtml(live.processTitle ?? place.name);
           L.marker(position, {
             icon: L.divIcon({
               className: "singgah-map-marker",
               iconSize: [0, 0],
-              html: `<div role="img" aria-label="Lihat Live di ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
-                <div style="display:flex;height:48px;width:48px;align-items:center;justify-content:center;border-radius:9999px;border:4px solid #fff;background:${BRAND_LIVE};color:#fff;font-size:10px;font-weight:900;letter-spacing:0.05em;box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);">LIVE</div>
-                <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:${BRAND_LIVE};padding:4px 10px;color:#fff;font-size:11px;font-weight:700;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${liveTitle}</div>
+              html: `<div role="img" aria-label="Live sekarang di ${escapeHtml(place.name)} — lihat proses produksi" style="transform:translate(-50%,-100%);filter:drop-shadow(0 3px 4px rgb(0 0 0 / 0.3));">
+                <div style="position:relative;width:30px;height:38px;">
+                  <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:9999px 9999px 9999px 0;border:2px solid #fff;background:${BRAND_LIVE};transform:rotate(-45deg);transform-origin:center;"></div>
+                  <span class="singgah-live-pulse" style="position:absolute;left:50%;top:8px;transform:translateX(-50%);width:8px;height:8px;border-radius:9999px;background:#fff;"></span>
+                  <span style="position:absolute;left:50%;top:-12px;transform:translateX(-50%);background:${BRAND_LIVE};color:#fff;font-size:9px;font-weight:900;letter-spacing:0.08em;line-height:1;padding:3px 6px;border-radius:9999px;">LIVE</span>
+                </div>
               </div>`,
             }),
             zIndexOffset: 1000,
@@ -513,47 +512,42 @@ export default function HomeMap({
             .on("click", () => router.push(`/live/${live.sessionId}`));
         }
 
-        // Place pin → /places/[id].
-        // Normal mode: the existing circular brown pin with its name label.
-        // "Tempat Pilihan" (PO, 2026-09-29): a COMPACT 34 px teardrop pin in
-        // the secondary brand green with a tiny ✦ identity glyph — visually
-        // distinct from the normal brown pin, light on the map, and
-        // dense-neighborhood friendly. NO always-on name label: the name
-        // appears in a Leaflet tooltip only when the pin is selected. Click/
-        // navigation unchanged; LIVE keeps the higher priority.
-        const curatedPin = `
-          <div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);width:34px;height:44px;filter:drop-shadow(0 3px 4px rgb(0 0 0 / 0.3));">
-            <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9999px 9999px 9999px 0;transform-origin:center;border:2.5px solid #fff;background:${BRAND_SECONDARY};transform:rotate(-45deg);box-shadow:0 4px 8px -2px rgb(0 0 0 / 0.25);">
-              <span style="transform:rotate(45deg);color:#fff;font-size:15px;line-height:1;">✦</span>
+        // THE base Place marker (PO, 2026-09-29): one compact teardrop for
+        // every Place — brown in normal mode, with the "Tempat Pilihan"
+        // treatment (secondary green + ✦ accent) on the SAME shape. No emoji,
+        // no always-on name label: the name appears in a tooltip on
+        // hover/focus/selection (decluttered dense maps). A Place that is
+        // Live keeps its normal pin right next to its LIVE pin.
+        const pinColor = curatedMarkers ? BRAND_SECONDARY : BRAND_BROWN;
+        const accent = curatedMarkers
+          ? `<span style="transform:rotate(45deg);color:#fff;font-size:13px;line-height:1;">✦</span>`
+          : "";
+        const placePin = `
+          <div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);width:28px;height:36px;filter:drop-shadow(0 2px 3px rgb(0 0 0 / 0.3));">
+            <div style="position:absolute;left:50%;top:0;transform:translateX(-50%) rotate(-45deg);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:9999px 9999px 9999px 0;border:2px solid #fff;background:${pinColor};">
+              ${accent}
             </div>
-            <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:5px;height:5px;border-radius:9999px;background:${BRAND_SECONDARY};box-shadow:0 0 0 2px rgb(255 255 255 / 0.9);"></div>
+            <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:5px;height:5px;border-radius:9999px;background:${pinColor};box-shadow:0 0 0 2px rgb(255 255 255 / 0.9);"></div>
           </div>`;
-        const normalPin = `<div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
-          <div style="display:flex;height:48px;width:48px;align-items:center;justify-content:center;border-radius:9999px;border:4px solid #fff;background:${BRAND_BROWN};font-size:18px;box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);">📍</div>
-          <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:${BRAND_PIN};padding:4px 10px;font-size:11px;font-weight:700;color:#fff;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${escapeHtml(place.name)}</div>
-        </div>`;
         const marker = L.marker(position, {
           icon: L.divIcon({
             className: "singgah-map-marker",
             iconSize: [0, 0],
-            html: curatedMarkers ? curatedPin : normalPin,
+            html: placePin,
           }),
           zIndexOffset: live ? 0 : 500,
           keyboard: true,
         })
           .addTo(layer)
           .on("click", () => router.push(`/places/${place.id}`));
-        // In curated mode the Place name appears ONLY on selection — a
-        // Leaflet tooltip bound to the same marker (existing flow: click
-        // still navigates, hover/focus previews the name). No always-on
-        // labels, so dense curated clusters stay readable.
-        if (curatedMarkers) {
-          marker.bindTooltip(escapeHtml(place.name), {
-            direction: "top",
-            offset: [0, -44],
-            opacity: 1,
-          });
-        }
+        // Name tooltip on hover/focus/selection ONLY (curated and normal) —
+        // Leaflet opens it on hover and keyboard focus; click still navigates
+        // to the Place, so 20–50 dense pins never stack name labels.
+        marker.bindTooltip(escapeHtml(place.name), {
+          direction: "top",
+          offset: [0, -40],
+          opacity: 1,
+        });
       }
 
       if (

@@ -8,6 +8,7 @@ import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
 import {
+  CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
   DISTANCE_FILTERS,
   buildDirectionsUrl,
@@ -16,7 +17,6 @@ import {
   liveDurationLabel,
   matchesDistance,
   stopNestedCardAction,
-  DISTANCE_FILTER_RADIUS_M,
   type DistanceFilter,
   type LiveDiscoveryItem,
 } from "@/lib/live/ui";
@@ -50,6 +50,8 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
   // Viewer position — Current Location. Geolocation is the primary map
   // anchor: when available the Home Map centers on it and shows the user
   // marker. Silently absent when denied; no fallback point is ever invented.
+  // Default = "1 km": the tightest camera preset anchors on the real Current
+  // Location (PO: Current Location is the map center; no invented viewport).
   const [viewerPosition, setViewerPosition] = useState<{
     lat: number;
     lng: number;
@@ -339,10 +341,14 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
             viewerPosition={viewerPosition}
             locateNonce={locateNonce}
             onRequestLocate={() => setLocateNonce((nonce) => nonce + 1)}
-            radiusMeters={curatedOnly ? null : DISTANCE_FILTER_RADIUS_M[distanceFilter]}
-            /* Curated camera coverage: 50 km around the real Current
-               Location; unbounded modes keep the existing behavior. */
-            cameraRadiusMeters={curatedOnly ? CURATED_CAMERA_RADIUS_M : null}
+            /* ONE deterministic camera preset for every mode (PO,
+               2026-09-29): distance tabs map to their ordered preset radii
+               (1 < 5 < 12 km), "Tempat Pilihan" covers 50 km. CAMERA-ONLY —
+               the map dataset (mapPlaces) and the list gate below stay
+               independent of this value. */
+            cameraRadiusMeters={
+              curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
+            }
             curatedMarkers={curatedOnly}
           />
 
