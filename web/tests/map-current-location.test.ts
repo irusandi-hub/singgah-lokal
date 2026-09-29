@@ -269,11 +269,19 @@ test("Curated camera radius never filters the curated Place set", () => {
   assert.doesNotMatch(pageCode, /distanceMeters\([^)]*CURATED/);
 });
 
-test("Curated Place pins are visually distinct but keep their click navigation", () => {
+test("Curated Place pins are compact teardrops with the curated identity, label only on selection", () => {
   const mapCode = stripComments(homeMap);
-  // Larger pin + brand ring while curated is active...
-  assert.match(mapCode, /curatedMarkers \? 56 : 48/);
-  assert.match(mapCode, /outline:3px solid \$\{BRAND_PIN\}/);
+  // Compact 34 px teardrop in the SECONDARY brand green with the ✦ glyph —
+  // visually distinct from the normal brown pin, light on the map.
+  assert.match(mapCode, /curatedMarkers \? curatedPin : normalPin/);
+  assert.match(mapCode, /width:34px;height:44px/);
+  assert.match(mapCode, /background:\$\{BRAND_SECONDARY\}/);
+  assert.match(mapCode, /border-radius:9999px 9999px 9999px 0/);
+  assert.match(mapCode, /✦/);
+  // No always-on name label in curated mode: the name appears in a Leaflet
+  // tooltip bound on selection only (the normal pin keeps its label).
+  assert.match(mapCode, /bindTooltip\(escapeHtml\(place\.name\)/);
+  assert.match(mapCode, /if \(curatedMarkers\) \{\n\s*marker\.bindTooltip/);
   // ...and the click target is unchanged: /places/[id] for every pin.
   assert.match(mapCode, /router\.push\(`\/places\/\$\{place\.id\}`\)/);
 });

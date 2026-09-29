@@ -75,6 +75,10 @@ const OSM_ATTRIBUTION =
 const BRAND_BROWN = "var(--brand-accent)";
 const BRAND_LIVE = "var(--live)";
 const BRAND_PIN = "var(--brand-primary-deep)";
+// "Tempat Pilihan" pin color (PO, 2026-09-29): the secondary brand green —
+// clearly different from the normal brown Place pin, still on-brand, and
+// distinct from both the deep-green Current Location and the red LIVE.
+const BRAND_SECONDARY = "var(--brand-secondary)";
 // Map-overlay color treatment (PO 2026-09-26): Place pins/labels use the
 // deep brand green — dark enough to stay readable on busy/light tiles while
 // the LIVE red keeps the strongest priority and the accent brown stays
@@ -509,29 +513,47 @@ export default function HomeMap({
             .on("click", () => router.push(`/live/${live.sessionId}`));
         }
 
-        // Place pin → /places/[id]. In "Tempat Pilihan" the pin is larger
-        // with a brand-green ring — clearly distinct from the normal pin and
-        // still below the LIVE pin's priority. Click/navigation unchanged.
-        const pinSize = curatedMarkers ? 56 : 48;
-        const pinFontSize = curatedMarkers ? 21 : 18;
-        const pinRing = curatedMarkers ? `border:4px solid #fff;outline:3px solid ${BRAND_PIN};` : "border:4px solid #fff;";
-        const pinShadow = curatedMarkers
-          ? "box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3),0 0 0 6px rgb(255 255 255 / 0.35);"
-          : "box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);";
-        L.marker(position, {
+        // Place pin → /places/[id].
+        // Normal mode: the existing circular brown pin with its name label.
+        // "Tempat Pilihan" (PO, 2026-09-29): a COMPACT 34 px teardrop pin in
+        // the secondary brand green with a tiny ✦ identity glyph — visually
+        // distinct from the normal brown pin, light on the map, and
+        // dense-neighborhood friendly. NO always-on name label: the name
+        // appears in a Leaflet tooltip only when the pin is selected. Click/
+        // navigation unchanged; LIVE keeps the higher priority.
+        const curatedPin = `
+          <div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);width:34px;height:44px;filter:drop-shadow(0 3px 4px rgb(0 0 0 / 0.3));">
+            <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9999px 9999px 9999px 0;transform-origin:center;border:2.5px solid #fff;background:${BRAND_SECONDARY};transform:rotate(-45deg);box-shadow:0 4px 8px -2px rgb(0 0 0 / 0.25);">
+              <span style="transform:rotate(45deg);color:#fff;font-size:15px;line-height:1;">✦</span>
+            </div>
+            <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:5px;height:5px;border-radius:9999px;background:${BRAND_SECONDARY};box-shadow:0 0 0 2px rgb(255 255 255 / 0.9);"></div>
+          </div>`;
+        const normalPin = `<div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="display:flex;height:48px;width:48px;align-items:center;justify-content:center;border-radius:9999px;border:4px solid #fff;background:${BRAND_BROWN};font-size:18px;box-shadow:0 10px 15px -3px rgb(0 0 0 / 0.3);">📍</div>
+          <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:${BRAND_PIN};padding:4px 10px;font-size:11px;font-weight:700;color:#fff;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${escapeHtml(place.name)}</div>
+        </div>`;
+        const marker = L.marker(position, {
           icon: L.divIcon({
             className: "singgah-map-marker",
             iconSize: [0, 0],
-            html: `<div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;gap:4px;">
-              <div style="display:flex;height:${pinSize}px;width:${pinSize}px;align-items:center;justify-content:center;border-radius:9999px;${pinRing}background:${BRAND_BROWN};font-size:${pinFontSize}px;${pinShadow}">📍</div>
-              <div style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-radius:9999px;background:${curatedMarkers ? BRAND_PIN : BRAND_BROWN};padding:${curatedMarkers ? "5px 12px" : "4px 10px"};font-size:${curatedMarkers ? "12px" : "11px"};font-weight:700;color:#fff;box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.2);">${escapeHtml(place.name)}</div>
-            </div>`,
+            html: curatedMarkers ? curatedPin : normalPin,
           }),
           zIndexOffset: live ? 0 : 500,
           keyboard: true,
         })
           .addTo(layer)
           .on("click", () => router.push(`/places/${place.id}`));
+        // In curated mode the Place name appears ONLY on selection — a
+        // Leaflet tooltip bound to the same marker (existing flow: click
+        // still navigates, hover/focus previews the name). No always-on
+        // labels, so dense curated clusters stay readable.
+        if (curatedMarkers) {
+          marker.bindTooltip(escapeHtml(place.name), {
+            direction: "top",
+            offset: [0, -44],
+            opacity: 1,
+          });
+        }
       }
 
       if (
