@@ -287,6 +287,53 @@ test("the archive search route is Platform-Admin-only and the archive never rend
   assert.match(stripComments(archiveLib), /import "server-only"/);
 });
 
+test("the server page imports the key contract from the shared module, never from the client form", () => {
+  // BUGFIX 2026-09-29: importing non-component values from a "use client"
+  // module made the page render client references on the server — the
+  // 'This page couldn't load' runtime error on /admin/archives. The shared
+  // key contract lives in a server-safe module with no directive at all.
+  const shared = read("../lib/admin/archive-search.ts");
+  assert.doesNotMatch(shared, /"use client"/);
+  assert.doesNotMatch(shared, /server-only/);
+  assert.match(shared, /export const ARCHIVE_SEARCH_KEYS/);
+  assert.match(shared, /export function isArchiveSearchKey/);
+
+  const page = read("../app/admin/archives/page.tsx");
+  assert.match(page, /from "@\/lib\/admin\/archive-search"/);
+  assert.doesNotMatch(page, /ARCHIVE_SEARCH_KEYS[^"]*from "\.\/ClaimArchiveSearch"/);
+  const results = read("../app/admin/archives/ClaimArchiveResults.tsx");
+  assert.match(results, /from "@\/lib\/admin\/archive-search"/);
+  assert.doesNotMatch(results, /from "\.\/ClaimArchiveSearch"/);
+  // The client form still reads the SAME shared contract.
+  const form = read("../app/admin/archives/ClaimArchiveSearch.tsx");
+  assert.match(form, /from "@\/lib\/admin\/archive-search"/);
+  assert.doesNotMatch(form, /export const ARCHIVE_SEARCH_KEYS/);
+});
+
+test("the archive search keeps both authorization layers and is callable by the server runtime", () => {
+  // Layer 1: the session guard runs in the lib before any read.
+  const lib = stripComments(archiveLib);
+  assert.match(lib, /await requirePlatformModerator\(\)/);
+  // Layer 2 (unchanged): the RPC re-verifies the moderator role in-database.
+  const migrationCode = stripComments(migration);
+  assert.match(migrationCode, /perform public\.assert_platform_moderator\(\)/);
+  // The service-role client is the only client the lib uses (server-side
+  // only, per the existing claim RPC pattern in lib/producer/place-claim).
+  assert.match(lib, /createSupabaseServiceClient\(\)/);
+  assert.doesNotMatch(lib, /createSupabaseServerClient/);
+});
+
+test("the RPC keeps the DEV-proven access shape: revoke from clients, default EXECUTE for the service path", () => {
+  // The migration must NOT grant anything to anon/authenticated (the DEV
+  // environment's shape: the service path calls through, clients stay out).
+  const code = stripComments(migration);
+  assert.match(code, /revoke execute on function public\.search_place_claim_archives/);
+  assert.match(code, /from public, anon, authenticated/);
+  assert.doesNotMatch(code, /grant execute/);
+  // The helper is never called directly by anyone outside the RPC.
+  assert.match(code, /revoke execute on function public\.assert_platform_moderator/);
+});
+
 test("/admin/archives is the ONE archive search surface: key selector, one input, Cari, metadata-only table", () => {
   // The tab exists and points at the page.
   assert.match(adminNav, /href: "\/admin\/archives"/);
@@ -298,7 +345,7 @@ test("/admin/archives is the ONE archive search surface: key selector, one input
   assert.match(archivesPage, /PlatformModeratorRequiredError/);
   assert.match(archivesPage, /searchPlaceClaimArchives/);
   // ONE input, ONE key selector, ONE search button — URL-state driven.
-  assert.match(archivesSearchForm, /ARCHIVE_SEARCH_KEYS = \["placeId", "userId", "email", "claimId"\]/);
+  assert.match(archivesSearchForm, /ARCHIVE_SEARCH_KEYS,[\s\S]*?from "@\/lib\/admin\/archive-search"/);
   assert.match(archivesSearchForm, /type="search"/);
   assert.match(archivesSearchForm, /type="submit"/);
   assert.match(archivesSearchForm, /\n\s+Cari\n\s+<\/button>/);
