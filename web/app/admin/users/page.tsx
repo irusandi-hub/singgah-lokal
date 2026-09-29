@@ -25,8 +25,9 @@ export default async function AdminUsersPage() {
   } catch {
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Users" description="Akun terdaftar di platform." />
-        <AdminErrorState message="Data Users tidak dapat dimuat." />
+        <AdminBackToAdminCenter />
+        <AdminPageHeader title="Data Pengguna" description="Akun terdaftar di platform." />
+        <AdminErrorState message="Data Pengguna tidak dapat dimuat." />
       </div>
     );
   }
@@ -35,7 +36,7 @@ export default async function AdminUsersPage() {
     <div className="space-y-8">
       <AdminBackToAdminCenter />
       <AdminPageHeader
-        title="Users"
+        title="Data Pengguna"
         description="Akun terdaftar di platform. Email hanya ditampilkan pada halaman ini (manajemen user Admin) dan tidak pernah tampil untuk Producer, user lain, atau publik."
       />
       <AdminUsersTable users={users} />

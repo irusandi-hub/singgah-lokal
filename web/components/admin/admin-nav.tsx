@@ -11,22 +11,23 @@ import { usePathname } from "next/navigation";
  * this component every tab rendered identical and a nested route — the Place
  * workspace, a Producer detail — showed no tab at all. `usePathname` fixes
  * both: the exact match is active, and a nested path falls back to the
- * longest matching section, so `/admin/places/[placeId]` lights up "Tempat".
+ * longest matching section, so `/admin/places/[placeId]` lights up "Data Place".
  *
- * The list is the MVP tab set (PO, 2026-09-28): Overview, Users, Pengelola,
- * Pengelola Membership, Tempat, Live, Moderation. "Kegiatan" and "Kunjungan"
- * are NOT MVP Admin tabs and are gone from the navigation; their pages stay
- * reachable by direct URL (unchanged data layer, unchanged guards) — no dead
- * links, because nothing links to them anymore.
+ * The list is the MVP tab set (PO, 2026-09-29): Overview, Data Pengguna, Data
+ * Pengelola, Data Place, Data Live, Live Moderation. The former standalone
+ * "Pengelola" tab is GONE — its data lives in Data Pengelola, which shows the
+ * Pengelola ↔ Place relations. "Kegiatan" and "Kunjungan" are NOT MVP Admin
+ * tabs and stay out of the navigation; their pages remain reachable by direct
+ * URL (unchanged data layer, unchanged guards) — no dead links, because
+ * nothing links to them anymore.
  */
 const SECTIONS = [
   { href: "/admin", label: "Overview", exact: true },
-  { href: "/admin/users", label: "Users", exact: false },
-  { href: "/admin/producers", label: "Pengelola", exact: false },
-  { href: "/admin/producer-membership", label: "Pengelola Membership", exact: false },
-  { href: "/admin/places", label: "Tempat", exact: false },
-  { href: "/admin/live", label: "Live", exact: false },
-  { href: "/admin/moderation", label: "Moderation", exact: false },
+  { href: "/admin/users", label: "Data Pengguna", exact: false },
+  { href: "/admin/producer-membership", label: "Data Pengelola", exact: false },
+  { href: "/admin/places", label: "Data Place", exact: false },
+  { href: "/admin/live", label: "Data Live", exact: false },
+  { href: "/admin/moderation", label: "Live Moderation", exact: false },
 ] as const;
 
 const IDLE = "border border-black/10 bg-white text-black/60 hover:bg-brand-accent/10 hover:text-brand-accent";

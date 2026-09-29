@@ -27,8 +27,8 @@ export default async function AdminModerationPage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Moderation" description="Live Report masuk dan jejak audit Live." />
-        <AdminErrorState message="Data Moderation tidak dapat dimuat." />
+        <AdminPageHeader title="Live Moderation" description="Live Report masuk dan jejak audit Live." />
+        <AdminErrorState message="Data Live Moderation tidak dapat dimuat." />
       </div>
     );
   }
@@ -37,7 +37,7 @@ export default async function AdminModerationPage() {
     <div className="space-y-8">
       <AdminBackToAdminCenter />
       <AdminPageHeader
-        title="Moderation"
+        title="Live Moderation"
         description="Live Report masuk dan jejak audit Live terbaru. Tindakan enforcement tetap melalui jalur RPC yang sudah diaudit."
       />
 

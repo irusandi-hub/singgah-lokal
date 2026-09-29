@@ -47,16 +47,16 @@ export default async function AdminOverviewPage() {
 
       <AdminStatCards
         stats={[
-          { label: "Users", value: totals.users },
+          { label: "Data Pengguna", value: totals.users },
           { label: "Pengelola", value: totals.producers },
           { label: "Memberships", value: totals.producerMemberships },
-          { label: "Tempat", value: totals.places },
+          { label: "Data Place", value: totals.places },
           { label: "Kegiatan", value: totals.experiences },
         ]}
       />
 
       <p className="text-sm text-black/55">
-        Rincian data ada di tab masing-masing: Users, Pengelola, Pengelola Membership, Tempat, Live, dan Moderation.
+        Rincian data ada di tab masing-masing: Data Pengguna, Data Pengelola, Data Place, Data Live, dan Live Moderation.
       </p>
     </div>
   );

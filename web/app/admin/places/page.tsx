@@ -45,8 +45,8 @@ export default async function AdminPlacesPage({
     return (
       <div className="space-y-8">
         <AdminBackToAdminCenter />
-        <AdminPageHeader title="Tempat" description="Seluruh Tempat di platform." />
-        <AdminErrorState message="Data Tempat tidak dapat dimuat." />
+        <AdminPageHeader title="Data Place" description="Seluruh Place di platform." />
+        <AdminErrorState message="Data Place tidak dapat dimuat." />
       </div>
     );
   }
@@ -56,8 +56,8 @@ export default async function AdminPlacesPage({
       <AdminBackToAdminCenter />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <AdminPageHeader
-          title="Tempat"
-          description="Seluruh Tempat di platform beserta status publikasi, klaim, dan pemiliknya. Admin dapat membuat Tempat tanpa Pengelola; kepemilikan kemudian lewat klaim."
+          title="Data Place"
+          description="Seluruh Place di platform beserta status publikasi, klaim, dan pemiliknya. Admin dapat membuat Place tanpa Pengelola; kepemilikan kemudian lewat klaim."
         />
         <Link
           href="/admin/places/new"

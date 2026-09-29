@@ -63,7 +63,7 @@ test("the Admin Overview has no Live Session or Live Report cards", () => {
   assert.doesNotMatch(page, /Live Reports?/);
   assert.doesNotMatch(page, /liveSession|recentLiveSession|recentLiveReport/);
   // The Overview keeps the platform counts it is for.
-  assert.match(page, /label: "Tempat"/);
+  assert.match(page, /label: "Data Place"/);
   // And the query no longer computes what the page must not show.
   const queries = stripComments(adminQueries);
   assert.doesNotMatch(queries, /recentLiveSessions|recentLiveReports/);

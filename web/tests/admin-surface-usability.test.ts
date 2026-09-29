@@ -43,13 +43,16 @@ test("the Admin nav marks the active tab, including a nested route's parent", ()
   // (/admin/places/[placeId] → Tempat).
   assert.match(nav, /exact: true/);
   assert.match(nav, /pathname\.startsWith\(`\$\{href\}\/`/);
-  // The MVP tab set (PO, 2026-09-28): "Kegiatan" and "Kunjungan" are gone
-  // from the Admin navigation; their pages remain reachable by direct URL.
-  for (const label of ["Overview", "Users", "Pengelola", "Pengelola Membership", "Tempat", "Live", "Moderation"]) {
+  // The MVP tab set (PO, 2026-09-29): Overview, Data Pengguna, Data Pengelola,
+  // Data Place, Data Live, Live Moderation. The standalone "Pengelola" tab is
+  // gone; "Kegiatan" and "Kunjungan" stay out of the Admin navigation.
+  for (const label of ["Overview", "Data Pengguna", "Data Pengelola", "Data Place", "Data Live", "Live Moderation"]) {
     assert.match(nav, new RegExp(`label: "${label}"`));
   }
   assert.doesNotMatch(nav, /label: "Kegiatan"/);
   assert.doesNotMatch(nav, /label: "Kunjungan"/);
+  assert.doesNotMatch(nav, /label: "Pengelola"/);
+  assert.doesNotMatch(nav, /admin\/producers/);
   // The layout renders the nav once — no second, divergent nav anywhere.
   assert.match(adminLayout, /<AdminNav \/>/);
   assert.doesNotMatch(adminLayout, /aria-label="Navigasi Admin"/);
@@ -101,7 +104,7 @@ test("each Admin list has ONE search box above the table, without reload", () =>
   // Every list page mounts it directly above its table.
   for (const [page, list] of [
     ["../app/admin/users/page.tsx", "../app/admin/users/AdminUsersTable.tsx"],
-    ["../app/admin/producer-membership/page.tsx", "../app/admin/producer-membership/AdminMembershipTable.tsx"],
+    ["../app/admin/producer-membership/page.tsx", "../app/admin/producer-membership/AdminPengelolaTable.tsx"],
     ["../app/admin/places/page.tsx", "../app/admin/places/AdminPlacesTable.tsx"],
   ] as const) {
     const source = read(page);
@@ -110,12 +113,13 @@ test("each Admin list has ONE search box above the table, without reload", () =>
     assert.match(table, /AdminSearchBox/);
     assert.match(table, /AdminDataTable/);
   }
-  // The search vocabulary per list (PO, 2026-09-28).
+  // The search vocabulary per list (PO, 2026-09-29).
   const usersTable = stripComments(read("../app/admin/users/AdminUsersTable.tsx"));
   assert.match(usersTable, /user\.email/);
-  const membershipTable = stripComments(read("../app/admin/producer-membership/AdminMembershipTable.tsx"));
-  assert.match(membershipTable, /row\.userEmail/);
-  assert.match(membershipTable, /row\.placeName/);
+  const pengelolaTable = stripComments(read("../app/admin/producer-membership/AdminPengelolaTable.tsx"));
+  assert.match(pengelolaTable, /row\.producerName/);
+  assert.match(pengelolaTable, /row\.email/);
+  assert.match(pengelolaTable, /row\.placeName/);
   const placesTable = stripComments(read("../app/admin/places/AdminPlacesTable.tsx"));
   assert.match(placesTable, /row\.ownerEmail/);
   assert.match(placesTable, /row\.name/);
@@ -127,6 +131,11 @@ test("Pengelola and Place lists are ordered country, then region, then name — 
   const queries = stripComments(read("../lib/admin/queries.ts"));
   const ordered = queries.match(/\.order\("country_code", \{ ascending: true \}\)[\s\S]*?\.order\("region_name", \{ ascending: true \}\)[\s\S]*?\.order\("name", \{ ascending: true \}\)/g) ?? [];
   assert.ok(ordered.length >= 2, "both the Place list and the Pengelola list read the canonical order");
+  // The Pengelola ↔ Place list re-applies the same triple after filtering.
+  const pengelolaTable = stripComments(read("../app/admin/producer-membership/AdminPengelolaTable.tsx"));
+  assert.match(pengelolaTable, /localeCompare\(b\.countryCode/);
+  assert.match(pengelolaTable, /localeCompare\(b\.regionName/);
+  assert.match(pengelolaTable, /localeCompare\(b\.placeName/);
   // The reads are bounded by a platform-size guard, not a page size.
   assert.match(queries, /CANONICAL_LIST_LIMIT/);
   // Owner/membership emails are resolved server-side, Admin context only.

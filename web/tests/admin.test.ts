@@ -17,7 +17,6 @@ const adminLive = readFileSync(new URL("../app/admin/live/page.tsx", import.meta
 const adminPages = [
   { path: "../app/admin/page.tsx", label: "Overview" },
   { path: "../app/admin/users/page.tsx", label: "Users" },
-  { path: "../app/admin/producers/page.tsx", label: "Producers" },
   { path: "../app/admin/producer-membership/page.tsx", label: "Producer Membership" },
   { path: "../app/admin/places/page.tsx", label: "Places" },
   { path: "../app/admin/experiences/page.tsx", label: "Experiences" },
@@ -25,6 +24,13 @@ const adminPages = [
   { path: "../app/admin/live/page.tsx", label: "Live" },
   { path: "../app/admin/moderation/page.tsx", label: "Moderation" },
 ];
+
+// PO, 2026-09-29: the standalone /admin/producers page is retired. The
+// Pengelola entity and its data stay — they are read through the Data
+// Pengelola relation list on /admin/producer-membership.
+test("the standalone Admin Pengelola route is gone", () => {
+  assert.equal(existsSync(new URL("../app/admin/producers/page.tsx", import.meta.url)), false);
+});
 
 test("Admin Center covers exactly the locked MVP sections", () => {
   for (const page of adminPages) {
@@ -49,7 +55,7 @@ test("Admin data layer re-verifies platform moderator authorization on every rea
   // Every exported read goes through requirePlatformModerator — fail closed.
   const exportsNeedingAuth = [
     "getAdminOverview",
-    "listAdminProducers",
+    "listAdminProducerPlaces",
     "listAdminMemberships",
     "listAdminPlaces",
     "listAdminExperiences",
@@ -79,7 +85,10 @@ test("Admin Users shows the account email as Admin-only private data", () => {
   // none) behind a fresh server-side moderator check, and the Admin page
   // states that it is not visible to Producer, other users, or the public.
   assert.match(adminUsers, /listAdminDirectoryUsers/);
-  assert.match(adminUsers, /row\.email/);
+  // The email column lives in the page's client table component (PO,
+  // 2026-09-29): the page mounts it, the table renders row.email.
+  assert.match(adminUsers, /<AdminUsersTable users=\{users\} \/>/);
+  assert.match(stripCode(readFileSync(new URL("../app/admin/users/AdminUsersTable.tsx", import.meta.url), "utf8")), /row\.email/);
   assert.match(adminUsers, /tidak pernah tampil untuk Producer, user lain, atau publik/);
   assert.match(stripCode(adminDirectory), /await requirePlatformModerator\(\)/);
   assert.match(stripCode(adminDirectory), /auth\.admin\.listUsers/);

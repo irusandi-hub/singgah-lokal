@@ -52,7 +52,7 @@ test("Every admin read re-verifies platform moderator authorization server-side"
   // that may also resolve an account email), and it is asserted there.
   for (const name of [
     "getAdminOverview",
-    "listAdminProducers",
+    "listAdminProducerPlaces",
     "listAdminMemberships",
     "listAdminPlaces",
     "listAdminExperiences",

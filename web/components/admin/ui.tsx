@@ -101,7 +101,7 @@ export function AdminDataTable<Row>({ columns, rows, emptyMessage }: {
             <tr key={index} className="border-b border-black/5 last:border-b-0">
               {columns.map(({ key, render }) => (
                 <td key={key} className="min-w-0 max-w-[16rem] px-4 py-3 align-top text-black/75 lg:max-w-xs">
-                  <span className="block break-words">{render(row)}</span>
+                  <span className="block min-w-0 break-words">{render(row)}</span>
                 </td>
               ))}
             </tr>

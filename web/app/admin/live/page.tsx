@@ -34,7 +34,7 @@ export default async function AdminLivePage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Live" description="Live Report dan eligibility Pengelola." />
+        <AdminPageHeader title="Data Live" description="Live Report dan eligibility Pengelola." />
         <AdminErrorState message="Data Live tidak dapat dimuat." />
       </div>
     );
@@ -44,8 +44,8 @@ export default async function AdminLivePage() {
     <div className="space-y-8">
       <AdminBackToAdminCenter />
       <AdminPageHeader
-        title="Live"
-        description="Laporan Live dan eligibility Pengelola, dibaca saja. Data Live Session milik sebuah Tempat ditampilkan di workspace Tempat tersebut. Batas terkunci: global 5 aktif, 1 per Tempat, 100 penonton, 60 menit."
+        title="Data Live"
+        description="Laporan Live dan eligibility Pengelola, dibaca saja. Data Live Session milik sebuah Place ditampilkan di workspace Place tersebut. Batas terkunci: global 5 aktif, 1 per Place, 100 penonton, 60 menit."
       />
 
       <section aria-label="Live Report" className="space-y-3">

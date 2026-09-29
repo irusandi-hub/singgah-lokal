@@ -25,7 +25,6 @@ const layout = read("../app/admin/layout.tsx");
 
 const SECTION_PAGES = [
   "../app/admin/users/page.tsx",
-  "../app/admin/producers/page.tsx",
   "../app/admin/producer-membership/page.tsx",
   "../app/admin/experiences/page.tsx",
   "../app/admin/visit-intents/page.tsx",
