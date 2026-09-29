@@ -27,6 +27,11 @@ const aboutPage = read("../app/about/page.tsx");
 const claimPanel = read("../app/producer/places/PlaceClaimPanel.tsx");
 const adminQueries = read("../lib/admin/queries.ts");
 const claimsManager = read("../app/admin/places/PlaceClaimsManager.tsx");
+// PO, 2026-09-29: /admin/archives is now the ONE deliberate archive surface.
+const archivesPage = read("../app/admin/archives/page.tsx");
+const archivesSearchForm = read("../app/admin/archives/ClaimArchiveSearch.tsx");
+const archivesResults = read("../app/admin/archives/ClaimArchiveResults.tsx");
+const adminNav = read("../components/admin/admin-nav.tsx");
 
 function stripComments(source: string): string {
   return source
@@ -267,18 +272,42 @@ test("the archive search route is Platform-Admin-only and the archive never rend
   for (const key of ["placeId", "userId", "email", "claimId"]) {
     assert.match(route, new RegExp(`"${key}"`));
   }
-  // §4: no Admin page renders the archive; the lib is referenced only by the
-  // route, never by a Dashboard component.
+  // §4: no OPERATIONAL Admin page renders the archive as history. The ONE
+  // deliberate search surface (/admin/archives, PO 2026-09-29) is exempt — it
+  // searches on request and never lists by default. The lib is referenced by
+  // that page and by the internal route only, never by a Dashboard component.
   const adminPageSources = [claimsManager, adminQueries];
   for (const source of adminPageSources) {
     assert.equal(
       source.includes("place-claim-archive") || source.includes("searchPlaceClaimArchives"),
       false,
-      "the archive search must not be mounted on any Dashboard surface",
+      "the archive search must not be mounted on any operational Dashboard surface",
     );
   }
-  assert.equal(archiveLib.includes("client"), false === false); // server-only module sanity
   assert.match(stripComments(archiveLib), /import "server-only"/);
+});
+
+test("/admin/archives is the ONE archive search surface: key selector, one input, Cari, metadata-only table", () => {
+  // The tab exists and points at the page.
+  assert.match(adminNav, /href: "\/admin\/archives"/);
+  assert.match(adminNav, /label: "Riwayat & Arsip"/);
+  // The page renders the back-link and the shared layout guard applies
+  // (requirePlatformModerator lives in the layout; the page also fails closed
+  // on a moderator error thrown by the data layer).
+  assert.match(archivesPage, /<AdminBackToAdminCenter \/>/);
+  assert.match(archivesPage, /PlatformModeratorRequiredError/);
+  assert.match(archivesPage, /searchPlaceClaimArchives/);
+  // ONE input, ONE key selector, ONE search button — URL-state driven.
+  assert.match(archivesSearchForm, /ARCHIVE_SEARCH_KEYS = \["placeId", "userId", "email", "claimId"\]/);
+  assert.match(archivesSearchForm, /type="search"/);
+  assert.match(archivesSearchForm, /type="submit"/);
+  assert.match(archivesSearchForm, /\n\s+Cari\n\s+<\/button>/);
+  assert.match(archivesSearchForm, /router\.push\(`\/admin\/archives\?key=/);
+  // Results: metadata only — no evidence content, no signed URL, no open link.
+  assert.match(archivesResults, /AdminDataTable/);
+  assert.match(archivesResults, /evidenceFileName/);
+  assert.doesNotMatch(archivesResults, /createSignedUrl|createPlaceClaimEvidenceUrl|window\.open/);
+  assert.doesNotMatch(archivesResults, /evidencePath|evidence_path/);
 });
 
 // ---------------------------------------------------------------------------

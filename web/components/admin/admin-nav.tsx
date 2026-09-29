@@ -14,12 +14,16 @@ import { usePathname } from "next/navigation";
  * longest matching section, so `/admin/places/[placeId]` lights up "Data Place".
  *
  * The list is the MVP tab set (PO, 2026-09-29): Overview, Data Pengguna, Data
- * Pengelola, Data Place, Data Live, Live Moderation. The former standalone
- * "Pengelola" tab is GONE — its data lives in Data Pengelola, which shows the
- * Pengelola ↔ Place relations. "Kegiatan" and "Kunjungan" are NOT MVP Admin
- * tabs and stay out of the navigation; their pages remain reachable by direct
- * URL (unchanged data layer, unchanged guards) — no dead links, because
- * nothing links to them anymore.
+ * Pengelola, Data Place, Data Live, Live Moderation, Riwayat & Arsip. The
+ * former standalone "Pengelola" tab is GONE — its data lives in Data
+ * Pengelola, which shows the Pengelola ↔ Place relations. "Kegiatan" and
+ * "Kunjungan" are NOT MVP Admin tabs and stay out of the navigation; their
+ * pages remain reachable by direct URL (unchanged data layer, unchanged
+ * guards) — no dead links, because nothing links to them anymore.
+ *
+ * "Riwayat & Arsip" is the ONE deliberate archive search surface (PO,
+ * 2026-09-29): the claim archive stays out of every operational page, and is
+ * reachable only here, behind the same moderator guard as every other tab.
  */
 const SECTIONS = [
   { href: "/admin", label: "Overview", exact: true },
@@ -28,6 +32,7 @@ const SECTIONS = [
   { href: "/admin/places", label: "Data Place", exact: false },
   { href: "/admin/live", label: "Data Live", exact: false },
   { href: "/admin/moderation", label: "Live Moderation", exact: false },
+  { href: "/admin/archives", label: "Riwayat & Arsip", exact: false },
 ] as const;
 
 const IDLE = "border border-black/10 bg-white text-black/60 hover:bg-brand-accent/10 hover:text-brand-accent";

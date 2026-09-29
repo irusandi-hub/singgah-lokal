@@ -44,15 +44,20 @@ test("the Admin nav marks the active tab, including a nested route's parent", ()
   assert.match(nav, /exact: true/);
   assert.match(nav, /pathname\.startsWith\(`\$\{href\}\/`/);
   // The MVP tab set (PO, 2026-09-29): Overview, Data Pengguna, Data Pengelola,
-  // Data Place, Data Live, Live Moderation. The standalone "Pengelola" tab is
-  // gone; "Kegiatan" and "Kunjungan" stay out of the Admin navigation.
-  for (const label of ["Overview", "Data Pengguna", "Data Pengelola", "Data Place", "Data Live", "Live Moderation"]) {
+  // Data Place, Data Live, Live Moderation, Riwayat & Arsip. The standalone
+  // "Pengelola" tab is gone; "Kegiatan" and "Kunjungan" stay out of the Admin
+  // navigation.
+  for (const label of ["Overview", "Data Pengguna", "Data Pengelola", "Data Place", "Data Live", "Live Moderation", "Riwayat & Arsip"]) {
     assert.match(nav, new RegExp(`label: "${label}"`));
   }
   assert.doesNotMatch(nav, /label: "Kegiatan"/);
   assert.doesNotMatch(nav, /label: "Kunjungan"/);
   assert.doesNotMatch(nav, /label: "Pengelola"/);
   assert.doesNotMatch(nav, /admin\/producers/);
+
+  // The archive tab points at the ONE deliberate archive surface; the archive
+  // search itself is exercised further in place-claim-archive.test.ts.
+  assert.match(nav, /href: "\/admin\/archives"/);
   // The layout renders the nav once — no second, divergent nav anywhere.
   assert.match(adminLayout, /<AdminNav \/>/);
   assert.doesNotMatch(adminLayout, /aria-label="Navigasi Admin"/);
