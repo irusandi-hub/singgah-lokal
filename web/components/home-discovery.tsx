@@ -111,11 +111,13 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
     return map;
   }, [liveItems]);
 
+  // CONTENT FILTER (PO, 2026-09-29): search, LIVE, and the curated layer —
+  // the filters that decide WHAT content exists. The distance tabs are NOT
+  // part of this pipeline anymore: 1 km / 5 km / 10 km+ are CAMERA PRESETS,
+  // and the map dataset must never shrink because a radius tab was chosen
+  // (zooming out would otherwise never reveal Places that an upstream
+  // radius filter had already discarded).
   const visiblePlaces = useMemo(() => {
-    // Distance filter first (same gate for markers, Place list, and LIVE).
-    // Bounded radii match only on viewerPosition + canonical Place lat/lng
-    // (PO item 6): without a real position or coordinates the Place stays
-    // visible only under the unbounded filter — a position is never invented.
     const normalizedQuery = searchQuery.trim().toLocaleLowerCase("id-ID");
 
     const searchFiltered = places.filter((place) => {
@@ -136,7 +138,27 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
       return haystack.includes(normalizedQuery);
     });
 
-    const distanceFiltered = searchFiltered.filter((place) =>
+    // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
+    // it shows ALL published Places, independent of the radius. There is
+    // no category selection inside it — the canonical Place category
+    // never filters the curated layer.
+    if (curatedOnly) {
+      return searchFiltered;
+    }
+    // LIVE: a process/status filter — only Places with an active session.
+    let result = searchFiltered;
+    if (liveOnly) result = result.filter((place) => liveByPlaceId.has(place.id));
+    return result;
+  }, [places, searchQuery, liveOnly, curatedOnly, liveByPlaceId]);
+
+  // LIST-ONLY radius gate (PO, 2026-09-29): the Place results below the map
+  // keep their existing proximity semantics — a bounded radius narrows the
+  // list (viewerPosition + canonical lat/lng, fail-closed, a position is
+  // never invented), and "10 km+"/curated show everything. The MAP dataset
+  // is deliberately independent: see mapPlaces below.
+  const listedPlaces = useMemo(() => {
+    if (curatedOnly || distanceFilter === "10 km+") return visiblePlaces;
+    return visiblePlaces.filter((place) =>
       matchesDistance(
         distanceFilter,
         viewerPosition,
@@ -145,28 +167,20 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
           : null,
       ),
     );
-    // LIVE filter second: a process/status filter — only Places with an
-    // active session, further narrowed by the same distance gate above.
-    // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
-    // it shows ALL published Places, independent of the radius. There is
-    // no category selection inside it — the canonical Place category
-    // never filters the curated layer.
-    if (curatedOnly) {
-      return searchFiltered;
-    }
-    let result = distanceFiltered;
-    if (liveOnly) result = result.filter((place) => liveByPlaceId.has(place.id));
-    return result;
-  }, [places, searchQuery, distanceFilter, liveOnly, curatedOnly, liveByPlaceId, viewerPosition]);
+  }, [visiblePlaces, curatedOnly, distanceFilter, viewerPosition]);
 
   const liveCards = useMemo(() => {
     if (liveItems.length === 0) return [];
-    const visibleIds = new Set(visiblePlaces.map((place) => place.id));
-    return liveItems.filter((item) => visibleIds.has(item.placeId));
-  }, [liveItems, visiblePlaces]);
+    const listedIds = new Set(listedPlaces.map((place) => place.id));
+    return liveItems.filter((item) => listedIds.has(item.placeId));
+  }, [liveItems, listedPlaces]);
 
-  // Map markers come ONLY from canonical Place coordinates — a Place
-  // without lat/lng is never invented onto the map (fail-closed).
+  // MAP DATASET (PO, 2026-09-29): every content-filtered Place with
+  // canonical coordinates, independent of the camera radius. Zooming out
+  // after choosing 1 km/5 km now reveals Places that were simply outside
+  // the frame — nothing is discarded upstream. Leaflet's viewport decides
+  // which markers are visually on screen; a Place without lat/lng is still
+  // never invented onto the map (fail-closed).
   const mapPlaces = useMemo<HomeMapPlace[]>(
     () =>
       visiblePlaces.flatMap((place) =>
@@ -362,7 +376,9 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
               below the map. */}
         </section>
 
-        {/* Place results — same canonical visiblePlaces used by map and filters. */}
+        {/* Place results — the LIST gate: content-filtered Places further
+            narrowed by the selected radius (list-only semantics; the MAP
+            dataset above is independent of the camera radius). */}
         <section className="mt-6" aria-labelledby="place-results-heading">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
@@ -378,13 +394,13 @@ export default function HomeDiscovery({ initialPlaces = [] }: { initialPlaces?: 
               </h2>
             </div>
             <span className="text-xs font-bold text-black/45">
-              {visiblePlaces.length} Tempat
+              {listedPlaces.length} Tempat
             </span>
           </div>
 
-          {visiblePlaces.length > 0 ? (
+          {listedPlaces.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {visiblePlaces.map((place) => {
+              {listedPlaces.map((place) => {
                 const live = liveByPlaceId.get(place.id);
                 // Direction target from the REAL canonical coordinates —
                 // null when the Place has none (safe disabled control).

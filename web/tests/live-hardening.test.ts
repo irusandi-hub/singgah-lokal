@@ -44,27 +44,36 @@ test("E2E: LIVE cards compute distance only from real viewer position + canonica
   assert.match(homeSource, /\(\) => undefined,/);
 });
 
-test("E2E: bounded distance radii use matchesDistance and LIVE/markers follow the same filter", () => {
-  // Bounded radius filtering goes through the shared matchesDistance gate
-  // (haversine over viewerPosition + canonical Place lat/lng) — never a
-  // coordinate-presence-only check.
-  assert.match(homeSource, /matchesDistance\(/);
+test("E2E: distance tabs are CAMERA presets — the map dataset never shrinks by radius", () => {
+  // PO, 2026-09-29: 1 km / 5 km / 10 km+ are camera presets. The MAP dataset
+  // comes from the content-filtered set (search/LIVE/curated) and must NOT
+  // pass through a matchesDistance gate — zooming out after choosing 1 km
+  // would otherwise never reveal Places an upstream filter had discarded.
+  const mapDataset = homeSource.slice(homeSource.indexOf("const mapPlaces"));
+  assert.match(mapDataset, /visiblePlaces\.flatMap\(\(place\) =>/);
+  assert.doesNotMatch(mapDataset, /matchesDistance/);
+  // The matchesDistance gate survives ONLY in the list pipeline (listedPlaces)
+  // — the list below the map keeps its existing proximity contract.
   assert.match(homeSource, /matchesDistance\(\s*distanceFilter,\s*viewerPosition,/);
-  // LIVE is a process/status filter applied on top of the same distance gate.
+  const listGate = homeSource.slice(homeSource.indexOf("const listedPlaces"), homeSource.indexOf("const liveCards"));
+  assert.match(listGate, /matchesDistance/);
+  assert.match(listGate, /curatedOnly \|\| distanceFilter === "10 km\+"/);
+  // LIVE is a process/status filter on the content pipeline.
   assert.match(homeSource, /liveByPlaceId\.has\(place\.id\)/);
-  // Map markers derive from the filtered visiblePlaces (canonical coords
-  // only) through the real Leaflet map component — not raw liveItems, and
-  // the old demo layout positions are gone.
-  assert.match(homeSource, /visiblePlaces\.flatMap\(\(place\) =>/);
+  // Map markers derive from the content-filtered set (canonical coords only)
+  // through the real Leaflet map component — not raw liveItems, and the old
+  // demo layout positions are gone.
   assert.match(homeSource, /<HomeMap\n\s+places=\{mapPlaces\}\n\s+liveByPlaceId=\{liveByPlaceId\}/);
   // Current Location is passed into the map: real geolocation only.
   assert.match(homeSource, /viewerPosition=\{viewerPosition\}/);
   assert.match(homeSource, /locateNonce=\{locateNonce\}/);
   assert.match(homeSource, /onRequestLocate=\{\(\) => setLocateNonce\(\(nonce\) => nonce \+ 1\)\}/);
   assert.doesNotMatch(homeSource, /mapPositionByPlaceId/);
-  // LIVE cards also follow the filtered set (Set membership, O(n)).
-  assert.match(homeSource, /const visibleIds = new Set\(visiblePlaces\.map\(\(place\) => place\.id\)\)/);
-  assert.match(homeSource, /liveItems\.filter\(\(item\) => visibleIds\.has\(item\.placeId\)\)/);
+  // LIVE cards follow the LIST gate (Set membership, O(n)).
+  assert.match(homeSource, /const listedIds = new Set\(listedPlaces\.map\(\(place\) => place\.id\)\)/);
+  assert.match(homeSource, /liveItems\.filter\(\(item\) => listedIds\.has\(item\.placeId\)\)/);
+  // The list section renders the list gate, not the map dataset.
+  assert.match(homeSource, /\{listedPlaces\.map\(\(place\) => \{/);
 });
 
 test("E2E: Leaflet map renders only canonical Place coordinates and keeps the Place/Live links", () => {
