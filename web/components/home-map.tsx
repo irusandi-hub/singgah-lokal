@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
+import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 /**
@@ -20,8 +20,9 @@ import "leaflet/dist/leaflet.css";
  *   world overview (fitWorld), never on a stand-in country view.
  * - Camera authority (PO, 2026-09-29 + 2026-09-30 map-coverage fix): ONE
  *   deterministic preset mechanism — every mode (1 km / 5 km / 10 km+ /
- *   "Tempat Pilihan") is a radius preset: the camera flies so the frame covers
- *   exactly that radius around the real Current Location. Preset radii are
+ *   "Tempat Pilihan") is a radius preset: the camera moves INSTANTLY (setView,
+ *   animate: false — no animation) so the frame covers exactly that radius
+ *   around the real Current Location. Preset radii are
  *   strictly ordered (1 < 5 < 12 < 50 km), so the derived zoom is strictly
  *   ordered the opposite way and is NEVER derived from the current zoom. A
  *   newly chosen preset always applies (deterministic refocus); manual pan/zoom
@@ -66,8 +67,9 @@ type HomeMapProps = {
   locateNonce: number;
   onRequestLocate: () => void;
   /**
-   * THE camera preset (PO, 2026-09-29): when set, the camera flies so the
-   * frame covers exactly this radius around the real Current Location —
+   * THE camera preset (PO, 2026-09-29): when set, the camera moves
+   * instantly so the frame covers exactly this radius around the real
+   * Current Location —
    * through ONE deterministic radiusZoom mechanism shared by every mode
    * (1 km / 5 km / 10 km+ tabs and "Tempat Pilihan" 50 km). Strictly ordered
    * radii produce strictly ordered zoom levels, independent of the current
@@ -77,6 +79,14 @@ type HomeMapProps = {
   cameraRadiusMeters?: number | null;
   /** "Tempat Pilihan" treatment on the SAME base Place marker. */
   curatedMarkers?: boolean;
+  /**
+   * Short one-shot focus pulse on the EXISTING Current Location pin when a
+   * preset applies (instant-camera rule, PO 2026-09-30): the camera itself
+   * moves instantly with NO animation, so entering "Tempat Pilihan" is made
+   * visually obvious by this ~450 ms pin pulse instead. No new marker, no
+   * marker redesign, no map animation; prefers-reduced-motion disables it.
+   */
+  pulsePinOnPresetChange?: boolean;
   /**
    * Viewport-aware empty state (PO, 2026-09-30): the map reports whether at
    * least one Place marker currently sits inside the REAL Leaflet viewport —
@@ -117,6 +127,7 @@ export default function HomeMap({
   onRequestLocate,
   cameraRadiusMeters = null,
   curatedMarkers = false,
+  pulsePinOnPresetChange = false,
   onViewportHasPlaces,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -126,9 +137,15 @@ export default function HomeMap({
   const tileLayerRef = useRef<TileLayer | null>(null);
   const markerLayerRef = useRef<LayerGroup | null>(null);
   const userLayerRef = useRef<LayerGroup | null>(null);
+  // Short pin focus feedback (instant-camera rule, PO 2026-09-30): refs for
+  // the Current Location pin element, the one-shot pulse timer, and the
+  // pulse window (so a pin rebuild during an active pulse re-applies it).
+  const userPinRef = useRef<CircleMarker | null>(null);
+  const locatePulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const locatePulseUntilRef = useRef(0);
   // Camera authority refs. After a real user pan/zoom automatic refreshes
-  // never move the map again; programmatic flights set programmaticMoveRef so
-  // they are not mistaken for user interaction.
+  // never move the map again; programmatic instant moves set
+  // programmaticMoveRef so they are not mistaken for user interaction.
   const userInteractedRef = useRef(false);
   const programmaticMoveRef = useRef(false);
   const locatePendingRef = useRef(false);
@@ -188,15 +205,44 @@ export default function HomeMap({
     }
   }, []);
 
-  // Fly to the real user position WITHOUT changing the frame width. Used
-  // ONLY by the no-preset paths (cameraRadiusMeters === null, which no Home
-  // mode reaches): the one-shot focus and its locate recenter. With a preset
-  // active, "Lokasi Saya" flies through radiusZoom instead (see the locate
-  // effect) so the ACTIVE preset radius stays the camera authority.
-  const flyToUser = useCallback((map: LeafletMap, position: { lat: number; lng: number }) => {
-    programmaticMoveRef.current = true;
-    map.flyTo([position.lat, position.lng], Math.max(map.getZoom(), 15), { duration: 0.8 });
+  // Short pin focus feedback (PO, 2026-09-30 instant-camera rule): the
+  // camera applies INSTANTLY (no flyTo, no duration/easing anywhere), so the
+  // ONLY motion feedback is this one-shot pulse on the EXISTING Current
+  // Location pin — on every "Lokasi Saya" recenter and on entering the
+  // "Tempat Pilihan" preset. The pin is Leaflet SVG (a Path accepts a
+  // className): the temporary class (globals.css .singgah-locate-pulse,
+  // disabled by prefers-reduced-motion) is added for ONE animation cycle and
+  // removed again. No new marker, no marker-system change, no map animation.
+  const triggerLocatePulse = useCallback(() => {
+    const element = userPinRef.current?.getElement?.();
+    if (!element) return;
+    locatePulseUntilRef.current = Date.now() + 450;
+    if (locatePulseTimerRef.current !== null) clearTimeout(locatePulseTimerRef.current);
+    element.classList.remove("singgah-locate-pulse");
+    // Force a reflow so a pulse restarted mid-cycle runs completely.
+    void element.getBoundingClientRect();
+    element.classList.add("singgah-locate-pulse");
+    locatePulseTimerRef.current = setTimeout(() => {
+      locatePulseTimerRef.current = null;
+      userPinRef.current?.getElement?.()?.classList.remove("singgah-locate-pulse");
+    }, 450);
   }, []);
+
+  // Jump to the real user position WITHOUT changing the frame width —
+  // INSTANTLY (setView with animate: false; no duration/easing/animation).
+  // Used ONLY by the no-preset paths (cameraRadiusMeters === null, which no
+  // Home mode reaches): the one-shot focus and its locate recenter. With a
+  // preset active, "Lokasi Saya" recentres through radiusZoom instead (see
+  // the locate effect) so the ACTIVE preset radius stays the camera
+  // authority. The pin pulse marks the focus point either way.
+  const focusUser = useCallback(
+    (map: LeafletMap, position: { lat: number; lng: number }) => {
+      programmaticMoveRef.current = true;
+      map.setView([position.lat, position.lng], Math.max(map.getZoom(), 15), { animate: false });
+      triggerLocatePulse();
+    },
+    [triggerLocatePulse],
+  );
 
   // THE preset mechanism (PO, 2026-09-29): the zoom that makes the frame
   // cover a given radius around Current Location. Purely a function of the
@@ -391,6 +437,8 @@ export default function HomeMap({
       cancelled = true;
       setReady(false);
       if (invalidateTimer !== null) clearTimeout(invalidateTimer);
+      if (locatePulseTimerRef.current !== null) clearTimeout(locatePulseTimerRef.current);
+      locatePulseTimerRef.current = null;
       window.removeEventListener("resize", onWindowResize);
       const container = containerRef.current;
       if (container) {
@@ -437,15 +485,20 @@ export default function HomeMap({
     let cancelled = false;
     (async () => {
       // ONE preset path for every mode (PO, 2026-09-29): distance tabs and
-      // "Tempat Pilihan" all fly through the same radiusZoom preset — a new
-      // preset always applies (deterministic), manual pan/zoom in between is
-      // respected (latch re-arms only on the new preset choice).
+      // "Tempat Pilihan" all apply through the same radiusZoom preset — a
+      // new preset always applies (deterministic), manual pan/zoom in
+      // between is respected (latch re-arms only on the new preset choice).
+      // The application is INSTANT (setView, animate: false): no duration,
+      // no easing, no animation — entering "Tempat Pilihan" (or any preset
+      // change) is made visually obvious by the one-shot pin focus pulse
+      // instead (instant-camera rule, PO 2026-09-30).
       if (cameraRadiusMeters !== null) {
         if (radiusChanged) userInteractedRef.current = false;
         const zoom = await radiusZoom(map, viewerPosition, cameraRadiusMeters);
         if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
         programmaticMoveRef.current = true;
-        map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { duration: 0.8 });
+        map.setView([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { animate: false });
+        if (radiusChanged && pulsePinOnPresetChange) triggerLocatePulse();
         return;
       }
       // No preset at all (cameraRadiusMeters === null): focus the actual
@@ -453,14 +506,14 @@ export default function HomeMap({
       // re-center afterwards.
       if (!autoFocusedRef.current) {
         autoFocusedRef.current = true;
-        flyToUser(map, viewerPosition);
+        focusUser(map, viewerPosition);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [ready, viewerPositionKey, cameraRadiusMeters, viewerPosition, flyToUser, radiusZoom]);
+  }, [ready, viewerPositionKey, cameraRadiusMeters, viewerPosition, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);
 
   // Render/update the user marker from the real geolocation fix. Camera
   // decisions live in the anchor effect above.
@@ -490,14 +543,16 @@ export default function HomeMap({
       // disc with a white ring (Place pins are the inverse: brown disc, emoji
       // glyph, name label; LIVE pins are the red badge). No click behavior —
       // it is not a navigation target.
-      L.circleMarker([viewerPosition.lat, viewerPosition.lng], {
+      userPinRef.current = L.circleMarker([viewerPosition.lat, viewerPosition.lng], {
         radius: 13,
         color: "#ffffff",
         weight: 4,
         fillColor: BRAND_PIN,
         fillOpacity: 1,
-      })
-        .addTo(layer);
+      }).addTo(layer);
+      // A rebuild inside an active pulse window (a fresh fix committed by a
+      // locate press) re-applies the one-shot feedback to the NEW element.
+      if (Date.now() < locatePulseUntilRef.current) triggerLocatePulse();
       L.circleMarker([viewerPosition.lat, viewerPosition.lng], {
         radius: 5,
         color: BRAND_PIN,
@@ -512,20 +567,25 @@ export default function HomeMap({
 
     return () => {
       cancelled = true;
+      // The layer is cleared on rebuild/teardown — the pin element is gone.
+      userPinRef.current = null;
     };
-  }, [ready, viewerPosition]);
+  }, [ready, viewerPosition, triggerLocatePulse]);
 
   // "Lokasi Saya": explicit recenter on the latest fix. When a preset is
   // active (EVERY Home mode: 1 km / 5 km / 10 km+ / Tempat Pilihan), the
-  // recenter flies through the SAME canonical radiusZoom mechanism — the
+  // recenter applies through the SAME canonical radiusZoom mechanism — the
   // ACTIVE preset radius stays the camera authority, so the frame keeps
-  // covering exactly that radius around the newest real fix. The old
-  // arbitrary Math.max(getZoom(), 15) zoom broke the active preset (e.g. it
-  // shattered Tempat Pilihan's 50 km frame). No marker fitBounds, no
-  // mode/filter change, no invented position. Only the null-preset path
-  // (no Home mode reaches it) keeps the existing zoom-preserving focus. If
-  // the fix has not arrived yet, the request stays pending and resolves in
-  // the anchor effect above once geolocation returns.
+  // covering exactly that radius around the newest real fix. The camera
+  // application is INSTANT (setView, animate: false — no duration, no
+  // easing, no animation); the action is visually confirmed by the one-shot
+  // pin pulse, never by animating the map. The old arbitrary
+  // Math.max(getZoom(), 15) zoom broke the active preset (e.g. it shattered
+  // Tempat Pilihan's 50 km frame). No marker fitBounds, no mode/filter
+  // change, no invented position. Only the null-preset path (no Home mode
+  // reaches it) keeps the existing zoom-preserving focus. If the fix has not
+  // arrived yet, the request stays pending and resolves in the anchor effect
+  // above once geolocation returns.
   useEffect(() => {
     const map = mapRef.current;
     if (!locateNonce || lastLocateNonceRef.current === locateNonce) return;
@@ -539,14 +599,15 @@ export default function HomeMap({
         const zoom = await radiusZoom(map, viewerPosition, cameraRadiusMeters);
         if (cancelled || mapRef.current !== map) return;
         programmaticMoveRef.current = true;
-        map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { duration: 0.8 });
+        map.setView([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { animate: false });
+        triggerLocatePulse();
       })();
       return () => {
         cancelled = true;
       };
     }
-    flyToUser(map, viewerPosition);
-  }, [locateNonce, ready, viewerPosition, cameraRadiusMeters, flyToUser, radiusZoom]);
+    focusUser(map, viewerPosition);
+  }, [locateNonce, ready, viewerPosition, cameraRadiusMeters, focusUser, radiusZoom, triggerLocatePulse]);
 
   // Rebuild markers whenever the filtered marker set changes. Camera note:
   // the viewport is NEVER driven by the marker set — no marker fitBounds

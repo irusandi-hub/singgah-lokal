@@ -630,6 +630,12 @@ export default function HomeDiscovery({
             cameraRadiusMeters={
               curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
             }
+            /* Instant-camera rule (PO, 2026-09-30): the camera itself applies
+               with no animation at all, so entering "Tempat Pilihan" is made
+               visually obvious by a SHORT (~450 ms) one-shot focus pulse on
+               the EXISTING Current Location pin — no new marker, no map
+               animation. */
+            pulsePinOnPresetChange={curatedOnly}
             curatedMarkers={curatedOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
           />

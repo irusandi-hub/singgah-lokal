@@ -115,6 +115,37 @@ select {
   }
 }
 
+/* Current Location pin focus feedback (PO, 2026-09-30 instant-camera rule):
+   the map camera moves INSTANTLY (setView, animate: false — no duration,
+   no easing, no map animation anywhere), so a "Lokasi Saya" recenter and
+   the "Tempat Pilihan" preset entry are confirmed ONLY by this short
+   (~450 ms) one-shot pulse on the EXISTING user pin element. Minimal by
+   design: one keyframe, one class, disabled entirely when the user prefers
+   reduced motion. The LIVE marker pulse above is untouched, and no marker
+   model is changed — the class is added to and removed from the regular
+   pin by the map component. */
+@keyframes singgah-locate-pulse {
+  0% {
+    filter: drop-shadow(0 0 0 rgb(14 107 79 / 0.55));
+  }
+  60% {
+    filter: drop-shadow(0 0 12px rgb(14 107 79 / 0.45));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgb(14 107 79 / 0));
+  }
+}
+
+.singgah-locate-pulse {
+  animation: singgah-locate-pulse 450ms ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .singgah-locate-pulse {
+    animation: none;
+  }
+}
+
 .singgah-map-marker:focus-visible {
   outline: 2px solid var(--brand-ink);
   outline-offset: 2px;
