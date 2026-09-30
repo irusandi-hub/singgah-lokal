@@ -310,9 +310,16 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
   // size check can swap the curated layer for the full published set.
   assert.doesNotMatch(visible, /curatedIdSet\.size > 0/);
   assert.doesNotMatch(visible, /:\s*searchFiltered\s*;/);
-  // Curated row and count both follow the empty set.
+  // Curated row and count both follow the empty set. The header counts ONLY
+  // the curated selection (PO fix, 2026-09-30): the Discovery Place row is
+  // never summed into the Tempat Pilihan counter, and normal modes keep the
+  // Discovery Place count.
   assert.match(code, /const curatedListed = useMemo\(\s*\(\) => visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
-  assert.match(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
+  assert.match(
+    code,
+    /curatedOnly\s*\?\s*`\$\{curatedListed\.length\} Tempat Pilihan`\s*:\s*`\$\{discoveryRowPlaces\.length\} Tempat`/,
+  );
+  assert.doesNotMatch(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
 });
 
 test("P0: an empty curated set yields zero curated Places even when places are published", () => {

@@ -667,8 +667,12 @@ export default function HomeDiscovery({
               </h2>
             </div>
             <span className="text-xs font-bold text-black/45">
+              {/* Count semantics (PO, 2026-09-30): each layer counts ONLY its
+                  own rows — the Tempat Pilihan header counts the curated
+                  selection (Baris 1), never the Discovery Place row beneath
+                  it; normal modes keep the Discovery Place count. */}
               {curatedOnly
-                ? `${curatedListed.length + discoveryRowPlaces.length} Tempat`
+                ? `${curatedListed.length} Tempat Pilihan`
                 : `${discoveryRowPlaces.length} Tempat`}
             </span>
           </div>
