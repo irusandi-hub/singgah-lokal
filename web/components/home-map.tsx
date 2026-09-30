@@ -77,6 +77,14 @@ type HomeMapProps = {
   cameraRadiusMeters?: number | null;
   /** "Tempat Pilihan" treatment on the SAME base Place marker. */
   curatedMarkers?: boolean;
+  /**
+   * Viewport-aware empty state (PO, 2026-09-30): the map reports whether at
+   * least one Place marker currently sits inside the REAL Leaflet viewport —
+   * evaluated once when the map is ready and re-evaluated on every FINISHED
+   * move/zoom (moveend/zoomend). Marker dataset, marker design, and camera
+   * behavior are NOT affected by this callback.
+   */
+  onViewportHasPlaces?: (hasPlaces: boolean) => void;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -109,6 +117,7 @@ export default function HomeMap({
   onRequestLocate,
   cameraRadiusMeters = null,
   curatedMarkers = false,
+  onViewportHasPlaces,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -128,10 +137,24 @@ export default function HomeMap({
   const viewerPositionRef = useRef<HomeMapViewer | null>(null);
   // Two-finger interaction observer (touch-primary only) — detached in teardown.
   const touchMoveObserverRef = useRef<((event: TouchEvent) => void) | null>(null);
+  // Viewport-aware empty state (PO, 2026-09-30): refs for the reported
+  // callback, the canonical marker-position mirror, and the last reported
+  // status (dedup — no re-render storms during gestures).
+  const onViewportHasPlacesRef = useRef<((hasPlaces: boolean) => void) | null>(null);
+  const markerPositionsRef = useRef<[number, number][]>([]);
+  const lastViewportHasPlacesRef = useRef(false);
+
   const router = useRouter();
   const [ready, setReady] = useState(false);
 
   const viewerPositionKey = viewerPosition ? `${viewerPosition.lat},${viewerPosition.lng}` : "";
+
+  // Every render, the LATEST callback is mirrored into the ref (in an effect,
+  // never during render) so the map's long-lived moveend/zoomend listeners
+  // can never capture a stale closure.
+  useEffect(() => {
+    onViewportHasPlacesRef.current = onViewportHasPlaces ?? null;
+  }, [onViewportHasPlaces]);
 
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
@@ -143,6 +166,27 @@ export default function HomeMap({
         .join("|"),
     [places, liveByPlaceId],
   );
+
+  // Viewport-aware empty state (PO, 2026-09-30): ONE shared re-evaluation
+  // over the CANONICAL marker positions (never over an invented dataset).
+  // Reports whether at least one Place currently sits inside the REAL
+  // Leaflet viewport. The effect below keeps the callback ref fresh so the
+  // map's long-lived listeners can never capture a stale render closure.
+  const evaluateViewportStatus = useCallback(() => {
+    const map = mapRef.current;
+    const report = onViewportHasPlacesRef.current;
+    if (!map || !report) return;
+    const bounds = map.getBounds();
+    const hasPlaces = markerPositionsRef.current.some(([lat, lng]) =>
+      bounds.contains([lat, lng]),
+    );
+    // Report ONLY on change — dedupes the burst of moveend/zoomend events a
+    // gesture/flight can emit and prevents re-render storms.
+    if (hasPlaces !== lastViewportHasPlacesRef.current) {
+      lastViewportHasPlacesRef.current = hasPlaces;
+      report(hasPlaces);
+    }
+  }, []);
 
   // Fly to the real user position. Used only for the explicit "Lokasi Saya"
   // recenter (user intent, not a tab preset).
@@ -283,7 +327,15 @@ export default function HomeMap({
 
       map.on("moveend", () => {
         programmaticMoveRef.current = false;
+        // Viewport-aware empty state (PO, 2026-09-30): every FINISHED move —
+        // two-finger pan, pinch zoom, zoom control, or a programmatic preset
+        // flight — re-evaluates whether a Place sits in the viewport.
+        // Leaflet fires moveend once per gesture, never continuously during
+        // it, so updates stay cheap. zoomend arrives right after moveend for
+        // zooms (idempotent: it reports only on change).
+        evaluateViewportStatus();
       });
+      map.on("zoomend", evaluateViewportStatus);
       map.on("dragstart", () => {
         if (!programmaticMoveRef.current) userInteractedRef.current = true;
       });
@@ -312,13 +364,23 @@ export default function HomeMap({
       // invalidateSize() after init (and on every window resize) prevents
       // visually stacked tiles/layers on phones.
       invalidateTimer = setTimeout(() => {
-        if (mapRef.current === map) invalidate(map);
+        if (mapRef.current === map) {
+          invalidate(map);
+          // INITIAL STATE (PO, 2026-09-30): the first status is computed as
+          // soon as the map is ready — the user never has to move the map
+          // first. invalidateSize settled the real viewport size; any marker
+          // set built before readiness is re-evaluated here too.
+          evaluateViewportStatus();
+        }
       }, 150);
     })();
 
     const onWindowResize = () => {
       const map = mapRef.current;
       if (map) invalidate(map);
+      // Resize changes the visible viewport without any map move —
+      // re-evaluate (evaluateViewportStatus is stable, [] deps).
+      evaluateViewportStatus();
     };
     window.addEventListener("resize", onWindowResize);
 
@@ -347,6 +409,9 @@ export default function HomeMap({
       }
       mapRef.current = null;
     };
+    // Mount-once map lifecycle: evaluateViewportStatus is stable ([] deps)
+    // and every dependency it reads lives in refs — no re-init is wanted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Camera anchor: Current Location is the map's center. EVERY mode is a
@@ -486,7 +551,22 @@ export default function HomeMap({
 
       layer.clearLayers();
       const currentPlaces = places;
-      if (currentPlaces.length === 0) return;
+      // Viewport-aware empty state (PO, 2026-09-30): the mirror holds ONLY
+      // the canonical coordinates that actually receive a marker (same
+      // Number.isFinite fail-closed rule as the markers below — a Place
+      // without valid lat/lng never appears here and never invents a
+      // position). Synced BEFORE the first report of the new set so the
+      // overlay can never disagree with the rendered markers.
+      const markerPositions: [number, number][] = [];
+      for (const place of currentPlaces) {
+        if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
+        markerPositions.push([place.latitude, place.longitude]);
+      }
+      markerPositionsRef.current = markerPositions;
+      if (currentPlaces.length === 0) {
+        evaluateViewportStatus();
+        return;
+      }
 
       for (const place of currentPlaces) {
         if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
@@ -553,6 +633,10 @@ export default function HomeMap({
           opacity: 1,
         });
       }
+      // Marker set rebuilt: re-evaluate the viewport status against the NEW
+      // set (a dataset change can place markers into — or remove them from —
+      // the current viewport without any camera move).
+      evaluateViewportStatus();
     })();
 
     return () => {

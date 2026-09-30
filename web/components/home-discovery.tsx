@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import PlaceFollowButton from "@/components/place-follow-button";
@@ -76,6 +76,28 @@ export default function HomeDiscovery({
   // the permanent LIVE indicator). Live state itself is never invented — the
   // canonical liveByPlaceId feed is the only source.
   const [nonLiveNoticePlaceId, setNonLiveNoticePlaceId] = useState<string | null>(null);
+  // Viewport-aware map empty state (PO, 2026-09-30): the MAP decides from the
+  // REAL Leaflet viewport whether a Place is currently visible — evaluated on
+  // readiness and on every FINISHED move/zoom (moveend/zoomend). Three
+  // situations stay distinct:
+  //   1. the dataset itself is empty (mapPlaces.length === 0) → overlay on;
+  //   2. the dataset has Places but none sits in the current viewport →
+  //      overlay on — and it disappears/appears again as the user pans/zooms
+  //      between populated and empty areas without any dataset change;
+  //   3. a Place sits in the viewport → no overlay.
+  // viewportHasPlaces only becomes meaningful once the map has reported
+  // (reportedViewportRef), so the first paint before Leaflet is ready never
+  // shows a wrong status.
+  const [viewportHasPlaces, setViewportHasPlaces] = useState(false);
+  const [viewportReported, setViewportReported] = useState(false);
+  const reportedViewportRef = useRef(false);
+  const handleViewportHasPlaces = useCallback((hasPlaces: boolean) => {
+    setViewportHasPlaces(hasPlaces);
+    if (!reportedViewportRef.current) {
+      reportedViewportRef.current = true;
+      setViewportReported(true);
+    }
+  }, []);
   const router = useRouter();
 
   // Stage 3: server-built Discovery view model (engine output) + the
@@ -263,6 +285,14 @@ export default function HomeDiscovery({
       ),
     [visiblePlaces],
   );
+
+  // Viewport-aware empty state (PO, 2026-09-30): overlay when the DATASET is
+  // empty, or when the map has reported and NO Place sits in the REAL
+  // viewport (that report flips live with pan/zoom — see HomeMap's
+  // moveend/zoomend evaluation). Before the first report (Leaflet not ready
+  // yet) only the dataset rule decides — no premature overlay, no stale one.
+  const mapEmptyStateVisible =
+    mapPlaces.length === 0 || (viewportReported && !viewportHasPlaces);
 
   // ONE card renderer for every row: the existing card design verbatim; the
   // only addition is the optional "✦ Tempat Pilihan" marker so an overlap
@@ -572,19 +602,29 @@ export default function HomeDiscovery({
               curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
             }
             curatedMarkers={curatedOnly}
+            onViewportHasPlaces={handleViewportHasPlaces}
           />
 
-          {/* Clear empty state when no visible Place carries canonical
-              coordinates — positions are never invented. OVERLAY_LADDER:
-              Leaflet's highest documented z-index is 1000 (zoom control);
-              z-[1100] pins this card strictly above every Leaflet pane
-              (tile 200, map pane 400, tooltip 650, control 1000) in any
-              drag/zoom state — the visual fix for the mobile drag bug. */}
-          {mapPlaces.length === 0 && (
+          {/* Viewport-aware map empty state (PO, 2026-09-30): shown when the
+              mode's dataset is empty OR when no Place currently sits in the
+              REAL Leaflet viewport — it disappears/appears live as the user
+              pans/zooms between populated and empty areas. Markers only ever
+              come from canonical coordinates; none are invented, and the
+              overlay never pretends a hidden Place is on the map.
+              OVERLAY_LADDER: Leaflet's highest documented z-index is 1000
+              (zoom control); z-[1100] pins this card strictly above every
+              Leaflet pane (tile 200, map pane 400, tooltip 650, control
+              1000) in any drag/zoom state — the visual fix for the mobile
+              drag bug. */}
+          {mapEmptyStateVisible && (
             <div className="absolute inset-x-6 top-1/2 z-[1100] -translate-y-1/2 rounded-2xl bg-white/95 p-4 text-center shadow-lg ring-1 ring-brand-ink/10">
-              <p className="text-sm font-bold">Belum ada Tempat dengan koordinat di peta</p>
+              <p className="text-sm font-bold">
+                {curatedOnly
+                  ? "Belum ada Tempat Pilihan di sekitar area ini"
+                  : "Belum ada Tempat Terdaftar di sekitar area ini"}
+              </p>
               <p className="mt-1 text-xs text-black/55">
-                Peta hanya menampilkan Tempat dengan koordinat resmi. Tempat lain tetap ada di daftar.
+                Geser peta dengan dua jari untuk melihat area lain.
               </p>
             </div>
           )}
