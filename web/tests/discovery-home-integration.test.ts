@@ -72,9 +72,9 @@ test("default mode headings and row are the canonical Discovery layer", () => {
   const code = stripComments(home);
   // The default results heading is "Discovery Place" (engine-backed layer).
   assert.match(code, /curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Discovery Place"/);
-  // The default row renders the engine-ordered list (no re-sort client-side):
+  // The default row renders the canonical engine list (no re-sort client-side):
   // the ranked engine order from the server view model.
-  assert.match(code, /orderedListed\.map\(\(place\) =>\s*renderPlaceCard/);
+  assert.match(code, /discoveryRowPlaces\.map\(\(place\) =>\s*renderPlaceCard/);
   // Home never recomputes the score: no engine scoring import exists here.
   assert.equal(code.includes("computeDiscoveryScore"), false);
   assert.equal(code.includes("discoveryStarsForScore"), false);
@@ -100,9 +100,9 @@ test("the server view model feeds Home from the ONE engine (no second scoring pa
 test("curated mode renders TWO ordered rows: Tempat Pilihan (Baris 1) then Discovery Place (Baris 2)", () => {
   const code = stripComments(home);
   const row1 = code.indexOf("curatedOnly && curatedListed.length > 0");
-  const row2 = code.indexOf("discoveryListed.length > 0");
+  const row2 = code.indexOf("discoveryRowPlaces.length > 0");
   assert.ok(row1 >= 0 && row2 > row1, "Baris 1 (Tempat Pilihan) renders before Baris 2 (Discovery Place)");
-  assert.match(code, /discoveryListed\.map\(\(place\) =>\s*renderPlaceCard/);
+  assert.match(code, /discoveryRowPlaces\.map\(\(place\) =>\s*renderPlaceCard/);
 });
 
 test("curated membership is published + isCurated only, read through the canonical repository", () => {
@@ -124,10 +124,10 @@ test("curated membership is published + isCurated only, read through the canonic
 test("overlap: a curated Place that is also engine-eligible appears in BOTH rows", () => {
   // Pure layer view: both row derivations exist independently and neither
   // filters the other out — curatedListed uses visiblePlaces ∩ flag ids,
-  // discoveryListed uses the engine ranking ∩ search; no intersection step.
+  // discoveryRowPlaces uses the engine ranking ∩ search; no intersection step.
   const code = stripComments(home);
   assert.match(code, /const curatedListed = useMemo\(/);
-  assert.match(code, /const discoveryListed = useMemo\(/);
+  assert.match(code, /const discoveryRowPlaces = useMemo\(/);
   assert.equal(code.includes("dedupe"), false);
   // OVERLAP functional proof with the pure view model: Place A is curated
   // AND engine-eligible → present in BOTH lists, never deduplicated.
@@ -228,4 +228,108 @@ test("stars are displayed from the engine output without exposing the numeric sc
   );
   assert.match(viewModel, /DiscoveryPublicPlace = DiscoveryRankedPlace/);
   assert.doesNotMatch(viewModel, /score: number/);
+});
+
+// ---------------------------------------------------------------------------
+// P0 INTEGRITY — the Discovery Place row is the CANONICAL result, not the
+// published list re-sorted by rank.
+// ---------------------------------------------------------------------------
+
+test("P0: the Discovery Place row is built from the canonical discovery result", () => {
+  const code = stripComments(home);
+  // The row iterates the server view model's canonical entries and resolves
+  // each id; a Place that the engine did not rank has no entry and therefore
+  // cannot be rendered.
+  assert.match(code, /const discoveryRowPlaces = useMemo\(/);
+  const row = code.slice(code.indexOf("const discoveryRowPlaces"), code.indexOf("const curatedListed"));
+  assert.match(row, /discovery\?\.discovery \?\? \[\]/);
+  assert.match(row, /placeById\.get\(entry\.placeId\)/);
+  assert.match(row, /searchFilteredIds\.has\(place\.id\)/);
+  // Every render of the row goes through that one canonical list — there is no
+  // second list that can leak a published-but-ineligible Place.
+  assert.equal((code.match(/discoveryRowPlaces\.map\(/g) ?? []).length, 1);
+  // Ranking rank is NOT used as an eligibility proxy anymore: the old
+  // "sort the published list by rank, then append unranked Places" path is
+  // gone, together with the rank lookup it depended on.
+  assert.doesNotMatch(code, /rankById/);
+  assert.doesNotMatch(code, /orderedListed/);
+});
+
+test("P0: a published but ineligible Place cannot reach the Discovery Place row", () => {
+  // Engine proof: published + NOT publication-ready (no canonical coordinates)
+  // is published yet ineligible, so it never enters discovery.discovery.
+  const publishedNotReady = makeInput("published-not-ready", { coordinates: null });
+  const eligible = makeInput("eligible-place");
+  const vm = buildDiscoveryViewModel([publishedNotReady, eligible], new Set(), NOW);
+
+  assert.equal(
+    vm.discovery.some((entry) => entry.placeId === "published-not-ready"),
+    false,
+    "published-but-ineligible Place must not be in the canonical Discovery result",
+  );
+  assert.equal(
+    vm.discovery.some((entry) => entry.placeId === "eligible-place"),
+    true,
+    "eligible Place must be present",
+  );
+
+  // Home join proof: the row can only surface ids the engine produced, so a
+  // published card that the engine rejected stays invisible even though the
+  // server also passed it in `initialPlaces`.
+  const placeCardsById = new Map(
+    [publishedNotReady, eligible].map((input) => [input.place.id, input.place] as const),
+  );
+  const rowIds = vm.discovery
+    .map((entry) => placeCardsById.get(entry.placeId))
+    .filter((place) => place !== undefined)
+    .map((place) => place.id);
+  assert.deepEqual(rowIds, ["eligible-place"]);
+});
+
+test("P0: the Discovery row can never widen the canonical id set", () => {
+  // Search and the radius gate are the only narrowing steps; neither can add
+  // an id that the engine did not rank. A rank is presentation only.
+  const code = stripComments(home);
+  const row = code.slice(code.indexOf("const discoveryRowPlaces"), code.indexOf("const curatedListed"));
+  const filtering = row.split("return").slice(1).join("return");
+  assert.match(filtering, /\.filter\(/, "only filter steps, no re-mapping from a wider source");
+  assert.doesNotMatch(row, /listedPlaces/);
+  assert.doesNotMatch(row, /places\.filter/);
+});
+
+// ---------------------------------------------------------------------------
+// P0 EMPTY STATE — curatedOnly with an empty curated id set stays empty.
+// ---------------------------------------------------------------------------
+
+test("P0: empty curated set produces an empty Tempat Pilihan result (no published fallback)", () => {
+  const code = stripComments(home);
+  const visible = code.slice(code.indexOf("const visiblePlaces"), code.indexOf("const listedPlaces"));
+  // The curated branch filters by the curated id set unconditionally.
+  assert.match(visible, /if \(curatedOnly\) \{[\s\S]*searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
+  // The old "empty set → show every published Place" fallback is gone: no
+  // size check can swap the curated layer for the full published set.
+  assert.doesNotMatch(visible, /curatedIdSet\.size > 0/);
+  assert.doesNotMatch(visible, /:\s*searchFiltered\s*;/);
+  // Curated row and count both follow the empty set.
+  assert.match(code, /const curatedListed = useMemo\(\s*\(\) => visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
+  assert.match(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
+});
+
+test("P0: an empty curated set yields zero curated Places even when places are published", () => {
+  // Behavioural proof of the rule, independent of the source shape: the
+  // curated layer is an intersection with the curated id set, and an empty set
+  // intersects to nothing.
+  const searchFiltered = [makeInput("published-a").place, makeInput("published-b").place];
+  const curatedIdSet = new Set<string>();
+  const curatedListed = searchFiltered.filter((place) => curatedIdSet.has(place.id));
+  assert.deepEqual(curatedListed, []);
+  // ...while the Discovery layer still resolves normally: the empty curated
+  // set never empties Discovery and never empties it into the full set.
+  const vm = buildDiscoveryViewModel(
+    [makeInput("published-a"), makeInput("published-b")],
+    curatedIdSet,
+    NOW,
+  );
+  assert.equal(vm.discovery.length, 2);
+  assert.deepEqual(vm.curatedPlaceIds, []);
 });

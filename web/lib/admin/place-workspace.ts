@@ -1,6 +1,6 @@
 import "server-only";
 
-import { ecosystemComponent, followerComponent, liveComponent, visitIntentComponent, discoveryStarsForScore, evaluateDiscoveryEligibility, rankDiscoveryPlaces } from "@/lib/discovery/scoring";
+import { computeDiscoveryScoreBreakdown, discoveryStarsForScore, evaluateDiscoveryEligibility, rankDiscoveryPlaces } from "@/lib/discovery/scoring";
 import { PlaceAuditError, recordPlaceAudit } from "@/lib/admin/place-audit";
 import { PLACE_AUDIT_ACTIONS, placeAuditSnapshot, type PlaceAuditAction } from "@/lib/place-audit-format";
 import { SupabasePlaceManagementRepository } from "@/lib/place-experience-repository";
@@ -602,22 +602,40 @@ export type AdminPlaceDiscoveryView = {
   /** True when the Place passes the engine's eligibility rules. */
   eligible: boolean;
   breakdown: {
-    kelengkapan: number;
-    pengalaman: number;
+    /** Points earned by having a session live RIGHT NOW (contract L, 40 pts). */
     aktivitas: number;
-    engagement: number;
+    /** Points earned by recency decay of the latest session (contract L, 40 pts). */
     freshness: number;
-    relevansi: number;
+    /** Follower + visit-intent points together (contract F 25 + V 20 = 45 pts). */
+    engagement: number;
+    /** Published-experience points (first half of contract E, 8 pts). */
+    pengalaman: number;
+    /** Media-completeness points (second half of contract E, 7 pts). */
+    kelengkapan: number;
   };
 };
 
 /**
- * Component mapping (Stage 4 PO vocabulary → contract §3 weights): the
- * breakdown SHOWS how the locked formula weighs the Place — it is never a
- * second scoring implementation. Values are 0–100 per component (component
- * fraction × its weight), so the four weighted components always sum to the
- * integer score. kelengkapan/freshness/relevansi are contract-anchored:
- * readiness, live recency decay, and the coordinate-anchored relevance view.
+ * Breakdown mapping (Stage 4 PO vocabulary → contract §3 contributions).
+ *
+ * Every value is a CONTRIBUTION IN POINTS read straight from the engine's
+ * `computeDiscoveryScoreBreakdown`, so the five displayed components are
+ * exactly the five terms of the locked formula and their sum reconstructs
+ * the score. This is NOT a second scoring path and it never invents a
+ * component:
+ *
+ *   aktivitas   40 * liveNow          contract L, live branch
+ *   freshness   40 * recency          contract L, decay branch (0 while live)
+ *   engagement  25 * F + 20 * V       contract followers + visit intent
+ *   pengalaman    8 * min(1, exp/2)    contract E, experiences term
+ *   kelengkapan  7 * media            contract E, media term
+ *
+ * A "relevance" component was removed deliberately: the contract weights no
+ * geographic/viewer signal (contract §1 explicitly excludes viewer position),
+ * so a coordinates 0/100 proxy contributed nothing to the score while
+ * duplicating the `eligible` flag that already reports the coordinate
+ * requirement. Publication readiness stays an eligibility gate (E2), not a
+ * displayed score component.
  */
 export async function getAdminPlaceDiscoveryView(placeId: string): Promise<AdminPlaceDiscoveryView | undefined> {
   await requirePlatformModerator();
@@ -629,41 +647,21 @@ export async function getAdminPlaceDiscoveryView(placeId: string): Promise<Admin
   const input = inputs.find((candidate) => candidate.place.id === id);
   if (!input) return undefined;
 
-  const ranked = rankDiscoveryPlaces(inputs, new Date());
-  const rank = ranked.find((entry) => entry.placeId === id)?.rank ?? null;
-  const scoreEntry = ranked.find((entry) => entry.placeId === id);
-  const score = scoreEntry?.score ?? 0;
-
   const now = new Date();
+  const ranked = rankDiscoveryPlaces(inputs, now);
+  const scoreEntry = ranked.find((entry) => entry.placeId === id);
+  const contributions = computeDiscoveryScoreBreakdown(input, now);
+
   return {
-    stars: scoreEntry ? discoveryStarsForScore(score) : 1,
-    rank,
+    stars: scoreEntry ? discoveryStarsForScore(scoreEntry.score) : 1,
+    rank: scoreEntry?.rank ?? null,
     eligible: evaluateDiscoveryEligibility(input.place),
     breakdown: {
-      kelengkapan: isPlacePublicationReady({
-        ...input.place,
-        category: "Sumber Daya Alam",
-        type: "production",
-        contactInformation: "",
-        timezone: "Asia/Jakarta",
-        currency: "IDR",
-        countryCode: null,
-        regionName: null,
-        coverImageUrl: input.signals.engagement.hasCoverImage ? "https://cover" : null,
-        isCurated: false,
-        producer: null,
-      })
-        ? 100
-        : 0,
-      pengalaman: Math.round(ecosystemComponent(input.signals.engagement) * 100),
-      aktivitas: Math.round(liveComponent(input.signals.live, now) * 100),
-      engagement: Math.round(
-        (followerComponent(input.signals.engagement.followers) +
-          visitIntentComponent(input.signals.engagement.visitIntents)) *
-          50,
-      ),
-      freshness: Math.round(liveComponent(input.signals.live, now) * 100),
-      relevansi: input.place.latitude !== null && input.place.longitude !== null ? 100 : 0,
+      aktivitas: Math.round(contributions.liveActivity),
+      freshness: Math.round(contributions.liveRecency),
+      engagement: Math.round(contributions.followers + contributions.visitIntent),
+      pengalaman: Math.round(contributions.experiences),
+      kelengkapan: Math.round(contributions.media),
     },
     // The integer score stays server-side; it is intentionally absent from
     // this view (contract §3: only stars/rank ever reach a client).

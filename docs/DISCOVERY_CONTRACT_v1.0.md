@@ -1,10 +1,12 @@
 # SINGGAH LOKAL — DISCOVERY CONTRACT v1.0
 
 Status: **LOCKED for implementation** — Discovery Place scoring/eligibility contract.
-Date: 2026-09-29
+Date: 2026-09-29 (implementation clarifications added 2026-09-30; no rule changed)
 Basis: `AGENTS.md`, `docs/masters/MASTER_INDEX_v1.0.md`, `docs/masters/MASTER_LIVE_POLICY_v1.0.md`,
-`docs/masters/MASTER_LIVE_TECH_v1.0.md`, `docs/HANDOFF_LIVE_MVP.md`, Stage 0 audit of current `main`
-(`4bbc4a3…`) and migration chain 0001–0034 (`web/supabase/migrations/`).
+`docs/masters/MASTER_LIVE_TECH_v1.0.md`, `docs/HANDOFF_LIVE_MVP.md`, Stage 0 audit of the
+then-current `main` and migration chain 0001–0034 (`web/supabase/migrations/`). Migration chain
+0001–0037 is now applied in Supabase DEV; migrations 0033/0035/0036/0037 are the Discovery
+readiness/backfill, `is_curated` flag, and demo dataset stages.
 
 ## 0. Product rules this contract implements (locked)
 
@@ -61,8 +63,38 @@ score = round( 40*L + 25*F + 20*V + 15*E )
 | `V` visit interest | 20 | `clamp(log1p(intents) / log1p(50), 0, 1)` — `intents` = row count in `visit_intents` for the Place. | SINGGAH → Visit Intent is the core product flow (AGENTS.md). All current statuses are genuine interests (cancelled/expired are unreachable per migration 0002). |
 | `E` ecosystem richness | 15 | `( 8*min(1, expCount/2) + 7*media ) / 15` with `media = clamp(0.4*[has cover] + 0.2*min(photos,3), 0, 1)`; `expCount` = published experiences. | Place → Production → Experience → SINGGAH depth plus honest media completeness is system-derived content quality (never user votes). |
 
+**Media term — `min(photos,3)` is a CAP, not a normalisation.** The photo term is already worth
+its full `0.6` at 3 photos, so:
+
+- cover + 0 photos → `0.4`
+- cover + 1 photo → `0.6`
+- cover + 2 photos → `0.8`
+- cover + 3 photos → `1.0` — **full media contribution** (7 of the 15 ecosystem points)
+- cover + more than 3 photos → still `1.0`; extra photos never add value
+
+Dividing the photo count by 3 (i.e. normalising instead of capping) is a contract violation.
+
 Trust (`claim_status='verified'`) is deliberately **not weighted** (AGENTS.md: verified ≠ every claim
 verified); it is used only as a ranking tie-break (§5).
+
+### 3.1 Readable breakdown of the score
+
+Any human-readable breakdown of a Place's Discovery standing MUST be the additive decomposition of
+this same formula, expressed in POINTS — never an independent 0–100 "quality" rating, never a proxy:
+
+| Row | Points | Contract term |
+|---|---|---|
+| Aktivitas | `40 * liveNow` | `L`, live branch (1 while the session is live) |
+| Freshness | `40 * recency` | `L`, decay branch (mutually exclusive with live-now) |
+| Engagement | `25*F + 20*V` | followers + visit intent |
+| Pengalaman | `8 * min(1, expCount/2)` | `E`, experiences term |
+| Kelengkapan | `7 * media` | `E`, media term |
+
+The five rows sum to the score. Consequences that are part of the contract, not implementation
+choices: two rows may never read the same component (Aktivitas and Freshness are the two
+exclusive branches of `L`); publication readiness is an **eligibility gate (E2)**, not a score
+component; and there is **no relevance component** — §1 excludes viewer position and no weighted
+geographic signal exists, so a coordinates proxy would be a fabricated number.
 
 ## 4. Stars — `DiscoveryStars`
 
@@ -103,8 +135,9 @@ The UI must not re-sort this order.
 ## 7. Single source of truth (implementation stage files)
 
 - **`web/lib/discovery/scoring.ts`** — THE single source of truth: types `DiscoveryEligibility`,
-  `DiscoveryScore`, `DiscoveryStars`; pure functions `evaluateDiscoveryEligibility`,
-  `computeDiscoveryScore`, `discoveryStarsForScore`, `rankDiscoveryPlaces`. No I/O, no imports beyond
+  `DiscoveryScore`, `DiscoveryStars`, `DiscoveryScoreBreakdown`; pure functions
+  `evaluateDiscoveryEligibility`, `computeDiscoveryScore`, `computeDiscoveryScoreBreakdown`,
+  `mediaComponent`, `discoveryStarsForScore`, `rankDiscoveryPlaces`. No I/O, no imports beyond
   shared types; plain-Node testable.
 - **`web/lib/place-experience-repository.ts`** — the ONLY read path for signal assembly (extend the
   existing canonical repository; new `listDiscoveryInputs` may not open a second Supabase client or an
@@ -128,6 +161,8 @@ this contract.
 5. `F`: monotonic non-decreasing; 0 → 0; ≥100 → full 25.
 6. `V`: monotonic non-decreasing; 0 → 0; ≥50 → full 20.
 7. `E`: experiences capped at 8 pts; cover/photos capped at 7 pts; component total ≤ 15.
+   Full-media anchor: cover + 3 photos = the full media contribution (7 pts), and more than
+   3 photos never increases it.
 8. Score bounds: 0 ≤ score ≤ 100 for all fixtures.
 9. Stars: eligible → ★; 30/60/85 boundaries inclusive → ★★/★★★/★★★★.
 10. Ranking: score desc; full tie resolves verified → followers → intents → recency → `id` asc, stable.
@@ -136,6 +171,13 @@ this contract.
 13. Layer independence: adding/removing a hypothetical curated flag changes neither eligibility nor
     score (Tempat Pilihan independence; one Place may be in both layers).
 14. Repository path: discovery inputs read through the canonical repository only (no second client).
+15. Eligibility integrity: a Place id can reach the Home "Discovery Place" row ONLY through
+    `discovery.discovery`; a published-but-ineligible Place is never rendered there, and ranking
+    rank is never used as an eligibility substitute.
+16. Curated empty state: an empty curated id set produces an empty Tempat Pilihan result — never
+    a fallback to the full published set.
+17. Breakdown: the Admin rows are the §3.1 contributions and reconstruct the score; no row is a
+    fabricated proxy and no two rows read the same component.
 
 ## 10. Out of scope (this contract)
 

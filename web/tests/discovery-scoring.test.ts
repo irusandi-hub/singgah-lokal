@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   computeDiscoveryScore,
+  computeDiscoveryScoreBreakdown,
   discoveryStarsForScore,
+  ecosystemComponent,
   evaluateDiscoveryEligibility,
+  mediaComponent,
   rankDiscoveryPlaces,
   type DiscoveryEngagementSignal,
   type DiscoveryLiveSignal,
@@ -234,4 +237,137 @@ test("score components follow the locked formula (sanity anchors)", () => {
   // 0 signals → 0 → ★ baseline.
   const zero = makeInput({ id: "anchor-zero" });
   assert.equal(computeDiscoveryScore(zero, now).score, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Contract §3 media term, verbatim:
+//   media = clamp(0.4*[has cover] + 0.2*min(photos,3), 0, 1)
+// ---------------------------------------------------------------------------
+
+function mediaFor(hasCoverImage: boolean, photoCount: number): number {
+  return mediaComponent({ ...ZERO_ENGAGEMENT, hasCoverImage, photoCount });
+}
+
+/** 7 pts of ecosystem richness is the media term's maximum. */
+const MEDIA_POINTS = 7;
+
+test("media: cover + 0 photos = 0.4 (contract, not a normalised share)", () => {
+  assert.equal(mediaFor(true, 0), 0.4);
+  assert.equal(mediaFor(false, 0), 0);
+});
+
+test("media: cover + 1/2/3 photos follows the contract ladder 0.4 / 0.6 / 0.8 / 1.0", () => {
+  const close = (actual: number, expected: number) =>
+    assert.ok(Math.abs(actual - expected) < 1e-9, `expected ≈ ${expected}, got ${actual}`);
+  close(mediaFor(true, 1), 0.6);
+  close(mediaFor(true, 2), 0.8);
+  close(mediaFor(true, 3), 1);
+  // Without a cover the photo term still contributes its raw 0.2 steps.
+  close(mediaFor(false, 1), 0.2);
+  close(mediaFor(false, 3), 0.6);
+});
+
+test("FULL-MEDIA ANCHOR: cover + 3 photos = full media contribution, more adds nothing", () => {
+  assert.equal(mediaFor(true, 3), 1, "cover + 3 photos saturates media at 1");
+  // Beyond the cap the value is frozen: 4, 5, 50 photos are all identical.
+  for (const photoCount of [4, 5, 50]) {
+    assert.equal(mediaFor(true, photoCount), 1, `photoCount=${photoCount} must not exceed the contract cap`);
+  }
+  // Score-level anchor: media alone is worth exactly 7 of the 15 ecosystem
+  // points, i.e. round(15 * 7/15) = 7 on the 0–100 score.
+  const fullMedia = makeInput({
+    id: "anchor-media-full",
+    signals: { live: null, engagement: { hasCoverImage: true, photoCount: 3 } },
+  });
+  assert.equal(computeDiscoveryScore(fullMedia, NOW).score, MEDIA_POINTS);
+  const overCap = makeInput({
+    id: "anchor-media-over",
+    signals: { live: null, engagement: { hasCoverImage: true, photoCount: 9 } },
+  });
+  assert.equal(computeDiscoveryScore(overCap, NOW).score, MEDIA_POINTS);
+  // A cover with no photo is worth 0.4 * 7 = 2.8 → rounds to 3.
+  const coverOnly = makeInput({
+    id: "anchor-media-cover",
+    signals: { live: null, engagement: { hasCoverImage: true, photoCount: 0 } },
+  });
+  assert.equal(computeDiscoveryScore(coverOnly, NOW).score, 3);
+  // The ecosystem COMPONENT is a 0–1 fraction carrying weight 15: full media
+  // alone is worth 7/15 of it, and media + 2 published experiences reach 1.
+  const mediaOnly = ecosystemComponent({ ...ZERO_ENGAGEMENT, hasCoverImage: true, photoCount: 99 });
+  assert.ok(Math.abs(mediaOnly - 7 / 15) < 1e-9, `full media must be 7/15 of E, got ${mediaOnly}`);
+  assert.equal(
+    ecosystemComponent({ ...ZERO_ENGAGEMENT, publishedExperiences: 2, hasCoverImage: true, photoCount: 99 }),
+    1,
+  );
+  assert.equal(ecosystemComponent(ZERO_ENGAGEMENT), 0);
+});
+
+// ---------------------------------------------------------------------------
+// Contract §3 breakdown — additive, no fabricated or duplicated component.
+// ---------------------------------------------------------------------------
+
+test("breakdown components are the locked contributions and sum to the score", () => {
+  const fixtures: DiscoveryPlaceInput[] = [
+    makeInput({ id: "bd-quiet" }),
+    makeInput({
+      id: "bd-live",
+      signals: { live: { status: "live", startedAt: NOW.toISOString() } },
+    }),
+    makeInput({
+      id: "bd-ended",
+      signals: { live: { status: "ended", startedAt: "2026-09-22T12:00:00.000Z" } },
+    }),
+    makeInput({
+      id: "bd-full",
+      signals: {
+        live: { status: "ended", startedAt: "2026-09-28T12:00:00.000Z" },
+        engagement: {
+          followers: 100,
+          visitIntents: 50,
+          publishedExperiences: 2,
+          hasCoverImage: true,
+          photoCount: 3,
+        },
+      },
+    }),
+  ];
+  for (const input of fixtures) {
+    const breakdown = computeDiscoveryScoreBreakdown(input, NOW);
+    const total =
+      breakdown.liveActivity +
+      breakdown.liveRecency +
+      breakdown.followers +
+      breakdown.visitIntent +
+      breakdown.experiences +
+      breakdown.media;
+    assert.equal(
+      Math.round(total),
+      computeDiscoveryScore(input, NOW).score,
+      `breakdown for ${input.place.id} must reconstruct the canonical score`,
+    );
+  }
+});
+
+test("breakdown has no duplicated component: live-now and recency are exclusive branches", () => {
+  // Live now: the whole 40-point live component is activity, freshness is 0.
+  const live = computeDiscoveryScoreBreakdown(
+    makeInput({ id: "bd-live-now", signals: { live: { status: "live", startedAt: NOW.toISOString() } } }),
+    NOW,
+  );
+  assert.equal(live.liveActivity, 40);
+  assert.equal(live.liveRecency, 0);
+  // Ended 7 days ago: activity 0, freshness carries the 20-point decay.
+  const ended = computeDiscoveryScoreBreakdown(
+    makeInput({
+      id: "bd-ended-7d",
+      signals: { live: { status: "ended", startedAt: "2026-09-22T12:00:00.000Z" } },
+    }),
+    NOW,
+  );
+  assert.equal(ended.liveActivity, 0);
+  assert.equal(ended.liveRecency, 20);
+  // No session at all: neither branch fires, so the live component is 0.
+  const silent = computeDiscoveryScoreBreakdown(makeInput({ id: "bd-silent" }), NOW);
+  assert.equal(silent.liveActivity, 0);
+  assert.equal(silent.liveRecency, 0);
 });

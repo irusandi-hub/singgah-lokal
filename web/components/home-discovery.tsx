@@ -86,13 +86,6 @@ export default function HomeDiscovery({
     [discovery],
   );
   const placeById = useMemo(() => new Map(places.map((place) => [place.id, place])), [places]);
-  const rankById = useMemo(
-    () =>
-      new Map(
-        (discovery?.discovery ?? []).map((entry) => [entry.placeId, entry.rank] as const),
-      ),
-    [discovery],
-  );
 
   // LIVE discovery feed (canonical live_sessions, published Places only).
   // Performance rule (PO, 2026-09-25): the 15-second poll runs ONLY while
@@ -176,18 +169,18 @@ export default function HomeDiscovery({
   );
 
   const visiblePlaces = useMemo(() => {
-    // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26), now
-    // backed by the canonical is_curated flag (PO Stage 3, migration 0035):
-    // published + curated only. The flag arrives through the server view
-    // model — the client computes no curation and no score. Until any flag
-    // exists (empty selection), the layer falls back to ALL published
-    // search-filtered Places so it can never render as an empty screen.
-    // There is no category selection inside it — the canonical Place
-    // category never filters the curated layer.
+    // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26), backed
+    // by the canonical is_curated flag (PO Stage 3, migration 0035): published
+    // + curated only. The flag arrives through the server view model — the
+    // client computes no curation and no score.
+    //
+    // An EMPTY curated set is a real empty state, never a fallback: showing
+    // every published Place would silently disguise missing curation data as
+    // "Tempat Pilihan" and would blur the two independent layers. There is no
+    // category selection inside the layer — the canonical Place category never
+    // filters the curated layer.
     if (curatedOnly) {
-      return curatedIdSet.size > 0
-        ? searchFiltered.filter((place) => curatedIdSet.has(place.id))
-        : searchFiltered;
+      return searchFiltered.filter((place) => curatedIdSet.has(place.id));
     }
     // LIVE: a process/status filter — only Places with an active session.
     let result = searchFiltered;
@@ -219,16 +212,23 @@ export default function HomeDiscovery({
     return liveItems.filter((item) => listedIds.has(item.placeId));
   }, [liveItems, listedPlaces]);
 
-  // Stage 3 — DISCOVERY ROW (canonical engine ranking): search-filtered,
-  // list-gate applied, in ENGINE ORDER. Never re-sorted, never deduplicated
-  // against the curated row: a Place in both layers appears in both rows.
-  const discoveryListed = useMemo(() => {
-    const ranked = (discovery?.discovery ?? []).flatMap((entry) => {
+  // DISCOVERY PLACE ROW (canonical engine output). INTEGRITY (P0): this row is
+  // BUILT FROM the canonical `discovery.discovery` result — its ids ARE the
+  // eligibility set, produced by the engine from the canonical publication +
+  // readiness rules. The row is never rebuilt from the published place list
+  // and never re-sorted: ranking rank is presentation, not eligibility, so a
+  // published-but-ineligible Place can never enter this row by having its
+  // rank appended as a fallback. Search and the list radius gate narrow the
+  // canonical set; they can only remove entries, never add one. Never
+  // deduplicated against the curated row: a Place in both layers appears in
+  // both rows (OVERLAP rule).
+  const discoveryRowPlaces = useMemo(() => {
+    const canonical = (discovery?.discovery ?? []).flatMap((entry) => {
       const place = placeById.get(entry.placeId);
       return place && searchFilteredIds.has(place.id) ? [place] : [];
     });
-    if (curatedOnly || distanceFilter === "10 km+") return ranked;
-    return ranked.filter((place) =>
+    if (curatedOnly || distanceFilter === "10 km+") return canonical;
+    return canonical.filter((place) =>
       matchesDistance(
         distanceFilter,
         viewerPosition,
@@ -239,9 +239,10 @@ export default function HomeDiscovery({
     );
   }, [discovery, placeById, searchFilteredIds, curatedOnly, distanceFilter, viewerPosition]);
 
-  // Stage 3 — TEMPAT PILIHAN ROW (Baris 1): published + is_curated only,
-  // through the same list gate (unbounded in the curated layer), server
-  // order — curation is Admin-promoted, never engine-ranked.
+  // TEMPAT PILIHAN ROW (Baris 1): published + is_curated only, through the
+  // same search gate (unbounded in the curated layer), server order —
+  // curation is Admin-promoted, never engine-ranked. Empty when nothing is
+  // curated; the row then renders nothing and Baris 2 stands alone.
   const curatedListed = useMemo(
     () => visiblePlaces.filter((place) => curatedIdSet.has(place.id)),
     [visiblePlaces, curatedIdSet],
@@ -262,23 +263,6 @@ export default function HomeDiscovery({
       ),
     [visiblePlaces],
   );
-
-  // Stage 3 — DEFAULT row: the existing list gate with its exact content
-  // behavior (search + LIVE + radius), now ORDERED by the canonical engine
-  // rank (eligible ranked Places first; Places the engine could not rank —
-  // e.g. missing canonical coordinates — keep their existing relative order
-  // after them, so nothing published ever disappears from the list).
-  const orderedListed = useMemo(() => {
-    if (rankById.size === 0) return listedPlaces;
-    return [...listedPlaces].sort((a, b) => {
-      const ra = rankById.get(a.id);
-      const rb = rankById.get(b.id);
-      if (ra !== undefined && rb !== undefined) return ra - rb;
-      if (ra !== undefined) return -1;
-      if (rb !== undefined) return 1;
-      return 0;
-    });
-  }, [listedPlaces, rankById]);
 
   // ONE card renderer for every row: the existing card design verbatim; the
   // only addition is the optional "✦ Tempat Pilihan" marker so an overlap
@@ -620,13 +604,12 @@ export default function HomeDiscovery({
               below the map. */}
         </section>
 
-        {/* Place results — the LIST gate: content-filtered Places further
-            narrowed by the selected radius (list-only semantics; the MAP
-            dataset above is independent of the camera radius). Inside the
+        {/* Place results — the DISCOVERY PLACE row is always built from the
+            canonical `discovery.discovery` result (eligible Places only, in
+            engine order), narrowed by search and the list radius. Inside the
             Tempat Pilihan layer the results render as TWO ordered rows —
             Baris 1: Tempat Pilihan, Baris 2: Discovery Place — while every
-            other mode renders the single existing list, headed "Discovery
-            Place" and ordered by the canonical engine rank. No layer ever
+            other mode renders that single canonical row. No layer ever
             deduplicates the other: a Place in both layers appears in both
             rows (OVERLAP rule). */}
         <section className="mt-6" aria-labelledby="place-results-heading">
@@ -645,12 +628,14 @@ export default function HomeDiscovery({
             </div>
             <span className="text-xs font-bold text-black/45">
               {curatedOnly
-                ? `${curatedListed.length + discoveryListed.length} Tempat`
-                : `${listedPlaces.length} Tempat`}
+                ? `${curatedListed.length + discoveryRowPlaces.length} Tempat`
+                : `${discoveryRowPlaces.length} Tempat`}
             </span>
           </div>
 
-          {/* Baris 1 (curated layer only): the Admin-promoted selection. */}
+          {/* Baris 1 (curated layer only): the Admin-promoted selection.
+              Renders nothing when no Place is curated — the curated layer
+              never substitutes the full published set. */}
           {curatedOnly && curatedListed.length > 0 && (
             <>
               <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
@@ -662,42 +647,40 @@ export default function HomeDiscovery({
             </>
           )}
 
-          {/* Baris 2 (curated layer) / default row: the canonical Discovery
-              ranking — engine order, stars only, no numeric score. In the
-              default mode the row is the existing list gate ordered by the
-              engine (unranked published Places keep their existing order). */}
-          {curatedOnly ? (
-            discoveryListed.length > 0 ? (
-              <>
+          {/* Baris 2 (curated layer) / the single row everywhere else: the
+              canonical Discovery result — engine order, stars only, no
+              numeric score. Source of eligibility is the engine's own
+              discovery.discovery ids, never the published place list. */}
+          {discoveryRowPlaces.length > 0 ? (
+            <>
+              {curatedOnly && (
                 <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
                   Discovery Place
                 </p>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {discoveryListed.map((place) =>
-                    renderPlaceCard(place, curatedIdSet.has(place.id)),
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="rounded-2xl border border-black/10 bg-white p-6 text-center">
-                <p className="text-sm font-bold">Belum ada Discovery Place</p>
-                <p className="mt-1 text-xs text-black/55">
-                  Tempat yang siap tayang akan muncul di sini secara otomatis.
-                </p>
-              </div>
-            )
-          ) : orderedListed.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {orderedListed.map((place) =>
-                renderPlaceCard(place, curatedIdSet.has(place.id)),
               )}
-            </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {discoveryRowPlaces.map((place) =>
+                  renderPlaceCard(place, curatedIdSet.has(place.id)),
+                )}
+              </div>
+            </>
           ) : (
             <div className="rounded-2xl border border-black/10 bg-white p-6 text-center">
-              <p className="text-sm font-bold">Tempat tidak ditemukan</p>
-              <p className="mt-1 text-xs text-black/55">
-                Coba kata kunci atau radius yang berbeda.
-              </p>
+              {searchQuery.trim() ? (
+                <>
+                  <p className="text-sm font-bold">Tempat tidak ditemukan</p>
+                  <p className="mt-1 text-xs text-black/55">
+                    Coba kata kunci atau radius yang berbeda.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-bold">Belum ada Discovery Place</p>
+                  <p className="mt-1 text-xs text-black/55">
+                    Tempat yang siap tayang akan muncul di sini secara otomatis.
+                  </p>
+                </>
+              )}
             </div>
           )}
         </section>

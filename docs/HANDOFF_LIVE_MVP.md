@@ -11,14 +11,13 @@ Selalu audit `main` + Supabase DEV sebelum perubahan baru.
 
 ## 2. CURRENT MAIN
 Latest verified commit:
-`aa6cc74022ffc75987cbb82d29323f510616e358`
-`Guard the 100-concurrent Live viewer cap against admission races`
+`ca7502f` — `Seed DEV demo Discovery dataset to guarantee 10+ eligible Places`
 
-NOTE: repository history was squashed into a single root commit (the commit
-above); earlier SHAs such as `34561997...` are no longer reachable. Audit
-always re-reads current `main`, never assumes prior SHAs.
+NOTE: repository history was squashed into a single root commit; earlier SHAs
+such as `aa6cc74...` and `34561997...` are no longer reachable. Audit always
+re-reads current `main`, never assumes prior SHAs.
 
-Verified 2026-09-26: web test suite 411/411 pass.
+Verified 2026-09-30: web test suite green; lint 0 errors; `next build` OK.
 
 ## 3. LIVE IMPLEMENTATION STATUS
 
@@ -83,7 +82,29 @@ Current Live RPC contract includes:
 `end_live_session(text,text,text,text)`
 
 Migration through:
-`0027_live_viewer_cap_race_guard.sql`
+`0037_dev_demo_discovery_dataset.sql`
+
+Full applied chain also includes `0033` (Discovery category/currency),
+`0035` (`places.is_curated` — Tempat Pilihan flag), `0036` (Discovery demo
+follows) and `0037`. The Live portion ends at
+`0027_live_viewer_cap_race_guard.sql`. All are applied in DEV; none may be
+recreated.
+
+Verified 2026-09-30 DEV dataset state:
+Places 64 · Published 64 · Readiness complete 64 · Demo Discovery Places 10 ·
+Demo follows 10 · Duplicate Place ids 0 · Invalid category 0 · Invalid
+currency 0.
+
+### Discovery implementation status
+LOCKED and implemented (contract `docs/DISCOVERY_CONTRACT_v1.0.md`):
+- Discovery engine (eligibility / score / stars / ranking) — single source of
+  truth in `web/lib/discovery/scoring.ts`
+- Canonical signal assembly through the ONE repository read path
+- Home Discovery Place row renders the canonical `discovery.discovery` ids
+- Admin read-only Discovery view with an additive score breakdown
+- Tempat Pilihan (`is_curated`) stays a separate Admin-promoted layer
+- Regression tests: `discovery-scoring`, `discovery-home-integration`,
+  `discovery-admin-breakdown`, `discovery-dev-dataset`
 
 ## 6. OPERATIONAL BLOCKERS
 These are intentionally not solved by changing application policy:
@@ -133,11 +154,13 @@ Verify:
 5. Viewer-cap semantics
 6. Home filter bar matches the current locked set exactly
    (PO 2026-09-26 removed the 500 m radius — see `lib/live/ui.ts`):
-   `LIVE | 1 km | 5 km | 10 km+`
+   `LIVE | Tempat Pilihan | 1 km | 5 km | 10 km+`
 7. No stale `Di sekitar saya`
 8. No stale time filters
 9. No TODO/FIXME or duplicate implementation
 10. Regression tests remain aligned with current RPC signatures
+11. The Discovery Place row still renders only canonical eligible ids (no
+    published-list fallback), and an empty curated set stays empty
 
 ## 9. DO NOT
 - Do not redesign UI/brand.

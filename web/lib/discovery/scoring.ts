@@ -84,6 +84,49 @@ export type DiscoveryScore = {
   score: number;
 };
 
+/**
+ * Canonical score breakdown (contract §3) — every field is a CONTRIBUTION IN
+ * POINTS to the locked formula, not an independent 0–100 "quality" rating:
+ *
+ *   score = 40*L + 25*F + 20*V + 15*E
+ *         = 40*(liveNow + recency) + 25*F + 20*V + 8*min(1,exp/2) + 7*media
+ *
+ * The five contributions therefore sum exactly to the (pre-rounding) score,
+ * so any displayed breakdown is traceable arithmetic instead of a parallel
+ * heuristic. Nothing outside this module may recompute these values.
+ */
+export type DiscoveryScoreBreakdown = {
+  /** 40 * liveNow — the Place is live right now. */
+  liveActivity: number;
+  /** 40 * recency — decay of the most recent session (0 while live). */
+  liveRecency: number;
+  /** 25 * F — follower contribution. */
+  followers: number;
+  /** 20 * V — visit-intent contribution. */
+  visitIntent: number;
+  /** 8 * min(1, exp/2) — the experience term of ecosystem richness. */
+  experiences: number;
+  /** 7 * media — the media/completeness term of ecosystem richness. */
+  media: number;
+};
+
+/** Contract §3 contributions in points. Additive with `computeDiscoveryScore`. */
+export function computeDiscoveryScoreBreakdown(
+  input: DiscoveryPlaceInput,
+  now: Date,
+): DiscoveryScoreBreakdown {
+  const { engagement } = input.signals;
+  const { liveNow, recency } = liveBranches(input.signals.live, now);
+  return {
+    liveActivity: LIVE_WEIGHT * liveNow,
+    liveRecency: LIVE_WEIGHT * recency,
+    followers: FOLLOWER_WEIGHT * followerComponent(engagement.followers),
+    visitIntent: VISIT_INTENT_WEIGHT * visitIntentComponent(engagement.visitIntents),
+    experiences: ECOSYSTEM_EXPERIENCE_POINTS * experienceComponent(engagement),
+    media: ECOSYSTEM_MEDIA_POINTS * mediaComponent(engagement),
+  };
+}
+
 /** Exactly the four contract tiers. Baseline ★ is guaranteed by eligibility. */
 export type DiscoveryStars = 1 | 2 | 3 | 4;
 
@@ -98,6 +141,15 @@ export type DiscoveryRankedPlace = {
 const LIVE_RECENCY_WINDOW_DAYS = 14;
 const FOLLOWER_SATURATION = 100;
 const VISIT_INTENT_SATURATION = 50;
+const PHOTO_SATURATION = 3;
+const LIVE_WEIGHT = 40;
+const FOLLOWER_WEIGHT = 25;
+const VISIT_INTENT_WEIGHT = 20;
+const MEDIA_COVER_WEIGHT = 0.4;
+const MEDIA_PHOTO_WEIGHT = 0.2;
+const ECOSYSTEM_EXPERIENCE_POINTS = 8;
+const ECOSYSTEM_MEDIA_POINTS = 7;
+const ECOSYSTEM_WEIGHT = 15;
 const SCORE_STAR_2 = 30;
 const SCORE_STAR_3 = 60;
 const SCORE_STAR_4 = 85;
@@ -132,19 +184,32 @@ export function evaluateDiscoveryEligibility(place: DiscoveryPlaceBase): boolean
   });
 }
 
-/** Component L (weight 40): live now = 1; recency decay over 14 days; else 0. */
-export function liveComponent(
+/**
+ * Component L (weight 40) — the contract defines it as TWO mutually exclusive
+ * branches: `1` while the Place is live, ELSE the 14-day recency decay of the
+ * most recent session, ELSE 0. They are returned separately so a
+ * human-readable breakdown can show "live now" and "recency" as distinct,
+ * non-duplicated contributions; `liveComponent` is their sum and stays the
+ * only value the score consumes.
+ */
+export function liveBranches(
   live: DiscoveryLiveSignal | null,
   now: Date,
-): number {
-  if (!live) return 0;
-  if (live.status === "live") return 1;
-  if (!live.startedAt) return 0;
+): { liveNow: number; recency: number } {
+  if (!live) return { liveNow: 0, recency: 0 };
+  if (live.status === "live") return { liveNow: 1, recency: 0 };
+  if (!live.startedAt) return { liveNow: 0, recency: 0 };
   const startedMs = new Date(live.startedAt).getTime();
-  if (!Number.isFinite(startedMs)) return 0;
+  if (!Number.isFinite(startedMs)) return { liveNow: 0, recency: 0 };
   const ageDays = (now.getTime() - startedMs) / 86_400_000;
-  if (ageDays < 0 || ageDays >= LIVE_RECENCY_WINDOW_DAYS) return 0;
-  return clamp01(1 - ageDays / LIVE_RECENCY_WINDOW_DAYS);
+  if (ageDays < 0 || ageDays >= LIVE_RECENCY_WINDOW_DAYS) return { liveNow: 0, recency: 0 };
+  return { liveNow: 0, recency: clamp01(1 - ageDays / LIVE_RECENCY_WINDOW_DAYS) };
+}
+
+/** Component L (weight 40): live now = 1; else recency decay over 14 days; else 0. */
+export function liveComponent(live: DiscoveryLiveSignal | null, now: Date): number {
+  const { liveNow, recency } = liveBranches(live, now);
+  return clamp01(liveNow + recency);
 }
 
 /** Component F (weight 25): log-scaled follower count saturated at 100. */
@@ -159,16 +224,37 @@ export function visitIntentComponent(visitIntents: number): number {
   return clamp01(Math.log1p(visitIntents) / Math.log1p(VISIT_INTENT_SATURATION));
 }
 
-/** Component E (weight 15): ecosystem richness — experiences (8) + media (7). */
+/**
+ * Media richness — contract §3, verbatim:
+ * `media = clamp(0.4*[has cover] + 0.2*min(photos,3), 0, 1)`.
+ *
+ * `min(photos, 3)` is a COUNT cap, not a normalisation: the photo term is
+ * already worth the full 0.6 at 3 photos, so cover + 3 photos reaches the
+ * full media contribution (0.4 + 0.6 = 1) and more photos add nothing. A
+ * cover plus zero photos is 0.4. Never re-normalise this by photo count.
+ */
+export function mediaComponent(engagement: DiscoveryEngagementSignal): number {
+  const photos = Number.isFinite(engagement.photoCount) ? engagement.photoCount : 0;
+  return clamp01(
+    MEDIA_COVER_WEIGHT * (engagement.hasCoverImage ? 1 : 0) +
+      MEDIA_PHOTO_WEIGHT * Math.min(Math.max(photos, 0), PHOTO_SATURATION),
+  );
+}
+
+/** The published-experience term of component E: `min(1, expCount/2)`. */
+export function experienceComponent(engagement: DiscoveryEngagementSignal): number {
+  const experiences = Number.isFinite(engagement.publishedExperiences)
+    ? engagement.publishedExperiences
+    : 0;
+  return clamp01(experiences / 2);
+}
+
+/** Component E (weight 15): ecosystem richness — experiences (8 pts) + media (7 pts). */
 export function ecosystemComponent(engagement: DiscoveryEngagementSignal): number {
-  const experiences = clamp01(
-    (Number.isFinite(engagement.publishedExperiences) ? engagement.publishedExperiences : 0) / 2,
+  return (
+    (ECOSYSTEM_EXPERIENCE_POINTS / ECOSYSTEM_WEIGHT) * experienceComponent(engagement) +
+    (ECOSYSTEM_MEDIA_POINTS / ECOSYSTEM_WEIGHT) * mediaComponent(engagement)
   );
-  const photos = clamp01(
-    (Number.isFinite(engagement.photoCount) ? engagement.photoCount : 0) / 3,
-  );
-  const media = clamp01(0.4 * (engagement.hasCoverImage ? 1 : 0) + 0.2 * photos);
-  return (8 / 15) * experiences + (7 / 15) * media;
 }
 
 /**
@@ -180,10 +266,10 @@ export function computeDiscoveryScore(
   now: Date,
 ): DiscoveryScore {
   const score = Math.round(
-    40 * liveComponent(input.signals.live, now) +
-      25 * followerComponent(input.signals.engagement.followers) +
-      20 * visitIntentComponent(input.signals.engagement.visitIntents) +
-      15 * ecosystemComponent(input.signals.engagement),
+    LIVE_WEIGHT * liveComponent(input.signals.live, now) +
+      FOLLOWER_WEIGHT * followerComponent(input.signals.engagement.followers) +
+      VISIT_INTENT_WEIGHT * visitIntentComponent(input.signals.engagement.visitIntents) +
+      ECOSYSTEM_WEIGHT * ecosystemComponent(input.signals.engagement),
   );
   return { placeId: input.place.id, score: Math.max(0, Math.min(100, score)) };
 }

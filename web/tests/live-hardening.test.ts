@@ -72,10 +72,11 @@ test("E2E: distance tabs are CAMERA presets — the map dataset never shrinks by
   // LIVE cards follow the LIST gate (Set membership, O(n)).
   assert.match(homeSource, /const listedIds = new Set\(listedPlaces\.map\(\(place\) => place\.id\)\)/);
   assert.match(homeSource, /liveItems\.filter\(\(item\) => listedIds\.has\(item\.placeId\)\)/);
-  // The list section renders the list gate through the single card renderer
-  // (Stage 3: the gate lives in listedPlaces/orderedListed; renderPlaceCard
-  // only draws — dataset/source separation unchanged).
-  assert.match(homeSource, /orderedListed\.map\(\(place\) =>/);
+  // The list section renders the canonical Discovery row through the single
+  // card renderer (the row source is discoveryRowPlaces, built from the
+  // engine's discovery.discovery; renderPlaceCard only draws — dataset/source
+  // separation unchanged).
+  assert.match(homeSource, /discoveryRowPlaces\.map\(\(place\) =>/);
 });
 
 test("E2E: Leaflet map renders only canonical Place coordinates and keeps the Place/Live links", () => {
