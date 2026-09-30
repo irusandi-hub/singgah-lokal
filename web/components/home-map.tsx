@@ -188,8 +188,11 @@ export default function HomeMap({
     }
   }, []);
 
-  // Fly to the real user position. Used only for the explicit "Lokasi Saya"
-  // recenter (user intent, not a tab preset).
+  // Fly to the real user position WITHOUT changing the frame width. Used
+  // ONLY by the no-preset paths (cameraRadiusMeters === null, which no Home
+  // mode reaches): the one-shot focus and its locate recenter. With a preset
+  // active, "Lokasi Saya" flies through radiusZoom instead (see the locate
+  // effect) so the ACTIVE preset radius stays the camera authority.
   const flyToUser = useCallback((map: LeafletMap, position: { lat: number; lng: number }) => {
     programmaticMoveRef.current = true;
     map.flyTo([position.lat, position.lng], Math.max(map.getZoom(), 15), { duration: 0.8 });
@@ -512,19 +515,38 @@ export default function HomeMap({
     };
   }, [ready, viewerPosition]);
 
-  // "Lokasi Saya": explicit recenter on the latest fix. If the fix has not
-  // arrived yet, the request stays pending and resolves in the anchor effect
-  // above once geolocation returns.
+  // "Lokasi Saya": explicit recenter on the latest fix. When a preset is
+  // active (EVERY Home mode: 1 km / 5 km / 10 km+ / Tempat Pilihan), the
+  // recenter flies through the SAME canonical radiusZoom mechanism — the
+  // ACTIVE preset radius stays the camera authority, so the frame keeps
+  // covering exactly that radius around the newest real fix. The old
+  // arbitrary Math.max(getZoom(), 15) zoom broke the active preset (e.g. it
+  // shattered Tempat Pilihan's 50 km frame). No marker fitBounds, no
+  // mode/filter change, no invented position. Only the null-preset path
+  // (no Home mode reaches it) keeps the existing zoom-preserving focus. If
+  // the fix has not arrived yet, the request stays pending and resolves in
+  // the anchor effect above once geolocation returns.
   useEffect(() => {
     const map = mapRef.current;
     if (!locateNonce || lastLocateNonceRef.current === locateNonce) return;
     lastLocateNonceRef.current = locateNonce;
     locatePendingRef.current = true;
-    if (ready && map && viewerPosition) {
-      locatePendingRef.current = false;
-      flyToUser(map, viewerPosition);
+    if (!ready || !map || !viewerPosition) return;
+    locatePendingRef.current = false;
+    if (cameraRadiusMeters !== null) {
+      let cancelled = false;
+      (async () => {
+        const zoom = await radiusZoom(map, viewerPosition, cameraRadiusMeters);
+        if (cancelled || mapRef.current !== map) return;
+        programmaticMoveRef.current = true;
+        map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { duration: 0.8 });
+      })();
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [locateNonce, ready, viewerPosition, flyToUser]);
+    flyToUser(map, viewerPosition);
+  }, [locateNonce, ready, viewerPosition, cameraRadiusMeters, flyToUser, radiusZoom]);
 
   // Rebuild markers whenever the filtered marker set changes. Camera note:
   // the viewport is NEVER driven by the marker set — no marker fitBounds

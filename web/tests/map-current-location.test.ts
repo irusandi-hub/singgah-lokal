@@ -155,11 +155,38 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   // The zoom is derived from the preset radius, never from the current zoom:
   // no Math.max(map.getZoom()...) preset flight survives.
   assert.doesNotMatch(mapCode, /Math\.max\(map\.getZoom\(\), \d+\)[^\n]*preset/i);
-  // flyToUser appears exactly twice: the explicit Lokasi Saya recenter and
-  // the one-shot null-preset fallback (no Home mode reaches it — every mode
-  // passes a preset). No distance tab uses the current-zoom-based flight.
+  // flyToUser (the zoom-preserving focus) appears exactly TWICE now, both on
+  // the NULL-preset paths only: the one-shot focus fallback and the null-
+  // preset "Lokasi Saya" recenter (no Home mode reaches either — every mode
+  // passes a preset). With a preset active, BOTH the preset anchor AND the
+  // "Lokasi Saya" recenter fly through the canonical radiusZoom mechanism
+  // (locate-preset fix, 2026-09-30) — never Math.max(getZoom(), 15).
   const flyToUserCalls = mapCode.match(/flyToUser\(map, viewerPosition\)/g) ?? [];
-  assert.equal(flyToUserCalls.length, 2, "recenter + one-shot fallback only");
+  assert.equal(flyToUserCalls.length, 2, "null-preset focus + null-preset recenter only");
+});
+
+test("Lokasi Saya keeps the ACTIVE preset: recenter flies through radiusZoom, never an arbitrary zoom", () => {
+  const mapCode = stripComments(homeMap);
+  // The locate effect branches on the active preset...
+  assert.match(mapCode, /locatePendingRef\.current = false;\n\s*if \(cameraRadiusMeters !== null\) \{/);
+  // ...and re-derives the zoom from cameraRadiusMeters through the ONE
+  // canonical radiusZoom mechanism, centering the newest real fix —
+  // 1 km stays 1 km, 5 km stays 5 km, 10 km+ stays 10 km+, Tempat Pilihan
+  // stays the 50 km curated radius (locate-preset fix, 2026-09-30).
+  const locateEffect = mapCode.slice(
+    mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, cameraRadiusMeters, flyToUser, radiusZoom]);"),
+  );
+  assert.match(locateEffect, /radiusZoom\(map, viewerPosition, cameraRadiusMeters\)/);
+  assert.match(locateEffect, /map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\)/);
+  // No arbitrary zoom bump, no marker fitBounds, no mode/filter mutation.
+  assert.doesNotMatch(locateEffect, /Math\.max\(map\.getZoom\(\)/);
+  assert.doesNotMatch(locateEffect, /fitBounds/);
+  assert.doesNotMatch(locateEffect, /setCuratedOnly|setDistanceFilter|curatedOnly\s*=/);
+  // The zoom-preserving focus remains ONLY on the null-preset paths
+  // (one-shot fallback + null-preset locate recenter).
+  const flyToUserCalls = mapCode.match(/flyToUser\(map, viewerPosition\)/g) ?? [];
+  assert.equal(flyToUserCalls.length, 2, "null-preset focus + null-preset recenter only");
 });
 
 // --- Camera preset ordering (PO, 2026-09-29) ---
@@ -217,9 +244,12 @@ test("No-preset fallback keeps the one-shot unbounded focus; it is not a distanc
 test("Camera is ALWAYS bounded: no filter/tab ever fits the whole marker set (map coverage)", () => {
   const mapCode = stripComments(homeMap);
   const pageCode = stripComments(homePage);
-  // Every camera flight centers the REAL Current Location...
+  // Every camera flight centers the REAL Current Location... TWO preset
+  // flights exist (locate-preset fix, 2026-09-30): the preset anchor and the
+  // "Lokasi Saya" recenter — BOTH derive zoom from the active preset radius
+  // and BOTH center the real fix; neither ever fits markers.
   const flights = mapCode.match(/map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\]/g) ?? [];
-  assert.equal(flights.length, 1, "one preset flight path, centered on the real fix");
+  assert.equal(flights.length, 2, "preset anchor + preset locate recenter, both on the real fix");
   // ...whose zoom is derived from the preset radius box (bounded), and no
   // world/country fallback view is invented for the no-fix case.
   assert.match(mapCode, /map\.fitWorld\(\)/);
