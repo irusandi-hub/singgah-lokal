@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
+  CURATED_MAP_COVERAGE_RADIUS_M,
   CURRENT_LOCATION_CAMERA_RADIUS_M,
 } from "../lib/live/ui";
 
@@ -184,18 +185,17 @@ test("Locate failure matrix: existing fix recentres, no fix never invents one", 
   const writes = pageCode.match(/setViewerPosition\(/g) ?? [];
   assert.equal(writes.length, 1, "viewerPosition is written only by the fresh-fix success callback");
   assert.match(pageCode, /lat: position\.coords\.latitude/);
-  // The locate recenter uses its OWN deterministic 15 km current-location
-  // coverage (never the active tab/curated preset radius), applied INSTANTLY
-  // (setView animate:false) with the pin pulse as the only visual feedback
-  // (instant-camera rule, 2026-09-30).
+  // The locate recenter uses its OWN deterministic 10 km current-location
+  // coverage (never the active tab/curated preset radius), centered on the
+  // newest REAL fix, eased in with ONE short transition, with the pin pulse
+  // as the visual feedback (PO decision, 2026-09-30).
   const mapCode = stripComments(homeMap);
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
     mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
   );
   assert.match(locateEffect, /radiusZoom\(map, viewerPosition, CURRENT_LOCATION_CAMERA_RADIUS_M\)/);
-  assert.match(locateEffect, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
-  assert.doesNotMatch(locateEffect, /flyTo|duration|easing/i);
+  assert.match(locateEffect, /const center: \[number, number\] = \[viewerPosition\.lat, viewerPosition\.lng\]/);
   assert.doesNotMatch(locateEffect, /Math\.max\(map\.getZoom\(\)/);
   assert.doesNotMatch(locateEffect, /fitBounds/);
 });
@@ -209,7 +209,7 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   assert.match(mapCode, /radiusZoom\(map, viewerPosition, cameraRadiusMeters\)/);
   assert.match(mapCode, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
   // Home feeds every mode into that ONE camera prop: distance tabs through
-  // the ordered preset mapping, curated through its 50 km value.
+  // the ordered preset mapping, curated through its 10 km value.
   assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
   // The zoom is derived from the preset radius, never from the current zoom:
   // no Math.max(map.getZoom()...) preset flight survives.
@@ -217,32 +217,33 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   // focusUser (the instant zoom-preserving fallback focus) appears exactly
   // ONCE, on the NULL-preset path only: the one-shot anchor fallback (no
   // Home mode reaches it). Every real camera move — the preset anchor and the
-  // "Lokasi Saya" 15 km recenter — goes through the canonical radiusZoom
+  // "Lokasi Saya" 10 km recenter — goes through the canonical radiusZoom
   // mechanism, never Math.max(getZoom(), 15).
   const focusUserCalls = mapCode.match(/focusUser\(map, viewerPosition\)/g) ?? [];
   assert.equal(focusUserCalls.length, 1, "null-preset anchor fallback only");
 });
 
-test("Lokasi Saya frames its OWN 15 km coverage on the real fix, never the active tab preset", () => {
+test("Lokasi Saya frames its OWN 10 km coverage on the real fix, never the selected tab preset", () => {
   const mapCode = stripComments(homeMap);
-  // ...it derives the zoom from the dedicated 15,000 m current-location
-  // radius through the SAME canonical radiusZoom mechanism, centered on the
-  // newest REAL fix, applied INSTANTLY (setView animate: false).
+  // It derives the zoom from the dedicated 10,000 m current-location radius
+  // through the SAME canonical radiusZoom mechanism, centered on the newest
+  // REAL fix, and never reads the selected preset radius.
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
     mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
   );
   assert.match(locateEffect, /locatePendingRef\.current = false;/);
   assert.match(locateEffect, /radiusZoom\(map, viewerPosition, CURRENT_LOCATION_CAMERA_RADIUS_M\)/);
-  assert.match(locateEffect, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
+  assert.match(locateEffect, /const center: \[number, number\] = \[viewerPosition\.lat, viewerPosition\.lng\]/);
+  assert.match(locateEffect, /const targetZoom = Math\.max\(2, zoom\)/);
   // No arbitrary zoom bump, no marker fitBounds, no mode/filter mutation, and
   // NO fallback coordinate in the locate path.
   assert.doesNotMatch(locateEffect, /Math\.max\(map\.getZoom\(\)/);
   assert.doesNotMatch(locateEffect, /fitBounds/);
   assert.doesNotMatch(locateEffect, /setCuratedOnly|setDistanceFilter|curatedOnly\s*=/);
   assert.doesNotMatch(locateEffect, /cameraRadiusMeters/);
-  // The preset anchor is the ONLY place the active preset radius reaches the
-  // camera — the 1/5/10 km tabs AND the 50 km curated preset are untouched.
+  // The preset anchor is the ONLY place the selected preset radius reaches the
+  // camera — the 1/5/10 km tabs AND the 10 km curated preset are untouched.
   const anchorEffect = mapCode.slice(
     mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
     mapCode.indexOf("}, [ready, viewerPositionKey, cameraRadiusMeters, viewerPosition, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);"),
@@ -255,76 +256,106 @@ test("Lokasi Saya frames its OWN 15 km coverage on the real fix, never the activ
   assert.equal(focusUserCalls.length, 1, "null-preset anchor fallback only");
 });
 
-test("Current-location coverage is a deterministic 15 km, separate from every tab preset", () => {
-  // Executable proof of the constant itself: 15 km, and NOT any tab/curated
-  // preset value — the locate action can never silently reuse 1/5/12/50 km.
-  assert.equal(CURRENT_LOCATION_CAMERA_RADIUS_M, 15_000);
-  const presetValues = Object.values(CAMERA_PRESET_RADIUS_M);
-  for (const preset of presetValues) {
-    assert.notEqual(CURRENT_LOCATION_CAMERA_RADIUS_M, preset, "locate coverage must not equal a tab preset");
-  }
-  assert.notEqual(CURRENT_LOCATION_CAMERA_RADIUS_M, CURATED_CAMERA_RADIUS_M, "locate coverage must not equal the curated preset");
-  // It is WIDER than every distance tab (the action zooms OUT past 10 km+)
-  // and still inside the curated frame — the derived zoom therefore lands
-  // strictly between the "10 km+" preset and the 50 km curated preset.
-  for (const preset of presetValues) {
-    assert.ok(
-      CURRENT_LOCATION_CAMERA_RADIUS_M > preset,
-      `15 km must cover more than the ${preset} m tab preset`,
-    );
-  }
-  assert.ok(CURRENT_LOCATION_CAMERA_RADIUS_M < CURATED_CAMERA_RADIUS_M);
-  // radiusZoom is a pure function of the radius (log2 of the ratio), so the
-  // zoom levels stay strictly ordered: 1 km < 5 km < 10 km+ < locate < curated.
-  const zoomDelta = (fromR: number, toR: number) => Math.log2(toR / fromR);
-  const ordered: [string, number][] = [
-    ["1 km", CAMERA_PRESET_RADIUS_M["1 km"]],
-    ["5 km", CAMERA_PRESET_RADIUS_M["5 km"]],
-    ["10 km+", CAMERA_PRESET_RADIUS_M["10 km+"]!],
-    ["Lokasi Saya", CURRENT_LOCATION_CAMERA_RADIUS_M],
-    ["Tempat Pilihan", CURATED_CAMERA_RADIUS_M],
-  ];
-  for (let index = 1; index < ordered.length; index += 1) {
-    const [narrowName, narrow] = ordered[index - 1]!;
-    const [wideName, wide] = ordered[index]!;
-    assert.ok(zoomDelta(narrow, wide) > 0, `${wideName} must zoom out relative to ${narrowName}`);
-  }
-  // ...and the value reaches ONLY the locate camera path (the tab/curated
-  // mappings are untouched).
+test("Lokasi Saya camera transition is SHORT and smooth, and respects reduced motion", () => {
+  const mapCode = stripComments(homeMap);
+  const locateEffect = mapCode.slice(
+    mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
+  );
+  // ONE transition, and it is NOT the old instant jump: the camera eases to
+  // the 10 km frame instead of teleporting...
+  assert.match(locateEffect, /map\.flyTo\(center, targetZoom, \{/);
+  assert.match(locateEffect, /duration: LOCATE_TRANSITION_MS \/ 1000/);
+  assert.match(locateEffect, /easeLinearity: 0\.4/);
+  // ...and the duration is BOUNDED so it can never become a long fly-through
+  // or feel like loading. Executable: the real value must sit between a
+  // clearly-perceptible 150 ms and a hard 600 ms ceiling.
+  const declared = Number(/const LOCATE_TRANSITION_MS = (\d+)/.exec(homeMap)?.[1] ?? "0");
+  assert.ok(declared >= 150, `locate transition must be perceptible (got ${declared} ms)`);
+  assert.ok(declared <= 600, `locate transition must stay short (got ${declared} ms)`);
+  const pulseWindow = Number(/const LOCATE_PULSE_MS = (\d+)/.exec(homeMap)?.[1] ?? "0");
+  assert.ok(pulseWindow >= declared, "the pin pulse must outlast the camera transition");
+  // Reduced motion wins: the SAME action then applies instantly (no
+  // transition at all) — it is never skipped, only unanimated.
+  assert.match(mapCode, /function prefersReducedMotion\(\): boolean \{[\s\S]*prefers-reduced-motion: reduce/);
+  assert.match(locateEffect, /if \(prefersReducedMotion\(\)\) \{\n\s*map\.setView\(center, targetZoom, \{ animate: false \}\);\n\s*return;\n\s*\}/);
+  // The transition exists ONLY on the locate path: choosing a tab keeps the
+  // instant preset apply.
+  const anchorEffect = mapCode.slice(
+    mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
+    mapCode.indexOf("}, [ready, viewerPositionKey, cameraRadiusMeters, viewerPosition, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);"),
+  );
+  assert.doesNotMatch(anchorEffect, /flyTo|duration/);
+  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1, "exactly one animated move — the locate recenter");
+});
+
+test("Current-location, curated, and 10 km tab coverage are all exactly 10,000 m", () => {
+  // Executable proof of the three Home camera coverages (PO decision,
+  // 2026-09-30): all three frame the SAME 10 km around the real fix, and the
+  // curated map coverage rule that feeds the curated map dataset uses the
+  // same value. The narrower tabs stay narrower.
+  assert.equal(CAMERA_PRESET_RADIUS_M["10 km+"], 10_000);
+  assert.equal(CURATED_CAMERA_RADIUS_M, 10_000);
+  assert.equal(CURRENT_LOCATION_CAMERA_RADIUS_M, 10_000);
+  assert.equal(CURATED_MAP_COVERAGE_RADIUS_M, 10_000);
+  // The distance tabs stay strictly ordered 1 km < 5 km < 10 km, so the
+  // derived zoom is strictly ordered the opposite way and can never collapse
+  // two tabs into the same frame (radiusZoom zoom delta = log2(ratio)).
+  assert.ok(CAMERA_PRESET_RADIUS_M["1 km"] < CAMERA_PRESET_RADIUS_M["5 km"]);
+  assert.ok(CAMERA_PRESET_RADIUS_M["5 km"] < CAMERA_PRESET_RADIUS_M["10 km+"]);
+  assert.ok(Math.log2(CAMERA_PRESET_RADIUS_M["5 km"] / CAMERA_PRESET_RADIUS_M["1 km"]) > 1);
+  // 5 km -> 10 km is exactly one full zoom level, so the order stays strict
+  // even after Leaflet's zoomSnap (0.25) rounding.
+  assert.ok(Math.log2(CAMERA_PRESET_RADIUS_M["10 km+"] / CAMERA_PRESET_RADIUS_M["5 km"]) >= 1);
+  // The values reach ONLY their camera paths: the locate coverage never
+  // appears in Home discovery, and the curated map coverage never becomes a
+  // camera radius or a list gate.
   const pageCode = stripComments(homePage);
   const mapCode = stripComments(homeMap);
-  const uses = [
-    ...mapCode.match(/CURRENT_LOCATION_CAMERA_RADIUS_M/g) ?? [],
-    ...pageCode.match(/CURRENT_LOCATION_CAMERA_RADIUS_M/g) ?? [],
-  ];
-  assert.equal(uses.length, 2, "map import + locate camera path only — never a filter or preset input");
   assert.equal(pageCode.includes("CURRENT_LOCATION_CAMERA_RADIUS_M"), false, "Home discovery never reads the locate coverage");
   assert.equal(mapCode.includes("CAMERA_PRESET_RADIUS_M"), false, "the map takes its tab presets through the camera prop only");
+  assert.equal(mapCode.includes("CURATED_MAP_COVERAGE_RADIUS_M"), false, "the map never filters the dataset by coverage");
+  const locateUses = mapCode.match(/CURRENT_LOCATION_CAMERA_RADIUS_M/g) ?? [];
+  assert.equal(locateUses.length, 2, "map import + locate camera path only");
+  const curatedCameraUses = pageCode.match(/CURATED_CAMERA_RADIUS_M/g) ?? [];
+  assert.equal(curatedCameraUses.length, 2, "import + camera prop only — never a filter input");
+  const curatedCoverageUses = pageCode.match(/CURATED_MAP_COVERAGE_RADIUS_M/g) ?? [];
+  assert.equal(curatedCoverageUses.length, 2, "import + curated map coverage only");
+  // The three camera paths are three SEPARATE mechanisms that happen to share
+  // the 10 km value — they never read each other's state.
+  const locateEffect = mapCode.slice(
+    mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
+  );
+  assert.doesNotMatch(locateEffect, /cameraRadiusMeters|CURATED_CAMERA_RADIUS_M/);
 });
 
 // --- Camera preset ordering (PO, 2026-09-29) ---
 
-test("Camera preset radii are strictly ordered: 1 km < 5 km < 10 km+ < curated 50 km", () => {
+test("Distance-tab camera radii stay strictly ordered: 1 km < 5 km < 10 km", () => {
   // The preset table is the single source of the ordering...
-  assert.deepEqual(CAMERA_PRESET_RADIUS_M, { "1 km": 1_000, "5 km": 5_000, "10 km+": 12_000 });
-  assert.equal(CURATED_CAMERA_RADIUS_M, 50_000);
-  // ...and the ordering is locked MATHEMATICALLY: at a fixed center the
+  assert.deepEqual(CAMERA_PRESET_RADIUS_M, { "1 km": 1_000, "5 km": 5_000, "10 km+": 10_000 });
+  // "Tempat Pilihan" and "Lokasi Saya" deliberately share the widest 10 km
+  // frame with the "10 km+" tab, so they are NOT part of this ordering (same
+  // radius => same derived zoom by construction).
+  assert.equal(CURATED_CAMERA_RADIUS_M, CAMERA_PRESET_RADIUS_M["10 km+"]);
+  assert.equal(CURRENT_LOCATION_CAMERA_RADIUS_M, CAMERA_PRESET_RADIUS_M["10 km+"]);
+  // ...and the tab ordering is locked MATHEMATICALLY: at a fixed center the
   // pixel footprint of the radius box scales linearly with the radius, so
   // the derived zoom differs by exactly log2(ratio) — INDEPENDENT of the
-  // current zoom, the viewport size, or the latitude. Each adjacent ratio
-  // is > 2, i.e. every step zooms out by MORE than one full level, which
-  // also keeps the order strict after Leaflet's zoomSnap (0.25) rounding:
-  // adjacent real zooms can only floor to the same snap bucket when they
-  // are < 1 level apart — impossible at these ratios.
+  // current zoom, the viewport size, or the latitude. Every adjacent ratio is
+  // >= 2, i.e. every step zooms out by AT LEAST one full level, which keeps
+  // the order strict after Leaflet's zoomSnap (0.25) rounding: adjacent real
+  // zooms can only floor to the same snap bucket when they are < 1 level
+  // apart — impossible at these ratios.
   const orderings: [string, string, number, number][] = [
     ["1 km", "5 km", CAMERA_PRESET_RADIUS_M["1 km"], CAMERA_PRESET_RADIUS_M["5 km"]],
     ["5 km", "10 km+", CAMERA_PRESET_RADIUS_M["5 km"], CAMERA_PRESET_RADIUS_M["10 km+"]],
-    ["10 km+", "curated", CAMERA_PRESET_RADIUS_M["10 km+"], CURATED_CAMERA_RADIUS_M],
   ];
   for (const [narrow, wide, narrowR, wideR] of orderings) {
     const ratio = wideR / narrowR;
-    assert.ok(ratio > 2, `${wide} (${wideR}) must cover more than 2× ${narrow} (${narrowR})`);
-    assert.ok(Math.log2(ratio) > 1, `${wide} must zoom out more than one full level vs ${narrow}`);
+    assert.ok(ratio >= 2, `${wide} (${wideR}) must cover at least 2× ${narrow} (${narrowR})`);
+    assert.ok(Math.log2(ratio) >= 1, `${wide} must zoom out at least one full level vs ${narrow}`);
   }
 });
 
@@ -341,7 +372,7 @@ test("Bounded radius focuses the camera on the real Current Location, never on m
   // re-arms on a NEW preset choice so the next tab can refocus).
   assert.match(mapCode, /userInteractedRef\.current\) return/);
   // Home passes ONE camera preset mapping for every mode (distance tabs or
-  // curated 50 km).
+  // the curated 10 km preset).
   const pageCode = stripComments(homePage);
   assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
 });
@@ -363,7 +394,7 @@ test("Camera is ALWAYS bounded: no filter/tab ever fits the whole marker set (ma
   // BOTH derive zoom from a radius and BOTH center the real fix; neither
   // ever fits markers.
   const moves = mapCode.match(/map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\]/g) ?? [];
-  assert.equal(moves.length, 2, "preset anchor + preset locate recenter, both on the real fix");
+  assert.equal(moves.length, 1, "the preset anchor — the only instant setView on the raw fix (the locate recenter centers the same real fix through the shared `center` value)");
   // ...whose zoom is derived from the preset radius box (bounded), and no
   // world/country fallback view is invented for the no-fix case.
   assert.match(mapCode, /map\.fitWorld\(\)/);
@@ -453,13 +484,15 @@ test("Remount/refresh safety: container claim, full teardown, and size re-measur
 
 // --- "Tempat Pilihan" curated mode (PO, 2026-09-29) ---
 
-test("Curated mode centers the camera on Current Location with 50 km coverage", () => {
+test("Curated mode centers the camera on Current Location with 10 km coverage", () => {
   const pageCode = stripComments(homePage);
   const mapCode = stripComments(homeMap);
-  // Home passes the 50 km curated camera radius ONLY while curated is on;
-  // normal modes keep the distance-tab preset mapping untouched.
+  // Home passes the curated camera radius ONLY while curated is on; normal
+  // modes keep the distance-tab preset mapping untouched. Both are 10 km
+  // (locked by the coverage constants), never the retired 50 km frame.
   assert.match(pageCode, /CURATED_CAMERA_RADIUS_M/);
   assert.match(pageCode, /cameraRadiusMeters=\{\n?\s*curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]\n?\s*\}/);
+  assert.equal(CURATED_CAMERA_RADIUS_M, 10_000);
   // The map applies to the REAL fix with radius-derived zoom — no fallback
   // coordinate is ever introduced (the no-fake-position test above still
   // applies to every setViewerPosition call).
@@ -468,14 +501,14 @@ test("Curated mode centers the camera on Current Location with 50 km coverage", 
   assert.match(mapCode, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
 });
 
-test("Curated camera radius never filters the curated Place set", () => {
+test("Curated MEMBERSHIP never comes from the camera radius or the coverage rule", () => {
   const pageCode = stripComments(homePage);
-  // The curated layer narrows ONLY by the canonical curated ids — the 50 km
-  // value appears ONLY as the camera prop, never in the filter pipeline
-  // (matchesDistance / distanceMeters calls stay radius-filter only). The
+  // The curated layer narrows ONLY by the canonical curated ids — the camera
+  // radius appears ONLY as the camera prop, never in the membership rule. The
   // curated set is an intersection with the curated ids: an empty selection
-  // yields an empty layer, never the full search-filtered set and never a
-  // radius-filtered one.
+  // yields an empty curated LIST, never the full search-filtered set and
+  // never a radius-filtered one. The MAP coverage rule is a separate,
+  // explicitly named dataset step (see the curated map test below).
   assert.match(pageCode, /if \(curatedOnly\) \{/);
   assert.match(
     pageCode,
@@ -483,9 +516,13 @@ test("Curated camera radius never filters the curated Place set", () => {
   );
   assert.doesNotMatch(pageCode, /curatedIdSet\.size > 0/);
   const cameraUses = pageCode.match(/CURATED_CAMERA_RADIUS_M/g) ?? [];
-  assert.equal(cameraUses.length, 2, "import + camera prop only — never a filter input");
+  assert.equal(cameraUses.length, 2, "import + camera prop only — never a membership input");
+  // The coverage rule may only ADD ordinary Places to the curated MAP, and
+  // only as the non-curated remainder.
+  assert.match(pageCode, /const curatedCoveragePlaces = useMemo\(\(\) => \{[\s\S]*searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
   assert.doesNotMatch(pageCode, /matchesDistance\([^)]*CURATED/);
-  assert.doesNotMatch(pageCode, /distanceMeters\([^)]*CURATED/);
+  // Discovery is never used as the extra map source either.
+  assert.doesNotMatch(pageCode, /discovery\?\.discovery[^\n]*curatedCoveragePlaces|curatedCoveragePlaces[^\n]*discovery\?\.discovery/);
 });
 
 // --- Unified marker system (PO, 2026-09-29): base pin + treatments ---
@@ -493,8 +530,11 @@ test("Curated camera radius never filters the curated Place set", () => {
 test("ONE base Place marker: compact teardrop, no emoji, treatments not different models", () => {
   const mapCode = stripComments(homeMap);
   // One marker builder for every Place: the SAME teardrop shape in all
-  // modes — only the fill color (and the curated accent) differ.
-  assert.match(mapCode, /const pinColor = curatedMarkers \? BRAND_SECONDARY : BRAND_BROWN/);
+  // modes — only the fill color (and the curated accent) differ, and the
+  // treatment follows the Place's OWN canonical curated flag (the curated
+  // map shows curated AND ordinary Places side by side).
+  assert.match(mapCode, /const isCurated = place\.isCurated === true/);
+  assert.match(mapCode, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN/);
   assert.match(mapCode, /border-radius:9999px 9999px 9999px 0/);
   // Exactly one Place-pin builder: no second model, no emoji glyphs.
   assert.equal((mapCode.match(/const placePin = /g) ?? []).length, 1);
@@ -516,8 +556,9 @@ test("Declutter: Place names appear only on hover/focus/selection, never as alwa
   // Leaflet does not render it persistently), with NO always-on name chip.
   assert.match(mapCode, /marker\.bindTooltip\(escapeHtml\(place\.name\)/);
   assert.doesNotMatch(mapCode, /max-width:180px[^\n]*font-weight:700[^\n]*\$\{escapeHtml\(place\.name\)\}/);
-  // No curated-only label branch is left (decluttering covers all modes).
-  assert.doesNotMatch(mapCode, /if \(curatedMarkers\) \{\n\s*marker\.bindTooltip/);
+  // No curated-only label branch is left (decluttering covers every Place,
+  // curated or not).
+  assert.doesNotMatch(mapCode, /if \(isCurated\) \{\n\s*marker\.bindTooltip/);
   // The LIVE pin has no name label either — its identity is the LIVE chip.
   assert.doesNotMatch(mapCode, /bindTooltip\(liveTitle/);
 });
@@ -561,26 +602,28 @@ test("Every marker carries an accessible aria-label", () => {
 
 // --- Instant camera + one-shot pin focus feedback (PO, 2026-09-30) ---
 
-test("Locate and preset camera moves are INSTANT: no flyTo, no duration, no easing anywhere", () => {
+test("Preset camera moves stay INSTANT; only the locate recenter animates (and briefly)", () => {
   const mapCode = stripComments(homeMap);
   const pageCode = stripComments(homePage);
-  // Every camera application is a setView with animate: false — Leaflet
-  // skips its animated-zoom path entirely for these options (synchronous
-  // _resetView, no requestAnimFrame, no easing curve).
+  // Choosing a tab stays an instant setView on the real fix — Leaflet skips
+  // its animated-zoom path entirely for these options (synchronous
+  // _resetView, no requestAnimFrame, no easing curve). The null-preset focus
+  // uses position.lat and is locked in the locate pulse test below.
   const setViews = mapCode.match(/map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\],[\s\S]*?\{ animate: false \}\)/g) ?? [];
-  assert.equal(setViews.length, 2, "preset anchor + preset locate recenter, both instant (the null-preset focus uses position.lat and is locked in the Lokasi Saya pulse test)");
-  // The slow animated path is gone from the Home map AND Home discovery.
-  assert.equal(mapCode.includes("flyTo"), false, "no map.flyTo in the Home map component");
-  assert.equal(mapCode.includes("duration"), false, "no duration option in the Home map component");
-  assert.equal(/easing/i.test(mapCode), false, "no easing in the Home map component");
+  assert.equal(setViews.length, 1, "the preset anchor applies instantly");
+  // The ONLY animated move is the locate recenter, and it is bounded (the
+  // locate-transition test proves the real duration value).
+  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1, "exactly one animated move — the locate recenter");
+  assert.equal((mapCode.match(/duration:/g) ?? []).length, 1, "exactly one bounded duration — the locate transition");
   assert.equal(pageCode.includes("flyTo"), false, "no flyTo in Home discovery");
   assert.equal(pageCode.includes("duration"), false, "no duration in Home discovery");
+  assert.equal(pageCode.includes("easeLinearity"), false, "no easing in Home discovery");
   // No fitBounds and no fallback camera anywhere in either file.
   assert.equal(mapCode.includes("fitBounds"), false);
   assert.equal(pageCode.includes("fitBounds"), false);
 });
 
-test("Tempat Pilihan transition: instant 50 km preset camera + one-shot pin focus pulse", () => {
+test("Tempat Pilihan transition: instant 10 km preset camera + one-shot pin focus pulse", () => {
   const mapCode = stripComments(homeMap);
   const pageCode = stripComments(homePage);
   const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
@@ -590,8 +633,9 @@ test("Tempat Pilihan transition: instant 50 km preset camera + one-shot pin focu
   assert.match(pageCode, /pulsePinOnPresetChange=\{curatedOnly\}/);
   // The map applies the pulse after the INSTANT preset application...
   assert.match(mapCode, /pulsePinOnPresetChange\) triggerLocatePulse\(\)/);
-  // ...which is a SHORT one-shot (~450 ms) on the EXISTING user pin element
-  // (getElement), never a new marker and never a marker redesign.
+  // ...which is a SHORT BOUNDED burst (~900 ms, two cycles — never infinite)
+  // on the EXISTING user pin element (getElement), never a new marker and
+  // never a marker redesign.
   assert.match(mapCode, /const triggerLocatePulse = useCallback/);
   assert.match(mapCode, /userPinRef\.current\?\.getElement\?\.\(\)/);
   assert.match(mapCode, /singgah-locate-pulse/);
@@ -601,26 +645,49 @@ test("Tempat Pilihan transition: instant 50 km preset camera + one-shot pin focu
   // The pulse timer is a one-shot (no interval, no infinite loop).
   assert.match(mapCode, /setTimeout\(\(\) => \{\n\s*locatePulseTimerRef\.current = null;/);
   assert.equal(mapCode.includes("setInterval"), false);
+  assert.equal((mapCode.match(/LOCATE_PULSE_MS/g) ?? []).length, 3, "one declared window, used for the pending state and the timer");
   // Minimal CSS: exactly one keyframe + one class for the locate pulse,
   // disabled under the existing reduced-motion pattern, LIVE pulse untouched.
   assert.match(globals, /@keyframes singgah-locate-pulse/);
-  assert.match(globals, /\.singgah-locate-pulse \{\n  animation: singgah-locate-pulse 450ms ease-out 1;\n\}/);
+  assert.match(globals, /\.singgah-locate-pulse \{\n  animation: singgah-locate-pulse 900ms ease-out 2;\n\}/);
+  assert.doesNotMatch(globals, /singgah-locate-pulse[^\n]*infinite/);
   assert.equal((globals.match(/@keyframes/g) ?? []).length, 2, "exactly the LIVE pulse + the locate pulse");
   assert.equal((globals.match(/prefers-reduced-motion/g) ?? []).length, 2, "reduced-motion opt-out: the LIVE pulse + the locate pulse");
   assert.match(globals, /@keyframes singgah-live-pulse/);
   assert.match(globals, /\.singgah-live-pulse \{\n  animation: singgah-live-pulse 1\.8s ease-in-out infinite;\n\}/);
 });
 
-test("Lokasi Saya confirms the action with the SAME pin pulse — camera still instant", () => {
+test("Lokasi Saya pulses the pin BEFORE the camera moves and survives a late marker", () => {
   const mapCode = stripComments(homeMap);
-  // Both camera paths that a "Lokasi Saya" press can take (the 15 km
-  // current-location recenter + the zoom-preserving fallback focus) end with
-  // the one-shot pin pulse; the camera itself never animates.
+  // The pulse is triggered BEFORE the camera transition, so it is already
+  // running while the map settles (not only after it).
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
     mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
   );
-  assert.match(locateEffect, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\);\s*triggerLocatePulse\(\);/);
+  const pulseAt = locateEffect.indexOf("triggerLocatePulse();");
+  const moveAt = locateEffect.indexOf("map.flyTo(");
+  assert.ok(pulseAt > 0 && moveAt > pulseAt, "the pulse starts before the camera transition");
+  // The reduced-motion branch keeps the same pulse (it is never skipped).
+  assert.match(locateEffect, /if \(prefersReducedMotion\(\)\) \{/);
+  // PENDING PULSE (PO, 2026-09-30): the feedback window is recorded BEFORE the
+  // pin element is looked up, so a locate request that lands before the
+  // asynchronous marker exists still pulses it once it is created.
+  const pulse = mapCode.slice(
+    mapCode.indexOf("const triggerLocatePulse = useCallback"),
+    mapCode.indexOf("// Jump to the real user position"),
+  );
+  const windowAt = pulse.indexOf("locatePulseUntilRef.current = Date.now() + LOCATE_PULSE_MS;");
+  const elementAt = pulse.indexOf("const element = userPinRef.current?.getElement?.();");
+  assert.ok(windowAt > 0 && elementAt > windowAt, "the pending window is recorded before the pin element is read");
+  assert.match(pulse, /if \(!element\) return;/);
+  // ...and the user-marker effect re-applies it to a freshly built pin.
+  const markerEffect = mapCode.slice(
+    mapCode.indexOf("userPinRef.current = L.circleMarker"),
+    mapCode.indexOf("}, [ready, viewerPosition, triggerLocatePulse]);"),
+  );
+  assert.match(markerEffect, /if \(Date\.now\(\) < locatePulseUntilRef\.current\) triggerLocatePulse\(\);/);
+  // The zoom-preserving fallback focus still ends with the same pulse.
   assert.match(mapCode, /map\.setView\(\[position\.lat, position\.lng\], Math\.max\(map\.getZoom\(\), 15\), \{ animate: false \}\);\s*triggerLocatePulse\(\);/);
 });
 

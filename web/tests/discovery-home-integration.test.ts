@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { buildDiscoveryViewModel } from "../lib/discovery/view-model";
+import { CURATED_MAP_COVERAGE_RADIUS_M, distanceMeters } from "../lib/live/ui";
 import type { DiscoveryPlaceInput } from "../lib/discovery/scoring";
 
 /**
@@ -185,12 +186,17 @@ test("search keeps its existing single implementation across every layer", () =>
 
 test("map behavior is untouched: dataset, camera presets, curated camera", () => {
   const code = stripComments(home);
-  // Map dataset = visiblePlaces with canonical coords (never radius-gated).
+  // Map dataset = content-filtered Places with canonical coords (never
+  // radius-gated in the normal modes; the curated mode adds its own explicit
+  // coverage step, locked above).
   const mapDataset = code.slice(code.indexOf("const mapPlaces"));
-  assert.match(mapDataset, /visiblePlaces\.flatMap\(\(place\) =>/);
+  assert.match(mapDataset, /: visiblePlaces;/);
   // ONE camera preset path, curated camera intact (locked Task 1 semantics).
   assert.match(code, /cameraRadiusMeters=\{\s*curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]\s*\}/);
-  assert.match(code, /curatedMarkers=\{curatedOnly\}/);
+  // The curated marker treatment is per Place (canonical is_curated), not a
+  // mode-level prop — the curated map shows both kinds at once.
+  assert.doesNotMatch(code, /curatedMarkers/);
+  assert.match(code, /isCurated: curatedOnly && curatedIdSet\.has\(place\.id\),/);
   // Distance tabs never became filters again; no removed filter is revived.
   assert.equal(code.includes("CURATED_COLLECTIONS"), false);
   assert.equal(code.includes("Di sekitar saya"), false);
@@ -322,6 +328,42 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
   assert.doesNotMatch(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
 });
 
+test("P0: curated map coverage is an EXECUTABLE 10 km rule, independent of membership", () => {
+  // Behavioural proof of the curated MAP rule with real geometry and the
+  // real constant: a curated Place is always on the curated map (membership),
+  // an ordinary Place joins it ONLY inside the 10 km coverage around the real
+  // fix, and neither fact changes curated membership or the curated list.
+  const viewer = { lat: -6.2, lng: 106.8166 };
+  const curatedPlace = { ...makeInput("curated-a").place, latitude: -6.2, longitude: 106.8166 };
+  const insideOrdinary = { ...makeInput("ordinary-inside").place, latitude: -6.25, longitude: 106.8166 };
+  const outsideOrdinary = { ...makeInput("ordinary-outside").place, latitude: -6.6, longitude: 106.8166 };
+  const published = [curatedPlace, insideOrdinary, outsideOrdinary];
+  const curatedIdSet = new Set(["curated-a"]);
+
+  const curatedListed = published.filter((place) => curatedIdSet.has(place.id));
+  const coverage = published.filter(
+    (place) =>
+      !curatedIdSet.has(place.id) &&
+      distanceMeters(viewer, { lat: place.latitude, lng: place.longitude }) <=
+        CURATED_MAP_COVERAGE_RADIUS_M,
+  );
+  const mapIds = [...curatedListed, ...coverage].map((place) => place.id);
+  assert.deepEqual(curatedListed.map((place) => place.id), ["curated-a"], "list stays curated-only");
+  assert.deepEqual(coverage.map((place) => place.id), ["ordinary-inside"], "ordinary Places join the map only inside coverage");
+  assert.deepEqual(mapIds, ["curated-a", "ordinary-inside"], "curated + ordinary-in-coverage on the curated map");
+  // The ordinary Place that only appears on the map is NOT curated and does
+  // not enter the curated list — and Discovery is not consulted for either.
+  assert.equal(curatedIdSet.has("ordinary-inside"), false);
+  assert.equal(curatedListed.some((place) => place.id === "ordinary-inside"), false);
+  const vm = buildDiscoveryViewModel(
+    [makeInput("curated-a"), makeInput("ordinary-inside"), makeInput("ordinary-outside")],
+    curatedIdSet,
+    NOW,
+  );
+  assert.deepEqual([...vm.curatedPlaceIds], ["curated-a"], "membership comes only from is_curated");
+  assert.equal(vm.discovery.length, 3, "Discovery stays independent of the curated map coverage");
+});
+
 test("P0: an empty curated set yields zero curated Places even when places are published", () => {
   // Behavioural proof of the rule, independent of the source shape: the
   // curated layer is an intersection with the curated id set, and an empty set
@@ -341,29 +383,69 @@ test("P0: an empty curated set yields zero curated Places even when places are p
   assert.deepEqual(vm.curatedPlaceIds, []);
 });
 
-test("P0: an empty curated set empties the MAP dataset too, and the empty overlay is truthful", () => {
+test("P0: the curated MAP shows curated + ordinary Places in coverage, the curated LIST stays curated-only", () => {
   const code = stripComments(home);
-  // The whole curated chain is one intersection with the curated id set:
-  // curatedIdSet → visiblePlaces → curatedListed (row) AND mapPlaces (map).
-  // With no curated Place, both rows AND the map dataset are empty — the
-  // 50 km curated camera still widens the frame, but it must NOT make
-  // non-curated (Discovery) Places appear as Tempat Pilihan markers.
+  // MEMBERSHIP (canonical is_curated only)...
   assert.match(code, /const curatedIdSet = useMemo\(\s*\(\) => new Set\(discovery\?\.curatedPlaceIds \?\? \[\]\)/);
   const visible = code.slice(code.indexOf("const visiblePlaces"), code.indexOf("const listedPlaces"));
   assert.match(visible, /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);\s*\}/);
+  // ...the curated LIST reads that membership and nothing else...
+  assert.match(code, /const curatedListed = useMemo\(\s*\(\) => visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
+  // ...and the extra MAP-only source is explicitly the NON-curated remainder,
+  // bounded by the 10 km coverage around the REAL fix.
+  const coverage = code.slice(code.indexOf("const curatedCoveragePlaces"), code.indexOf("const mapPlaces"));
+  assert.match(coverage, /if \(!curatedOnly\) return \[\];/);
+  assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
+  assert.match(coverage, /distanceMeters\(viewerPosition, \{ lat: place\.latitude, lng: place\.longitude \}\) <=\s*CURATED_MAP_COVERAGE_RADIUS_M/);
+  // No fallback coordinate: without a real fix there is no coverage to
+  // measure, so every published Place with coordinates is shown (display
+  // only — membership and the curated list are unchanged).
+  assert.match(coverage, /if \(!viewerPosition\) return nonCurated;/);
+  // The map dataset is curated + coverage places, deduplicated, coordinates
+  // fail-closed, and each Place carries its OWN curated flag for the marker.
   const mapDataset = code.slice(code.indexOf("const mapPlaces"), code.indexOf("const mapEmptyStateVisible"));
-  assert.match(mapDataset, /visiblePlaces\.flatMap\(/);
-  // The map dataset is NEVER re-widened from the published list, the
-  // Discovery row, or the radius tables when the curated set is empty.
-  assert.doesNotMatch(mapDataset, /placeById|discovery\?|places\.filter|CURATED_CAMERA_RADIUS_M|CAMERA_PRESET_RADIUS_M/);
-  // The dataset-empty branch of the overlay is the one that fires here
-  // (viewportHasPlaces can only report false, never true) — the user is told
-  // the truth instead of seeing an unexplained blank map.
+  assert.match(mapDataset, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
+  assert.match(mapDataset, /if \(seen\.has\(place\.id\)\) return \[\];/);
+  assert.match(mapDataset, /if \(place\.latitude === null \|\| place\.longitude === null\) return \[\];/);
+  assert.match(mapDataset, /isCurated: curatedOnly && curatedIdSet\.has\(place\.id\),/);
+  // The coverage source is MAP-ONLY: it can never reach the curated list, the
+  // header count, or Discovery.
+  const curatedRow = code.slice(code.indexOf("const curatedListed"), code.indexOf("const curatedCoveragePlaces"));
+  assert.doesNotMatch(curatedRow, /curatedCoveragePlaces|CURATED_MAP_COVERAGE_RADIUS_M/);
+  assert.doesNotMatch(code, /discovery\?\.discovery[\s\S]{0,200}curatedCoveragePlaces/);
+  // The curated camera radius stays CAMERA-ONLY: it is never a dataset or
+  // membership input, so a 10 km frame can never fabricate Places.
+  assert.doesNotMatch(code, /matchesDistance\([^)]*CURATED_CAMERA_RADIUS_M|distanceMeters\([^)]*CURATED_CAMERA_RADIUS_M/);
+  // The dataset-empty branch of the overlay stays the truthful fallback when
+  // neither curated Places nor coverage Places exist.
   assert.match(
     code,
     /const mapEmptyStateVisible =\n\s*mapPlaces\.length === 0 \|\| \(viewportReported && !viewportHasPlaces\);/,
   );
-  // The 50 km curated camera stays a CAMERA-ONLY value: it is never a
-  // dataset/filter input, so a wider frame can never fabricate Places.
-  assert.doesNotMatch(code, /matchesDistance\([^)]*CURATED_CAMERA_RADIUS_M|distanceMeters\([^)]*CURATED_CAMERA_RADIUS_M/);
+});
+
+test("P0: ordinary coverage Places never leak into the curated list or its count", () => {
+  const code = stripComments(home);
+  // The curated row, its counter, and the map-only coverage source are three
+  // separate statements: the coverage Places exist ONLY inside mapPlaces.
+  const curatedListSlice = code.slice(code.indexOf("const curatedListed"), code.indexOf("const curatedCoveragePlaces"));
+  assert.doesNotMatch(curatedListSlice, /curatedCoveragePlaces|CURATED_MAP_COVERAGE_RADIUS_M|viewerPosition/);
+  assert.match(code, /curatedOnly\s*\?\s*`\$\{curatedListed\.length\} Tempat Pilihan`/);
+  // The coverage memo is referenced by exactly ONE consumer — the map dataset.
+  const uses = code.match(/curatedCoveragePlaces/g) ?? [];
+  assert.equal(uses.length, 3, "declaration + the curated dataset union + its dependency list only");
+  // Behavioural proof of the rule, independent of the source shape: an
+  // ordinary Place inside coverage is in the map dataset and NOT in the
+  // curated list, while a curated Place is in both and stays curated.
+  const places = [makeInput("curated-a").place, makeInput("ordinary-b").place];
+  const curatedIdSet = new Set(["curated-a"]);
+  const curatedListed = places.filter((place) => curatedIdSet.has(place.id));
+  const coverageOnly = places.filter((place) => !curatedIdSet.has(place.id));
+  assert.deepEqual(curatedListed.map((place) => place.id), ["curated-a"]);
+  assert.deepEqual(coverageOnly.map((place) => place.id), ["ordinary-b"]);
+  // Membership never changes because of the map: promoting an ordinary Place
+  // is still the Admin's canonical is_curated write, nothing else.
+  const vm = buildDiscoveryViewModel([makeInput("curated-a"), makeInput("ordinary-b")], curatedIdSet, NOW);
+  assert.deepEqual([...vm.curatedPlaceIds], ["curated-a"]);
+  assert.equal(vm.discovery.length, 2, "Discovery stays independent of the curated layer");
 });

@@ -11,6 +11,7 @@ import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
+  CURATED_MAP_COVERAGE_RADIUS_M,
   DISTANCE_FILTERS,
   buildDirectionsUrl,
   distanceMeters,
@@ -299,21 +300,62 @@ export default function HomeDiscovery({
     [visiblePlaces, curatedIdSet],
   );
 
-  // MAP DATASET (PO, 2026-09-29): every content-filtered Place with
-  // canonical coordinates, independent of the camera radius. Zooming out
+  // MAP DATASET — normal modes (PO, 2026-09-29): every content-filtered Place
+  // with canonical coordinates, independent of the camera radius. Zooming out
   // after choosing 1 km/5 km now reveals Places that were simply outside
   // the frame — nothing is discarded upstream. Leaflet's viewport decides
   // which markers are visually on screen; a Place without lat/lng is still
   // never invented onto the map (fail-closed).
-  const mapPlaces = useMemo<HomeMapPlace[]>(
-    () =>
-      visiblePlaces.flatMap((place) =>
-        place.latitude !== null && place.longitude !== null
-          ? [{ id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude }]
-          : [],
-      ),
-    [visiblePlaces],
-  );
+  //
+  // "Tempat Pilihan" MAP (PO, 2026-09-30): the curated map shows BOTH layers —
+  //   1. every curated published Place (canonical `places.is_curated` only —
+  //      the SAME set the curated LIST renders), and
+  //   2. the NORMAL, non-curated published Places that sit inside the 10 km
+  //      coverage around the real Current Location (CURATED_MAP_COVERAGE_RADIUS_M).
+  // The second group is a MAP COVERAGE rule only: those Places keep their
+  // ordinary marker treatment, never become curated, never enter the curated
+  // LIST, and never touch Discovery. Curated membership is still read only
+  // from the canonical curated ids — there is no "empty curated set → show
+  // everything" fallback for the list, and Discovery is never used as one.
+  // Without a real Current Location fix there is no coverage to measure, so
+  // the curated map simply shows every published Place with coordinates.
+  const curatedCoveragePlaces = useMemo(() => {
+    if (!curatedOnly) return [];
+    const nonCurated = searchFiltered.filter((place) => !curatedIdSet.has(place.id));
+    if (!viewerPosition) return nonCurated;
+    return nonCurated.filter(
+      (place) =>
+        place.latitude !== null &&
+        place.longitude !== null &&
+        distanceMeters(viewerPosition, { lat: place.latitude, lng: place.longitude }) <=
+          CURATED_MAP_COVERAGE_RADIUS_M,
+    );
+  }, [curatedOnly, searchFiltered, curatedIdSet, viewerPosition]);
+
+  const mapPlaces = useMemo<HomeMapPlace[]>(() => {
+    // Curated Places first (they are the point of the layer), then the
+    // ordinary Places inside coverage; a Place can only appear once.
+    const source = curatedOnly ? [...visiblePlaces, ...curatedCoveragePlaces] : visiblePlaces;
+    const seen = new Set<string>();
+    return source.flatMap((place) => {
+      if (seen.has(place.id)) return [];
+      seen.add(place.id);
+      if (place.latitude === null || place.longitude === null) return [];
+      return [
+        {
+          id: place.id,
+          name: place.name,
+          latitude: place.latitude,
+          longitude: place.longitude,
+          // Per-Place curated flag: the marker treatment follows canonical
+          // membership, never the whole mode (the curated map mixes both
+          // kinds, so a mode-level flag could not tell them apart). Outside
+          // the curated layer every Place keeps the ordinary treatment.
+          isCurated: curatedOnly && curatedIdSet.has(place.id),
+        },
+      ];
+    });
+  }, [visiblePlaces, curatedCoveragePlaces, curatedOnly, curatedIdSet]);
 
   // Viewport-aware empty state (PO, 2026-09-30): overlay when the DATASET is
   // empty, or when the map has reported and NO Place sits in the REAL
@@ -623,10 +665,12 @@ export default function HomeDiscovery({
             locateNonce={locateNonce}
             onRequestLocate={handleLocatePress}
             /* ONE deterministic camera preset for every mode (PO,
-               2026-09-29): distance tabs map to their ordered preset radii
-               (1 < 5 < 12 km), "Tempat Pilihan" covers 50 km. CAMERA-ONLY —
-               the map dataset (mapPlaces) and the list gate below stay
-               independent of this value. */
+               2026-09-29; coverage unified by the product decision of
+               2026-09-30): distance tabs map to their ordered preset radii
+               (1 < 5 < 10 km) and "Tempat Pilihan" frames the SAME 10 km
+               coverage. CAMERA-ONLY — the curated membership (canonical
+               is_curated) and the curated LIST below stay independent of
+               this value. */
             cameraRadiusMeters={
               curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
             }
@@ -636,7 +680,6 @@ export default function HomeDiscovery({
                the EXISTING Current Location pin — no new marker, no map
                animation. */
             pulsePinOnPresetChange={curatedOnly}
-            curatedMarkers={curatedOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
           />
 

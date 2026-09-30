@@ -124,11 +124,12 @@ test("The callback does not touch dataset, camera presets, or marker design", ()
   // The map dataset memo (up to the empty-state flag) never references the
   // callback — dataset composition is untouched.
   const mapDataset = pageCode.slice(pageCode.indexOf("const mapPlaces"), pageCode.indexOf("const mapEmptyStateVisible"));
-  assert.match(mapDataset, /visiblePlaces\.flatMap\(\(place\) =>/);
+  assert.match(mapDataset, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
   assert.doesNotMatch(mapDataset, /matchesDistance/);
   assert.doesNotMatch(mapDataset, /onViewportHasPlaces/);
-  // Marker design untouched (same base pin + treatments).
-  assert.match(mapCode, /const pinColor = curatedMarkers \? BRAND_SECONDARY : BRAND_BROWN/);
+  // Marker design untouched (same base pin, per-Place CURATED/NORMAL
+  // treatments on that one shape).
+  assert.match(mapCode, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN/);
 });
 
 // --- C. Final copy (verbatim) ---

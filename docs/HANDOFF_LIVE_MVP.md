@@ -258,3 +258,47 @@ until an Admin promotes Places to `is_curated` (data action, no code), or
 (2) define an explicit new rule for what the curated layer shows when no Place
 is curated. Option 2 is a Master/contract change and must not be implemented
 from an assumption.
+
+## 14. RESOLVED BY PRODUCT DECISION — HOME CAMERA 10 KM + CURATED MAP (2026-09-30)
+
+The product owner decided the blocker in §13 explicitly. This supersedes the
+earlier "instant camera / 50 km curated / 15 km locate" values; nothing else in
+the Discovery contract changed.
+
+1. **Three Home camera contexts, all 10,000 m** — `Tempat Pilihan`, the `10 km+`
+   tab, and `Lokasi Saya` frame the SAME 10 km coverage around the real Current
+   Location (`CAMERA_PRESET_RADIUS_M["10 km+"]`, `CURATED_CAMERA_RADIUS_M`,
+   `CURRENT_LOCATION_CAMERA_RADIUS_M` = `10_000`). The retired values are the
+   12 km tab coverage, the 50 km curated frame, and the 15 km locate coverage.
+   Distance tabs stay strictly ordered 1 km < 5 km < 10 km.
+2. **Curated map = curated + ordinary Places in coverage.** On the
+   "Tempat Pilihan" map the dataset is every curated published Place PLUS the
+   NON-curated published Places within `CURATED_MAP_COVERAGE_RADIUS_M` (10 km)
+   of the real fix (`curatedCoveragePlaces` in `web/components/home-discovery.tsx`).
+   With no real fix there is no coverage to measure, so every published Place
+   with canonical coordinates is shown.
+3. **Curated membership is unchanged.** It still comes only from canonical
+   `places.is_curated` through the view model. The coverage Places keep their
+   ordinary marker treatment, never become curated, and never enter the curated
+   LIST or its counter — the curated list stays curated-only, and Discovery is
+   never used as a fallback. This satisfies contract test case 16: the curated
+   RESULT is still an empty set when nothing is curated.
+4. **Exactly two Place marker treatments**, chosen per PLACE (not per mode):
+   NORMAL (brown) and CURATED (secondary green + ✦ accent) on the same
+   teardrop base pin. `curatedMarkers` (mode-level) was removed.
+5. **Lokasi Saya** centers on the newest REAL fix at the 10 km coverage with one
+   SHORT, light transition (`LOCATE_TRANSITION_MS = 350 ms`), disabled when the
+   viewer prefers reduced motion (instant apply instead). Preset/tab changes
+   stay instant. No fly-through, no marker fitBounds, no invented coordinates,
+   and the selected tab/filter state is never mutated.
+6. **Current Location pin pulse** is bounded (`LOCATE_PULSE_MS = 900 ms`, two
+   cycles, never infinite), starts BEFORE the camera move so it covers the
+   transition, and is PENDING when the pin element does not exist yet — the
+   user-marker effect applies it when the asynchronous marker is created.
+
+The "instant camera" rule from 2026-09-30 applies to preset changes only; the
+locate recenter intentionally animates. Regression coverage:
+`tests/map-current-location.test.ts` (camera values, transition bounds,
+reduced motion, pulse lifecycle, per-Place marker treatment) and
+`tests/discovery-home-integration.test.ts` (curated map vs curated list,
+membership, Discovery independence).

@@ -40,41 +40,54 @@ export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
 };
 
 /**
- * "Tempat Pilihan" camera coverage (PO, 2026-09-29): when the curated layer
- * is active the map zooms so its frame ideally covers a 50 km radius around
- * the real Current Location. This is a CAMERA value only — the curated layer
- * still shows ALL published Places and never filters by this radius.
+ * "Tempat Pilihan" camera coverage (PO, 2026-09-29; amended by the product
+ * decision of 2026-09-30): the curated layer frames the SAME 10 km coverage
+ * as the "10 km+" tab around the real Current Location — the old 50 km frame
+ * is retired. This is a CAMERA value ONLY: it never decides curated
+ * membership and never filters the Place list.
  */
-export const CURATED_CAMERA_RADIUS_M = 50_000;
+export const CURATED_CAMERA_RADIUS_M = 10_000;
 
 /**
- * "Lokasi Saya" CURRENT-LOCATION camera coverage (PO, 2026-09-30): the
- * EXPLICIT "Lokasi Saya" action centers on the REAL browser fix and zooms
- * the frame out to this deterministic 15 km radius — one level wider than
- * the widest distance tab (10 km+ = 12 km) so the user sees their area at a
- * glance. It is a CAMERA-ONLY value for that ONE action: it never filters the
- * map dataset, never replaces the 1 km / 5 km / 10 km+ LIST filters, never
- * changes the selected distance tab, is not a Discovery or curated signal,
- * and never invents a position. Choosing a tab (including "Tempat Pilihan")
- * still applies that tab's own preset through CAMERA_PRESET_RADIUS_M /
- * CURATED_CAMERA_RADIUS_M.
+ * "Tempat Pilihan" MAP-DATASET coverage (PO, 2026-09-30): on the curated map
+ * the normal, NON-curated published Places shown are exactly those within
+ * this radius of the real Current Location. This is a DATASET/COVERAGE value,
+ * deliberately NOT a filter: it never changes curated membership (canonical
+ * `places.is_curated` only), never adds a Place to the curated LIST, and is
+ * never used as a Discovery signal. With no real Current Location fix there
+ * is no coverage to measure, so the curated map shows every published Place
+ * with canonical coordinates (display only — membership is unchanged).
  */
-export const CURRENT_LOCATION_CAMERA_RADIUS_M = 15_000;
+export const CURATED_MAP_COVERAGE_RADIUS_M = 10_000;
+
+/**
+ * "Lokasi Saya" CURRENT-LOCATION camera coverage (PO, 2026-09-29; amended by
+ * the product decision of 2026-09-30): the EXPLICIT "Lokasi Saya" action
+ * centers on the REAL browser fix and frames the SAME 10 km coverage as the
+ * "10 km+" tab and "Tempat Pilihan". It is a CAMERA-ONLY value for that ONE
+ * action: it never filters the map dataset, never replaces the 1 km / 5 km /
+ * 10 km+ LIST filters, never changes the selected distance tab, is not a
+ * Discovery or curated signal, and never invents a position.
+ */
+export const CURRENT_LOCATION_CAMERA_RADIUS_M = 10_000;
 
 /**
  * Distance-tab CAMERA presets (PO, 2026-09-29 — amending the "10 km+ is
- * unbounded" camera behavior): EVERY distance tab drives ONE deterministic
- * camera mechanism — the map frame covers this radius around the real
- * Current Location. The coverage radii are strictly ordered
- * 1 km < 5 km < 10 km+ (< curated 50 km), so the derived zoom levels are
- * strictly ordered the opposite way — independent of the current zoom.
- * CAMERA-ONLY values: they never filter the map dataset (the Place-list
- * proximity gate keeps its own mapping in DISTANCE_FILTER_RADIUS_M).
+ * unbounded" camera behavior; 10 km+ coverage set to exactly 10 km by the
+ * product decision of 2026-09-30): EVERY distance tab drives ONE deterministic
+ * camera mechanism — the map frame covers this radius around the real Current
+ * Location. The distance-tab radii stay strictly ordered
+ * 1 km < 5 km < 10 km+, so the derived zoom levels are strictly ordered the
+ * opposite way — independent of the current zoom. "Tempat Pilihan" and
+ * "Lokasi Saya" deliberately share the widest 10 km coverage, so their zoom
+ * matches the "10 km+" tab by construction. CAMERA-ONLY values: they never
+ * filter the map dataset (the Place-list proximity gate keeps its own mapping
+ * in DISTANCE_FILTER_RADIUS_M).
  */
 export const CAMERA_PRESET_RADIUS_M: Record<DistanceFilter, number> = {
   "1 km": 1_000,
   "5 km": 5_000,
-  "10 km+": 12_000,
+  "10 km+": 10_000,
 };
 
 export function distanceMeters(

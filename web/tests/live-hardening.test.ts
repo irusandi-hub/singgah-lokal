@@ -49,8 +49,10 @@ test("E2E: distance tabs are CAMERA presets — the map dataset never shrinks by
   // comes from the content-filtered set (search/LIVE/curated) and must NOT
   // pass through a matchesDistance gate — zooming out after choosing 1 km
   // would otherwise never reveal Places an upstream filter had discarded.
+  // (The curated mode's own 10 km COVERAGE step is a separate, explicitly
+  // named map-only source — it never uses the distance-tab filter either.)
   const mapDataset = homeSource.slice(homeSource.indexOf("const mapPlaces"));
-  assert.match(mapDataset, /visiblePlaces\.flatMap\(\(place\) =>/);
+  assert.match(mapDataset, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
   assert.doesNotMatch(mapDataset, /matchesDistance/);
   // The matchesDistance gate survives ONLY in the list pipeline (listedPlaces)
   // — the list below the map keeps its existing proximity contract.

@@ -19,15 +19,16 @@ import { CURRENT_LOCATION_CAMERA_RADIUS_M } from "@/lib/live/ui";
  *   becomes the camera center. There is NO fallback viewport and NO invented
  *   user position — before the first real fix the map starts on the neutral
  *   world overview (fitWorld), never on a stand-in country view.
- * - Camera authority (PO, 2026-09-29 + 2026-09-30 map-coverage fix): ONE
- *   deterministic preset mechanism — every mode (1 km / 5 km / 10 km+ /
- *   "Tempat Pilihan") is a radius preset: the camera moves INSTANTLY (setView,
- *   animate: false — no animation) so the frame covers exactly that radius
- *   around the real Current Location. Preset radii are
- *   strictly ordered (1 < 5 < 12 < 50 km), so the derived zoom is strictly
- *   ordered the opposite way and is NEVER derived from the current zoom. A
- *   newly chosen preset always applies (deterministic refocus); manual pan/zoom
- *   wins between choices;
+ * - Camera authority (PO, 2026-09-29 + 2026-09-30 map-coverage fix and
+ *   coverage decision): ONE deterministic radius mechanism — every mode
+ *   (1 km / 5 km / 10 km+ / "Tempat Pilihan") is a radius preset and the
+ *   camera moves INSTANTLY (setView, animate: false) so the frame covers
+ *   exactly that radius around the real Current Location. Distance-tab radii
+ *   stay strictly ordered (1 < 5 < 10 km); "Tempat Pilihan" and the explicit
+ *   "Lokasi Saya" recenter deliberately share the widest 10 km coverage, so
+ *   their zoom is derived from the radius alone — NEVER from the current
+ *   zoom, and never from the marker set. A newly chosen preset always applies
+ *   (deterministic refocus); manual pan/zoom wins between choices;
  *     · marker refreshes/API polling never move the camera;
  *     · the viewport is ALWAYS bounded to the chosen radius preset — the old
  *       one-shot marker fitBounds (which zoomed to a world view when no
@@ -39,18 +40,29 @@ import { CURRENT_LOCATION_CAMERA_RADIUS_M } from "@/lib/live/ui";
  *   and fast route transitions cannot initialize twice), and teardown fully
  *   removes listeners, layers, and the map itself. invalidateSize() runs on
  *   init and window resize so mobile remounts never leave stacked tiles.
- * - Marker system (PO, 2026-09-29): ONE compact teardrop base pin for every
- *   Place. Modes are treatments of that base, never different models:
- *   Place biasa (brown) → Tempat Pilihan (secondary green + ✦ accent) →
- *   LIVE (live red, pulsing core, small LIVE chip, top z-priority, navigates
- *   to /live/[sessionId]). No emoji glyphs, no always-on name labels — names
- *   appear in hover/focus tooltips so dense maps stay readable.
+ * - Marker system (PO, 2026-09-29; per-Place CURATED/NORMAL treatment,
+ *   2026-09-30): ONE compact teardrop base pin for every Place with exactly
+ *   TWO Place treatments — NORMAL (brown) and CURATED (secondary green + ✦
+ *   accent, from the canonical `places.is_curated` flag of that Place) — plus
+ *   the LIVE treatment (live red, pulsing core, small LIVE chip, top
+ *   z-priority, navigates to /live/[sessionId]). The "Tempat Pilihan" map
+ *   shows curated AND ordinary Places at once, so the treatment is per Place,
+ *   never per mode. No emoji glyphs, no always-on name labels — names appear
+ *   in hover/focus tooltips so dense maps stay readable.
  */
 export type HomeMapPlace = {
   id: string;
   name: string;
   latitude: number;
   longitude: number;
+  /**
+   * Canonical curated membership for THIS Place (`places.is_curated`). The
+   * "Tempat Pilihan" map shows curated AND ordinary Places at once, so the
+   * CURATED vs NORMAL marker treatment is per Place, never per mode. It is
+   * read-only display data: it never adds a Place to a layer, a list, or
+   * Discovery.
+   */
+  isCurated?: boolean;
 };
 
 export type HomeMapLive = {
@@ -68,24 +80,21 @@ type HomeMapProps = {
   locateNonce: number;
   onRequestLocate: () => void;
   /**
-   * THE camera preset (PO, 2026-09-29): when set, the camera moves
-   * instantly so the frame covers exactly this radius around the real
-   * Current Location —
-   * through ONE deterministic radiusZoom mechanism shared by every mode
-   * (1 km / 5 km / 10 km+ tabs and "Tempat Pilihan" 50 km). Strictly ordered
-   * radii produce strictly ordered zoom levels, independent of the current
-   * zoom. It is a CAMERA value only — the marker set is decided upstream and
-   * this radius never filters Places.
+   * THE camera preset (PO, 2026-09-29; coverage unified 2026-09-30): when
+   * set, the camera moves instantly so the frame covers exactly this radius
+   * around the real Current Location — through ONE deterministic radiusZoom
+   * mechanism shared by every mode (1 km / 5 km / 10 km+ tabs, "Tempat
+   * Pilihan", and the "Lokasi Saya" recenter, all 10 km at the widest). The
+   * radius only ever changes the frame, never the marker set: it is decided
+   * upstream and never filters Places.
    */
   cameraRadiusMeters?: number | null;
-  /** "Tempat Pilihan" treatment on the SAME base Place marker. */
-  curatedMarkers?: boolean;
   /**
    * Short one-shot focus pulse on the EXISTING Current Location pin when a
-   * preset applies (instant-camera rule, PO 2026-09-30): the camera itself
-   * moves instantly with NO animation, so entering "Tempat Pilihan" is made
-   * visually obvious by this ~450 ms pin pulse instead. No new marker, no
-   * marker redesign, no map animation; prefers-reduced-motion disables it.
+   * preset applies: the camera itself moves instantly with NO animation, so
+   * entering "Tempat Pilihan" is made visually obvious by this short pin
+   * pulse instead. No new marker, no marker redesign, no map animation;
+   * prefers-reduced-motion disables it.
    */
   pulsePinOnPresetChange?: boolean;
   /**
@@ -111,6 +120,33 @@ const BRAND_PIN = "var(--brand-primary-deep)";
 // deep brand green (BRAND_PIN) so the user marker never looks like a Place.
 const BRAND_SECONDARY = "var(--brand-secondary)";
 
+/**
+ * ONE-SHOT locate feedback window (PO, 2026-09-30): how long the Current
+ * Location pin pulses after "Lokasi Saya". It must cover the whole short
+ * camera transition (LOCATE_TRANSITION_MS) so the pulse is still running
+ * while the map settles, and it must stay BOUNDED — one short burst, never
+ * a permanent animation. Mirrors .singgah-locate-pulse in globals.css.
+ */
+const LOCATE_PULSE_MS = 900;
+/**
+ * The short, light camera transition for "Lokasi Saya" (PO, 2026-09-30): one
+ * 350 ms ease to the 10 km frame — immediate enough to feel responsive, no
+ * long fly-through, no visible wait. Disabled entirely when the viewer
+ * prefers reduced motion (the camera then applies instantly, exactly like
+ * every preset change).
+ */
+const LOCATE_TRANSITION_MS = 350;
+
+/**
+ * Honor the OS reduced-motion setting for the locate transition. Guarded so
+ * a browser without matchMedia (or a non-DOM test host) simply keeps the
+ * transition.
+ */
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -127,7 +163,6 @@ export default function HomeMap({
   locateNonce,
   onRequestLocate,
   cameraRadiusMeters = null,
-  curatedMarkers = false,
   pulsePinOnPresetChange = false,
   onViewportHasPlaces,
 }: HomeMapProps) {
@@ -138,7 +173,7 @@ export default function HomeMap({
   const tileLayerRef = useRef<TileLayer | null>(null);
   const markerLayerRef = useRef<LayerGroup | null>(null);
   const userLayerRef = useRef<LayerGroup | null>(null);
-  // Short pin focus feedback (instant-camera rule, PO 2026-09-30): refs for
+  // Short pin focus feedback (PO 2026-09-30): refs for
   // the Current Location pin element, the one-shot pulse timer, and the
   // pulse window (so a pin rebuild during an active pulse re-applies it).
   const userPinRef = useRef<CircleMarker | null>(null);
@@ -180,7 +215,10 @@ export default function HomeMap({
   const markerKey = useMemo(
     () =>
       places
-        .map((place) => `${place.id}:${liveByPlaceId.get(place.id)?.sessionId ?? ""}`)
+        .map(
+          (place) =>
+            `${place.id}:${place.isCurated === true ? "c" : "-"}:${liveByPlaceId.get(place.id)?.sessionId ?? ""}`,
+        )
         .join("|"),
     [places, liveByPlaceId],
   );
@@ -215,10 +253,15 @@ export default function HomeMap({
   // disabled by prefers-reduced-motion) is added for ONE animation cycle and
   // removed again. No new marker, no marker-system change, no map animation.
   const triggerLocatePulse = useCallback(() => {
+    // The feedback window is recorded FIRST, even when the pin element does
+    // not exist yet: the Current Location pin is built asynchronously, so a
+    // locate request that lands before it exists must NOT lose the pulse —
+    // the window stays PENDING and the user-marker effect applies it to the
+    // new element as soon as it is created.
+    locatePulseUntilRef.current = Date.now() + LOCATE_PULSE_MS;
+    if (locatePulseTimerRef.current !== null) clearTimeout(locatePulseTimerRef.current);
     const element = userPinRef.current?.getElement?.();
     if (!element) return;
-    locatePulseUntilRef.current = Date.now() + 450;
-    if (locatePulseTimerRef.current !== null) clearTimeout(locatePulseTimerRef.current);
     element.classList.remove("singgah-locate-pulse");
     // Force a reflow so a pulse restarted mid-cycle runs completely.
     void element.getBoundingClientRect();
@@ -226,14 +269,14 @@ export default function HomeMap({
     locatePulseTimerRef.current = setTimeout(() => {
       locatePulseTimerRef.current = null;
       userPinRef.current?.getElement?.()?.classList.remove("singgah-locate-pulse");
-    }, 450);
+    }, LOCATE_PULSE_MS);
   }, []);
 
   // Jump to the real user position WITHOUT changing the frame width —
   // INSTANTLY (setView with animate: false; no duration/easing/animation).
   // Used ONLY by the no-preset path (cameraRadiusMeters === null, which no
   // Home mode reaches): the one-shot fallback focus. Every real camera move
-  // — the preset anchor and the "Lokasi Saya" 15 km recenter — goes through
+  // — the preset anchor and the "Lokasi Saya" 10 km recenter — goes through
   // radiusZoom instead (see the two effects below). The pin pulse marks the
   // focus point either way.
   const focusUser = useCallback(
@@ -574,19 +617,22 @@ export default function HomeMap({
   }, [ready, viewerPosition, triggerLocatePulse]);
 
   // "Lokasi Saya": explicit recenter on the latest REAL fix with its OWN
-  // CURRENT-LOCATION camera coverage (15 km, CURRENT_LOCATION_CAMERA_RADIUS_M).
-  // The action deliberately does NOT reuse the active tab/curated preset radius:
-  // pressing "Lokasi Saya" always frames ~15 km around the newest real fix,
-  // while CHOOSING a tab (1 km / 5 km / 10 km+ / "Tempat Pilihan") keeps its own
-  // preset through the anchor effect above — the 50 km curated preset is
-  // untouched, and the selected tab state is never read or mutated here. The
-  // camera application is INSTANT (setView, animate: false — no duration, no
-  // easing, no animation); the action is visually confirmed by the one-shot pin
-  // pulse, never by animating the map. No marker fitBounds, no dataset or
-  // filter change, no fallback coordinate, no invented position. If the fix has
-  // not arrived yet, the request stays pending and resolves in the anchor
-  // effect above once geolocation returns; a failed fresh fix recentres on the
-  // existing real one (the nonce bump happens before the request).
+  // CURRENT-LOCATION camera coverage (10 km, CURRENT_LOCATION_CAMERA_RADIUS_M).
+  // The action deliberately does NOT reuse the currently selected distance
+  // preset (which may carry another coverage): pressing "Lokasi Saya" always
+  // frames the 10 km coverage around the newest real fix, while CHOOSING a tab
+  // (1 km / 5 km / 10 km+ / "Tempat Pilihan") keeps its own preset through the
+  // anchor effect above. The selected tab/filter state is never read or mutated
+  // here. The camera eases to that frame in ONE short, light transition
+  // (LOCATE_TRANSITION_MS) — no long fly-through, no visible wait — and falls
+  // back to an instant apply when the viewer prefers reduced motion. The pin
+  // pulse starts BEFORE the move, so it is already running while the camera
+  // settles (and survives a pin that is created after this request). No marker
+  // fitBounds, no dataset or filter change, no fallback coordinate, no invented
+  // position. If the fix has not arrived yet, the request stays pending and
+  // resolves in the anchor effect above once geolocation returns; a failed
+  // fresh fix recentres on the existing real one (the nonce bump happens
+  // before the request).
   useEffect(() => {
     const map = mapRef.current;
     if (!locateNonce || lastLocateNonceRef.current === locateNonce) return;
@@ -599,8 +645,19 @@ export default function HomeMap({
       const zoom = await radiusZoom(map, viewerPosition, CURRENT_LOCATION_CAMERA_RADIUS_M);
       if (cancelled || mapRef.current !== map) return;
       programmaticMoveRef.current = true;
-      map.setView([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { animate: false });
+      const center: [number, number] = [viewerPosition.lat, viewerPosition.lng];
+      const targetZoom = Math.max(2, zoom);
+      // Feedback FIRST: the pulse covers the whole transition and stays
+      // pending if the pin element does not exist yet.
       triggerLocatePulse();
+      if (prefersReducedMotion()) {
+        map.setView(center, targetZoom, { animate: false });
+        return;
+      }
+      map.flyTo(center, targetZoom, {
+        duration: LOCATE_TRANSITION_MS / 1000,
+        easeLinearity: 0.4,
+      });
     })();
     return () => {
       cancelled = true;
@@ -677,14 +734,19 @@ export default function HomeMap({
             .on("click", () => router.push(`/live/${live.sessionId}`));
         }
 
-        // THE base Place marker (PO, 2026-09-29): one compact teardrop for
-        // every Place — brown in normal mode, with the "Tempat Pilihan"
-        // treatment (secondary green + ✦ accent) on the SAME shape. No emoji,
-        // no always-on name label: the name appears in a tooltip on
-        // hover/focus/selection (decluttered dense maps). A Place that is
-        // Live keeps its normal pin right next to its LIVE pin.
-        const pinColor = curatedMarkers ? BRAND_SECONDARY : BRAND_BROWN;
-        const accent = curatedMarkers
+        // THE base Place marker (PO, 2026-09-29; per-Place curated treatment,
+        // 2026-09-30): one compact teardrop for every Place with exactly TWO
+        // treatments — NORMAL (brown) and CURATED (secondary green + ✦
+        // accent) — on the SAME shape. The treatment follows the Place's own
+        // canonical `is_curated` flag, NOT the mode: the curated map shows
+        // curated and ordinary Places side by side, so a mode-level flag
+        // could not tell them apart. No emoji, no always-on name label: the
+        // name appears in a tooltip on hover/focus/selection (decluttered
+        // dense maps). A Place that is Live keeps its normal pin right next
+        // to its LIVE pin.
+        const isCurated = place.isCurated === true;
+        const pinColor = isCurated ? BRAND_SECONDARY : BRAND_BROWN;
+        const accent = isCurated
           ? `<span style="transform:rotate(45deg);color:#fff;font-size:13px;line-height:1;">✦</span>`
           : "";
         const placePin = `
