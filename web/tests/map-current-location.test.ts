@@ -141,6 +141,30 @@ test("Distance filtering stays anchored to the real Current Location", () => {
   assert.match(pageCode, /formatDistance\(distanceMeters\(viewerPosition/);
 });
 
+test("Lokasi Saya requests a FRESH geolocation fix and recenters only after it arrives", () => {
+  const pageCode = stripComments(homePage);
+  // ONE geolocation system: the shared handler serves the mount fix AND the
+  // explicit "Lokasi Saya" press — no second watcher/implementation.
+  const handlerStart = pageCode.indexOf("const requestViewerPosition");
+  const handlerEnd = pageCode.indexOf("const liveByPlaceId");
+  assert.ok(handlerStart > 0 && handlerEnd > handlerStart, "shared fresh-fix handler exists");
+  const handler = pageCode.slice(handlerStart, handlerEnd);
+  assert.equal((pageCode.match(/getCurrentPosition\(/g) ?? []).length, 1, "exactly one getCurrentPosition call site");
+  assert.match(pageCode, /useEffect\(\(\) => \{\n\s*requestViewerPosition\(\);\n\s*\}, \[requestViewerPosition\]\);/);
+  // A press asks the browser for a fresh position FIRST...
+  assert.match(handler, /navigator\.geolocation\.getCurrentPosition\(/);
+  // ...commits the newest real coords, THEN triggers the locate recenter —
+  // the map never flies to a stale fix.
+  assert.match(
+    handler,
+    /setViewerPosition\(\{\s*lat: position\.coords\.latitude,\s*lng: position\.coords\.longitude,\s*accuracy: position\.coords\.accuracy,\s*\}\);\s*setLocateNonce\(\(nonce\) => nonce \+ 1\);/,
+  );
+  // Exactly one viewer-position write (the fresh fix itself — no fallback).
+  assert.equal((handler.match(/setViewerPosition\(/g) ?? []).length, 1);
+  // Denial/failure stays silent: no default location, no camera mutation.
+  assert.match(handler, /=> undefined,\s*\{\s*timeout: 8000\s*\}/);
+});
+
 test("Every distance tab is a deterministic camera preset through ONE mechanism", () => {
   const pageCode = stripComments(homePage);
   const mapCode = stripComments(homeMap);

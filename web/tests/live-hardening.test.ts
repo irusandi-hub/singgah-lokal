@@ -67,7 +67,9 @@ test("E2E: distance tabs are CAMERA presets — the map dataset never shrinks by
   // Current Location is passed into the map: real geolocation only.
   assert.match(homeSource, /viewerPosition=\{viewerPosition\}/);
   assert.match(homeSource, /locateNonce=\{locateNonce\}/);
-  assert.match(homeSource, /onRequestLocate=\{\(\) => setLocateNonce\(\(nonce\) => nonce \+ 1\)\}/);
+  // "Lokasi Saya" requests a FRESH browser fix through the one shared
+  // handler (locate-refresh fix, 2026-09-30) and recenters only after it.
+  assert.match(homeSource, /onRequestLocate=\{requestViewerPosition\}/);
   assert.doesNotMatch(homeSource, /mapPositionByPlaceId/);
   // LIVE cards follow the LIST gate (Set membership, O(n)).
   assert.match(homeSource, /const listedIds = new Set\(listedPlaces\.map\(\(place\) => place\.id\)\)/);

@@ -133,20 +133,34 @@ export default function HomeDiscovery({
 
   // Real viewer position when permission is granted; no fallback point is
   // ever invented — without a position (or Place coordinates) no distance
-  // label is shown (PO: no fake positions).
-  useEffect(() => {
+  // label is shown (PO: no fake positions). The SAME handler serves the
+  // initial mount fix and the explicit "Lokasi Saya" presses: a press always
+  // asks the browser for a FRESH position (locate-refresh fix, 2026-09-30).
+  const requestViewerPosition = useCallback(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
-      (position) =>
+      (position) => {
         setViewerPosition({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           accuracy: position.coords.accuracy,
-        }),
+        });
+        // Recentre ONLY after the fresh position is committed to state —
+        // the locate effect (locateNonce) then flies to the ACTIVE preset
+        // radius around this newest fix. Never flies to a stale one.
+        setLocateNonce((nonce) => nonce + 1);
+      },
+      // Denial/failure is silent: the camera stays exactly where it is —
+      // no fallback coordinate, no default location, no dataset change.
       () => undefined,
       { timeout: 8000 },
     );
   }, []);
+
+  // Initial mount fix — the same fresh-position request path.
+  useEffect(() => {
+    requestViewerPosition();
+  }, [requestViewerPosition]);
 
   const liveByPlaceId = useMemo(() => {
     const map = new Map<string, LiveDiscoveryItem>();
@@ -592,7 +606,7 @@ export default function HomeDiscovery({
             liveByPlaceId={liveByPlaceId}
             viewerPosition={viewerPosition}
             locateNonce={locateNonce}
-            onRequestLocate={() => setLocateNonce((nonce) => nonce + 1)}
+            onRequestLocate={requestViewerPosition}
             /* ONE deterministic camera preset for every mode (PO,
                2026-09-29): distance tabs map to their ordered preset radii
                (1 < 5 < 12 km), "Tempat Pilihan" covers 50 km. CAMERA-ONLY —
