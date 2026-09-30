@@ -162,6 +162,21 @@ export default function HomeDiscovery({
     requestViewerPosition();
   }, [requestViewerPosition]);
 
+  // "Lokasi Saya" press (locate-refresh regression fix, 2026-09-30): the
+  // recenter must NOT depend on the fresh request succeeding. The press
+  // bumps the locate nonce IMMEDIATELY — with a valid fix the map recentres
+  // to it through the ACTIVE preset right away (a denied/timed-out fresh
+  // request can no longer swallow the press); with no fix yet the existing
+  // pending latch resolves on the first real one. The fresh request then
+  // runs: on success it updates viewerPosition and bumps the nonce again so
+  // the camera follows the newest fix; on failure the camera simply stays
+  // where the immediate recenter put it. No fallback coordinate is ever
+  // invented in any branch.
+  const handleLocatePress = useCallback(() => {
+    setLocateNonce((nonce) => nonce + 1);
+    requestViewerPosition();
+  }, [requestViewerPosition]);
+
   const liveByPlaceId = useMemo(() => {
     const map = new Map<string, LiveDiscoveryItem>();
     liveItems.forEach((item) => {
@@ -606,7 +621,7 @@ export default function HomeDiscovery({
             liveByPlaceId={liveByPlaceId}
             viewerPosition={viewerPosition}
             locateNonce={locateNonce}
-            onRequestLocate={requestViewerPosition}
+            onRequestLocate={handleLocatePress}
             /* ONE deterministic camera preset for every mode (PO,
                2026-09-29): distance tabs map to their ordered preset radii
                (1 < 5 < 12 km), "Tempat Pilihan" covers 50 km. CAMERA-ONLY —

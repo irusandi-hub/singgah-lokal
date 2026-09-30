@@ -141,20 +141,25 @@ test("Distance filtering stays anchored to the real Current Location", () => {
   assert.match(pageCode, /formatDistance\(distanceMeters\(viewerPosition/);
 });
 
-test("Lokasi Saya requests a FRESH geolocation fix and recenters only after it arrives", () => {
+test("Lokasi Saya: immediate recenter on the existing fix + fresh geolocation refinement", () => {
   const pageCode = stripComments(homePage);
   // ONE geolocation system: the shared handler serves the mount fix AND the
-  // explicit "Lokasi Saya" press — no second watcher/implementation.
-  const handlerStart = pageCode.indexOf("const requestViewerPosition");
-  const handlerEnd = pageCode.indexOf("const liveByPlaceId");
-  assert.ok(handlerStart > 0 && handlerEnd > handlerStart, "shared fresh-fix handler exists");
-  const handler = pageCode.slice(handlerStart, handlerEnd);
+  // fresh refinement — no second watcher/implementation.
   assert.equal((pageCode.match(/getCurrentPosition\(/g) ?? []).length, 1, "exactly one getCurrentPosition call site");
   assert.match(pageCode, /useEffect\(\(\) => \{\n\s*requestViewerPosition\(\);\n\s*\}, \[requestViewerPosition\]\);/);
-  // A press asks the browser for a fresh position FIRST...
+  // The press handler bumps the locate nonce IMMEDIATELY (locate-refresh
+  // regression fix, 2026-09-30): a failed/denied fresh request can never
+  // swallow the press — with a valid fix the recenter happens first.
+  const pressStart = pageCode.indexOf("const handleLocatePress");
+  const pressEnd = pageCode.indexOf("const liveByPlaceId");
+  assert.ok(pressStart > 0 && pressEnd > pressStart, "press handler exists");
+  const press = pageCode.slice(pressStart, pressEnd);
+  assert.match(press, /setLocateNonce\(\(nonce\) => nonce \+ 1\);\s*requestViewerPosition\(\);/);
+  // The fresh refinement commits the newest real coords, THEN bumps the
+  // nonce again so the camera follows the newest fix — never a stale one.
+  const handlerStart = pageCode.indexOf("const requestViewerPosition");
+  const handler = pageCode.slice(handlerStart, pressStart);
   assert.match(handler, /navigator\.geolocation\.getCurrentPosition\(/);
-  // ...commits the newest real coords, THEN triggers the locate recenter —
-  // the map never flies to a stale fix.
   assert.match(
     handler,
     /setViewerPosition\(\{\s*lat: position\.coords\.latitude,\s*lng: position\.coords\.longitude,\s*accuracy: position\.coords\.accuracy,\s*\}\);\s*setLocateNonce\(\(nonce\) => nonce \+ 1\);/,
@@ -163,6 +168,31 @@ test("Lokasi Saya requests a FRESH geolocation fix and recenters only after it a
   assert.equal((handler.match(/setViewerPosition\(/g) ?? []).length, 1);
   // Denial/failure stays silent: no default location, no camera mutation.
   assert.match(handler, /=> undefined,\s*\{\s*timeout: 8000\s*\}/);
+});
+
+test("Locate failure matrix: existing fix recentres, no fix never invents one", () => {
+  const pageCode = stripComments(homePage);
+  // EXISTING viewerPosition + failed fresh geolocation: the immediate nonce
+  // bump still recentres to the existing fix (the regression fixed here).
+  const press = pageCode.slice(pageCode.indexOf("const handleLocatePress"), pageCode.indexOf("const liveByPlaceId"));
+  assert.match(press, /setLocateNonce\(\(nonce\) => nonce \+ 1\);/);
+  // NO existing position + failed geolocation: no viewerPosition write
+  // anywhere outside the geolocation success callback — no fake position,
+  // no camera move to an invented point (the map-level pending latch just
+  // waits for the first real fix).
+  const writes = pageCode.match(/setViewerPosition\(/g) ?? [];
+  assert.equal(writes.length, 1, "viewerPosition is written only by the fresh-fix success callback");
+  assert.match(pageCode, /lat: position\.coords\.latitude/);
+  // The ACTIVE radius stays authoritative on every locate flight (map side).
+  const mapCode = stripComments(homeMap);
+  const locateEffect = mapCode.slice(
+    mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, cameraRadiusMeters, flyToUser, radiusZoom]);"),
+  );
+  assert.match(locateEffect, /radiusZoom\(map, viewerPosition, cameraRadiusMeters\)/);
+  assert.match(locateEffect, /map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\)/);
+  assert.doesNotMatch(locateEffect, /Math\.max\(map\.getZoom\(\)/);
+  assert.doesNotMatch(locateEffect, /fitBounds/);
 });
 
 test("Every distance tab is a deterministic camera preset through ONE mechanism", () => {
