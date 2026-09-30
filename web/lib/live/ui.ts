@@ -48,6 +48,20 @@ export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
 export const CURATED_CAMERA_RADIUS_M = 50_000;
 
 /**
+ * "Lokasi Saya" CURRENT-LOCATION camera coverage (PO, 2026-09-30): the
+ * EXPLICIT "Lokasi Saya" action centers on the REAL browser fix and zooms
+ * the frame out to this deterministic 15 km radius — one level wider than
+ * the widest distance tab (10 km+ = 12 km) so the user sees their area at a
+ * glance. It is a CAMERA-ONLY value for that ONE action: it never filters the
+ * map dataset, never replaces the 1 km / 5 km / 10 km+ LIST filters, never
+ * changes the selected distance tab, is not a Discovery or curated signal,
+ * and never invents a position. Choosing a tab (including "Tempat Pilihan")
+ * still applies that tab's own preset through CAMERA_PRESET_RADIUS_M /
+ * CURATED_CAMERA_RADIUS_M.
+ */
+export const CURRENT_LOCATION_CAMERA_RADIUS_M = 15_000;
+
+/**
  * Distance-tab CAMERA presets (PO, 2026-09-29 — amending the "10 km+ is
  * unbounded" camera behavior): EVERY distance tab drives ONE deterministic
  * camera mechanism — the map frame covers this radius around the real

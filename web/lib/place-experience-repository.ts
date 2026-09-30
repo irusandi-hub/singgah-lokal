@@ -259,10 +259,12 @@ export class SupabasePlaceExperienceRepository implements PlaceExperienceReposit
       .eq("publication_status", "published")
       .eq("is_curated", true);
     if (error) {
-      // Before migration 0035 lands on an environment the column does not
-      // exist; degrade to the locked PRE-0035 layer semantics (the UI's
-      // empty-set fallback shows the full published set) instead of breaking
-      // Home. Logged server-side — never silently swallowed.
+      // Fail-closed: an unreadable curated flag yields an EMPTY curated set,
+      // which the Home layer renders as an honest empty state. There is NO
+      // fallback to the full published set (that would disguise missing
+      // curation data as "Tempat Pilihan" and blur the two locked,
+      // independent layers — docs/DISCOVERY_CONTRACT_v1.0.md §0.4/§0.5 and
+      // test case 16). Logged server-side — never silently swallowed.
       console.error("listCuratedPublishedPlaceIds failed:", error.message);
       return new Set();
     }

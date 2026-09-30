@@ -340,3 +340,30 @@ test("P0: an empty curated set yields zero curated Places even when places are p
   assert.equal(vm.discovery.length, 2);
   assert.deepEqual(vm.curatedPlaceIds, []);
 });
+
+test("P0: an empty curated set empties the MAP dataset too, and the empty overlay is truthful", () => {
+  const code = stripComments(home);
+  // The whole curated chain is one intersection with the curated id set:
+  // curatedIdSet → visiblePlaces → curatedListed (row) AND mapPlaces (map).
+  // With no curated Place, both rows AND the map dataset are empty — the
+  // 50 km curated camera still widens the frame, but it must NOT make
+  // non-curated (Discovery) Places appear as Tempat Pilihan markers.
+  assert.match(code, /const curatedIdSet = useMemo\(\s*\(\) => new Set\(discovery\?\.curatedPlaceIds \?\? \[\]\)/);
+  const visible = code.slice(code.indexOf("const visiblePlaces"), code.indexOf("const listedPlaces"));
+  assert.match(visible, /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);\s*\}/);
+  const mapDataset = code.slice(code.indexOf("const mapPlaces"), code.indexOf("const mapEmptyStateVisible"));
+  assert.match(mapDataset, /visiblePlaces\.flatMap\(/);
+  // The map dataset is NEVER re-widened from the published list, the
+  // Discovery row, or the radius tables when the curated set is empty.
+  assert.doesNotMatch(mapDataset, /placeById|discovery\?|places\.filter|CURATED_CAMERA_RADIUS_M|CAMERA_PRESET_RADIUS_M/);
+  // The dataset-empty branch of the overlay is the one that fires here
+  // (viewportHasPlaces can only report false, never true) — the user is told
+  // the truth instead of seeing an unexplained blank map.
+  assert.match(
+    code,
+    /const mapEmptyStateVisible =\n\s*mapPlaces\.length === 0 \|\| \(viewportReported && !viewportHasPlaces\);/,
+  );
+  // The 50 km curated camera stays a CAMERA-ONLY value: it is never a
+  // dataset/filter input, so a wider frame can never fabricate Places.
+  assert.doesNotMatch(code, /matchesDistance\([^)]*CURATED_CAMERA_RADIUS_M|distanceMeters\([^)]*CURATED_CAMERA_RADIUS_M/);
+});

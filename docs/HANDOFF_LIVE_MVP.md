@@ -219,3 +219,42 @@ Focus on real technical gaps only.
 10. Item yang sudah selesai dianggap LOCKED. Jangan disentuh lagi kecuali ada regression atau requirement baru yang dibuktikan.
 11. Jika benar-benar blocked oleh keputusan produk, catat blocker secara spesifik dan jangan membuat implementasi berdasarkan asumsi.
 12. Semua keputusan kerja harus berdasarkan data terbaru, bukan daftar task lama atau riwayat percakapan.
+
+## 13. OPEN BLOCKER — TEMPAT PILIHAN MAP IS EMPTY ON DEV (needs product decision)
+
+Audited 2026-09-30 on `main` (`b6c8c93`) with Supabase DEV at 64 published
+Places and **0 `places.is_curated = true`**.
+
+Reported state: a Place is visible at the 1 km / 5 km / 10 km+ tabs, but
+"Tempat Pilihan" widens the camera and the map becomes empty.
+
+Traced chain (all in `web/components/home-discovery.tsx`):
+
+`discovery.curatedPlaceIds` → `curatedIdSet` (∅ on DEV) → `visiblePlaces`
+(`if (curatedOnly) return searchFiltered.filter(...)` → `[]`) →
+`curatedListed` = `[]`, `discoveryRowPlaces` = [] while `curatedOnly`
+(curated mode renders only the curated row) → `mapPlaces` = [] →
+`mapEmptyStateVisible = mapPlaces.length === 0 || ...` = true → the overlay
+"Belum ada Tempat Pilihan di sekitar area ini" shows and zero markers render.
+The wider frame is the locked 50 km `CURATED_CAMERA_RADIUS_M` preset.
+
+**Conclusion: this is the truthful, locked behavior, not a defect.** The empty
+curated layer produces an empty curated map, and the 50 km camera value is
+CAMERA-ONLY — it can never widen the dataset (`docs/DISCOVERY_CONTRACT_v1.0.md`
+§0.4/§0.5, test case 13/16). Discovery Places and Tempat Pilihan are two
+independent layers.
+
+**The conflict, stated exactly:** making "Tempat Pilihan" show Discovery
+Places when no Place is curated (a) contradicts contract §0.4 ("Tempat Pilihan
+stays separate — nothing here changes it") and §0.5 (layer independence),
+(b) contradicts test case 16 (an empty curated set must never fall back to the
+full published set), and (c) would require a new curation rule that no Master
+defines. No code change was made for it; regression coverage now locks the
+whole chain (`tests/discovery-home-integration.test.ts`, curated-empty-set
+cases) so the empty state can never silently become a published fallback.
+
+**Decision needed from the product owner:** either (1) keep the empty state
+until an Admin promotes Places to `is_curated` (data action, no code), or
+(2) define an explicit new rule for what the curated layer shows when no Place
+is curated. Option 2 is a Master/contract change and must not be implemented
+from an assumption.

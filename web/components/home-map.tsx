@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { CURRENT_LOCATION_CAMERA_RADIUS_M } from "@/lib/live/ui";
 
 /**
  * Real interactive map for Home discovery.
@@ -230,11 +231,11 @@ export default function HomeMap({
 
   // Jump to the real user position WITHOUT changing the frame width —
   // INSTANTLY (setView with animate: false; no duration/easing/animation).
-  // Used ONLY by the no-preset paths (cameraRadiusMeters === null, which no
-  // Home mode reaches): the one-shot focus and its locate recenter. With a
-  // preset active, "Lokasi Saya" recentres through radiusZoom instead (see
-  // the locate effect) so the ACTIVE preset radius stays the camera
-  // authority. The pin pulse marks the focus point either way.
+  // Used ONLY by the no-preset path (cameraRadiusMeters === null, which no
+  // Home mode reaches): the one-shot fallback focus. Every real camera move
+  // — the preset anchor and the "Lokasi Saya" 15 km recenter — goes through
+  // radiusZoom instead (see the two effects below). The pin pulse marks the
+  // focus point either way.
   const focusUser = useCallback(
     (map: LeafletMap, position: { lat: number; lng: number }) => {
       programmaticMoveRef.current = true;
@@ -572,20 +573,20 @@ export default function HomeMap({
     };
   }, [ready, viewerPosition, triggerLocatePulse]);
 
-  // "Lokasi Saya": explicit recenter on the latest fix. When a preset is
-  // active (EVERY Home mode: 1 km / 5 km / 10 km+ / Tempat Pilihan), the
-  // recenter applies through the SAME canonical radiusZoom mechanism — the
-  // ACTIVE preset radius stays the camera authority, so the frame keeps
-  // covering exactly that radius around the newest real fix. The camera
-  // application is INSTANT (setView, animate: false — no duration, no
-  // easing, no animation); the action is visually confirmed by the one-shot
-  // pin pulse, never by animating the map. The old arbitrary
-  // Math.max(getZoom(), 15) zoom broke the active preset (e.g. it shattered
-  // Tempat Pilihan's 50 km frame). No marker fitBounds, no mode/filter
-  // change, no invented position. Only the null-preset path (no Home mode
-  // reaches it) keeps the existing zoom-preserving focus. If the fix has not
-  // arrived yet, the request stays pending and resolves in the anchor effect
-  // above once geolocation returns.
+  // "Lokasi Saya": explicit recenter on the latest REAL fix with its OWN
+  // CURRENT-LOCATION camera coverage (15 km, CURRENT_LOCATION_CAMERA_RADIUS_M).
+  // The action deliberately does NOT reuse the active tab/curated preset radius:
+  // pressing "Lokasi Saya" always frames ~15 km around the newest real fix,
+  // while CHOOSING a tab (1 km / 5 km / 10 km+ / "Tempat Pilihan") keeps its own
+  // preset through the anchor effect above — the 50 km curated preset is
+  // untouched, and the selected tab state is never read or mutated here. The
+  // camera application is INSTANT (setView, animate: false — no duration, no
+  // easing, no animation); the action is visually confirmed by the one-shot pin
+  // pulse, never by animating the map. No marker fitBounds, no dataset or
+  // filter change, no fallback coordinate, no invented position. If the fix has
+  // not arrived yet, the request stays pending and resolves in the anchor
+  // effect above once geolocation returns; a failed fresh fix recentres on the
+  // existing real one (the nonce bump happens before the request).
   useEffect(() => {
     const map = mapRef.current;
     if (!locateNonce || lastLocateNonceRef.current === locateNonce) return;
@@ -593,21 +594,18 @@ export default function HomeMap({
     locatePendingRef.current = true;
     if (!ready || !map || !viewerPosition) return;
     locatePendingRef.current = false;
-    if (cameraRadiusMeters !== null) {
-      let cancelled = false;
-      (async () => {
-        const zoom = await radiusZoom(map, viewerPosition, cameraRadiusMeters);
-        if (cancelled || mapRef.current !== map) return;
-        programmaticMoveRef.current = true;
-        map.setView([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { animate: false });
-        triggerLocatePulse();
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }
-    focusUser(map, viewerPosition);
-  }, [locateNonce, ready, viewerPosition, cameraRadiusMeters, focusUser, radiusZoom, triggerLocatePulse]);
+    let cancelled = false;
+    (async () => {
+      const zoom = await radiusZoom(map, viewerPosition, CURRENT_LOCATION_CAMERA_RADIUS_M);
+      if (cancelled || mapRef.current !== map) return;
+      programmaticMoveRef.current = true;
+      map.setView([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { animate: false });
+      triggerLocatePulse();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);
 
   // Rebuild markers whenever the filtered marker set changes. Camera note:
   // the viewport is NEVER driven by the marker set — no marker fitBounds
