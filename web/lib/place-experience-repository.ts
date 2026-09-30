@@ -101,6 +101,21 @@ function toDiscoveryInput(
   };
 }
 
+/**
+ * One row of the 0038 aggregate RPC (`list_discovery_signal_aggregates`):
+ * the canonical per-Place discovery signals in a single server round trip.
+ * Carries NO identity data — place id, counts, and the live fact only.
+ */
+type DiscoverySignalAggregateRow = {
+  place_id: string;
+  live_status: string | null;
+  live_started_at: string | null;
+  followers: number;
+  visit_intents: number;
+  published_experiences: number;
+  photos: number;
+};
+
 /** Canonical live-session fact for one Place, read with the service role. */
 async function fetchLiveSignal(
   admin: SupabaseClient,
@@ -269,30 +284,74 @@ export class SupabasePlaceExperienceRepository implements PlaceExperienceReposit
       .order("id");
     if (placesError) throw placesError;
 
+    const places = placeRows ?? [];
+    if (places.length === 0) return [];
+
+    // ONE aggregate round trip for ALL published Places (migration 0038)
+    // instead of five queries per Place (the ~321-round-trip N+1 on the
+    // 64-Place DEV dataset). The RPC is locked to the same canonical signals
+    // the per-Place queries computed, so scoring stays bit-identical; the
+    // per-Place path below stays as the fail-closed fallback whenever the
+    // RPC is missing (pre-0038 environment) or errors — same numbers either
+    // way. Logged server-side, never silently swallowed.
+    const { data: aggregates, error: aggregateError } = await admin.rpc(
+      "list_discovery_signal_aggregates",
+    );
+    if (aggregateError) {
+      console.error("list_discovery_signal_aggregates failed:", aggregateError.message);
+    }
+
+    const signalsByPlaceId = new Map<string, DiscoverySignalAggregateRow>();
+    if (!aggregateError && aggregates) {
+      for (const raw of aggregates as unknown[]) {
+        const row = raw as DiscoverySignalAggregateRow;
+        signalsByPlaceId.set(String(row.place_id), row);
+      }
+    }
+
     const result: DiscoveryPlaceInput[] = [];
-    for (const row of placeRows ?? []) {
+    for (const row of places) {
       const place = mapPlace({ ...row, producer_display_name: row.producers?.display_name });
-      const [live, follows, intents, photos] = await Promise.all([
-        fetchLiveSignal(admin, place.id),
-        countRows(admin, "place_follows", place.id),
-        countRows(admin, "visit_intents", place.id),
-        countRows(admin, "place_photos", place.id),
-      ]);
-      // Experiences contribute only when BOTH status fields are 'published'
-      // (the locked contract §1 definition).
-      const { count: publishedExperiences } = await admin
-        .from("experiences")
-        .select("*", { count: "exact", head: true })
-        .eq("place_id", place.id)
-        .eq("status", "published")
-        .eq("publication_status", "published");
+      const aggregate = signalsByPlaceId.get(place.id);
+      let live: { status: string; started_at: string | null } | null;
+      let followers: number;
+      let intents: number;
+      let photos: number;
+      let publishedExperiences: number;
+      if (aggregate) {
+        live = aggregate.live_status
+          ? { status: String(aggregate.live_status), started_at: (aggregate.live_started_at as string | null) ?? null }
+          : null;
+        followers = Number(aggregate.followers);
+        intents = Number(aggregate.visit_intents);
+        photos = Number(aggregate.photos);
+        publishedExperiences = Number(aggregate.published_experiences);
+      } else {
+        // Fallback: the exact per-Place queries this aggregate replaced
+        // (identical semantics — see fetchLiveSignal/countRows).
+        [live, followers, intents, photos] = await Promise.all([
+          fetchLiveSignal(admin, place.id),
+          countRows(admin, "place_follows", place.id).then(({ count }) => count ?? 0),
+          countRows(admin, "visit_intents", place.id).then(({ count }) => count ?? 0),
+          countRows(admin, "place_photos", place.id).then(({ count }) => count ?? 0),
+        ]);
+        // Experiences contribute only when BOTH status fields are 'published'
+        // (the locked contract §1 definition).
+        const { count } = await admin
+          .from("experiences")
+          .select("*", { count: "exact", head: true })
+          .eq("place_id", place.id)
+          .eq("status", "published")
+          .eq("publication_status", "published");
+        publishedExperiences = count ?? 0;
+      }
       result.push(
         toDiscoveryInput(place, {
           live,
-          followers: follows.count ?? 0,
-          visitIntents: intents.count ?? 0,
-          publishedExperiences: publishedExperiences ?? 0,
-          photos: photos.count ?? 0,
+          followers,
+          visitIntents: intents,
+          publishedExperiences,
+          photos,
         }),
       );
     }

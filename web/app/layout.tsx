@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { Geist_Mono, Poppins } from "next/font/google";
@@ -48,7 +49,7 @@ export const metadata: Metadata = {
   icons: brandIconMetadata(),
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="id"

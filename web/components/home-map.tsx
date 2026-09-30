@@ -18,17 +18,20 @@ import "leaflet/dist/leaflet.css";
  *   becomes the camera center. There is NO fallback viewport and NO invented
  *   user position — before the first real fix the map starts on the neutral
  *   world overview (fitWorld), never on a stand-in country view.
- * - Camera authority (PO, 2026-09-29): ONE deterministic preset mechanism —
- *   every mode (1 km / 5 km / 10 km+ / "Tempat Pilihan") is a radius preset:
- *   the camera flies so the frame covers exactly that radius around the real
- *   Current Location. Preset radii are strictly ordered (1 < 5 < 12 < 50 km),
- *   so the derived zoom is strictly ordered the opposite way and is NEVER
- *   derived from the current zoom. A newly chosen preset always applies
- *   (deterministic refocus); manual pan/zoom wins between choices;
+ * - Camera authority (PO, 2026-09-29 + 2026-09-30 map-coverage fix): ONE
+ *   deterministic preset mechanism — every mode (1 km / 5 km / 10 km+ /
+ *   "Tempat Pilihan") is a radius preset: the camera flies so the frame covers
+ *   exactly that radius around the real Current Location. Preset radii are
+ *   strictly ordered (1 < 5 < 12 < 50 km), so the derived zoom is strictly
+ *   ordered the opposite way and is NEVER derived from the current zoom. A
+ *   newly chosen preset always applies (deterministic refocus); manual pan/zoom
+ *   wins between choices;
  *     · marker refreshes/API polling never move the camera;
- *     · the one-shot marker fitBounds runs ONLY while no Current Location
- *       exists and is re-checked after its async import so it can never race
- *       (or override) the real user fix.
+ *     · the viewport is ALWAYS bounded to the chosen radius preset — the old
+ *       one-shot marker fitBounds (which zoomed to a world view when no
+ *       Current Location existed yet and the demo marker set was spread out)
+ *       was REMOVED. With no real fix the map keeps the neutral world
+ *       overview and NEVER auto-fits to the marker list.
  * - One container = one Leaflet instance: the container is claimed
  *   synchronously before the async import resolves (Strict Mode double-mount
  *   and fast route transitions cannot initialize twice), and teardown fully
@@ -116,14 +119,12 @@ export default function HomeMap({
   const userLayerRef = useRef<LayerGroup | null>(null);
   // Camera authority refs. After a real user pan/zoom automatic refreshes
   // never move the map again; programmatic flights set programmaticMoveRef so
-  // they are not mistaken for user interaction. cameraDecidedRef latches the
-  // first automatic camera decision (user fix or marker fitBounds).
+  // they are not mistaken for user interaction.
   const userInteractedRef = useRef(false);
   const programmaticMoveRef = useRef(false);
-  const cameraDecidedRef = useRef(false);
   const locatePendingRef = useRef(false);
   const lastLocateNonceRef = useRef(0);
-  // Latest fix readable from async callbacks (fitBounds race guard).
+  // Latest fix readable from async callbacks (preset-flight guard).
   const viewerPositionRef = useRef<HomeMapViewer | null>(null);
   // Two-finger interaction observer (touch-primary only) — detached in teardown.
   const touchMoveObserverRef = useRef<((event: TouchEvent) => void) | null>(null);
@@ -143,12 +144,10 @@ export default function HomeMap({
     [places, liveByPlaceId],
   );
 
-  // Fly to the real user position. Marks the camera as decided so marker
-  // refreshes cannot take the viewport back afterwards. Used only for the
-  // explicit "Lokasi Saya" recenter (user intent, not a tab preset).
+  // Fly to the real user position. Used only for the explicit "Lokasi Saya"
+  // recenter (user intent, not a tab preset).
   const flyToUser = useCallback((map: LeafletMap, position: { lat: number; lng: number }) => {
     programmaticMoveRef.current = true;
-    cameraDecidedRef.current = true;
     map.flyTo([position.lat, position.lng], Math.max(map.getZoom(), 15), { duration: 0.8 });
   }, []);
 
@@ -178,6 +177,9 @@ export default function HomeMap({
   // preset deterministically, unless the user has interacted since the last
   // choice (their pan/zoom wins until the next explicit preset choice).
   const lastRadiusRef = useRef<number | null>(null);
+  // One-shot latch for the null-preset focus (no Home mode reaches it; safety
+  // only) so the automatic focus can never repeat after a user interaction.
+  const autoFocusedRef = useRef(false);
 
   useEffect(() => {
     viewerPositionRef.current = viewerPosition;
@@ -225,9 +227,10 @@ export default function HomeMap({
       const touchPrimary = window.matchMedia?.("(pointer: coarse)")?.matches === true;
 
       const map = L.map(container, {
-        // Neutral world overview until the real Current Location fix (or, in
-        // its absence, the one-shot marker fitBounds) defines the viewport.
-        // There is deliberately NO country fallback and NO invented position.
+        // Neutral world overview until the real Current Location fix defines
+        // the viewport. There is deliberately NO country fallback, NO invented
+        // position, and NO marker fitBounds — the viewport is owned by the
+        // real fix + the bounded radius preset, nothing else.
         zoomControl: false,
         scrollWheelZoom: true,
         attributionControl: true,
@@ -350,10 +353,11 @@ export default function HomeMap({
   // cameraRadiusMeters preset (distance tabs from CAMERA_PRESET_RADIUS_M,
   // "Tempat Pilihan" = curated 50 km): a new preset ALWAYS refocuses
   // deterministically through the one radiusZoom mechanism — zoom is derived
-  // from the preset radius, never from the current zoom. Manual pan/zoom
-  // wins between choices (latch re-arms on each new preset choice). One-shot
-  // marker overview (fitBounds, no-fix case) stays one-shot via
-  // cameraDecidedRef and can never override a preset.
+  // from the preset radius, never from the current zoom, and the frame is
+  // ALWAYS bounded to that preset (never fit to the marker list). Manual
+  // pan/zoom wins between choices (latch re-arms on each new preset choice).
+  // Without a preset (no Home mode produces this) the one-shot focus on the
+  // real fix keeps its behavior; markers never drive the viewport.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !viewerPosition) return;
@@ -373,14 +377,14 @@ export default function HomeMap({
         const zoom = await radiusZoom(map, viewerPosition, cameraRadiusMeters);
         if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
         programmaticMoveRef.current = true;
-        cameraDecidedRef.current = true;
         map.flyTo([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { duration: 0.8 });
         return;
       }
       // No preset at all (cameraRadiusMeters === null): focus the actual
       // location once — no radius re-zoom, and marker refreshes never
       // re-center afterwards.
-      if (!cameraDecidedRef.current) {
+      if (!autoFocusedRef.current) {
+        autoFocusedRef.current = true;
         flyToUser(map, viewerPosition);
       }
     })();
@@ -458,10 +462,12 @@ export default function HomeMap({
   }, [locateNonce, ready, viewerPosition, flyToUser]);
 
   // Rebuild markers whenever the filtered marker set changes. Camera note:
-  // fitBounds is a one-shot initial overview that runs ONLY while no Current
-  // Location exists. The condition is re-checked after the async import so a
-  // fix that arrives in between can never race it; after the first automatic
-  // decision (or any user interaction) it never runs again.
+  // the viewport is NEVER driven by the marker set — no marker fitBounds
+  // exists anywhere in this component (map-coverage fix, 2026-09-30). When no
+  // Current Location fix exists yet the map stays on the neutral world
+  // overview until the real fix arrives; with a fix the bounded radius
+  // preset owns the camera. Marker refreshes (markerKey effect) never move
+  // the camera at all.
   // Performance (PO 2026-09-26): the effect is keyed on markerKey — the
   // stable signature of the marker set (ids + live sessions) — NOT on the
   // places/liveByPlaceId object identities, so discovery state updates that
@@ -478,15 +484,13 @@ export default function HomeMap({
       const layer = markerLayerRef.current;
       if (cancelled || !map || !layer) return;
 
-      layer.clearLayers();      const currentPlaces = places;
+      layer.clearLayers();
+      const currentPlaces = places;
       if (currentPlaces.length === 0) return;
-
-      const points: [number, number][] = [];
 
       for (const place of currentPlaces) {
         if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
         const position: [number, number] = [place.latitude, place.longitude];
-        points.push(position);
         const live = liveByPlaceId.get(place.id);
 
         // LIVE treatment on the SAME base pin shape: a clean live-red teardrop
@@ -548,17 +552,6 @@ export default function HomeMap({
           offset: [0, -40],
           opacity: 1,
         });
-      }
-
-      if (
-        points.length > 0 &&
-        !viewerPositionRef.current &&
-        !cameraDecidedRef.current &&
-        !userInteractedRef.current
-      ) {
-        cameraDecidedRef.current = true;
-        programmaticMoveRef.current = true;
-        map.fitBounds(L.latLngBounds(points), { padding: [48, 48], maxZoom: 16 });
       }
     })();
 

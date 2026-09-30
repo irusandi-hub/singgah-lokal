@@ -104,11 +104,12 @@ test("Marker refresh and filter changes never steal the viewport from the user",
   const mapCode = stripComments(homeMap);
   // A real user pan/zoom latches the camera against automatic moves...
   assert.match(mapCode, /userInteractedRef\.current = true/);
-  // ...fitBounds is a one-shot overview for the no-fix case only...
-  assert.match(mapCode, /!cameraDecidedRef\.current &&\s*!userInteractedRef\.current/);
-  // ...guarded against the Current Location fix arriving during the async
-  // import (no race with Current Location)...
-  assert.match(mapCode, /!viewerPositionRef\.current &&/);
+  // ...marker fitBounds NO LONGER EXISTS anywhere: the viewport is owned by
+  // the real Current Location + the bounded radius preset only. Marker
+  // refreshes and filter-driven marker rebuilds never move the camera
+  // (map-coverage fix, 2026-09-30 — the old one-shot marker overview zoomed
+  // to a world view whenever the demo marker set was spread out).
+  assert.equal(mapCode.includes("fitBounds"), false, "no marker fitBounds at all");
   // ...and programmatic flights are excluded from the latch.
   assert.match(mapCode, /programmaticMoveRef\.current = true/);
 });
@@ -209,8 +210,23 @@ test("No-preset fallback keeps the one-shot unbounded focus; it is not a distanc
   const mapCode = stripComments(homeMap);
   // The null-preset fallback exists ONLY for safety (no Home mode reaches
   // it) and stays a one-shot focus on the actual location, never a radius
-  // re-zoom.
-  assert.match(mapCode, /if \(!cameraDecidedRef\.current\) \{\n\s*flyToUser\(map, viewerPosition\);\n\s*\}/);
+  // re-zoom and never a marker fit.
+  assert.match(mapCode, /if \(!autoFocusedRef\.current\) \{\n\s*autoFocusedRef\.current = true;\n\s*flyToUser\(map, viewerPosition\);\n\s*\}/);
+});
+
+test("Camera is ALWAYS bounded: no filter/tab ever fits the whole marker set (map coverage)", () => {
+  const mapCode = stripComments(homeMap);
+  const pageCode = stripComments(homePage);
+  // Every camera flight centers the REAL Current Location...
+  const flights = mapCode.match(/map\.flyTo\(\[viewerPosition\.lat, viewerPosition\.lng\]/g) ?? [];
+  assert.equal(flights.length, 1, "one preset flight path, centered on the real fix");
+  // ...whose zoom is derived from the preset radius box (bounded), and no
+  // world/country fallback view is invented for the no-fix case.
+  assert.match(mapCode, /map\.fitWorld\(\)/);
+  assert.equal(pageCode.includes("fitBounds"), false);
+  // A chosen tab still refocuses to its own preset radius: the anchor effect
+  // re-derives zoom from cameraRadiusMeters on EVERY radius change.
+  assert.match(mapCode, /const radiusChanged = lastRadiusRef\.current !== cameraRadiusMeters/);
 });
 
 // --- Round 2 hardening (PO request, 2026-09-25) ---
