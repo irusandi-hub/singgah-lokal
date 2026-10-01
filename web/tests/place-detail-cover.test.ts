@@ -34,7 +34,9 @@ test("Tempat Pilihan is ONE curated discovery layer with no category filter UI",
   // Home filter UI. The layer is a single unbounded discovery set.
   const code = stripComments(homePage);
   assert.match(code, /curatedOnly/);
-  assert.match(code, /setCuratedOnly\(true\)/);
+  // Curated activation now goes through the exclusive transition (which also
+  // switches LIVE off — bug fix 2026-10-01); the layer itself is unchanged.
+  assert.match(code, /activateCuratedFilter\(\)/);
   // No category selection anywhere on Home: no collections import, no
   // chips row, no category-equality branch in the discovery pipeline.
   assert.equal(code.includes("CURATED_COLLECTIONS"), false);
@@ -142,8 +144,8 @@ test("Home filter bar is a single row: LIVE leftmost, Tempat Pilihan beside it, 
   // Order is locked: LIVE leftmost, Tempat Pilihan directly beside it, then
   // the distance tabs.
   const filterBar = code.indexOf("mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr]");
-  const liveBtn = code.indexOf("setLiveOnly", filterBar);
-  const curatedBtn = code.indexOf("setCuratedOnly(true)", filterBar);
+  const liveBtn = code.indexOf("toggleLiveFilter(liveOnly, curatedOnly)", filterBar);
+  const curatedBtn = code.indexOf("activateCuratedFilter()", filterBar);
   const distanceBtn = code.indexOf("DISTANCE_FILTERS.map", filterBar);
   assert.ok(liveBtn >= 0 && curatedBtn > liveBtn && distanceBtn > curatedBtn, "LIVE | Tempat Pilihan | distance tabs, in order");
   // The filter bar never horizontally scrolls (the old overflow strip).

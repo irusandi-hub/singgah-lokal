@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import {
+  CURATED_RESULTS_ANCHOR_ID,
+  DISCOVERY_RESULTS_ANCHOR_ID,
+  resolveResultsAnchorId,
+} from "../lib/live/ui";
 
 /**
  * HOME MAP-FIRST UI — FINAL MOCKUP ALIGNMENT (2026-10-01, MOCKUP §1–§18)
@@ -127,8 +132,10 @@ test("MOCKUP §2: search is a floating ~20px-radius white bar with a sliders ico
 test("MOCKUP §3: filter stays a single row with the locked five controls in order", () => {
   assert.match(code, /grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
   // Order: LIVE -> Tempat Pilihan -> the three ordered distance tabs.
-  const liveIndex = code.indexOf("setLiveOnly((value) => !value)");
-  const curatedIndex = code.indexOf("setCuratedOnly(true)");
+  // Both mode buttons now go through the mutually exclusive transitions
+  // (bug fix 2026-10-01) instead of raw setters; the ORDER lock is unchanged.
+  const liveIndex = code.indexOf("toggleLiveFilter(liveOnly, curatedOnly)");
+  const curatedIndex = code.indexOf("activateCuratedFilter()");
   const distanceIndex = code.indexOf("DISTANCE_FILTERS.map((filter) =>");
   assert.ok(liveIndex > -1, "LIVE control must exist");
   assert.ok(curatedIndex > liveIndex, "Tempat Pilihan must follow LIVE");
@@ -339,14 +346,54 @@ test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome",
   assert.match(map, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
 });
 
-test("MOCKUP §11: result header keeps title + real-count subtitle + Lihat semua", () => {
+test("MOCKUP §11: result header keeps title + real-count subtitle + Ke hasil", () => {
   // Subtitle uses the REAL per-layer count (the mockup's "10 tempat pilihan
   // di sekitar Anda" shape) — never a fabricated number.
   assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat di sekitar Anda`/);
-  // "Lihat semua" is a non-inventive affordance: it scrolls to the results
-  // anchor — no all-results page exists to link to (nothing invented).
-  assert.match(code, /href="#place-results-heading"/);
-  assert.match(code, /Lihat semua/);
+  // "Ke hasil" is the honest label for a SCROLL (bug fix 2026-10-01): there is
+  // no all-results page in the MVP, so the link must not claim to show every
+  // Place. The old label "Lihat semua" and the old self-referencing target
+  // (the heading it already sits next to) are both gone.
+  assert.match(code, /Ke hasil/);
+  assert.doesNotMatch(code, /Lihat semua/);
+  assert.doesNotMatch(code, /href="#place-results-heading"/);
+  // The link targets the resolved strip anchor, never a hard-coded id.
+  assert.match(code, /href=\{`#\$\{resultsAnchorId\}`\}/);
+  // ...and with no strip rendered the same label is plain text, so there is
+  // never a dead anchor.
+  assert.match(code, /<span className="shrink-0 text-xs font-bold text-black\/35">Ke hasil<\/span>/);
+});
+
+test("BUG FIX: both result strips carry UNIQUE anchor ids and the link targets them", () => {
+  // Behaviour of the resolver the component renders from — the target is the
+  // first VISIBLE strip, never a heading.
+  // Curated mode with curated results → the curated strip.
+  assert.equal(
+    resolveResultsAnchorId({ curatedOnly: true, curatedCount: 3, discoveryCount: 10 }),
+    "home-curated-results",
+  );
+  // Curated mode with NO curated results → the Discovery strip (the curated
+  // strip is not rendered at all).
+  assert.equal(
+    resolveResultsAnchorId({ curatedOnly: true, curatedCount: 0, discoveryCount: 10 }),
+    "home-discovery-results",
+  );
+  // Normal mode always targets Discovery, curated ids on Places or not.
+  assert.equal(
+    resolveResultsAnchorId({ curatedOnly: false, curatedCount: 3, discoveryCount: 10 }),
+    "home-discovery-results",
+  );
+  // Nothing rendered anywhere → null, so no anchor is emitted.
+  assert.equal(resolveResultsAnchorId({ curatedOnly: true, curatedCount: 0, discoveryCount: 0 }), null);
+  assert.equal(resolveResultsAnchorId({ curatedOnly: false, curatedCount: 0, discoveryCount: 0 }), null);
+
+  // The ids are distinct constants, and each strip renders its own id.
+  assert.notEqual(CURATED_RESULTS_ANCHOR_ID, DISCOVERY_RESULTS_ANCHOR_ID);
+  assert.match(code, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
+  assert.match(code, /id=\{DISCOVERY_RESULTS_ANCHOR_ID\}/);
+  // No invented all-results route exists for the link to point at.
+  assert.doesNotMatch(code, /href="\/places"/);
+  assert.doesNotMatch(code, /router\.push\("\/places/);
 });
 
 test("MOCKUP §12/§19: every result row is a horizontal strip of FIXED-WIDTH card tracks", () => {

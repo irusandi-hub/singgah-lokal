@@ -24,6 +24,83 @@ export type LiveDiscoveryItem = {
 };
 
 /**
+ * HOME FILTER MODES — mutual exclusivity (bug fix 2026-10-01).
+ *
+ * LIVE and "Tempat Pilihan" are two DIFFERENT result modes over the same
+ * dataset, so they may never be active at the same time: the rendered rows,
+ * the `aria-pressed` state, and the header badge would otherwise describe a
+ * combination that no mode owns. The transition is a pure function so the
+ * rule is provable without rendering:
+ * - turning LIVE ON always leaves "Tempat Pilihan" (mutual exclusion);
+ * - turning LIVE OFF touches NOTHING else — the curated layer and the
+ *   distance tab keep whatever they had (no accidental filter change);
+ * - activating "Tempat Pilihan" always leaves LIVE. Untoggling it is not
+ *   offered: the curated layer is left by choosing a distance tab, exactly
+ *   as before.
+ * Filter SEMANTICS (which Places each mode shows) are untouched.
+ */
+export function toggleLiveFilter(
+  liveOnly: boolean,
+  curatedOnly: boolean,
+): { liveOnly: boolean; curatedOnly: boolean } {
+  const nextLiveOnly = !liveOnly;
+  return {
+    liveOnly: nextLiveOnly,
+    curatedOnly: nextLiveOnly ? false : curatedOnly,
+  };
+}
+
+/**
+ * Curated-mode activation: LIVE is always switched off. It takes no argument
+ * on purpose — activating "Tempat Pilihan" can only ever produce ONE state,
+ * whatever was active before, which is what makes the exclusivity total.
+ */
+export function activateCuratedFilter(): { liveOnly: boolean; curatedOnly: boolean } {
+  return { liveOnly: false, curatedOnly: true };
+}
+
+/**
+ * Anchor ids of the two visible result strips (bug fix 2026-10-01). The
+ * header affordance is a SCROLL to the first visible strip, never a route:
+ * the MVP has no all-results page (only /places/[id] exists), so inventing
+ * one is forbidden. Ids are unique per strip so the target always exists.
+ */
+export const CURATED_RESULTS_ANCHOR_ID = "home-curated-results";
+export const DISCOVERY_RESULTS_ANCHOR_ID = "home-discovery-results";
+
+/**
+ * Which strip the header link may scroll to, in priority order: the curated
+ * strip while the Tempat Pilihan mode is active AND has results, otherwise
+ * the Discovery strip when it has results. Returns null when NO strip is
+ * rendered, so the caller can render a non-navigating label instead of a
+ * dead anchor that would jump nowhere.
+ */
+export function resolveResultsAnchorId(input: {
+  curatedOnly: boolean;
+  curatedCount: number;
+  discoveryCount: number;
+}): string | null {
+  if (input.curatedOnly && input.curatedCount > 0) return CURATED_RESULTS_ANCHOR_ID;
+  if (input.discoveryCount > 0) return DISCOVERY_RESULTS_ANCHOR_ID;
+  return null;
+}
+
+/**
+ * VIEWPORT STATUS REPORTING (bug fix 2026-10-01).
+ *
+ * `last` is the last REPORTED status, and `null` means "nothing reported
+ * yet". The first evaluation must always report — including an empty
+ * viewport — so the Home overlay can appear on map readiness without the
+ * user moving the map first. Previously the ref started at `false`, which
+ * silently swallowed the first report whenever the viewport really was
+ * empty. After the first report the comparison is a plain change check, so
+ * repeated moveend/zoomend/resize/marker events stay deduped.
+ */
+export function shouldReportViewportStatus(last: boolean | null, hasPlaces: boolean): boolean {
+  return last === null || hasPlaces !== last;
+}
+
+/**
  * Distance LIST-filter semantics (MASTER_LIVE_POLICY §9 amended §12.5,
  * MASTER_LIVE_TECH §9) — the Place LIST below the map keeps its existing
  * proximity contract:

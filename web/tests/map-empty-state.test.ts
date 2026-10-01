@@ -29,6 +29,8 @@ import { readFileSync } from "node:fs";
  *    area lain."
  */
 
+import { shouldReportViewportStatus } from "../lib/live/ui";
+
 const homeMap = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
 const homeDiscovery = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
 
@@ -80,6 +82,32 @@ test("Initial state: the first status is computed when the map is ready — no u
   assert.match(mapCode, /if \(mapRef\.current === map\) \{\n\s*invalidate\(map\);\n\s*evaluateViewportStatus\(\);\n\s*\}/);
 });
 
+test("The reported-status sentinel starts unreported (null), never false", () => {
+  // BUG FIX (2026-10-01): the ref used to be initialised to `false`, so the
+  // FIRST evaluation compared `hasPlaces === false` against `false` and was
+  // swallowed whenever the viewport really was empty — the Home overlay
+  // then stayed hidden until the user panned/zoomed. `null` means
+  // "nothing reported yet" and makes the first evaluation report either way.
+  assert.match(mapCode, /const lastViewportHasPlacesRef = useRef<boolean \| null>\(null\);/);
+  assert.doesNotMatch(mapCode, /useRef\(false\);\n\s*\n?\s*const router = useRouter/);
+});
+
+test("The first viewport status reports in BOTH directions, then dedupes", () => {
+  // Behaviour of the exact rule the component uses (lib/live/ui.ts), so the
+  // guarantee is proven without rendering Leaflet.
+  // 1. Nothing reported yet → the FIRST evaluation always reports.
+  assert.equal(shouldReportViewportStatus(null, false), true, "first empty viewport must report");
+  assert.equal(shouldReportViewportStatus(null, true), true, "first populated viewport must report");
+  // 2. After a report, only a genuine CHANGE reports again.
+  assert.equal(shouldReportViewportStatus(false, false), false, "no duplicate empty report");
+  assert.equal(shouldReportViewportStatus(true, true), false, "no duplicate populated report");
+  // 3. A real flip still reports — the overlay appears/disappears live.
+  assert.equal(shouldReportViewportStatus(false, true), true);
+  assert.equal(shouldReportViewportStatus(true, false), true);
+  // The map uses exactly this rule, not a private copy of it.
+  assert.match(mapCode, /if \(shouldReportViewportStatus\(lastViewportHasPlacesRef\.current, hasPlaces\)\) \{/);
+});
+
 test("Marker-set rebuilds and resizes re-evaluate the viewport status", () => {
   // After the marker loop: status against the NEW set (the final call inside
   // the marker effect's async body, right before its cleanup registration).
@@ -91,8 +119,10 @@ test("Marker-set rebuilds and resizes re-evaluate the viewport status", () => {
 });
 
 test("Reports are deduped and the overlay flips exactly when visibility flips", () => {
-  // Report ONLY on change — no re-render storms from the moveend burst.
-  assert.match(mapCode, /if \(hasPlaces !== lastViewportHasPlacesRef\.current\) \{[\s\S]*?report\(hasPlaces\);/);
+  // Report ONLY on change — no re-render storms from the moveend burst. The
+  // change check is delegated to shouldReportViewportStatus (asserted in the
+  // first-report test above), so the assignment still guards the callback.
+  assert.match(mapCode, /if \(shouldReportViewportStatus\([\s\S]*?\) \{[\s\S]*?lastViewportHasPlacesRef\.current = hasPlaces;[\s\S]*?report\(hasPlaces\);/);
 });
 
 test("Teardown stays complete: no listener leak and no stale callback capture", () => {

@@ -12,13 +12,18 @@ import {
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
   CURATED_MAP_COVERAGE_RADIUS_M,
+  CURATED_RESULTS_ANCHOR_ID,
+  DISCOVERY_RESULTS_ANCHOR_ID,
   DISTANCE_FILTERS,
+  activateCuratedFilter,
   buildDirectionsUrl,
   distanceMeters,
   formatDistance,
   liveDurationLabel,
   matchesDistance,
+  resolveResultsAnchorId,
   stopNestedCardAction,
+  toggleLiveFilter,
   type DistanceFilter,
   type LiveDiscoveryItem,
 } from "@/lib/live/ui";
@@ -379,6 +384,17 @@ export default function HomeDiscovery({
   const mapEmptyStateVisible =
     mapPlaces.length === 0 || (viewportReported && !viewportHasPlaces);
 
+  // Header link target (bug fix 2026-10-01): a SCROLL to the first visible
+  // strip — curated while the Tempat Pilihan mode is active and has results,
+  // otherwise the Discovery strip. No all-results route exists in the MVP and
+  // none may be created, so this never becomes a page link. null when no strip
+  // is rendered, so the label stays a non-navigating label.
+  const resultsAnchorId = resolveResultsAnchorId({
+    curatedOnly,
+    curatedCount: curatedListed.length,
+    discoveryCount: discoveryRowPlaces.length,
+  });
+
   // MOCKUP §8/§9: the coverage box and the scale label mirror the ACTIVE
   // camera radius so the copy stays truthful — the exact preset that owns
   // the camera (1 km / 5 km / 10 km; "Tempat Pilihan" and "Lokasi Saya" =
@@ -701,7 +717,14 @@ export default function HomeDiscovery({
               semantics are completely unchanged — only the colors moved. */}
           <div className="mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5">
             <button
-              onClick={() => setLiveOnly((value) => !value)}
+              onClick={() => {
+                // Mutually exclusive modes (lib/live/ui.ts): turning LIVE on
+                // leaves "Tempat Pilihan"; turning it off changes nothing
+                // else (curated layer and distance tab keep their state).
+                const next = toggleLiveFilter(liveOnly, curatedOnly);
+                setLiveOnly(next.liveOnly);
+                setCuratedOnly(next.curatedOnly);
+              }}
               aria-pressed={liveOnly}
               className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-sm transition sm:px-3.5 sm:text-xs ${
                 liveOnly
@@ -714,8 +737,11 @@ export default function HomeDiscovery({
             </button>
             <button
               onClick={() => {
-                setCuratedOnly(true);
-                setLiveOnly(false);
+                // Same exclusivity rule from the curated side: LIVE off,
+                // whatever was active before.
+                const next = activateCuratedFilter();
+                setCuratedOnly(next.curatedOnly);
+                setLiveOnly(next.liveOnly);
               }}
               aria-pressed={curatedOnly}
               className={`whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
@@ -920,16 +946,23 @@ export default function HomeDiscovery({
                   : `${discoveryRowPlaces.length} tempat di sekitar Anda`}
               </p>
             </div>
-            {/* "Lihat semua" — non-inventive affordance: there is NO separate
-                all-results page in the MVP (only /places/[id] exists), so the
-                link scrolls to the rows themselves instead of inventing a
-                destination. */}
-            <a
-              href="#place-results-heading"
-              className="inline-flex shrink-0 items-center gap-0.5 text-xs font-bold text-brand-ink/80 transition hover:text-brand-ink"
-            >
-              Lihat semua <span aria-hidden>›</span>
-            </a>
+            {/* "Ke hasil" (bug fix 2026-10-01) — non-inventive affordance:
+                there is NO separate all-results page in the MVP (only
+                /places/[id] exists), so this only SCROLLS to the first
+                visible strip and never claims to open every Place. The label
+                says exactly that. With no results at all there is no strip to
+                scroll to, so the same label renders as plain text (no dead
+                anchor). */}
+            {resultsAnchorId ? (
+              <a
+                href={`#${resultsAnchorId}`}
+                className="inline-flex shrink-0 items-center gap-0.5 text-xs font-bold text-brand-ink/80 transition hover:text-brand-ink"
+              >
+                Ke hasil <span aria-hidden>›</span>
+              </a>
+            ) : (
+              <span className="shrink-0 text-xs font-bold text-black/35">Ke hasil</span>
+            )}
           </div>
 
           {/* Baris 1 (curated layer only): the Admin-promoted selection.
@@ -943,7 +976,10 @@ export default function HomeDiscovery({
               <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
                 Tempat Pilihan
               </p>
-              <div className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2">
+              <div
+                id={CURATED_RESULTS_ANCHOR_ID}
+                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2"
+              >
                 {curatedListed.map((place) => (
                   <div
                     key={place.id}
@@ -982,7 +1018,10 @@ export default function HomeDiscovery({
                   the presentation-only fix: no data, order, eligibility, or
                   query changes, but the cards now render at their intended
                   size and several are visible side by side. */}
-              <div className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2">
+              <div
+                id={DISCOVERY_RESULTS_ANCHOR_ID}
+                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2"
+              >
                 {discoveryRowPlaces.map((place) => (
                   <div
                     key={place.id}
