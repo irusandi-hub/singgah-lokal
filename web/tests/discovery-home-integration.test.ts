@@ -321,9 +321,11 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
   // never summed into the Tempat Pilihan counter, and normal modes keep the
   // Discovery Place count.
   assert.match(code, /const curatedListed = useMemo\(\s*\(\) => visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
+  // The header count stays per-layer (PO fix, 2026-09-30) — copy now follows
+  // MOCKUP 2026-10-01 §11 ("… tempat pilihan di sekitar Anda"), same numbers.
   assert.match(
     code,
-    /curatedOnly\s*\?\s*`\$\{curatedListed\.length\} Tempat Pilihan`\s*:\s*`\$\{discoveryRowPlaces\.length\} Tempat`/,
+    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat di sekitar Anda`/,
   );
   assert.doesNotMatch(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
 });
@@ -430,7 +432,7 @@ test("P0: ordinary coverage Places never leak into the curated list or its count
   // separate statements: the coverage Places exist ONLY inside mapPlaces.
   const curatedListSlice = code.slice(code.indexOf("const curatedListed"), code.indexOf("const curatedCoveragePlaces"));
   assert.doesNotMatch(curatedListSlice, /curatedCoveragePlaces|CURATED_MAP_COVERAGE_RADIUS_M|viewerPosition/);
-  assert.match(code, /curatedOnly\s*\?\s*`\$\{curatedListed\.length\} Tempat Pilihan`/);
+  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`/);
   // The coverage memo is referenced by exactly ONE consumer — the map dataset.
   const uses = code.match(/curatedCoveragePlaces/g) ?? [];
   assert.equal(uses.length, 3, "declaration + the curated dataset union + its dependency list only");

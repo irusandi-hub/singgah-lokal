@@ -124,10 +124,11 @@ test("Existing Place navigation and map behavior stay untouched", () => {
   assert.match(mapCode, /worldCopyJump: false/);
   // Marker stacking order unchanged (scope lock: no interaction changes).
   assert.match(mapCode, /zIndexOffset: live \? 0 : 500/);
-  // Color treatment (PO 2026-09-26, colors only): Place pins/labels use the
-  // deep brand green for tile contrast; the accent stays on the viewer's
-  // own location marker; LIVE keeps its red priority.
-  assert.match(mapCode, /BRAND_PIN = "var\(--brand-primary-deep\)"/);
+  // Color treatment: Place pins/labels keep the deep brand green; LIVE
+  // keeps its red priority. The Current Location marker is BLUE (MOCKUP
+  // 2026-10-01 §6 — visual only, geolocation/camera untouched), so blue
+  // never collides with any Place-pin color.
+  assert.match(mapCode, /BRAND_PIN = "#2563eb"/);
   assert.match(mapCode, /BRAND_BROWN = "var\(--brand-accent\)"/);
   assert.match(mapCode, /BRAND_LIVE = "var\(--live\)"/);
 });

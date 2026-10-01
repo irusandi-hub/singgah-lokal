@@ -318,7 +318,9 @@ test("Current-location, curated, and 10 km tab coverage are all exactly 10,000 m
   const locateUses = mapCode.match(/CURRENT_LOCATION_CAMERA_RADIUS_M/g) ?? [];
   assert.equal(locateUses.length, 2, "map import + locate camera path only");
   const curatedCameraUses = pageCode.match(/CURATED_CAMERA_RADIUS_M/g) ?? [];
-  assert.equal(curatedCameraUses.length, 2, "import + camera prop only — never a filter input");
+  // 3 uses: import + the camera prop + the MOCKUP coverage/scale LABEL that
+  // mirrors the active radius (display only — never a filter input).
+  assert.equal(curatedCameraUses.length, 3, "import + camera prop + display label only");
   const curatedCoverageUses = pageCode.match(/CURATED_MAP_COVERAGE_RADIUS_M/g) ?? [];
   assert.equal(curatedCoverageUses.length, 2, "import + curated map coverage only");
   // The three camera paths are three SEPARATE mechanisms that happen to share
@@ -516,7 +518,10 @@ test("Curated MEMBERSHIP never comes from the camera radius or the coverage rule
   );
   assert.doesNotMatch(pageCode, /curatedIdSet\.size > 0/);
   const cameraUses = pageCode.match(/CURATED_CAMERA_RADIUS_M/g) ?? [];
-  assert.equal(cameraUses.length, 2, "import + camera prop only — never a membership input");
+  // 3 uses: import + the camera prop + the MOCKUP coverage/scale LABEL that
+  // mirrors the active radius (display only — still never a membership or
+  // dataset input; the membership rule above stays untouched).
+  assert.equal(cameraUses.length, 3, "import + camera prop + truthful display label only");
   // The coverage rule may only ADD ordinary Places to the curated MAP, and
   // only as the non-curated remainder.
   assert.match(pageCode, /const curatedCoveragePlaces = useMemo\(\(\) => \{[\s\S]*searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
@@ -693,11 +698,30 @@ test("Lokasi Saya pulses the pin BEFORE the camera moves and survives a late mar
 
 test("Current Location marker is visually distinct from every Place pin", () => {
   const mapCode = stripComments(homeMap);
-  // A deep-green disc with a white core (Place pins are teardrops — never
-  // discs), no click behavior, and the Lokasi Saya tooltip/label stays.
+  // A BLUE disc with a white core (MOCKUP 2026-10-01 §6 — Place pins are
+  // teardrops, never discs; blue is exclusive to the user marker), no click
+  // behavior, and the Lokasi Saya tooltip/label stays.
+  assert.match(mapCode, /const BRAND_PIN = "#2563eb"/);
   assert.match(mapCode, /fillColor: BRAND_PIN/);
   assert.match(mapCode, /fillColor: "#ffffff"/);
   assert.match(mapCode, /Lokasi Anda/);
-  // Accuracy circle is preserved.
+  // Accuracy circle is preserved (now tinted with the same blue).
   assert.match(mapCode, /radius: accuracy/);
+});
+
+test("MOCKUP 2026-10-01 §5: right-side control stack — Re-center + Lokasi Saya reuse the ONE locate flow", () => {
+  const mapCode = stripComments(homeMap);
+  // The labeled "Lokasi Saya" control and the Re-center arrow are BOTH
+  // entries into the SAME existing onRequestLocate handler — no second
+  // geolocation system, no new camera logic, no filter mutation.
+  const locateButtons = mapCode.match(/onClick=\{onRequestLocate\}/g) ?? [];
+  assert.equal(locateButtons.length, 2, "Re-center arrow + labeled Lokasi Saya, one shared handler");
+  assert.match(mapCode, /Pusatkan peta ke lokasi saya/);
+  assert.match(mapCode, /Lokasi Saya\n/);
+  // The blue dot on the labeled control is decorative.
+  assert.match(mapCode, /bg-\[#2563eb\] ring-2 ring-white/);
+  // Both controls stay ABOVE the Leaflet control ceiling (z-[1100]).
+  assert.match(mapCode, /z-\[1100\]/);
+  // The Leaflet +/- stack keeps its locked topright position.
+  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright" \}\)/);
 });

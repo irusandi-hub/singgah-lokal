@@ -56,25 +56,41 @@ select {
   max-width: 100%;
 }
 
-/* Map overlay color treatment (PO 2026-09-26, colors ONLY): the Leaflet
-   zoom control's translucent-white chrome washed out on busy/light tiles.
-   Brand-green fill + white glyph + heavier elevation keeps it readable;
-   geometry, z-index, stacking context, and Leaflet configuration are
-   untouched (architecture locked by tests/map-stacking.test.ts). */
+/* Map control stack (MOCKUP §5, 2026-10-01): the vertical zoom stack is
+   WHITE with a subtle border and a light shadow, exactly like the mockup's
+   +/- chrome. Geometry, z-index, stacking context, and Leaflet
+   configuration are untouched (architecture locked by
+   tests/map-stacking.test.ts; the topright position is locked by
+   tests/map-current-location.test.ts). */
 .leaflet-bar a,
 .leaflet-bar a:hover {
-  background-color: var(--brand-primary);
-  color: #fff;
-  border-color: var(--brand-ink);
+  background-color: #fff;
+  color: var(--brand-ink);
+  border-color: rgb(0 0 0 / 0.1);
 }
 
 .leaflet-bar a:hover {
-  background-color: var(--brand-primary-deep);
+  background-color: var(--brand-cream);
 }
 
 .leaflet-bar {
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
-  border: 1px solid var(--brand-ink);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  border: 1px solid rgb(0 0 0 / 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* MOCKUP §6: Current Location reads as the BLUE user marker with a soft
+   glow, clearly above the brown/green Place pins. Visual only — the
+   geolocation fix, camera, and marker model are untouched. */
+.leaflet-control-container .leaflet-bar a {
+  font-weight: 700;
+}
+
+/* The result panel tucks 20px under the map frame (MOCKUP §10 merge), so
+   the OSM attribution is lifted inside the visible map area. Visual only. */
+.leaflet-control-attribution {
+  margin-bottom: 22px;
 }
 
 /* Home map marker system (PO, 2026-09-29): ONE base Place pin — a compact
@@ -126,13 +142,13 @@ select {
    added to and removed from the regular pin by the map component. */
 @keyframes singgah-locate-pulse {
   0% {
-    filter: drop-shadow(0 0 0 rgb(14 107 79 / 0.55));
+    filter: drop-shadow(0 0 0 rgb(37 99 235 / 0.55));
   }
   60% {
-    filter: drop-shadow(0 0 12px rgb(14 107 79 / 0.45));
+    filter: drop-shadow(0 0 14px rgb(37 99 235 / 0.5));
   }
   100% {
-    filter: drop-shadow(0 0 0 rgb(14 107 79 / 0));
+    filter: drop-shadow(0 0 0 rgb(37 99 235 / 0));
   }
 }
 
@@ -149,4 +165,24 @@ select {
 .singgah-map-marker:focus-visible {
   outline: 2px solid var(--brand-ink);
   outline-offset: 2px;
+}
+
+/* ---- MOCKUP 2026-10-01 (Home = phone mockup) — presentation-only utilities.
+   Semua di bawah ini HANYA tampilan: tidak ada data baru, tidak ada fitur
+   baru, tidak ada perubahan kamera/geolocation/marker. ------------------- */
+
+/* MOCKUP §16: rating = 5 slot bintang, aktif emas + kosong abu-abu muda,
+   TANPA angka rating dan TANPA jumlah review (Master: no invented data).
+   Satu sumber tampilan untuk semua kartu hasil. */
+.singgah-star {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.singgah-star-active {
+  color: #f0b429;
+}
+
+.singgah-star-empty {
+  color: rgb(0 0 0 / 0.18);
 }

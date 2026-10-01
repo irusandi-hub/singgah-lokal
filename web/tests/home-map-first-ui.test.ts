@@ -27,7 +27,13 @@ import { readFileSync } from "node:fs";
  *    (not full pills), no horizontal-overflow escape hatch (no
  *    overflow-x-auto), because the grid columns are what guarantee 360px.
  * 4. Result cards: ~18px radius, subtle border, light shadow, and the
- *    result section sits closer to the map.
+ *    results sit as a white panel with rounded top corners + a small
+ *    centered handle that VISUALLY MERGES with the map above it (MOCKUP
+ *    2026-10-01 §10/§11 — still a normal section in page flow, never an
+ *    overlay covering the map surface). Cards carry an image area ALWAYS:
+ *    the canonical cover wins, a neutral dummy area is the visual
+ *    placeholder when no cover exists (MOCKUP §13 — replacing the previous
+ *    fail-closed null render, per the explicit mockup contract).
  * 5. Section order stays HEADER -> SEARCH -> FILTER -> MAP -> RESULT ->
  *    INTRO.
  * 6. No gradients anywhere in the Home surface (forbidden by the polish
@@ -129,11 +135,15 @@ test("result cards use an ~18px radius with a subtle border and light shadow", (
   // card's rounded corners instead of spilling out of them.
   assert.match(
     code,
-    /group flex flex-col overflow-hidden rounded-\[18px\] border border-black\/10 bg-white shadow-sm transition hover:shadow-md/,
+    /group flex w-full flex-col overflow-hidden rounded-\[18px\] border border-black\/10 bg-white shadow-sm transition hover:shadow-md/,
   );
-  // The map-first rhythm: results sit closer to the map than before.
-  assert.match(code, /<section className="mt-5" aria-labelledby="place-results-heading">/);
-  assert.doesNotMatch(code, /<section className="mt-6" aria-labelledby="place-results-heading">/);
+  // MOCKUP §10: the results are a white panel that visually merges with the
+  // map (small negative margin + rounded top corners + centered handle).
+  assert.match(
+    code,
+    /<section\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-2 pt-3"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
+  );
+  assert.match(code, /mx-auto mb-2\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
 });
 
 test("Home section order stays HEADER -> SEARCH -> FILTER -> MAP -> RESULT -> INTRO", () => {
@@ -164,42 +174,96 @@ test("polish adds no gradients and no heavy shadow utility", () => {
   assert.doesNotMatch(code, /shadow-2xl/);
 });
 
-test("MOCKUP §2 search keeps its icon, copy, and single compact surface", () => {
+test("MOCKUP §2 search keeps its icon, copy, single compact surface, and the decorative right icon", () => {
   assert.match(
     code,
     /flex items-center gap-3 rounded-\[20px\] border border-black\/10 bg-white px-4 py-3 shadow-sm/,
   );
-  // The existing search glyph and the exact placeholder copy are preserved.
+  // The existing search glyph and the exact placeholder copy are preserved,
+  // plus the mockup's right-side settings/sliders icon — DECORATIVE only
+  // (aria-hidden, non-interactive: no search-settings feature is invented).
   assert.match(code, /placeholder="Cari tempat, cerita, produksi\.\.\."/);
+  assert.match(code, /<span aria-hidden className="shrink-0 text-lg text-black\/45">⚙<\/span>/);
 });
 
-test("MOCKUP §8 result card is image-dominant with distance + curated overlay", () => {
+test("MOCKUP 2026-10-01 §13: every card has an image area — cover wins, dummy is the placeholder", () => {
   // Canonical cover image (places.cover_image_url, migration 0018) — the
-  // same field the Place detail hero already renders. No new query.
+  // same field the Place detail hero already renders. No new query, no data
+  // change: the dummy area is VISUAL ONLY and the real cover still wins.
   assert.match(code, /\{place\.coverImageUrl \? \(/);
   assert.match(code, /src=\{place\.coverImageUrl\}/);
   assert.match(code, /Gambar sampul \$\{place\.name\}/);
-  // Fail-closed: no cover URL means no image block and no invented
-  // placeholder imagery.
-  assert.match(code, /\) : null\}/);
-  // The real distance is overlaid on the cover — and still only when the
-  // real fix and canonical coordinates both exist.
-  assert.match(
-    code,
-    /\{distance && \(\s*<span className="absolute bottom-2 right-2 rounded-full/,
-  );
-  // The curated badge moved onto the cover too (shown once, not twice).
+  // The image area is ALWAYS rendered — no cover means the neutral dummy
+  // block (decorative category glyph, aria-hidden), never a card without an
+  // image area (MOCKUP §13, replacing the previous ") : null}" fail-closed
+  // render by explicit mockup contract).
+  assert.match(code, /relative h-36 w-full shrink-0 overflow-hidden bg-\[#ece7db\]/);
+  assert.match(code, /text-2xl leading-none">⌂<\/span>/);
+  assert.match(code, /text-\[#b3a88d\]/);
+  // MOCKUP §14: curated badge top-left, DECORATIVE heart top-right (no
+  // favorite feature exists — non-interactive, aria-hidden), real distance
+  // bottom-right and still fail-closed (only with the real fix + canonical
+  // coordinates).
   assert.match(
     code,
     /\{isCurated && \(\s*<span className="absolute left-2 top-2 rounded-full bg-brand-secondary/,
   );
-});
-
-test("MOCKUP §8 curated row is a horizontal strip on mobile and a grid from sm up", () => {
+  assert.match(code, /absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white\/90/);
   assert.match(
     code,
-    /-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-x-visible sm:px-0 sm:pb-0 lg:grid-cols-3/,
+    /\{distance && \(\s*<span className="absolute bottom-2 right-2 rounded-full/,
   );
+});
+
+test("MOCKUP 2026-10-01 §16: rating is a 5-slot star row — stars only, never a number", () => {
+  // Exactly five slots per card...
+  assert.match(code, /\[1, 2, 3, 4, 5\]\.map\(\(slot\) => \(/);
+  // ...filled ONLY from the canonical engine output (stars field of the
+  // server view model; the numeric score never leaves the server)...
+  assert.match(code, /const stars = starsByPlaceId\.get\(place\.id\) \?\? 0;/);
+  assert.match(code, /\(discovery\?\.discovery \?\? \[\]\)\.forEach\(\(entry\) => \{/);
+  // ...with NO rating number and NO review count (no such data exists).
+  assert.doesNotMatch(code, /averageRating|ratingCount|reviewCount/);
+  assert.doesNotMatch(code, /\/\s*\d+\.\d+\s*\((\d+|number)\)/);
+  assert.doesNotMatch(code, /entry\.score|\.score\b/);
+});
+
+test("MOCKUP 2026-10-01 §8/§9: coverage box bottom-left + scale bottom-right follow the ACTIVE radius", () => {
+  // Coverage box: white, rounded, icon, and the truthful active radius.
+  assert.match(code, /Menampilkan tempat dalam radius \{activeRadiusLabel\} dari lokasi Anda/);
+  assert.match(code, /absolute bottom-6 left-4 z-\[1100\]/);
+  // Scale: bottom-right with the bar; the label mirrors the same active
+  // radius ("Tempat Pilihan" = 10 km, per the camera constants).
+  assert.match(code, /absolute bottom-6 right-4 z-\[1100\]/);
+  assert.match(code, /border-x-2 border-b-2 border-brand-ink\/70/);
+  // The label derives from the EXACT preset that owns the camera — the same
+  // constants, never an invented state.
+  assert.match(
+    code,
+    /const activeRadiusMeters = curatedOnly\n\s*\? CURATED_CAMERA_RADIUS_M\n\s*: CAMERA_PRESET_RADIUS_M\[distanceFilter\];/,
+  );
+});
+
+test("MOCKUP 2026-10-01 §11: result header keeps title + real-count subtitle + Lihat semua", () => {
+  // Subtitle uses the REAL per-layer count (the mockup's "10 tempat pilihan
+  // di sekitar Anda" shape) — never a fabricated number.
+  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat di sekitar Anda`/);
+  // "Lihat semua" is a non-inventive affordance: it scrolls to the results
+  // anchor — no all-results page exists to link to (nothing invented).
+  assert.match(code, /href="#place-results-heading"/);
+  assert.match(code, /Lihat semua/);
+});
+
+test("MOCKUP 2026-10-01 §12: every result row is a horizontal strip at every viewport", () => {
+  // Baris 1 (curated) — same snap-strip at 360px AND 1280px.
+  assert.match(
+    code,
+    /-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2/,
+  );
+  // Baris 2 (Discovery) — the same horizontal pattern (no grid comeback).
+  const discoveryRow = code.slice(code.indexOf("{discoveryRowPlaces.length > 0 ? ("));
+  assert.match(discoveryRow, /-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2/);
+  assert.doesNotMatch(discoveryRow, /grid gap-3 sm:grid-cols-2/);
   // Presentation only: the curated dataset, its order, and the cards are
   // unchanged, and the row still renders nothing when nothing is curated.
   assert.match(
@@ -207,6 +271,15 @@ test("MOCKUP §8 curated row is a horizontal strip on mobile and a grid from sm 
     /\{curatedOnly && curatedListed\.length > 0 && \([\s\S]*?curatedListed\.map\(\(place\) => \(/,
   );
   assert.match(code, /renderPlaceCard\(place, place\.isCurated\)/);
+  // Card width keeps several cards visible on the smallest viewport.
+  assert.match(code, /w-\[70vw\] max-w-\[300px\] shrink-0 snap-start/);
+  // Only the card strips scroll horizontally; the filter row keeps its
+  // no-overflow guarantee.
+  const filterRow = code.slice(
+    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
+    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]") + 2600,
+  );
+  assert.doesNotMatch(filterRow, /overflow-x-auto/);
 });
 
 test("MOCKUP §1 header keeps the logo, nav, and Masuk untouched — spacing only", () => {

@@ -113,11 +113,15 @@ const OSM_ATTRIBUTION =
 
 const BRAND_BROWN = "var(--brand-accent)";
 const BRAND_LIVE = "var(--live)";
-const BRAND_PIN = "var(--brand-primary-deep)";
+// Current Location marker color (MOCKUP §6, 2026-10-01): the user marker is
+// BLUE with a soft glow, per the latest approved mockup. Visual only — the
+// geolocation fix, the camera, and the Place-marker model are untouched, and
+// blue stays exclusive to the user pin (Place pins remain brown/green/red).
+const BRAND_PIN = "#2563eb";
 // Marker system colors (PO, 2026-09-29): ONE base Place pin (brand brown)
 // with per-mode treatments — "Tempat Pilihan" uses the secondary brand
-// green, LIVE uses the live red, and the Current Location disc keeps the
-// deep brand green (BRAND_PIN) so the user marker never looks like a Place.
+// green, LIVE uses the live red, and the Current Location disc is the BLUE
+// user marker (MOCKUP §6) so it never looks like a Place.
 const BRAND_SECONDARY = "var(--brand-secondary)";
 
 /**
@@ -576,17 +580,17 @@ export default function HomeMap({
       if (Number.isFinite(accuracy) && accuracy > 0) {
         L.circle([viewerPosition.lat, viewerPosition.lng], {
           radius: accuracy,
-          color: BRAND_BROWN,
+          color: BRAND_PIN,
           weight: 1,
-          fillColor: BRAND_BROWN,
+          fillColor: BRAND_PIN,
           fillOpacity: 0.12,
         }).addTo(layer);
       }
       // Current Location marker — unmistakably the USER's position and never
-      // mistakable for a Place pin: a white-core dot in a deep brand-green
-      // disc with a white ring (Place pins are the inverse: brown disc, emoji
-      // glyph, name label; LIVE pins are the red badge). No click behavior —
-      // it is not a navigation target.
+      // mistakable for a Place pin (MOCKUP §6, 2026-10-01): a white-core dot
+      // in a BLUE disc with a white ring, glowing via the locate-pulse color
+      // in globals.css. Place pins are teardrops (brown/green); LIVE pins are
+      // the red badge. No click behavior — it is not a navigation target.
       userPinRef.current = L.circleMarker([viewerPosition.lat, viewerPosition.lng], {
         radius: 13,
         color: "#ffffff",
@@ -808,14 +812,33 @@ export default function HomeMap({
       />
       {/* Map UI overlays ride ABOVE Leaflet's documented z-index ceiling
           (max control z-index = 1000): 1100+ keeps the React layer strictly
-          on top in any drag/zoom state. */}
+          on top in any drag/zoom state.
+
+          MOCKUP §5 (2026-10-01): the right-side control stack reads as ONE
+          white rounded column — Leaflet's +/- zoom control (position
+          "topright", restyled white in globals.css) sits directly above the
+          React Re-center arrow and the labeled "Lokasi Saya" control. The
+          Re-center arrow is a SECOND entry point into the EXISTING locate
+          flow (the same onRequestLocate handler the "Lokasi Saya" control
+          uses): no new camera logic, no geolocation change. The dot on the
+          labeled control is decorative (aria-hidden) — the accessible name
+          stays on the button. */}
       <button
         type="button"
         onClick={onRequestLocate}
-        className="absolute right-3 top-[76px] z-[1100] inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2.5 text-xs font-bold text-brand-ink shadow-lg ring-1 ring-brand-ink/10 transition hover:bg-brand-cream"
-        aria-label="Kembali ke lokasi aktual saya"
+        className="absolute right-3 top-[76px] z-[1100] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
+        aria-label="Pusatkan peta ke lokasi saya"
       >
-        <span aria-hidden className="h-2 w-2 rounded-full bg-brand-accent" />
+        {/* Navigation arrow (MOCKUP §5 "Re-center") — visual only. */}
+        <span aria-hidden className="inline-block -rotate-45 text-base font-bold">➤</span>
+      </button>
+      <button
+        type="button"
+        onClick={onRequestLocate}
+        className="absolute right-3 top-[132px] z-[1100] inline-flex w-11 flex-col items-center gap-1 rounded-xl bg-white px-1 py-2 text-[9px] font-bold leading-tight text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
+        aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
+      >
+        <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-[#2563eb] ring-2 ring-white" />
         Lokasi Saya
       </button>
     </div>
