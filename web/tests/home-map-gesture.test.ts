@@ -80,10 +80,15 @@ test("Gesture 6: desktop behavior unchanged (no pointer-fine branch)", () => {
 });
 
 test("Gesture 7-8: scope discipline — layout, overlays, and cleanup untouched", () => {
-  // No layout/size/overlay changes: the container keeps its classes, the
-  // locate button keeps its position, and no new UI element appeared.
-  assert.match(homeMapSource, /className="relative z-0 h-full w-full touch-none"/);
-  assert.match(homeMapSource, /absolute right-3 top-\[76px\] z-\[1100\]/);
+  // No layout/size/overlay changes: the container keeps its classes, the two
+  // locate controls keep their handlers, and no new UI element appeared.
+  // MOCKUP §9 (2026-10-01): because the map is now the full-bleed Home
+  // background, the right-hand control stack was moved DOWN to clear the
+  // floating header/search/filter chrome — the offset only; size, shape,
+  // handlers, and the Leaflet control position are untouched.
+  assert.match(homeMapSource, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
+  assert.match(homeMapSource, /absolute right-3 top-\[232px\] z-\[1100\]/);
+  assert.match(homeMapSource, /absolute right-3 top-\[288px\] z-\[1100\]/);
   // The two-finger observer is passive (never blocks/prevents anything) and
   // is detached in teardown — no listener leak.
   assert.match(homeMapSource, /passive: true/);

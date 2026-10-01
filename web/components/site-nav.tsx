@@ -14,6 +14,15 @@ type SiteNavProps = {
   // /api/auth/session itself, so any page can render <SiteNav /> and the
   // state stays correct after login, logout, refresh, and direct URLs.
   authenticated?: boolean;
+  /**
+   * PRESENTATION ONLY (MOCKUP §1/§5, 2026-10-01): the header floats over
+   * the Home map instead of sitting on its own opaque cream bar. It changes
+   * the header's own classes and nothing else — the logo lockup, the nav
+   * links, the session probe, the auth entry points, and every route are
+   * byte-for-byte the same. Off by default, so every other page keeps the
+   * existing solid header.
+   */
+  floating?: boolean;
 };
 
 type SessionPayload = {
@@ -27,7 +36,10 @@ const linkBase = "rounded-full px-3.5 py-1.5 text-xs font-bold transition";
 // are NOT menu items here: each area is a separate layer, reached through
 // Kelola Akun (/account), which resolves authority server-side. The header
 // shows the active account's email aligned with the account controls.
-export default function SiteNav({ authenticated: authenticatedProp }: SiteNavProps) {
+export default function SiteNav({
+  authenticated: authenticatedProp,
+  floating = false,
+}: SiteNavProps) {
   const pathname = usePathname();
   const [session, setSession] = useState<SessionPayload | null>(
     authenticatedProp === undefined ? null : { authenticated: authenticatedProp, email: null },
@@ -75,10 +87,34 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
   const authenticated = session?.authenticated === true;
 
   return (
-    <header className="sticky top-0 z-30 border-b border-black/5 bg-brand-cream/95 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-3">
+    // MOCKUP §1/§5: the floating variant is transparent and sits INSIDE the
+    // map's stacking context (z-1200, above the map surface and its control
+    // ceiling) so no tile can ever paint over the logo or the Masuk button.
+    // The solid variant is the existing header, unchanged.
+    <header
+      className={
+        floating
+          ? "absolute inset-x-0 top-0 z-[1200] border-b-0 bg-transparent"
+          : "sticky top-0 z-30 border-b border-black/5 bg-brand-cream/95 backdrop-blur"
+      }
+    >
+      <div
+        className={`mx-auto flex max-w-6xl items-center justify-between gap-3 ${
+          floating ? "px-4 py-3" : "px-5 py-3"
+        }`}
+      >
         <div className="min-w-0">
-          <Link href="/" className="flex min-h-[40px] items-center" aria-label="SINGGAH LOKAL — beranda">
+          {/* MOCKUP §1: the logo floats directly on the map, so it carries a
+              soft white halo for contrast on busy tiles. Purely a filter on
+              the EXISTING master lockup — its shape, colors, ratio, and
+              tagline are untouched. */}
+          <Link
+            href="/"
+            className={`flex min-h-[40px] items-center ${
+              floating ? "drop-shadow-[0_1px_3px_rgb(255_255_255/0.95)]" : ""
+            }`}
+            aria-label="SINGGAH LOKAL — beranda"
+          >
             <BrandLogo height={40} tagline="Temukan cerita di balik tempat" />
           </Link>
         </div>

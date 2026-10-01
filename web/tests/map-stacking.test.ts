@@ -27,8 +27,12 @@ import { readFileSync } from "node:fs";
  *   ceiling (max control z-index = 1000): 1100 for badges/cards/locate
  *   button, 1200 for the bottom sheet.
  * - The map frame stays the single clipping boundary (relative + isolate +
- *   overflow-hidden + rounded) and no masking/pseudo-element workaround is
- *   used.
+ *   overflow-hidden) and no masking/pseudo-element workaround is used.
+ *
+ * MOCKUP 2026-10-01 (§4/§5): the frame became the FULL-BLEED Home map stage —
+ * the map moved into an `absolute inset-0 z-0` base layer and the header,
+ * search, and filter now float above it. The ladder is unchanged: map 0,
+ * React overlays 1100, floating header 1200 (in site-nav.tsx).
  */
 
 const homeMap = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
@@ -61,7 +65,7 @@ test("Map container is a closed stacking context that traps every Leaflet pane",
   // sets position when none exists) and — crucially — z-0 forces a stacking
   // context, so tile/map/tooltip/control panes (200–1000) can never climb
   // above sibling React overlays.
-  assert.match(mapCode, /className="relative z-0 h-full w-full touch-none"/);
+  assert.match(mapCode, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
 });
 
 test("React map overlays sit above Leaflet's documented z-index ceiling (1000)", () => {
@@ -69,13 +73,17 @@ test("React map overlays sit above Leaflet's documented z-index ceiling (1000)",
   const pageCode = stripComments(homeDiscovery);
   // Lokasi Saya button (inside the map component).
   assert.match(mapCode, /z-\[1100\][^"]*"/);
-  // Empty-state card and radius/status badge (map frame overlays).
+  // Empty-state card and radius/status badge (map stage overlays).
+  // MOCKUP §4 (2026-10-01): the map is now the full-bleed background of Home,
+  // so the empty-state card anchors near the BOTTOM of the stage (clear of the
+  // coverage box) instead of the stage's vertical middle — but it still rides
+  // strictly above the Leaflet control ceiling, which is the actual lock here.
   assert.match(
     pageCode,
-    /absolute inset-x-6 top-1\/2 z-\[1100\] -translate-y-1\/2 rounded-2xl bg-white\/95/,
+    /absolute inset-x-6 bottom-24 z-\[1100\] rounded-2xl bg-white\/95/,
     "empty-state card must ride above the Leaflet control ceiling",
   );
-  assert.match(pageCode, /absolute left-5 top-5 z-\[1100\] rounded-full/);
+  assert.match(pageCode, /absolute left-4 top-\[152px\] z-\[1100\] rounded-full/);
 });
 
 // --- PO decision 2026-09-25: the map frame stays fully visible ---
@@ -84,9 +92,11 @@ test("No Place preview/bottom sheet may ever cover the map surface", () => {
   const pageCode = stripComments(homeDiscovery);
   // The old in-map bottom sheet must not come back in any form.
   assert.equal(/bottom-0 left-0 right-0/.test(pageCode), false, "no absolute bottom strip inside the map frame");
-  assert.equal(pageCode.includes("z-[1200]"), false, "no bottom-sheet overlay layer");
   assert.equal(pageCode.includes("Lihat Tempat"), false, "no Place CTA floating over the map");
   assert.equal(/rounded-t-\[28px\]\s+bg-white/.test(pageCode), false, "no bottom-sheet card over the map");
+  // The only z-[1200] layer in the app is now the FLOATING HEADER in
+  // site-nav.tsx (MOCKUP §5) — never a sheet over the map surface.
+  assert.equal(pageCode.includes("z-[1200]"), false, "no z-[1200] overlay layer inside the map stage");
 });
 
 test("Place detail still lives in the results section below the map", () => {
@@ -111,14 +121,12 @@ test("No legacy low overlay z-index survives inside the map frame", () => {
 
 test("Map frame remains the single clipping boundary; no masking workaround", () => {
   const pageCode = stripComments(homeDiscovery);
-  // Frame: positioned, isolated, clipped, rounded. The frame GEOMETRY was
-  // polished on 2026-09-30 (map-first: h-[64vh] clamped by min-h-[480px] /
-  // max-h-[760px], ~24px radius) — the architectural requirement that makes
-  // this the single clipping boundary is unchanged, so only the numbers move.
-  assert.match(
-    pageCode,
-    /relative isolate h-\[64vh\] min-h-\[480px\] max-h-\[760px\] overflow-hidden rounded-\[24px\]/,
-  );
+  // Frame: positioned, isolated, clipped. MOCKUP §4 (2026-10-01) turned the
+  // standalone rounded map panel into the full-bleed Home stage, so the
+  // radius/border moved to the Result panel below — the architectural
+  // requirement that makes this the single clipping boundary (relative +
+  // isolate + overflow-hidden) is unchanged.
+  assert.match(pageCode, /<section className="relative isolate overflow-hidden bg-\[#d9dfd2\]">/);
   const mapCode = stripComments(homeMap);
   // No pseudo/masking workaround and no drag disabling to hide the bug.
   assert.equal(mapCode.includes("pointer-events-none"), false);
@@ -128,16 +136,27 @@ test("Map frame remains the single clipping boundary; no masking workaround", ()
 
 test("Overlays render as siblings AFTER the map inside the frame (DOM order fallback)", () => {
   const pageCode = stripComments(homeDiscovery);
-  const mapMount = pageCode.indexOf("<HomeMap");
+  const mapMount = pageCode.indexOf("<HomeMap\n");
   assert.ok(mapMount > 0, "HomeMap must be rendered by HomeDiscovery");
-  // The in-map Place bottom sheet was removed (PO 2026-09-25): the map frame
+  // The in-map Place bottom sheet was removed (PO 2026-09-25): the map stage
   // keeps only the empty-state card and the radius/status badge above it.
-  const emptyCard = pageCode.indexOf("top-1/2 z-[1100]");
-  const badge = pageCode.indexOf("left-5 top-5 z-[1100]");
+  const emptyCard = pageCode.indexOf("bottom-24 z-[1100]");
+  const badge = pageCode.indexOf("left-4 top-[152px] z-[1100]");
   for (const [name, index] of [
     ["empty-state card", emptyCard],
     ["radius badge", badge],
   ] as const) {
     assert.ok(index > mapMount, `${name} must come after the map in DOM order`);
   }
+});
+
+test("MOCKUP §4/§5: the floating header, search, and filter stay above the map surface", () => {
+  const pageCode = stripComments(homeDiscovery);
+  // The floating chrome rides the documented ladder above Leaflet's ceiling
+  // (1000): header 1200, search/filter and map overlays 1100, map 0. Tiles can
+  // therefore never paint over the chrome in any drag/zoom state.
+  assert.match(pageCode, /<div className="absolute inset-0 z-0">/);
+  assert.match(pageCode, /className="relative z-\[1100\] mx-auto w-full max-w-6xl px-4"/);
+  const nav = stripComments(readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8"));
+  assert.match(nav, /"absolute inset-x-0 top-0 z-\[1200\] border-b-0 bg-transparent"/);
 });

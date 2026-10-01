@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 /**
- * HOME MAP-FIRST UI POLISH (PO, 2026-09-30)
+ * HOME MAP-FIRST UI — FINAL MOCKUP ALIGNMENT (2026-10-01, MOCKUP §1–§18)
  *
  * Scope of this lock: PRESENTATION ONLY. The functional baseline at
  * d47ee20 (camera values, curated coverage vs curated result, current
@@ -12,32 +12,38 @@ import { readFileSync } from "node:fs";
  * tests/discovery-home-integration.test.ts, tests/map-empty-state.test.ts,
  * and tests/map-stacking.test.ts. Nothing here may relax those.
  *
- * The polish intent: clean / premium / modern / compact / map-first /
- * subtle. The map is the primary visual element of Home; search, filter,
- * and results support it.
- *
- * Locked geometry and its responsive rationale:
- * 1. Map frame: h-[64vh] clamped by min-h-[480px] / max-h-[760px],
- *    ~24px radius, subtle border, light shadow, still a clipping boundary
- *    (relative + isolate + overflow-hidden). The clamp is what keeps the
- *    map dominant AND overflow-free at 360px and at 1280px desktop.
- * 2. Search: ~20px radius, compact vertical padding, subtle border, and
- *    NO heavy shadow.
- * 3. Filter: still ONE row, same five controls, same order, ~16px radius
- *    (not full pills), no horizontal-overflow escape hatch (no
- *    overflow-x-auto), because the grid columns are what guarantee 360px.
- * 4. Result cards: ~18px radius, subtle border, light shadow, and the
- *    results sit as a white panel with rounded top corners + a small
- *    centered handle that VISUALLY MERGES with the map above it (MOCKUP
- *    2026-10-01 §10/§11 — still a normal section in page flow, never an
- *    overlay covering the map surface). Cards carry an image area ALWAYS:
- *    the canonical cover wins, a neutral dummy area is the visual
- *    placeholder when no cover exists (MOCKUP §13 — replacing the previous
- *    fail-closed null render, per the explicit mockup contract).
- * 5. Section order stays HEADER -> SEARCH -> FILTER -> MAP -> RESULT ->
+ * What the final mockup changed (and what is locked below):
+ * 1. MAP FULL-BLEED (MOCKUP §4): the map is no longer a separate box BELOW
+ *    the header/search/filter. It is now ONE continuous field from the very
+ *    top of the app down to the Result panel edge: the map sits in an
+ *    `absolute inset-0 z-0` base layer inside a `relative isolate
+ *    overflow-hidden` stage, and the header (z-[1200]), search + filter
+ *    (z-[1100]) float on top of it. The retired 58vh / 64vh / 430px / 480px /
+ *    760px frame geometry and its rounded "standalone map panel" look are
+ *    gone — the map is edge-to-edge and the Result panel supplies the only
+ *    rounded boundary.
+ * 2. MAP HEIGHT (MOCKUP §8): no blind `64vh` any more. The visible map window
+ *    is `h-[42vh]` clamped by `min-h-[260px]` / `max-h-[520px]`
+ *    (`sm:h-[44vh]`), stacked UNDER the floating chrome, so the Result panel
+ *    is always inside the initial viewport at 360 / 390 / 430 / 1280.
+ * 3. SEARCH (MOCKUP §2): still one white ~20px-radius bar with a thin border,
+ *    a soft shadow, the search glyph LEFT, the exact placeholder copy, and a
+ *    DECORATIVE right icon — which is now a SLIDERS glyph, not a gear.
+ * 4. FILTER (MOCKUP §3): still ONE row, same five controls, same order,
+ *    ~16px radius, no overflow scroller — and the selected state is BRAND
+ *    GREEN (bg-brand-primary), not ink black.
+ * 5. HEADER (MOCKUP §1/§5): SiteNav gained an opt-in `floating` variant that
+ *    only changes its own classes. Logo, nav, auth entry points, routes, and
+ *    the session probe are untouched.
+ * 6. CARDS (MOCKUP §12–§18): fixed-width non-shrinking tracks (several cards
+ *    visible, never a collapsed stripe), ~16px radius, a LOCAL placeholder
+ *    photo when no canonical cover exists, compact overlays that cannot
+ *    collide at the narrower width, and five star slots only — stars never a
+ *    number, never a review count.
+ * 7. SECTION ORDER stays MAP STAGE (map + floating chrome) -> RESULT ->
  *    INTRO.
- * 6. No gradients anywhere in the Home surface (forbidden by the polish
- *    brief), and no heavy shadow utility.
+ * 8. No gradients in the Home surface (forbidden by the polish brief) and no
+ *    heavy shadow utility.
  */
 
 const homeDiscovery = readFileSync(
@@ -59,35 +65,67 @@ function stripComments(source: string): string {
 
 const code = stripComments(homeDiscovery);
 
-test("map frame is the primary Home visual element with a clamped height", () => {
+test("MOCKUP §4: the map is a full-bleed background field, not a standalone box", () => {
+  // The stage is a relative + isolated + clipped stacking context (the single
+  // clipping boundary), and the map fills it as an absolute base layer at the
+  // BOTTOM of the stacking order (z-0).
   assert.match(
     code,
-    /<section className="relative isolate h-\[64vh\] min-h-\[480px\] max-h-\[760px\] overflow-hidden rounded-\[24px\] border border-black\/10 bg-\[#d9dfd2\] shadow-sm">/,
+    /<section className="relative isolate overflow-hidden bg-\[#d9dfd2\]">/,
   );
+  assert.match(code, /<div className="absolute inset-0 z-0">/);
+  // The map mount is the FIRST child of that base layer.
+  const baseLayer = code.indexOf('<div className="absolute inset-0 z-0">');
+  const mapMount = code.indexOf("<HomeMap\n");
+  assert.ok(baseLayer > -1, "the full-bleed base layer must exist");
+  assert.ok(mapMount > baseLayer, "the map must live inside the full-bleed base layer");
+  // ...and the floating chrome rides ABOVE it (documented overlay ladder: 1100
+  // for search/filter/map overlays, 1200 for the header).
+  assert.match(code, /className="relative z-\[1100\] mx-auto w-full max-w-6xl px-4"/);
+  assert.match(code, /<SiteNav floating \/>/);
 });
 
-test("map frame remains a clipping boundary and the retired 58vh/430px/28px frame is gone", () => {
-  // relative + isolate + overflow-hidden is the Leaflet stacking lock.
-  assert.match(code, /relative isolate h-\[64vh\][^"]*overflow-hidden/);
+test("the retired standalone map-frame geometry is gone", () => {
+  // A separate map panel below the chrome would break the visual unity the
+  // mockup requires, so none of the old frame shapes may come back.
+  assert.doesNotMatch(code, /h-\[64vh\]/);
+  assert.doesNotMatch(code, /min-h-\[480px\]/);
+  assert.doesNotMatch(code, /max-h-\[760px\]/);
   assert.doesNotMatch(code, /h-\[58vh\]/);
   assert.doesNotMatch(code, /min-h-\[430px\]/);
   assert.doesNotMatch(code, /rounded-\[28px\]/);
 });
 
-test("search surface is compact with a ~20px radius and no heavy shadow", () => {
+test("MOCKUP §8: map height is responsive and always leaves the Result panel in view", () => {
+  // The visible map window sits UNDER the floating chrome inside the stage,
+  // sized in vh and clamped on both ends. The old flat 64vh is not used.
+  assert.match(code, /h-\[42vh\] min-h-\[260px\] max-h-\[520px\] sm:h-\[44vh\]/);
+  // The spacer is purely presentational — it reserves the visible map window
+  // and carries no data or behaviour.
+  assert.match(code, /<div aria-hidden className="h-\[42vh\]/);
+});
+
+test("MOCKUP §2: search is a floating ~20px-radius white bar with a sliders icon", () => {
   assert.match(
     code,
-    /flex items-center gap-3 rounded-\[20px\] border border-black\/10 bg-white px-4 py-3 shadow-sm/,
+    /flex items-center gap-2\.5 rounded-\[20px\] border border-black\/10 bg-white px-3\.5 py-2\.5 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]/,
   );
   // Copy, label, and control function are untouched by the polish.
   assert.match(code, /aria-label="Cari tempat, cerita, produksi"/);
+  assert.match(code, /placeholder="Cari tempat, cerita, produksi\.\.\."/);
+  // MOCKUP §2: the right-hand icon is the SLIDERS/control glyph (mockup
+  // chrome), not the retired gear. It stays DECORATIVE only — aria-hidden,
+  // never a button, no search-settings feature is invented.
+  assert.doesNotMatch(code, /⚙/);
+  assert.match(code, /<svg viewBox="0 0 24 24" width="18" height="18"/);
+  const icon = code.slice(code.indexOf('<svg viewBox="0 0 24 24"'), code.indexOf("</svg>"));
+  assert.doesNotMatch(icon, /onClick|<button/, "the sliders icon must never become a control");
+  // The search glyph on the left stays.
+  assert.match(code, /shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</);
 });
 
-test("filter stays a single row with the locked five controls in order", () => {
-  assert.match(
-    code,
-    /<div className="mb-4 grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5 pb-1">/,
-  );
+test("MOCKUP §3: filter stays a single row with the locked five controls in order", () => {
+  assert.match(code, /grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
   // Order: LIVE -> Tempat Pilihan -> the three ordered distance tabs.
   const liveIndex = code.indexOf("setLiveOnly((value) => !value)");
   const curatedIndex = code.indexOf("setCuratedOnly(true)");
@@ -97,17 +135,35 @@ test("filter stays a single row with the locked five controls in order", () => {
   assert.ok(distanceIndex > curatedIndex, "distance tabs must follow Tempat Pilihan");
 });
 
+test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
+  // The explicit gap this task closed: "Tempat Pilihan" used to render
+  // bg-brand-ink (near-black) when selected. It is now brand green.
+  assert.doesNotMatch(code, /bg-brand-ink text-white/);
+  const greenSelected = code.match(/bg-brand-primary text-white/g) ?? [];
+  // Two call sites: the curated button and the shared distance-tab branch.
+  assert.equal(greenSelected.length, 2);
+  assert.match(code, /curatedOnly\n\s*\? "bg-brand-primary text-white"/);
+  assert.match(
+    code,
+    /distanceFilter === filter && !curatedOnly\n\s*\? "bg-brand-primary text-white"/,
+  );
+  // The unselected distance tabs keep their white surface (mockup).
+  assert.match(code, /: "border border-black\/10 bg-white text-black\/65"/);
+  // LIVE keeps its red dot and its red selected fill.
+  assert.match(code, /liveOnly\n\s*\? "bg-live text-white"/);
+});
+
 test("filter controls use a ~16px radius rather than full pills", () => {
-  const rounded16 = code.match(/rounded-\[16px\]/g) ?? [];
+  const filterRow = code.slice(
+    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
+    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]") + 2600,
+  );
+  const rounded16 = filterRow.match(/rounded-\[16px\]/g) ?? [];
   // LIVE, Tempat Pilihan, and the shared distance-tab class.
   assert.equal(rounded16.length, 3);
   // No pill styling may creep back onto the filter BUTTONS. The only
   // rounded-full left in the row is the tiny LIVE status dot, which is
   // existing LIVE semantics (a dot, not a pill) and stays untouched.
-  const filterRow = code.slice(
-    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
-    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]") + 2600,
-  );
   const pills = filterRow.match(/rounded-full/g) ?? [];
   assert.equal(
     pills.length,
@@ -130,28 +186,30 @@ test("filter row has no horizontal-overflow escape hatch", () => {
   assert.doesNotMatch(filterRow, /overflow-x-scroll/);
 });
 
-test("result cards use an ~18px radius with a subtle border and light shadow", () => {
+test("result cards use a ~16px radius with a subtle border and light shadow", () => {
   // overflow-hidden is what lets the mockup's cover image sit flush with the
   // card's rounded corners instead of spilling out of them.
   assert.match(
     code,
-    /group flex w-full flex-col overflow-hidden rounded-\[18px\] border border-black\/10 bg-white shadow-sm transition hover:shadow-md/,
+    /group flex h-full w-full flex-col overflow-hidden rounded-\[16px\] border border-black\/10 bg-white shadow-sm transition hover:shadow-md/,
   );
-  // MOCKUP §10: the results are a white panel that visually merges with the
-  // map (small negative margin + rounded top corners + centered handle).
+  // MOCKUP §10: the results are a cream panel with rounded top corners and a
+  // centered handle that visually merges with the map above it.
   assert.match(
     code,
-    /<section\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-2 pt-3"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
+    /<section\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-2 pt-3 shadow-\[0_-6px_18px_rgb\(0_0_0\/0\.06\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
   );
   assert.match(code, /mx-auto mb-2\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
 });
 
-test("Home section order stays HEADER -> SEARCH -> FILTER -> MAP -> RESULT -> INTRO", () => {
+test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
+  // Inside the stage the map base layer comes first (it is the background),
+  // then the floating header, search, and filter, then the map window spacer.
   const order = [
-    "<SiteNav />",
+    "<HomeMap\n",
+    "<SiteNav floating />",
     'aria-label="Cari tempat, cerita, produksi"',
     "grid grid-cols-[auto_auto_1fr_1fr_1fr]",
-    "h-[64vh] min-h-[480px]",
     'aria-labelledby="place-results-heading"',
     "Jangan hanya datang.",
   ].map((needle) => code.indexOf(needle));
@@ -174,48 +232,53 @@ test("polish adds no gradients and no heavy shadow utility", () => {
   assert.doesNotMatch(code, /shadow-2xl/);
 });
 
-test("MOCKUP §2 search keeps its icon, copy, single compact surface, and the decorative right icon", () => {
-  assert.match(
-    code,
-    /flex items-center gap-3 rounded-\[20px\] border border-black\/10 bg-white px-4 py-3 shadow-sm/,
-  );
-  // The existing search glyph and the exact placeholder copy are preserved,
-  // plus the mockup's right-side settings/sliders icon — DECORATIVE only
-  // (aria-hidden, non-interactive: no search-settings feature is invented).
-  assert.match(code, /placeholder="Cari tempat, cerita, produksi\.\.\."/);
-  assert.match(code, /<span aria-hidden className="shrink-0 text-lg text-black\/45">⚙<\/span>/);
-});
-
-test("MOCKUP 2026-10-01 §13: every card has an image area — cover wins, dummy is the placeholder", () => {
+test("MOCKUP §16: every card image area is filled — canonical cover, else the local placeholder", () => {
   // Canonical cover image (places.cover_image_url, migration 0018) — the
   // same field the Place detail hero already renders. No new query, no data
-  // change: the dummy area is VISUAL ONLY and the real cover still wins.
+  // change: the placeholder is VISUAL ONLY and the real cover still wins.
   assert.match(code, /\{place\.coverImageUrl \? \(/);
   assert.match(code, /src=\{place\.coverImageUrl\}/);
   assert.match(code, /Gambar sampul \$\{place\.name\}/);
-  // The image area is ALWAYS rendered — no cover means the neutral dummy
-  // block (decorative category glyph, aria-hidden), never a card without an
-  // image area (MOCKUP §13, replacing the previous ") : null}" fail-closed
-  // render by explicit mockup contract).
-  assert.match(code, /relative h-36 w-full shrink-0 overflow-hidden bg-\[#ece7db\]/);
-  assert.match(code, /text-2xl leading-none">⌂<\/span>/);
-  assert.match(code, /text-\[#b3a88d\]/);
-  // MOCKUP §14: curated badge top-left, DECORATIVE heart top-right (no
-  // favorite feature exists — non-interactive, aria-hidden), real distance
-  // bottom-right and still fail-closed (only with the real fix + canonical
-  // coordinates).
-  assert.match(
-    code,
-    /\{isCurated && \(\s*<span className="absolute left-2 top-2 rounded-full bg-brand-secondary/,
+  // The image area is ALWAYS rendered with a fixed height, so a card without a
+  // cover can never change the card height.
+  assert.match(code, /relative h-\[104px\] w-full shrink-0 overflow-hidden bg-\[#ece7db\] sm:h-\[124px\]/);
+  // MOCKUP §16 closed the "flat icon block" gap: the fallback is now a LOCAL
+  // decorative placeholder photo shipped with the app — not a category glyph,
+  // not a broken image, not a blank fill. It is aria-hidden with an empty alt
+  // so it is never announced as (or mistaken for) a real Place photo.
+  assert.match(code, /src="\/place-cover-placeholder\.svg"/);
+  assert.match(code, /alt=""/);
+  assert.match(code, /aria-hidden\n\s*className="h-full w-full object-cover"/);
+  // ...and the retired flat glyph placeholder is gone.
+  assert.doesNotMatch(code, /text-2xl leading-none">⌂<\/span>/);
+  assert.doesNotMatch(code, /text-\[#b3a88d\]/);
+  // The asset really exists in /public (a missing file would render as a
+  // broken image, which is exactly what this change had to prevent).
+  const placeholder = readFileSync(
+    new URL("../public/place-cover-placeholder.svg", import.meta.url),
+    "utf8",
   );
-  assert.match(code, /absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white\/90/);
-  assert.match(
-    code,
-    /\{distance && \(\s*<span className="absolute bottom-2 right-2 rounded-full/,
-  );
+  assert.match(placeholder, /<svg[\s\S]*<\/svg>/);
+  // No data/DB/Supabase surface may reference the placeholder: it is a purely
+  // visual asset, never a Place field and never a stored URL.
+  assert.doesNotMatch(code, /coverImageUrl: "\/place-cover-placeholder/);
 });
 
-test("MOCKUP 2026-10-01 §16: rating is a 5-slot star row — stars only, never a number", () => {
+test("MOCKUP §14: card overlays are compact and cannot collide at the narrower card width", () => {
+  // Curated badge top-left — a compact ✦ chip with an accessible label instead
+  // of the long text pill, so it can never cover the image. It still renders
+  // ONLY from the canonical curated flag.
+  assert.match(code, /\{isCurated && \(/);
+  assert.match(code, /absolute left-1\.5 top-1\.5 inline-flex h-6 w-6 items-center justify-center rounded-lg bg-brand-secondary/);
+  // Decorative heart top-right (no favorite feature exists — non-interactive).
+  assert.match(code, /absolute right-1\.5 top-1\.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white\/90/);
+  // Real distance bottom-right, still fail-closed (only with the real fix and
+  // canonical coordinates — never a fabricated number).
+  assert.match(code, /\{distance && \(/);
+  assert.match(code, /absolute bottom-1\.5 right-1\.5 inline-flex items-center gap-0\.5 rounded-full bg-brand-ink\/75/);
+});
+
+test("MOCKUP §18: rating is a 5-slot star row — stars only, never a number", () => {
   // Exactly five slots per card...
   assert.match(code, /\[1, 2, 3, 4, 5\]\.map\(\(slot\) => \(/);
   // ...filled ONLY from the canonical engine output (stars field of the
@@ -228,13 +291,31 @@ test("MOCKUP 2026-10-01 §16: rating is a 5-slot star row — stars only, never 
   assert.doesNotMatch(code, /entry\.score|\.score\b/);
 });
 
-test("MOCKUP 2026-10-01 §8/§9: coverage box bottom-left + scale bottom-right follow the ACTIVE radius", () => {
+test("MOCKUP §9/§18: the star gold tone follows the real rating value, never a guess", () => {
+  // The active tone is selected from the SAME stars value that fills the
+  // slots, so a higher real rating simply reads as a deeper gold. There is no
+  // independent, invented scale anywhere.
+  assert.match(
+    code,
+    /slot <= stars \? `singgah-star-active singgah-star-gold-\$\{stars\}` : "singgah-star-empty"/,
+  );
+  // The four gold steps exist for the engine's 1–4 range only.
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  for (const step of [1, 2, 3, 4]) {
+    assert.match(css, new RegExp(`\\.singgah-star-gold-${step} \\{`));
+  }
+  assert.doesNotMatch(css, /\.singgah-star-gold-5 \{/);
+  // Empty slots stay light gray — a Place with no rating claims no value.
+  assert.match(css, /\.singgah-star-empty \{\s*color: rgb\(0 0 0 \/ 0\.18\);/);
+});
+
+test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right follow the ACTIVE radius", () => {
   // Coverage box: white, rounded, icon, and the truthful active radius.
   assert.match(code, /Menampilkan tempat dalam radius \{activeRadiusLabel\} dari lokasi Anda/);
-  assert.match(code, /absolute bottom-6 left-4 z-\[1100\]/);
+  assert.match(code, /absolute bottom-9 left-4 z-\[1100\] flex max-w-\[62%\] items-center gap-2 rounded-xl bg-white/);
   // Scale: bottom-right with the bar; the label mirrors the same active
   // radius ("Tempat Pilihan" = 10 km, per the camera constants).
-  assert.match(code, /absolute bottom-6 right-4 z-\[1100\]/);
+  assert.match(code, /absolute bottom-9 right-4 z-\[1100\] flex flex-col items-end gap-1/);
   assert.match(code, /border-x-2 border-b-2 border-brand-ink\/70/);
   // The label derives from the EXACT preset that owns the camera — the same
   // constants, never an invented state.
@@ -244,7 +325,21 @@ test("MOCKUP 2026-10-01 §8/§9: coverage box bottom-left + scale bottom-right f
   );
 });
 
-test("MOCKUP 2026-10-01 §11: result header keeps title + real-count subtitle + Lihat semua", () => {
+test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome", () => {
+  // The map is full-bleed now, so the topright +/- control would sit under the
+  // search bar. Only the OFFSET moves — position and both buttons stay.
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 158px;/);
+  // ...and the offset is SCOPED to the Home map container, so the Producer
+  // Place location picker (a second Leaflet map with its own default zoom
+  // control) is never affected.
+  const map = stripComments(
+    readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8"),
+  );
+  assert.match(map, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
+});
+
+test("MOCKUP §11: result header keeps title + real-count subtitle + Lihat semua", () => {
   // Subtitle uses the REAL per-layer count (the mockup's "10 tempat pilihan
   // di sekitar Anda" shape) — never a fabricated number.
   assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat di sekitar Anda`/);
@@ -254,15 +349,12 @@ test("MOCKUP 2026-10-01 §11: result header keeps title + real-count subtitle + 
   assert.match(code, /Lihat semua/);
 });
 
-test("MOCKUP 2026-10-01 §12: every result row is a horizontal strip at every viewport", () => {
+test("MOCKUP §12/§19: every result row is a horizontal strip of FIXED-WIDTH card tracks", () => {
   // Baris 1 (curated) — same snap-strip at 360px AND 1280px.
-  assert.match(
-    code,
-    /-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2/,
-  );
+  assert.match(code, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-2/);
   // Baris 2 (Discovery) — the same horizontal pattern (no grid comeback).
   const discoveryRow = code.slice(code.indexOf("{discoveryRowPlaces.length > 0 ? ("));
-  assert.match(discoveryRow, /-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2/);
+  assert.match(discoveryRow, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-2/);
   assert.doesNotMatch(discoveryRow, /grid gap-3 sm:grid-cols-2/);
   // Presentation only: the curated dataset, its order, and the cards are
   // unchanged, and the row still renders nothing when nothing is curated.
@@ -270,9 +362,25 @@ test("MOCKUP 2026-10-01 §12: every result row is a horizontal strip at every vi
     code,
     /\{curatedOnly && curatedListed\.length > 0 && \([\s\S]*?curatedListed\.map\(\(place\) => \(/,
   );
-  assert.match(code, /renderPlaceCard\(place, place\.isCurated\)/);
+  // MOCKUP §12/§19 GAP FIX: every card in BOTH rows sits in an explicit
+  // fixed-width, non-shrinking track. Before this fix the Discovery row
+  // rendered the `w-full` cards straight into the flex strip, so flex-shrink
+  // collapsed them into tall empty vertical stripes — the confirmed root cause
+  // of the "empty pattern" in the actual render. Wrapping both rows is the
+  // presentation-only fix; no data, order, eligibility, or query changes.
+  assert.match(code, /w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/);
+  assert.match(
+    code,
+    /\{discoveryRowPlaces\.map\(\(place\) => \(\s*<div\s*\n\s*key=\{place\.id\}\s*\n\s*className="w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start"\s*\n\s*>\s*\n\s*\{renderPlaceCard\(place, curatedIdSet\.has\(place\.id\)\)\}/,
+  );
+  // No `w-full` card may ever be a direct flex child of a strip again.
+  assert.doesNotMatch(
+    code,
+    /\{discoveryRowPlaces\.map\(\(place\) =>\s*\n?\s*renderPlaceCard/,
+    "Discovery cards must be wrapped in a sized track, never direct flex children",
+  );
   // Card width keeps several cards visible on the smallest viewport.
-  assert.match(code, /w-\[70vw\] max-w-\[300px\] shrink-0 snap-start/);
+  assert.equal((code.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []).length, 2);
   // Only the card strips scroll horizontally; the filter row keeps its
   // no-overflow guarantee.
   const filterRow = code.slice(
@@ -282,18 +390,24 @@ test("MOCKUP 2026-10-01 §12: every result row is a horizontal strip at every vi
   assert.doesNotMatch(filterRow, /overflow-x-auto/);
 });
 
-test("MOCKUP §1 header keeps the logo, nav, and Masuk untouched — spacing only", () => {
+test("MOCKUP §1/§5: the header floats over the map without touching behavior", () => {
   const nav = stripComments(
     readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8"),
   );
-  // Compact header spacing (py-4 -> py-3); the logo, the nav links, and the
-  // Masuk / Daftar entry points are all preserved verbatim.
-  assert.match(nav, /px-5 py-3/);
-  assert.doesNotMatch(nav, /px-5 py-4/);
+  // Opt-in floating variant: presentation only, default OFF so every other
+  // page keeps the existing solid header.
+  assert.match(nav, /floating = false,/);
+  assert.match(nav, /"absolute inset-x-0 top-0 z-\[1200\] border-b-0 bg-transparent"/);
+  assert.match(nav, /"sticky top-0 z-30 border-b border-black\/5 bg-brand-cream\/95 backdrop-blur"/);
+  // Logo lockup, nav, and the Masuk / Daftar entry points are all preserved
+  // verbatim — shape, colors, ratio, tagline, routes, and session probe.
   assert.match(nav, /<BrandLogo height=\{40\} tagline="Temukan cerita di balik tempat" \/>/);
   assert.match(nav, /aria-label="Navigasi utama"/);
   assert.match(nav, />\s*Masuk\s*</);
   assert.match(nav, /href="\/auth\/sign-up"/);
+  assert.match(nav, /href="\/auth"/);
+  // No new menu/tab was introduced for the mockup.
+  assert.equal((nav.match(/<nav aria-label="Navigasi utama"/g) ?? []).length, 1);
 });
 
 test("MOCKUP introduces no rating/review numbers that have no data source", () => {

@@ -132,15 +132,16 @@ test("Producer Place form no longer carries a cover-URL input (media moved to St
 test("Home filter bar is a single row: LIVE leftmost, Tempat Pilihan beside it, distance tabs after", () => {
   const code = stripComments(homePage);
   // The two former bars are merged into ONE grid row (PO 2026-09-26): no
-  // separate primary row and no separate distance row. The row's bottom
-  // margin was tightened (mb-5 -> mb-4) by the 2026-09-30 compact polish;
-  // the single-row grid and the fixed order are unchanged.
-  assert.match(code, /mb-4 grid grid-cols-\[auto_auto_1fr_1fr_1fr\]/);
+  // separate primary row and no separate distance row. MOCKUP §3
+  // (2026-10-01) then turned that row into floating chrome over the full-bleed
+  // map, so its bottom margin became a top margin (mt-2.5); the single-row
+  // grid and the fixed order are unchanged.
+  assert.match(code, /mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\]/);
   assert.equal(code.includes("grid-cols-[auto_1fr]"), false, "old two-row primary bar is gone");
   assert.equal(code.includes("grid-cols-4"), false, "old separate distance bar is gone");
   // Order is locked: LIVE leftmost, Tempat Pilihan directly beside it, then
   // the distance tabs.
-  const filterBar = code.indexOf("mb-4 grid grid-cols-[auto_auto_1fr_1fr_1fr]");
+  const filterBar = code.indexOf("mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr]");
   const liveBtn = code.indexOf("setLiveOnly", filterBar);
   const curatedBtn = code.indexOf("setCuratedOnly(true)", filterBar);
   const distanceBtn = code.indexOf("DISTANCE_FILTERS.map", filterBar);

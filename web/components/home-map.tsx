@@ -804,17 +804,20 @@ export default function HomeMap({
           over React siblings. Without it Leaflet's _initLayout sets only
           position:relative (no z-index) and its big pane z-indexes compete
           directly with the overlays in the frame's stacking context — the
-          root cause of tiles covering the empty-state card on mobile drag. */}
+          root cause of tiles covering the empty-state card on mobile drag.
+          singgah-home-map is a PRESENTATION hook only (MOCKUP §9): it scopes
+          the CSS that nudges Leaflet's +/- stack below the floating Home
+          chrome, so the Producer location picker map is never affected. */}
       <div
         ref={containerRef}
-        className="relative z-0 h-full w-full touch-none"
+        className="relative z-0 h-full w-full touch-none singgah-home-map"
         aria-label="Peta Tempat"
       />
       {/* Map UI overlays ride ABOVE Leaflet's documented z-index ceiling
           (max control z-index = 1000): 1100+ keeps the React layer strictly
           on top in any drag/zoom state.
 
-          MOCKUP §5 (2026-10-01): the right-side control stack reads as ONE
+          MOCKUP §5/§9 (2026-10-01): the right-side control stack reads as ONE
           white rounded column — Leaflet's +/- zoom control (position
           "topright", restyled white in globals.css) sits directly above the
           React Re-center arrow and the labeled "Lokasi Saya" control. The
@@ -822,11 +825,20 @@ export default function HomeMap({
           flow (the same onRequestLocate handler the "Lokasi Saya" control
           uses): no new camera logic, no geolocation change. The dot on the
           labeled control is decorative (aria-hidden) — the accessible name
-          stays on the button. */}
+          stays on the button.
+
+          POSITION (MOCKUP §9): the map is now the full-bleed background of
+          Home, so the controls are pushed DOWN to clear the floating
+          header/search/filter chrome — Leaflet's zoom control ends around
+          226px (see .leaflet-top offset in globals.css), so Re-center sits at
+          232px and the labeled control at 288px. Same controls, same
+          handlers, same size: only the offset moved, so nothing is ever
+          covered by the floating UI and nothing covers the coverage box,
+          the scale, or the Result panel. */}
       <button
         type="button"
         onClick={onRequestLocate}
-        className="absolute right-3 top-[76px] z-[1100] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
+        className="absolute right-3 top-[232px] z-[1100] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
         aria-label="Pusatkan peta ke lokasi saya"
       >
         {/* Navigation arrow (MOCKUP §5 "Re-center") — visual only. */}
@@ -835,7 +847,7 @@ export default function HomeMap({
       <button
         type="button"
         onClick={onRequestLocate}
-        className="absolute right-3 top-[132px] z-[1100] inline-flex w-11 flex-col items-center gap-1 rounded-xl bg-white px-1 py-2 text-[9px] font-bold leading-tight text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
+        className="absolute right-3 top-[288px] z-[1100] inline-flex w-11 flex-col items-center gap-1 rounded-xl bg-white px-1 py-2 text-[9px] font-bold leading-tight text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
         aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
       >
         <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-[#2563eb] ring-2 ring-white" />

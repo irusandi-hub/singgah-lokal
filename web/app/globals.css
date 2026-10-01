@@ -80,6 +80,21 @@ select {
   overflow: hidden;
 }
 
+/* MOCKUP §5/§9 (2026-10-01, full-bleed Home map): the map is now the
+   background field of Home, so Leaflet's own +/- stack is nudged BELOW the
+   floating header / search / filter chrome (~158px) instead of sitting in
+   the top-right corner where the search bar now lives. Only the control
+   OFFSET moves — position "topright", both buttons, and every handler stay
+   exactly as they were (locked by tests/map-current-location.test.ts and
+   tests/home-map-gesture.test.ts).
+
+   SCOPED to .singgah-home-map (the Home map container) on purpose: the
+   Producer Place location picker is a second Leaflet map with its own
+   default zoom control, and this Home-only offset must never move it. */
+.singgah-home-map .leaflet-top.leaflet-right {
+  top: 158px;
+}
+
 /* MOCKUP §6: Current Location reads as the BLUE user marker with a soft
    glow, clearly above the brown/green Place pins. Visual only — the
    geolocation fix, camera, and marker model are untouched. */
@@ -87,8 +102,9 @@ select {
   font-weight: 700;
 }
 
-/* The result panel tucks 20px under the map frame (MOCKUP §10 merge), so
-   the OSM attribution is lifted inside the visible map area. Visual only. */
+/* The Result panel tucks 20px under the map (MOCKUP §10 merge), so the OSM
+   attribution is lifted inside the visible map area and never ends up under
+   the panel. Visual only. */
 .leaflet-control-attribution {
   margin-bottom: 22px;
 }
@@ -181,6 +197,28 @@ select {
 
 .singgah-star-active {
   color: #f0b429;
+}
+
+/* MOCKUP §9/§18 (2026-10-01): the gold tone follows the ACTUAL rating value
+   from the canonical Discovery engine (1–4). A higher real rating reads as a
+   deeper gold — never a stronger "fill" that could imply more than the data
+   says, and never a number or a review count. Values outside the engine's
+   1–4 range (including the "no rating" fallback, 0) keep the neutral base
+   tone. Presentation only; the value itself comes from the server. */
+.singgah-star-gold-1 {
+  color: #f7d070;
+}
+
+.singgah-star-gold-2 {
+  color: #f5c85a;
+}
+
+.singgah-star-gold-3 {
+  color: #f0b429;
+}
+
+.singgah-star-gold-4 {
+  color: #d99b12;
 }
 
 .singgah-star-empty {

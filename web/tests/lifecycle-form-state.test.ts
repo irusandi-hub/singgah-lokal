@@ -78,8 +78,11 @@ test("Marker and user-location updates never recreate the map", () => {
 test("Map gestures stay inside the map container (no page layer behind drag)", () => {
   const mapCode = stripComments(homeMap);
   // relative + z-0 (closed stacking context — Leaflet panes trapped) and
-  // touch-none (map gestures never hijack page scroll/navigation).
-  assert.match(mapCode, /className="relative z-0 h-full w-full touch-none"/);
+  // touch-none (map gestures never hijack page scroll/navigation). The
+  // trailing singgah-home-map class is a presentation hook only: it scopes
+  // the CSS that nudges Leaflet's +/- stack below the floating Home chrome
+  // (MOCKUP §9, 2026-10-01) and changes no gesture behavior.
+  assert.match(mapCode, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
   // One real container, no hidden/stacked map surfaces.
   assert.equal((mapCode.match(/ref=\{containerRef\}/g) ?? []).length, 1);
   assert.doesNotMatch(mapCode, /position:\s*"absolute"[^,]*display:\s*"none"/);

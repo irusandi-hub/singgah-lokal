@@ -415,7 +415,7 @@ export default function HomeDiscovery({
       <VisitedLink
         key={place.id}
         href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
-        className="group flex w-full flex-col overflow-hidden rounded-[18px] border border-black/10 bg-white shadow-sm transition hover:shadow-md"
+        className="group flex h-full w-full flex-col overflow-hidden rounded-[16px] border border-black/10 bg-white shadow-sm transition hover:shadow-md"
         visitedClassName={live ? "border-live/60 bg-[#fdf6f2]" : "border-brand-accent/35 bg-[#faf6ee]"}
       >
         {/* CARD IMAGE — MOCKUP §13: every card carries an image area. When
@@ -423,7 +423,7 @@ export default function HomeDiscovery({
             the mockup composition (visual placeholder only — no data change,
             no invented imagery, and the canonical cover still wins when it
             exists). */}
-        <div className="relative h-36 w-full shrink-0 overflow-hidden bg-[#ece7db] sm:h-40">
+        <div className="relative h-[104px] w-full shrink-0 overflow-hidden bg-[#ece7db] sm:h-[124px]">
           {place.coverImageUrl ? (
             // External producer-supplied image URL; next/image would require
             // host allowlisting that producers cannot configure. Same
@@ -436,15 +436,23 @@ export default function HomeDiscovery({
               loading="lazy"
             />
           ) : (
-            // Dummy visual for the mockup's always-present image area —
-            // decorative, aria-hidden, and derived only from canonical
-            // category text. Nothing is uploaded, stored, or faked as data.
-            <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-[#b3a88d]" aria-hidden>
-              <span className="text-2xl leading-none">⌂</span>
-              <span className="text-[9px] font-bold uppercase tracking-[0.16em]">
-                {place.category}
-              </span>
-            </div>
+            // MOCKUP §16 (2026-10-01): the card image area must ALWAYS look
+            // filled, so a Place without a canonical cover renders the LOCAL
+            // neutral craft/production placeholder photo from
+            // /public/place-cover-placeholder.svg (no icon block, no broken
+            // image, no blank fill). It is PRESENTATION ONLY: a decorative
+            // asset shipped with the app, never a Place photo, never stored,
+            // never written to the database, and it never replaces the
+            // canonical cover above. alt is empty and the element is
+            // aria-hidden so it can never be announced as Place imagery.
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src="/place-cover-placeholder.svg"
+              alt=""
+              aria-hidden
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
           )}
 
           {/* CARD OVERLAYS — MOCKUP §14: curated badge top-left, decorative
@@ -452,8 +460,12 @@ export default function HomeDiscovery({
               fail-closed: it renders ONLY when the real fix and canonical
               Place coordinates both exist — never a fabricated number. */}
           {isCurated && (
-            <span className="absolute left-2 top-2 rounded-full bg-brand-secondary px-2 py-1 text-[10px] font-bold text-white shadow-sm">
-              ✦ Tempat Pilihan
+            <span
+              className="absolute left-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-lg bg-brand-secondary text-[11px] leading-none text-white shadow-sm ring-1 ring-white/50"
+              title="Tempat Pilihan"
+            >
+              <span aria-hidden>✦</span>
+              <span className="sr-only">Tempat Pilihan</span>
             </span>
           )}
           {/* No favorite feature exists in the MVP — the heart is DECORATIVE
@@ -461,12 +473,13 @@ export default function HomeDiscovery({
               It must never read as a saved-state control. */}
           <span
             aria-hidden
-            className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/90 text-sm text-brand-ink shadow-sm"
+            className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-xs leading-none text-brand-ink shadow-sm"
           >
             ♡
           </span>
           {distance && (
-            <span className="absolute bottom-2 right-2 rounded-full bg-brand-ink/70 px-2 py-1 text-[11px] font-bold text-white">
+            <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full bg-brand-ink/75 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+              <span aria-hidden>➤</span>
               {distance}
             </span>
           )}
@@ -478,16 +491,22 @@ export default function HomeDiscovery({
             server); a Place outside the engine (e.g. Live cards) shows five
             empty slots. NEVER a rating number, NEVER a review count — no
             such data exists in this product. */}
-        <div className="flex flex-1 flex-col p-3.5">
-          <h3 className="text-base font-bold leading-tight">{place.name}</h3>
-          <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-black/55">
+        <div className="flex flex-1 flex-col p-2.5">
+          <h3 className="line-clamp-2 text-[13px] font-bold leading-tight">{place.name}</h3>
+          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-black/55">
             {live?.processTitle ?? place.shortDescription}
           </p>
-          <p className="mt-2 flex items-center gap-0.5" aria-hidden>
+          {/* MOCKUP §9/§18: five star slots, always. The active slots take the
+              gold tone OF THE ACTUAL rating value (1→4 from the canonical
+              engine), the empty slots stay light gray, and no rating number
+              or review count is ever rendered — neither exists in the data. */}
+          <p className="mt-1.5 flex items-center gap-px" aria-hidden>
             {[1, 2, 3, 4, 5].map((slot) => (
               <span
                 key={slot}
-                className={`singgah-star ${slot <= stars ? "singgah-star-active" : "singgah-star-empty"}`}
+                className={`singgah-star ${
+                  slot <= stars ? `singgah-star-active singgah-star-gold-${stars}` : "singgah-star-empty"
+                }`}
               >
                 ★
               </span>
@@ -586,85 +605,211 @@ export default function HomeDiscovery({
   };
 
   return (
-    <main className="min-h-screen bg-brand-cream text-brand-ink">
-      {/* Header + auth entry (Masuk / Sign out) + URL-derived active tabs */}
-      <SiteNav />
+    <main className="relative min-h-screen bg-brand-cream text-brand-ink">
+      {/* MAP-FIRST STAGE (MOCKUP §4/§5/§7, 2026-10-01) — the map is now ONE
+          continuous visual field: it starts at the very top of the app and
+          runs down to the edge of the Result panel, and the Header, Search
+          bar, and Filter bar simply FLOAT on top of it. There is no separate
+          background block and no cream gap that would break the composition.
 
-      <section className="mx-auto max-w-6xl px-4 pb-8 pt-3">
-        {/* Search — MOCKUP §2: wide white rounded bar, search icon LEFT and
-            the settings/sliders control icon RIGHT. The right icon is
-            DECORATIVE ONLY (mockup chrome — aria-hidden, non-interactive):
-            no search-settings feature exists, and none is invented. Copy,
-            input, and search behavior untouched (ONE search implementation). */}
-        <div className="relative mb-3">
-          <div className="flex items-center gap-3 rounded-[20px] border border-black/10 bg-white px-4 py-3 shadow-sm">
-            <span className="text-lg" aria-hidden>⌕</span>
-            <input
-              className="w-full bg-transparent text-sm outline-none placeholder:text-black/40"
-              placeholder="Cari tempat, cerita, produksi..."
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              aria-label="Cari tempat, cerita, produksi"
-            />
-            {/* Settings/sliders icon — mockup visual only, never a button. */}
-            <span aria-hidden className="shrink-0 text-lg text-black/45">⚙</span>
-          </div>
+          The stage is a `relative isolate overflow-hidden` stacking context
+          that clips the map; the map itself is `absolute inset-0` at the base
+          layer (z-0), and every floating element rides on the documented
+          OVERLAY_LADDER above Leaflet's ceiling (1000): search + filter +
+          map overlays at 1100, the header at 1200. Tiles can therefore never
+          paint over the chrome, and the chrome never intercepts the map
+          surface itself. Presentation only — camera, markers, filters,
+          search, and handlers are untouched. */}
+      <section className="relative isolate overflow-hidden bg-[#d9dfd2]">
+        {/* Map base layer — full-bleed behind ALL floating chrome. */}
+        <div className="absolute inset-0 z-0">
+          <HomeMap
+            places={mapPlaces}
+            liveByPlaceId={liveByPlaceId}
+            viewerPosition={viewerPosition}
+            locateNonce={locateNonce}
+            onRequestLocate={handleLocatePress}
+            /* ONE deterministic camera preset for every mode (PO,
+               2026-09-29; coverage unified by the product decision of
+               2026-09-30): distance tabs map to their ordered preset radii
+               (1 < 5 < 10 km) and "Tempat Pilihan" frames the SAME 10 km
+               coverage. CAMERA-ONLY — the curated membership (canonical
+               is_curated) and the curated LIST below stay independent of
+               this value. */
+            cameraRadiusMeters={
+              curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
+            }
+            /* Instant-camera rule (PO, 2026-09-30): the camera itself applies
+               with no animation at all, so entering "Tempat Pilihan" is made
+               visually obvious by a SHORT one-shot focus pulse on the
+               EXISTING Current Location pin — no new marker, no map
+               animation. */
+            pulsePinOnPresetChange={curatedOnly}
+            onViewportHasPlaces={handleViewportHasPlaces}
+          />
         </div>
 
-        {/* Home filter bar — ONE row on mobile (PO 2026-09-26, amending the
-            2026-09-20 locked set): LIVE leftmost, "Tempat Pilihan" directly
-            beside it, then the distance tabs (the smallest legacy radius is
-            fully removed). All controls
-            share the row via grid columns — no wrap, no second row, no
-            horizontal overflow at 360 px. Compact text [11px]/padding/gap
-            keeps everything visible on the smallest supported viewport;
-            labels keep the master copy. "Tempat Pilihan" opens ONE curated
-            discovery layer with no category tabs/chips. */}
-        <div className="mb-4 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5 pb-1">
-          <button
-            onClick={() => setLiveOnly((value) => !value)}
-            aria-pressed={liveOnly}
-            className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-2 text-[11px] font-semibold tracking-wide transition sm:px-4 sm:text-xs ${
-              liveOnly
-                ? "bg-live text-white"
-                : "border border-live/40 bg-white text-live"
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-live"}`} />
-            LIVE
-          </button>
-          <button
-            onClick={() => {
-              setCuratedOnly(true);
-              setLiveOnly(false);
-            }}
-            aria-pressed={curatedOnly}
-            className={`whitespace-nowrap rounded-[16px] px-2 py-2 text-[11px] font-bold transition sm:px-4 sm:text-xs ${
-              curatedOnly
-                ? "bg-brand-ink text-white"
-                : "border border-brand-ink/25 bg-white text-brand-ink/70"
-            }`}
-          >
-            Tempat Pilihan
-          </button>
-          {DISTANCE_FILTERS.map((filter) => (
+        {/* Header + auth entry (Masuk / Sign out) + URL-derived active tabs —
+            FLOATING over the map (MOCKUP §1/§5). Presentation only: the
+            header keeps its logo, nav, and auth behavior verbatim. */}
+        <SiteNav floating />
+
+        {/* Search + Filter — floating chrome above the map surface. They stay
+            in the normal flow (no fragile absolute offsets), so the stage
+            height is simply chrome + map area and nothing can overlap. */}
+        <div className="relative z-[1100] mx-auto w-full max-w-6xl px-4">
+          {/* Search — MOCKUP §2: floating white bar, search icon LEFT and the
+              sliders/control icon RIGHT. The right icon is DECORATIVE ONLY
+              (aria-hidden, non-inline, never a button): no search-settings
+              feature exists, and none is invented. Copy, input, and search
+              behavior are untouched (ONE search implementation). */}
+          <div className="mt-[60px] sm:mt-[64px]">
+            <div className="flex items-center gap-2.5 rounded-[20px] border border-black/10 bg-white px-3.5 py-2.5 shadow-[0_2px_10px_rgb(0_0_0/0.10)]">
+              <span className="shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</span>
+              <input
+                className="w-full bg-transparent text-sm outline-none placeholder:text-black/40"
+                placeholder="Cari tempat, cerita, produksi..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                aria-label="Cari tempat, cerita, produksi"
+              />
+              {/* Sliders/control icon (MOCKUP §2) — replaces the previous gear
+                  glyph. Decorative only; it opens nothing. */}
+              <span aria-hidden className="shrink-0 leading-none text-black/45">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0" />
+                  <circle cx="16" cy="7" r="2.2" />
+                  <circle cx="10" cy="12" r="2.2" />
+                  <circle cx="18" cy="17" r="2.2" />
+                </svg>
+              </span>
+            </div>
+          </div>
+
+          {/* Home filter bar — ONE row (PO 2026-09-26; MOCKUP §3): LIVE
+              leftmost, "Tempat Pilihan" directly beside it, then the
+              distance tabs. All controls share the row via grid columns — no
+              wrap, no second row, no page-level horizontal overflow at
+              360 px. Compact text [11px]/padding/gap keeps everything visible
+              on the smallest supported viewport; labels keep the master copy
+              ("10 km+" is master-locked). "Tempat Pilihan" opens ONE curated
+              discovery layer with no category tabs/chips.
+
+              MOCKUP §3 selected state: the active control is BRAND GREEN
+              (bg-brand-primary), the distance tabs keep their white surface,
+              and LIVE keeps its red dot. Selection logic, handlers, and
+              semantics are completely unchanged — only the colors moved. */}
+          <div className="mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5">
             <button
-              key={filter}
-              onClick={() => {
-                setDistanceFilter(filter);
-                setCuratedOnly(false);
-              }}
-              className={`whitespace-nowrap rounded-[16px] px-1 py-2 text-center text-[11px] font-bold transition sm:px-4 sm:text-xs ${
-                distanceFilter === filter && !curatedOnly
-                  ? "bg-brand-accent text-white"
-                  : "border border-black/10 bg-white text-black/65"
+              onClick={() => setLiveOnly((value) => !value)}
+              aria-pressed={liveOnly}
+              className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-sm transition sm:px-3.5 sm:text-xs ${
+                liveOnly
+                  ? "bg-live text-white"
+                  : "border border-live/40 bg-white text-live"
               }`}
             >
-              {filter}
+              <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-live"}`} />
+              LIVE
             </button>
-          ))}
+            <button
+              onClick={() => {
+                setCuratedOnly(true);
+                setLiveOnly(false);
+              }}
+              aria-pressed={curatedOnly}
+              className={`whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
+                curatedOnly
+                  ? "bg-brand-primary text-white"
+                  : "border border-brand-ink/20 bg-white text-brand-ink/70"
+              }`}
+            >
+              Tempat Pilihan
+            </button>
+            {DISTANCE_FILTERS.map((filter) => (
+              <button
+                key={filter}
+                onClick={() => {
+                  setDistanceFilter(filter);
+                  setCuratedOnly(false);
+                }}
+                aria-pressed={distanceFilter === filter && !curatedOnly}
+                className={`whitespace-nowrap rounded-[16px] px-1 py-1.5 text-center text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
+                  distanceFilter === filter && !curatedOnly
+                    ? "bg-brand-primary text-white"
+                    : "border border-black/10 bg-white text-black/65"
+                }`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+
+          {/* MAP AREA (MOCKUP §4/§8) — the visible map window under the floating
+              chrome. The stage height is chrome + this area, so the Result
+              panel always starts inside the initial viewport at every
+              supported size (360 / 390 / 430 / 1280) while the map stays the
+              dominant field. Sized in vh + clamp: never the old flat 64vh,
+              and never so tall that Result is pushed out of sight. The
+              container keeps a valid, non-degenerate Leaflet size. */}
+          <div aria-hidden className="h-[42vh] min-h-[260px] max-h-[520px] sm:h-[44vh]" />
         </div>
 
+        {/* Viewport-aware map empty state (PO, 2026-09-30): shown when the
+            mode's dataset is empty OR when no Place currently sits in the
+            REAL Leaflet viewport — it disappears/appears live as the user
+            pans/zooms between populated and empty areas. Markers only ever
+            come from canonical coordinates; none are invented, and the
+            overlay never pretends a hidden Place is on the map.
+            OVERLAY_LADDER: Leaflet's highest documented z-index is 1000
+            (zoom control); z-[1100] pins this card strictly above every
+            Leaflet pane (tile 200, map pane 400, tooltip 650, control
+            1000) in any drag/zoom state. */}
+        {mapEmptyStateVisible && (
+          <div className="absolute inset-x-6 bottom-24 z-[1100] rounded-2xl bg-white/95 p-4 text-center shadow-lg ring-1 ring-brand-ink/10">
+            <p className="text-sm font-bold">
+              {curatedOnly
+                ? "Belum ada Tempat Pilihan di sekitar area ini"
+                : "Belum ada Tempat Terdaftar di sekitar area ini"}
+            </p>
+            <p className="mt-1 text-xs text-black/55">
+              Geser peta dengan dua jari untuk melihat area lain.
+            </p>
+          </div>
+        )}
+
+        {/* MOCKUP §8: coverage box, bottom-left of the map — white, rounded,
+            compact, with a target icon and the ACTIVE camera radius in the
+            copy (truthful label, never an invented state). */}
+        <div className="absolute bottom-9 left-4 z-[1100] flex max-w-[62%] items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-md ring-1 ring-black/10">
+          <span aria-hidden className="shrink-0 text-sm leading-none text-brand-ink">⌖</span>
+          <p className="text-[11px] font-semibold leading-4 text-brand-ink">
+            Menampilkan tempat dalam radius {activeRadiusLabel} dari lokasi Anda
+          </p>
+        </div>
+
+        {/* MOCKUP §9: scale, bottom-right of the map — the label follows the
+            ACTIVE camera radius (same truthful rule as the coverage box) and
+            the bar is the mockup's scale line. It sits above the OSM
+            attribution so the two never collide. */}
+        <div className="absolute bottom-9 right-4 z-[1100] flex flex-col items-end gap-1">
+          <span className="rounded bg-white/80 px-1 text-[11px] font-bold leading-4 text-brand-ink">
+            {activeRadiusLabel}
+          </span>
+          <span aria-hidden className="block h-0.5 w-14 border-x-2 border-b-2 border-brand-ink/70" />
+        </div>
+
+        {/* Radius/status badge — OVERLAY_LADDER above the Leaflet ceiling. It
+            sits just BELOW the floating filter row so it never overlaps the
+            header, the search bar, or the controls. Color treatment: deep
+            brand green fill keeps the badge readable on light/busy tiles. */}
+        <div className="absolute left-4 top-[152px] z-[1100] rounded-full bg-brand-primary px-3 py-1 text-[11px] font-bold text-white shadow-md ring-1 ring-brand-accent/60 sm:top-[160px]">
+          {liveOnly ? "LIVE • " : ""}
+          {curatedOnly ? "Tempat Pilihan" : distanceFilter}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-4 pb-8">
         {/* "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
             no category chips and no secondary category row — Place
             categories stay internal data, never a Home filter UI. */}
@@ -672,7 +817,7 @@ export default function HomeDiscovery({
         {/* LIVE filter empty state — a clear notice instead of an empty
             screen. Based only on canonical discovery data; no fake Live. */}
         {liveOnly && liveItems.length === 0 && (
-          <div className="mb-5 rounded-2xl border border-live/30 bg-white p-6 text-center shadow-sm">
+          <div className="mt-4 rounded-2xl border border-live/30 bg-white p-6 text-center shadow-sm">
             <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
             <p className="mt-1 text-xs text-black/55">
               Ketika sebuah Tempat memulai Live, proses produksinya otomatis muncul di sini.
@@ -690,7 +835,7 @@ export default function HomeDiscovery({
         {/* LIVE SEKARANG cards — hidden inside the Tempat Pilihan layer
             (the curated layer is discovery of collections, not Live state). */}
         {!curatedOnly && liveCards.length > 0 && (
-          <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {liveCards.map((item) => {
               const place = places.find((candidate) => candidate.id === item.placeId);
               // Distance from the REAL viewer position to canonical Place
@@ -730,99 +875,6 @@ export default function HomeDiscovery({
           </div>
         )}
 
-        {/* Map-first discovery — real interactive Leaflet map (OpenStreetMap).
-            isolate keeps Leaflet panes contained below the UI overlays.
-            MAP-FIRST FRAME (PO, 2026-09-30 UI polish): the map is the primary
-            visual element of Home — ~64vh tall, clamped between ~480px and
-            ~760px, ~24px radius, subtle border, light shadow. This is
-            presentation ONLY: camera values, coverage, marker model, controls,
-            and the overlay z-index ladder are unchanged. The min/max clamp
-            also keeps the map dominant and overflow-free at 360px and at
-            1280px desktop. */}
-        <section className="relative isolate h-[64vh] min-h-[480px] max-h-[760px] overflow-hidden rounded-[24px] border border-black/10 bg-[#d9dfd2] shadow-sm">
-          <HomeMap
-            places={mapPlaces}
-            liveByPlaceId={liveByPlaceId}
-            viewerPosition={viewerPosition}
-            locateNonce={locateNonce}
-            onRequestLocate={handleLocatePress}
-            /* ONE deterministic camera preset for every mode (PO,
-               2026-09-29; coverage unified by the product decision of
-               2026-09-30): distance tabs map to their ordered preset radii
-               (1 < 5 < 10 km) and "Tempat Pilihan" frames the SAME 10 km
-               coverage. CAMERA-ONLY — the curated membership (canonical
-               is_curated) and the curated LIST below stay independent of
-               this value. */
-            cameraRadiusMeters={
-              curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
-            }
-            /* Instant-camera rule (PO, 2026-09-30): the camera itself applies
-               with no animation at all, so entering "Tempat Pilihan" is made
-               visually obvious by a SHORT (~450 ms) one-shot focus pulse on
-               the EXISTING Current Location pin — no new marker, no map
-               animation. */
-            pulsePinOnPresetChange={curatedOnly}
-            onViewportHasPlaces={handleViewportHasPlaces}
-          />
-
-          {/* Viewport-aware map empty state (PO, 2026-09-30): shown when the
-              mode's dataset is empty OR when no Place currently sits in the
-              REAL Leaflet viewport — it disappears/appears live as the user
-              pans/zooms between populated and empty areas. Markers only ever
-              come from canonical coordinates; none are invented, and the
-              overlay never pretends a hidden Place is on the map.
-              OVERLAY_LADDER: Leaflet's highest documented z-index is 1000
-              (zoom control); z-[1100] pins this card strictly above every
-              Leaflet pane (tile 200, map pane 400, tooltip 650, control
-              1000) in any drag/zoom state — the visual fix for the mobile
-              drag bug. */}
-          {mapEmptyStateVisible && (
-            <div className="absolute inset-x-6 top-1/2 z-[1100] -translate-y-1/2 rounded-2xl bg-white/95 p-4 text-center shadow-lg ring-1 ring-brand-ink/10">
-              <p className="text-sm font-bold">
-                {curatedOnly
-                  ? "Belum ada Tempat Pilihan di sekitar area ini"
-                  : "Belum ada Tempat Terdaftar di sekitar area ini"}
-              </p>
-              <p className="mt-1 text-xs text-black/55">
-                Geser peta dengan dua jari untuk melihat area lain.
-              </p>
-            </div>
-          )}
-
-          {/* MOCKUP §8: coverage box, bottom-left of the map — white,
-              rounded, compact, with a target icon and the ACTIVE camera
-              radius in the copy (truthful label, never an invented state). */}
-          <div className="absolute bottom-6 left-4 z-[1100] flex max-w-[70%] items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-md ring-1 ring-black/10">
-            <span aria-hidden className="shrink-0 text-sm text-brand-ink">⌖</span>
-            <p className="text-[11px] font-semibold leading-4 text-brand-ink">
-              Menampilkan tempat dalam radius {activeRadiusLabel} dari lokasi Anda
-            </p>
-          </div>
-
-          {/* MOCKUP §9: scale, bottom-right of the map — the label follows
-              the ACTIVE camera radius (same truthful rule as the coverage
-              box) and the line is the mockup's scale bar. React overlay at
-              z-[1100] (above Leaflet's control ceiling), static composition. */}
-          <div className="absolute bottom-6 right-4 z-[1100] flex flex-col items-end gap-1">
-            <span className="text-[11px] font-bold text-brand-ink">{activeRadiusLabel}</span>
-            <span aria-hidden className="block h-0.5 w-16 border-x-2 border-b-2 border-brand-ink/70" />
-          </div>
-
-          {/* Radius/status badge — OVERLAY_LADDER above the Leaflet ceiling.
-              Color treatment (PO 2026-09-26): deep brand green fill keeps
-              the badge readable on light/busy tiles; the accent ring
-              reiterates the brand hierarchy without moving anything. */}
-          <div className="absolute left-5 top-5 z-[1100] rounded-full bg-brand-primary px-4 py-2 text-xs font-bold text-white shadow-lg ring-2 ring-brand-accent/70">
-            {liveOnly ? "LIVE • " : ""}
-            {curatedOnly ? "Tempat Pilihan" : distanceFilter}
-          </div>
-
-          {/* No Place card/preview may cover the map surface (PO decision,
-              2026-09-25): the map frame stays fully visible from top to
-              bottom. Place detail stays in the proximity results section
-              below the map. */}
-        </section>
-
         {/* Place results — the DISCOVERY PLACE row is always built from the
             canonical `discovery.discovery` result (eligible Places only, in
             engine order), narrowed by search and the list radius. Inside the
@@ -841,7 +893,7 @@ export default function HomeDiscovery({
             tests/map-stacking.test.ts). The count line doubles as the
             mockup's "{n} tempat pilihan di sekitar Anda" subtitle. */}
         <section
-          className="relative z-10 -mt-5 rounded-t-[24px] bg-brand-cream pb-2 pt-3"
+          className="relative z-10 -mt-5 rounded-t-[24px] bg-brand-cream pb-2 pt-3 shadow-[0_-6px_18px_rgb(0_0_0/0.06)]"
           aria-labelledby="place-results-heading"
         >
           {/* Panel handle — small centered bar, mockup §10 (visual only). */}
@@ -850,15 +902,15 @@ export default function HomeDiscovery({
             className="mx-auto mb-2.5 block h-1.5 w-12 rounded-full bg-black/15"
           />
           <div className="mb-3 flex items-end justify-between gap-3 px-1">
-            <div>
-              <h2 id="place-results-heading" className="text-xl font-bold">
+            <div className="min-w-0">
+              <h2 id="place-results-heading" className="text-lg font-bold leading-tight">
                 {searchQuery.trim()
                   ? `Hasil untuk “${searchQuery.trim()}”`
                   : curatedOnly
                     ? "Tempat Pilihan"
                     : "Discovery Place"}
               </h2>
-              <p className="mt-1 text-xs font-semibold text-black/50">
+              <p className="mt-1 text-[11px] font-semibold text-black/50">
                 {/* Count semantics (PO, 2026-09-30): each layer counts ONLY
                     its own rows — the Tempat Pilihan header counts the
                     curated selection (Baris 1), never the Discovery Place row
@@ -891,9 +943,12 @@ export default function HomeDiscovery({
               <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
                 Tempat Pilihan
               </p>
-              <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+              <div className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2">
                 {curatedListed.map((place) => (
-                  <div key={place.id} className="w-[70vw] max-w-[300px] shrink-0 snap-start">
+                  <div
+                    key={place.id}
+                    className="w-[46vw] max-w-[200px] min-w-[132px] shrink-0 snap-start"
+                  >
                     {renderPlaceCard(place, place.isCurated)}
                   </div>
                 ))}
@@ -914,15 +969,32 @@ export default function HomeDiscovery({
               )}
               {/* MOCKUP §12 (2026-10-01): horizontal strip at EVERY viewport
                   — the same snap-strip pattern as Baris 1. Same dataset, same
-                  order, same cards (presentation only). */}
-              <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
-                {discoveryRowPlaces.map((place) =>
-                  renderPlaceCard(place, curatedIdSet.has(place.id)),
-                )}
+                  order, same cards (presentation only).
+
+                  GAP FIX (2026-10-01, §19 root cause): the Discovery row used
+                  to render the cards DIRECTLY into the flex strip. Each card is
+                  `w-full`, so every one of them claimed the full strip width
+                  and flex-shrank it down to a few pixels — which is exactly the
+                  "tall empty vertical stripes" pattern seen in the actual
+                  render (no skeleton, no loading state, no empty pattern: the
+                  cards themselves were collapsing). Wrapping each card in the
+                  SAME fixed-width, non-shrinking track as the curated row is
+                  the presentation-only fix: no data, order, eligibility, or
+                  query changes, but the cards now render at their intended
+                  size and several are visible side by side. */}
+              <div className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2">
+                {discoveryRowPlaces.map((place) => (
+                  <div
+                    key={place.id}
+                    className="w-[46vw] max-w-[200px] min-w-[132px] shrink-0 snap-start"
+                  >
+                    {renderPlaceCard(place, curatedIdSet.has(place.id))}
+                  </div>
+                ))}
               </div>
             </>
           ) : (
-            <div className="rounded-2xl border border-black/10 bg-white p-6 text-center">
+            <div className="rounded-2xl border border-black/10 bg-white px-4 py-5 text-center">
               {searchQuery.trim() ? (
                 <>
                   <p className="text-sm font-bold">Tempat tidak ditemukan</p>

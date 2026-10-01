@@ -74,8 +74,13 @@ test("default mode headings and row are the canonical Discovery layer", () => {
   // The default results heading is "Discovery Place" (engine-backed layer).
   assert.match(code, /curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Discovery Place"/);
   // The default row renders the canonical engine list (no re-sort client-side):
-  // the ranked engine order from the server view model.
-  assert.match(code, /discoveryRowPlaces\.map\(\(place\) =>\s*renderPlaceCard/);
+  // the ranked engine order from the server view model. Each entry is wrapped
+  // in a fixed-width flex track (MOCKUP §12/§19, 2026-10-01) so the card can
+  // never collapse inside the horizontal strip — the wrapper is presentation
+  // only and the row still renders exactly one card per canonical entry, in
+  // engine order.
+  assert.match(code, /discoveryRowPlaces\.map\(\(place\) => \(/);
+  assert.match(code, /renderPlaceCard\(place, curatedIdSet\.has\(place\.id\)\)/);
   // Home never recomputes the score: no engine scoring import exists here.
   assert.equal(code.includes("computeDiscoveryScore"), false);
   assert.equal(code.includes("discoveryStarsForScore"), false);
@@ -103,7 +108,8 @@ test("curated mode renders TWO ordered rows: Tempat Pilihan (Baris 1) then Disco
   const row1 = code.indexOf("curatedOnly && curatedListed.length > 0");
   const row2 = code.indexOf("discoveryRowPlaces.length > 0");
   assert.ok(row1 >= 0 && row2 > row1, "Baris 1 (Tempat Pilihan) renders before Baris 2 (Discovery Place)");
-  assert.match(code, /discoveryRowPlaces\.map\(\(place\) =>\s*renderPlaceCard/);
+  assert.match(code, /discoveryRowPlaces\.map\(\(place\) => \(/);
+  assert.match(code, /renderPlaceCard\(place, curatedIdSet\.has\(place\.id\)\)/);
 });
 
 test("curated membership is published + isCurated only, read through the canonical repository", () => {
@@ -138,9 +144,14 @@ test("overlap: a curated Place that is also engine-eligible appears in BOTH rows
   assert.equal(vm.curatedPlaceIds.includes("place-a"), true);
   assert.equal(vm.discovery.some((entry) => entry.placeId === "place-a"), true);
   assert.equal(vm.discovery.some((entry) => entry.placeId === "place-b"), true);
-  // The Discovery row marks overlap cards with the ✦ Tempat Pilihan marker.
+  // The Discovery row marks overlap cards with the ✦ Tempat Pilihan badge.
+  // MOCKUP §14/§17 (2026-10-01): the badge is now a compact ✦ chip with an
+  // accessible "Tempat Pilihan" label instead of the long text pill, so it
+  // never covers the image at the narrower card width. The canonical source of
+  // the flag is unchanged.
   assert.match(code, /curatedIdSet\.has\(place\.id\)/);
-  assert.match(code, /✦ Tempat Pilihan/);
+  assert.match(code, /<span aria-hidden>✦<\/span>/);
+  assert.match(code, /<span className="sr-only">Tempat Pilihan<\/span>/);
 });
 
 // ---------------------------------------------------------------------------
