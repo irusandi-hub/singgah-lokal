@@ -76,7 +76,7 @@ export default function SiteNav({ authenticated: authenticatedProp }: SiteNavPro
 
   return (
     <header className="sticky top-0 z-30 border-b border-black/5 bg-brand-cream/95 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-4">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-3">
         <div className="min-w-0">
           <Link href="/" className="flex min-h-[40px] items-center" aria-label="SINGGAH LOKAL — beranda">
             <BrandLogo height={40} tagline="Temukan cerita di balik tempat" />

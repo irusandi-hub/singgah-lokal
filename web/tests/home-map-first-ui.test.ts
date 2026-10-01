@@ -112,16 +112,24 @@ test("filter controls use a ~16px radius rather than full pills", () => {
 });
 
 test("filter row has no horizontal-overflow escape hatch", () => {
-  // The five-column grid IS the 360px guarantee; an overflow scroller would
-  // silently replace it with a scrollable row.
-  assert.doesNotMatch(code, /overflow-x-auto/);
-  assert.doesNotMatch(code, /overflow-x-scroll/);
+  // The five-column grid IS the 360px guarantee for the FILTER row; an
+  // overflow scroller there would silently replace it with a scrolling row.
+  // (The curated RESULT strip is a different, mockup-mandated case — see the
+  // dedicated horizontal-scroll test below.)
+  const filterRow = code.slice(
+    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
+    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]") + 2600,
+  );
+  assert.doesNotMatch(filterRow, /overflow-x-auto/);
+  assert.doesNotMatch(filterRow, /overflow-x-scroll/);
 });
 
 test("result cards use an ~18px radius with a subtle border and light shadow", () => {
+  // overflow-hidden is what lets the mockup's cover image sit flush with the
+  // card's rounded corners instead of spilling out of them.
   assert.match(
     code,
-    /group flex flex-col rounded-\[18px\] border border-black\/10 bg-white p-4 shadow-sm transition hover:shadow-md/,
+    /group flex flex-col overflow-hidden rounded-\[18px\] border border-black\/10 bg-white shadow-sm transition hover:shadow-md/,
   );
   // The map-first rhythm: results sit closer to the map than before.
   assert.match(code, /<section className="mt-5" aria-labelledby="place-results-heading">/);
@@ -154,6 +162,74 @@ test("polish adds no gradients and no heavy shadow utility", () => {
   assert.doesNotMatch(code, /bg-linear-to-/);
   assert.doesNotMatch(code, /shadow-xl/);
   assert.doesNotMatch(code, /shadow-2xl/);
+});
+
+test("MOCKUP §2 search keeps its icon, copy, and single compact surface", () => {
+  assert.match(
+    code,
+    /flex items-center gap-3 rounded-\[20px\] border border-black\/10 bg-white px-4 py-3 shadow-sm/,
+  );
+  // The existing search glyph and the exact placeholder copy are preserved.
+  assert.match(code, /placeholder="Cari tempat, cerita, produksi\.\.\."/);
+});
+
+test("MOCKUP §8 result card is image-dominant with distance + curated overlay", () => {
+  // Canonical cover image (places.cover_image_url, migration 0018) — the
+  // same field the Place detail hero already renders. No new query.
+  assert.match(code, /\{place\.coverImageUrl \? \(/);
+  assert.match(code, /src=\{place\.coverImageUrl\}/);
+  assert.match(code, /Gambar sampul \$\{place\.name\}/);
+  // Fail-closed: no cover URL means no image block and no invented
+  // placeholder imagery.
+  assert.match(code, /\) : null\}/);
+  // The real distance is overlaid on the cover — and still only when the
+  // real fix and canonical coordinates both exist.
+  assert.match(
+    code,
+    /\{distance && \(\s*<span className="absolute bottom-2 right-2 rounded-full/,
+  );
+  // The curated badge moved onto the cover too (shown once, not twice).
+  assert.match(
+    code,
+    /\{isCurated && \(\s*<span className="absolute left-2 top-2 rounded-full bg-brand-secondary/,
+  );
+});
+
+test("MOCKUP §8 curated row is a horizontal strip on mobile and a grid from sm up", () => {
+  assert.match(
+    code,
+    /-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-x-visible sm:px-0 sm:pb-0 lg:grid-cols-3/,
+  );
+  // Presentation only: the curated dataset, its order, and the cards are
+  // unchanged, and the row still renders nothing when nothing is curated.
+  assert.match(
+    code,
+    /\{curatedOnly && curatedListed\.length > 0 && \([\s\S]*?curatedListed\.map\(\(place\) => \(/,
+  );
+  assert.match(code, /renderPlaceCard\(place, place\.isCurated\)/);
+});
+
+test("MOCKUP §1 header keeps the logo, nav, and Masuk untouched — spacing only", () => {
+  const nav = stripComments(
+    readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8"),
+  );
+  // Compact header spacing (py-4 -> py-3); the logo, the nav links, and the
+  // Masuk / Daftar entry points are all preserved verbatim.
+  assert.match(nav, /px-5 py-3/);
+  assert.doesNotMatch(nav, /px-5 py-4/);
+  assert.match(nav, /<BrandLogo height=\{40\} tagline="Temukan cerita di balik tempat" \/>/);
+  assert.match(nav, /aria-label="Navigasi utama"/);
+  assert.match(nav, />\s*Masuk\s*</);
+  assert.match(nav, /href="\/auth\/sign-up"/);
+});
+
+test("MOCKUP introduces no rating/review numbers that have no data source", () => {
+  // The mockup card shows a rating ("4.8 (120)"), but this product has NO
+  // rating subsystem (MASTER_LIVE_TECH §1.1/§10, DISCOVERY_CONTRACT §1).
+  // Rendering one would be inventing data, so the card must not grow a
+  // numeric rating or a review count.
+  assert.doesNotMatch(code, /averageRating|ratingCount|reviewCount/);
+  assert.doesNotMatch(code, /\/\s*\d+\.\d+\s*\((\d+|number)\)/);
 });
 
 test("polish leaves the functional camera / coverage / marker wiring untouched", () => {

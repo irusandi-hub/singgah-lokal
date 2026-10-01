@@ -388,33 +388,67 @@ export default function HomeDiscovery({
       <VisitedLink
         key={place.id}
         href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
-        className="group flex flex-col rounded-[18px] border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
+        className="group flex flex-col overflow-hidden rounded-[18px] border border-black/10 bg-white shadow-sm transition hover:shadow-md"
         visitedClassName={live ? "border-live/60 bg-[#fdf6f2]" : "border-brand-accent/35 bg-[#faf6ee]"}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-accent">
-              {place.category}
-            </p>
-            <h3 className="mt-1 text-base font-semibold">{place.name}</h3>
+        {/* Cover image (MOCKUP §8: "image dominan", overlay jarak + badge
+            curated). Canonical Place data only — `places.cover_image_url`
+            (migration 0018), the SAME field the Place detail hero already
+            renders. No new query, no invented imagery: when a Place has no
+            cover URL the image block simply does not render and the card
+            keeps its text-only layout (fail-closed, never a placeholder). */}
+        {place.coverImageUrl ? (
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element -- external
+                producer-supplied image URL; next/image would require host
+                allowlisting that producers cannot configure. Same rationale
+                and pattern as the Place detail hero. */}
+            <img
+              src={place.coverImageUrl}
+              alt={`Gambar sampul ${place.name}`}
+              className="h-36 w-full object-cover sm:h-44"
+              loading="lazy"
+            />
+            {/* Real viewer distance, overlaid on the cover exactly like the
+                mockup. Still fail-closed: it renders ONLY when the real fix
+                and canonical Place coordinates both exist. */}
+            {distance && (
+              <span className="absolute bottom-2 right-2 rounded-full bg-brand-ink/70 px-2 py-1 text-[11px] font-bold text-white">
+                {distance}
+              </span>
+            )}
+            {isCurated && (
+              <span className="absolute left-2 top-2 rounded-full bg-brand-secondary px-2 py-1 text-[10px] font-bold text-white">
+                ✦ Tempat Pilihan
+              </span>
+            )}
           </div>
-          {live ? (
-            <span className="shrink-0 rounded-full bg-live px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-white">
-              LIVE
-            </span>
-          ) : (
-            // Mockup affordance: a right-side chevron invites the
-            // tap-through to the Place (visual only — navigation
-            // already happens through the card link).
-            <span
-              aria-hidden
-              className="shrink-0 self-center text-lg font-bold text-brand-accent transition group-hover:translate-x-0.5"
-            >
-              ›
-            </span>
-          )}
-        </div>
+        ) : null}
 
+        <div className="flex flex-1 flex-col p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-accent">
+                {place.category}
+              </p>
+              <h3 className="mt-1 text-base font-semibold">{place.name}</h3>
+            </div>
+            {live ? (
+              <span className="shrink-0 rounded-full bg-live px-2 py-1 text-[9px] font-semibold uppercase tracking-wider text-white">
+                LIVE
+              </span>
+            ) : (
+              // Mockup affordance: a right-side chevron invites the
+              // tap-through to the Place (visual only — navigation
+              // already happens through the card link).
+              <span
+                aria-hidden
+                className="shrink-0 self-center text-lg font-bold text-brand-accent transition group-hover:translate-x-0.5"
+              >
+                ›
+              </span>
+            )}
+          </div>
         <p className="mt-2 text-xs text-black/55">
           {place.area} · {place.type === "production" ? "Produksi" : "Kegiatan"}
         </p>
@@ -427,14 +461,11 @@ export default function HomeDiscovery({
             when the real viewer fix exists) + Direction from the
             Place's canonical coordinates. No operating-hours
             status: the Place model has no operating-hours field
-            yet (DATA GAP), and no hours are ever invented. */}
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          {isCurated && (
-            <span className="text-[10px] font-bold text-brand-ink/70">✦ Tempat Pilihan</span>
-          )}
-          {distance && (
-            <span className="text-[11px] font-bold text-brand-accent">{distance}</span>
-          )}
+            yet (DATA GAP), and no hours are ever invented.
+            MOCKUP §8 moved the distance and the curated badge ONTO the cover
+            image, so they are no longer repeated here — the same canonical
+            values, shown once, and still only when they really exist. */}
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           {/* Follow control (User → Place follow foundation for
               MASTER 10 notifications): server-derived state only
               — Follow / Following, signed-out → /auth. Sits next
@@ -511,6 +542,7 @@ export default function HomeDiscovery({
               )}
             </>
           )}
+        </div>
         </div>
       </VisitedLink>
     );
@@ -768,14 +800,22 @@ export default function HomeDiscovery({
 
           {/* Baris 1 (curated layer only): the Admin-promoted selection.
               Renders nothing when no Place is curated — the curated layer
-              never substitutes the full published set. */}
+              never substitutes the full published set.
+              MOCKUP §8: on mobile the curated cards are a horizontal strip
+              ("Horizontal scroll pada mobile"); from sm up they stay a grid.
+              This is PRESENTATION only — same curatedListed dataset, same
+              order, same cards, nothing added or removed. */}
           {curatedOnly && curatedListed.length > 0 && (
             <>
               <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
                 Tempat Pilihan
               </p>
-              <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {curatedListed.map((place) => renderPlaceCard(place, place.isCurated))}
+              <div className="mb-5 -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:mx-0 sm:grid sm:grid-cols-2 sm:overflow-x-visible sm:px-0 sm:pb-0 lg:grid-cols-3">
+                {curatedListed.map((place) => (
+                  <div key={place.id} className="w-[72vw] shrink-0 snap-start sm:w-auto">
+                    {renderPlaceCard(place, place.isCurated)}
+                  </div>
+                ))}
               </div>
             </>
           )}
