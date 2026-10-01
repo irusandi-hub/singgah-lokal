@@ -10,21 +10,20 @@ Jangan mengulang pekerjaan yang sudah selesai.
 Selalu audit `main` + Supabase DEV sebelum perubahan baru.
 
 ## 2. CURRENT MAIN
-Latest verified commit:
-`9ce303c` — `fix: make the visible Leaflet viewport the Home map coverage source`
-(branch `fix/home-map-viewport-coverage`, PR against `main`; `main` itself is
+Latest verified commit on the Home/Map branch:
+`fix/home-map-viewport-coverage` (PR #2, against `main`; `main` itself is
 `2803adb` = merge of PR #1)
 
 NOTE: repository history was squashed into a single root commit; earlier SHAs
 such as `aa6cc74...` and `34561997...` are no longer reachable. Audit always
 re-reads current `main`, never assumes prior SHAs.
 
-Verified 2026-10-01: web test suite 719/721 — the two failures are
-`tests/discovery-aggregate.test.ts` and `tests/discovery-dev-dataset.test.ts`
-dying with SIGKILL inside this 1-CPU/2 GB sandbox (identical on the unmodified
-baseline, so environment, not regression); `discovery-dev-dataset` passes 5/5
-when run alone. Lint 0 errors / 7 warnings (baseline); `tsc --noEmit` clean;
-`next build` (28/28).
+Verified 2026-10-01 (PR #2): web test suite 721/722. The single failure is
+`tests/discovery-aggregate.test.ts` dying with SIGKILL under whole-suite memory
+pressure in this 1-CPU/2 GB sandbox; run alone it passes 8/8 (and
+`tests/discovery-dev-dataset.test.ts` passes 5/5 alone and in the full run), so
+it is an environment limit, not a regression. Lint 0 errors / 7 warnings
+(baseline); `tsc --noEmit` clean; `next build` (28/28).
 
 ## 3. LIVE IMPLEMENTATION STATUS
 
@@ -341,7 +340,15 @@ from `places.is_curated` only) still holds.
    `pointer-events-auto`, and the empty state, coverage box, scale, and badge
    are click-through too. The map container keeps `touch-none`
    (`touch-action: none`), so a pinch on the map zooms the map, never the page.
-5. **User marker layer:** a dedicated `singgah-user-pane` (z-index 640) puts the
+5. **Container resize:** the Home map box is sized in `vh`/`clamp`, so it can
+   change size WITHOUT a `window` resize event (mobile browser chrome
+   collapsing, orientation change, on-screen keyboard). Leaflet only
+   re-measures on window resize, which used to leave the reported viewport —
+   and therefore both Place rows — narrowed to an area that was no longer on
+   screen. A `ResizeObserver` on the map container now re-measures and
+   re-reports on a real size change (guarded, no polling, disconnected in
+   teardown, no new global listener).
+6. **User marker layer:** a dedicated `singgah-user-pane` (z-index 640) puts the
    Current Location disc above every Place pin (markerPane 600) and below
    tooltips (650). Previously the disc rendered in overlayPane (400) and could
    disappear behind Place pins.

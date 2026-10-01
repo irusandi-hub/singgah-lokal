@@ -134,11 +134,11 @@ test("4. Resize, readiness, and dataset changes all refresh the viewport state",
     mapCode,
     /const onWindowResize = \(\) => \{\n\s*const map = mapRef\.current;\n\s*if \(map\) invalidate\(map\);\n\s*evaluateViewportStatus\(\);\n\s*reportViewportBounds\(\);\n\s*\};/,
   );
-  // Readiness reports the FIRST viewport: the rows never wait for a gesture.
   assert.match(
     mapCode,
     /if \(mapRef\.current === map\) \{\n\s*invalidate\(map\);\n\s*evaluateViewportStatus\(\);\n\s*reportViewportBounds\(\);\n\s*\}/,
   );
+  // Readiness reports the FIRST viewport: the rows never wait for a gesture.
   // The marker rebuild re-evaluates the empty-state status against the new set
   // (a dataset change can empty or fill the viewport without a camera move).
   assert.match(mapCode, /markerPositionsRef\.current = markerPositions;/);
@@ -147,6 +147,33 @@ test("4. Resize, readiness, and dataset changes all refresh the viewport state",
   // re-renders the rows.
   assert.match(pageCode, /if \(isSameViewport\(lastViewportRef\.current, viewport\)\) return;/);
   assert.match(pageCode, /onViewportChange=\{handleViewportChange\}/);
+  // CONTAINER resize without a window resize event (the Home map box is
+  // vh-based, so mobile browser chrome / orientation / keyboard change it):
+  // a ResizeObserver re-measures and re-reports, guarded on a REAL size
+  // change, and is always disconnected in teardown.
+  assert.match(mapCode, /typeof ResizeObserver === "function"/);
+  assert.match(mapCode, /new ResizeObserver\(\(\) => \{[\s\S]*?invalidate\(map\);[\s\S]*?reportViewportBounds\(\);[\s\S]*?\}\)/);
+  assert.match(mapCode, /if \(previous && previous\.x === size\.x && previous\.y === size\.y\) return;/);
+  assert.match(mapCode, /resizeObserver\.observe\(containerRef\.current\);/);
+  assert.match(mapCode, /resizeObserver\?\.disconnect\(\);/);
+  // It adds no global listener and no polling loop.
+  assert.equal((mapCode.match(/window\.addEventListener\(/g) ?? []).length, 1, "only the resize listener");
+  assert.equal((mapCode.match(/setInterval\(/g) ?? []).length, 0);
+});
+
+test("4b. Before the first viewport report the canonical result still renders", () => {
+  // Leaflet has not reported yet (map not ready, or its box not measured):
+  // `null` narrows nothing except coordinate-less Places, so the first paint
+  // can never show a wrongly empty list.
+  const places = [place("jakarta", -6.2, 106.8), place("bandung", -7.0, 107.6), place("no-coords", null, null)];
+  assert.deepEqual(narrowToViewport(places, null).map((item) => item.id), ["jakarta", "bandung"]);
+  // ...and once the report arrives the same Places narrow to the visible area.
+  assert.deepEqual(narrowToViewport(places, JAKARTA).map((item) => item.id), ["jakarta"]);
+  // The overlay stays hidden until the map has reported: the readiness gate is
+  // the same `viewportReported` flag.
+  assert.match(pageCode, /const \[viewportReported, setViewportReported\] = useState\(false\);/);
+  assert.match(pageCode, /viewportReported && !viewportHasPlaces/);
+  assert.equal(/viewportReported \|\|/.test(pageCode), false, "an unreported viewport must never show the empty state");
 });
 
 // ---------------------------------------------------------------------------

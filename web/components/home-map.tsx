@@ -238,6 +238,9 @@ export default function HomeMap({
   // same bounds twice (no re-render storms).
   const onViewportChangeRef = useRef<((viewport: MapViewport) => void) | null>(null);
   const lastViewportRef = useRef<MapViewport | null>(null);
+  // Last measured Leaflet size — the container-resize guard (a change that
+  // does not actually change the measured size must not re-report).
+  const measuredSizeRef = useRef<{ x: number; y: number } | null>(null);
 
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -564,6 +567,30 @@ export default function HomeMap({
       evaluateViewportStatus();
       reportViewportBounds();
     };
+
+    // CONTAINER RESIZE (2026-10-01): the Home map box is sized in vh/clamp,
+    // so it can change size WITHOUT a window resize event — the mobile
+    // browser chrome collapsing, an orientation change, or the on-screen
+    // keyboard. Leaflet only re-measures on window resize, which would leave
+    // the reported viewport (and therefore the Place rows) narrowed to an area
+    // that is no longer on screen. A ResizeObserver re-measures and re-reports
+    // whenever the CONTAINER itself changes, and only when the measured size
+    // really changed. It adds no global listener and no polling.
+    const resizeObserver =
+      typeof ResizeObserver === "function" && containerRef.current
+        ? new ResizeObserver(() => {
+            const map = mapRef.current;
+            if (!map) return;
+            const size = map.getSize();
+            const previous = measuredSizeRef.current;
+            if (previous && previous.x === size.x && previous.y === size.y) return;
+            measuredSizeRef.current = { x: size.x, y: size.y };
+            invalidate(map);
+            evaluateViewportStatus();
+            reportViewportBounds();
+          })
+        : null;
+    if (resizeObserver && containerRef.current) resizeObserver.observe(containerRef.current);
     window.addEventListener("resize", onWindowResize);
 
     return () => {
@@ -573,6 +600,7 @@ export default function HomeMap({
       if (locatePulseTimerRef.current !== null) clearTimeout(locatePulseTimerRef.current);
       locatePulseTimerRef.current = null;
       window.removeEventListener("resize", onWindowResize);
+      resizeObserver?.disconnect();
       const container = containerRef.current;
       if (container) {
         container.dataset.singgahMap = "";
