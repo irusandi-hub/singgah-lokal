@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { CURRENT_LOCATION_CAMERA_RADIUS_M } from "@/lib/live/ui";
+import { CURRENT_LOCATION_CAMERA_RADIUS_M, shouldReportViewportStatus } from "@/lib/live/ui";
 
 /**
  * Real interactive map for Home discovery.
@@ -199,7 +199,12 @@ export default function HomeMap({
   // status (dedup — no re-render storms during gestures).
   const onViewportHasPlacesRef = useRef<((hasPlaces: boolean) => void) | null>(null);
   const markerPositionsRef = useRef<[number, number][]>([]);
-  const lastViewportHasPlacesRef = useRef(false);
+  // `null` = NOTHING REPORTED YET (bug fix 2026-10-01). It used to start at
+  // `false`, which made the first evaluation a no-op whenever the viewport
+  // really was empty — the Home overlay then stayed hidden until the user
+  // panned or zoomed. The first report must always happen, INCLUDING an
+  // empty viewport; afterwards the value dedupes as before.
+  const lastViewportHasPlacesRef = useRef<boolean | null>(null);
 
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -240,9 +245,11 @@ export default function HomeMap({
     const hasPlaces = markerPositionsRef.current.some(([lat, lng]) =>
       bounds.contains([lat, lng]),
     );
-    // Report ONLY on change — dedupes the burst of moveend/zoomend events a
-    // gesture/flight can emit and prevents re-render storms.
-    if (hasPlaces !== lastViewportHasPlacesRef.current) {
+    // The FIRST evaluation always reports (even when empty — see the sentinel
+    // above); after that, ONLY on change, which dedupes the burst of
+    // moveend/zoomend events a gesture/flight can emit and prevents re-render
+    // storms.
+    if (shouldReportViewportStatus(lastViewportHasPlacesRef.current, hasPlaces)) {
       lastViewportHasPlacesRef.current = hasPlaces;
       report(hasPlaces);
     }
