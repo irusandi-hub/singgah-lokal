@@ -388,7 +388,7 @@ export default function HomeDiscovery({
       <VisitedLink
         key={place.id}
         href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
-        className="group flex flex-col rounded-2xl border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
+        className="group flex flex-col rounded-[18px] border border-black/10 bg-white p-4 shadow-sm transition hover:shadow-md"
         visitedClassName={live ? "border-live/60 bg-[#fdf6f2]" : "border-brand-accent/35 bg-[#faf6ee]"}
       >
         <div className="flex items-start justify-between gap-3">
@@ -521,10 +521,12 @@ export default function HomeDiscovery({
       {/* Header + auth entry (Masuk / Sign out) + URL-derived active tabs */}
       <SiteNav />
 
-      <section className="mx-auto max-w-6xl px-4 pb-10 pt-4">
-        {/* Search */}
-        <div className="relative mb-4">
-          <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-white px-4 py-4 shadow-sm">
+      <section className="mx-auto max-w-6xl px-4 pb-8 pt-3">
+        {/* Search — compact surface (PO, 2026-09-30 map-first polish):
+            ~20px radius, tighter vertical padding, subtle border and the
+            existing light shadow. Copy, input, and behavior untouched. */}
+        <div className="relative mb-3">
+          <div className="flex items-center gap-3 rounded-[20px] border border-black/10 bg-white px-4 py-3 shadow-sm">
             <span className="text-lg">⌕</span>
             <input
               className="w-full bg-transparent text-sm outline-none placeholder:text-black/40"
@@ -545,11 +547,11 @@ export default function HomeDiscovery({
             keeps everything visible on the smallest supported viewport;
             labels keep the master copy. "Tempat Pilihan" opens ONE curated
             discovery layer with no category tabs/chips. */}
-        <div className="mb-5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5 pb-1">
+        <div className="mb-4 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5 pb-1">
           <button
             onClick={() => setLiveOnly((value) => !value)}
             aria-pressed={liveOnly}
-            className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-full px-2 py-2 text-[11px] font-semibold tracking-wide transition sm:px-4 sm:text-xs ${
+            className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-2 text-[11px] font-semibold tracking-wide transition sm:px-4 sm:text-xs ${
               liveOnly
                 ? "bg-live text-white"
                 : "border border-live/40 bg-white text-live"
@@ -564,7 +566,7 @@ export default function HomeDiscovery({
               setLiveOnly(false);
             }}
             aria-pressed={curatedOnly}
-            className={`whitespace-nowrap rounded-full px-2 py-2 text-[11px] font-bold transition sm:px-4 sm:text-xs ${
+            className={`whitespace-nowrap rounded-[16px] px-2 py-2 text-[11px] font-bold transition sm:px-4 sm:text-xs ${
               curatedOnly
                 ? "bg-brand-ink text-white"
                 : "border border-brand-ink/25 bg-white text-brand-ink/70"
@@ -579,7 +581,7 @@ export default function HomeDiscovery({
                 setDistanceFilter(filter);
                 setCuratedOnly(false);
               }}
-              className={`whitespace-nowrap rounded-full px-1 py-2 text-center text-[11px] font-bold transition sm:px-4 sm:text-xs ${
+              className={`whitespace-nowrap rounded-[16px] px-1 py-2 text-center text-[11px] font-bold transition sm:px-4 sm:text-xs ${
                 distanceFilter === filter && !curatedOnly
                   ? "bg-brand-accent text-white"
                   : "border border-black/10 bg-white text-black/65"
@@ -656,8 +658,15 @@ export default function HomeDiscovery({
         )}
 
         {/* Map-first discovery — real interactive Leaflet map (OpenStreetMap).
-            isolate keeps Leaflet panes contained below the UI overlays. */}
-        <section className="relative isolate h-[58vh] min-h-[430px] overflow-hidden rounded-[28px] border border-black/10 bg-[#d9dfd2] shadow-sm">
+            isolate keeps Leaflet panes contained below the UI overlays.
+            MAP-FIRST FRAME (PO, 2026-09-30 UI polish): the map is the primary
+            visual element of Home — ~64vh tall, clamped between ~480px and
+            ~760px, ~24px radius, subtle border, light shadow. This is
+            presentation ONLY: camera values, coverage, marker model, controls,
+            and the overlay z-index ladder are unchanged. The min/max clamp
+            also keeps the map dominant and overflow-free at 360px and at
+            1280px desktop. */}
+        <section className="relative isolate h-[64vh] min-h-[480px] max-h-[760px] overflow-hidden rounded-[24px] border border-black/10 bg-[#d9dfd2] shadow-sm">
           <HomeMap
             places={mapPlaces}
             liveByPlaceId={liveByPlaceId}
@@ -730,7 +739,9 @@ export default function HomeDiscovery({
             other mode renders that single canonical row. No layer ever
             deduplicates the other: a Place in both layers appears in both
             rows (OVERLAP rule). */}
-        <section className="mt-6" aria-labelledby="place-results-heading">
+        {/* Results sit closer to the map (map-first rhythm) — spacing only,
+            no content, data, or ordering change. */}
+        <section className="mt-5" aria-labelledby="place-results-heading">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">

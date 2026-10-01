@@ -111,10 +111,13 @@ test("No legacy low overlay z-index survives inside the map frame", () => {
 
 test("Map frame remains the single clipping boundary; no masking workaround", () => {
   const pageCode = stripComments(homeDiscovery);
-  // Frame: positioned, isolated, clipped, rounded.
+  // Frame: positioned, isolated, clipped, rounded. The frame GEOMETRY was
+  // polished on 2026-09-30 (map-first: h-[64vh] clamped by min-h-[480px] /
+  // max-h-[760px], ~24px radius) — the architectural requirement that makes
+  // this the single clipping boundary is unchanged, so only the numbers move.
   assert.match(
     pageCode,
-    /relative isolate h-\[58vh\] min-h-\[430px\] overflow-hidden rounded-\[28px\]/,
+    /relative isolate h-\[64vh\] min-h-\[480px\] max-h-\[760px\] overflow-hidden rounded-\[24px\]/,
   );
   const mapCode = stripComments(homeMap);
   // No pseudo/masking workaround and no drag disabling to hide the bug.
