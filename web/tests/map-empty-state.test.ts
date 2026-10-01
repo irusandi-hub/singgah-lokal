@@ -78,8 +78,14 @@ test("Evaluation reads the REAL Leaflet viewport over canonical marker positions
 
 test("Initial state: the first status is computed when the map is ready — no user move required", () => {
   // The readiness timer (invalidateSize settle) performs the first
-  // evaluation, so Leaflet readiness alone decides the initial overlay.
-  assert.match(mapCode, /if \(mapRef\.current === map\) \{\n\s*invalidate\(map\);\n\s*evaluateViewportStatus\(\);\n\s*\}/);
+  // evaluation, so Leaflet readiness alone decides the initial overlay. It
+  // also reports the FIRST real viewport there, so the Home rows follow the
+  // visible area without waiting for a gesture (product decision,
+  // 2026-10-01).
+  assert.match(
+    mapCode,
+    /if \(mapRef\.current === map\) \{\n\s*invalidate\(map\);\n\s*evaluateViewportStatus\(\);\n\s*reportViewportBounds\(\);\n\s*\}/,
+  );
 });
 
 test("The reported-status sentinel starts unreported (null), never false", () => {
@@ -115,7 +121,10 @@ test("Marker-set rebuilds and resizes re-evaluate the viewport status", () => {
   // The empty-set early return also reports (dataset emptied → overlay).
   assert.match(mapCode, /if \(currentPlaces\.length === 0\) \{\n\s*evaluateViewportStatus\(\);\n\s*return;\n\s*\}/);
   // Resize/invalidateSize can change the visible area without a map move.
-  assert.match(mapCode, /const onWindowResize = \(\) => \{\n\s*const map = mapRef\.current;\n\s*if \(map\) invalidate\(map\);\n\s*evaluateViewportStatus\(\);\n\s*\};/);
+  assert.match(
+    mapCode,
+    /const onWindowResize = \(\) => \{\n\s*const map = mapRef\.current;\n\s*if \(map\) invalidate\(map\);\n\s*evaluateViewportStatus\(\);\n\s*reportViewportBounds\(\);\n\s*\};/,
+  );
 });
 
 test("Reports are deduped and the overlay flips exactly when visibility flips", () => {

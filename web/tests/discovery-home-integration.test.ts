@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { buildDiscoveryViewModel } from "../lib/discovery/view-model";
-import { CURATED_MAP_COVERAGE_RADIUS_M, distanceMeters } from "../lib/live/ui";
+import { narrowToViewport, type MapViewport } from "../lib/live/ui";
 import type { DiscoveryPlaceInput } from "../lib/discovery/scoring";
 
 /**
@@ -304,14 +304,33 @@ test("P0: a published but ineligible Place cannot reach the Discovery Place row"
 });
 
 test("P0: the Discovery row can never widen the canonical id set", () => {
-  // Search and the radius gate are the only narrowing steps; neither can add
+  // Search and the viewport gate are the only narrowing steps; neither can add
   // an id that the engine did not rank. A rank is presentation only.
+  // (SUPERSEDED 2026-10-01: the radius gate became the real-viewport gate;
+  // both are filter-only steps, so the invariant is unchanged.)
   const code = stripComments(home);
   const row = code.slice(code.indexOf("const discoveryRowPlaces"), code.indexOf("const curatedListed"));
   const filtering = row.split("return").slice(1).join("return");
-  assert.match(filtering, /\.filter\(/, "only filter steps, no re-mapping from a wider source");
+  assert.match(
+    filtering,
+    /narrowToViewport\(canonical, mapViewport\)/,
+    "only filter steps, no re-mapping from a wider source",
+  );
   assert.doesNotMatch(row, /listedPlaces/);
   assert.doesNotMatch(row, /places\.filter/);
+  // Executable proof that the viewport gate can only REMOVE canonical entries,
+  // never add or re-order one.
+  const canonical = [
+    { id: "a", latitude: -6.2, longitude: 106.8 },
+    { id: "b", latitude: -6.25, longitude: 106.8 },
+    { id: "c", latitude: -7.5, longitude: 107.9 },
+  ];
+  const viewport: MapViewport = { north: -6.1, south: -6.3, east: 106.9, west: 106.7 };
+  assert.deepEqual(
+    narrowToViewport(canonical, viewport).map((place) => place.id),
+    ["a", "b"],
+    "canonical order preserved, only the out-of-viewport Place removed",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -330,8 +349,14 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
   // Curated row and count both follow the empty set. The header counts ONLY
   // the curated selection (PO fix, 2026-09-30): the Discovery Place row is
   // never summed into the Tempat Pilihan counter, and normal modes keep the
+  // Discovery Place count. The curated row is narrowed by the REAL visible
+  // viewport (product decision, 2026-10-01) on top of that membership set.
+  // never summed into the Tempat Pilihan counter, and normal modes keep the
   // Discovery Place count.
-  assert.match(code, /const curatedListed = useMemo\(\s*\(\) => visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
+  assert.match(
+    code,
+    /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), mapViewport\)/,
+  );
   // The header count stays per-layer (PO fix, 2026-09-30) — copy now follows
   // MOCKUP 2026-10-01 §11 ("… tempat pilihan di sekitar Anda"), same numbers.
   assert.match(
@@ -341,12 +366,17 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
   assert.doesNotMatch(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
 });
 
-test("P0: curated map coverage is an EXECUTABLE 10 km rule, independent of membership", () => {
-  // Behavioural proof of the curated MAP rule with real geometry and the
-  // real constant: a curated Place is always on the curated map (membership),
-  // an ordinary Place joins it ONLY inside the 10 km coverage around the real
-  // fix, and neither fact changes curated membership or the curated list.
-  const viewer = { lat: -6.2, lng: 106.8166 };
+test("P0: curated map coverage is the REAL VISIBLE VIEWPORT, independent of membership", () => {
+  // Behavioural proof of the curated MAP rule with real geometry: a curated
+  // Place is on the curated map (canonical membership), an ordinary Place
+  // joins it ONLY while it sits inside the visible viewport, and neither fact
+  // changes curated membership or the curated list.
+  //
+  // SUPERSEDED (product decision, 2026-10-01): the fixed 10 km coverage
+  // radius around the Current Location is retired — the Leaflet viewport is
+  // the coverage source, so the same Places change membership on screen when
+  // the user pans instead of when a radius preset is chosen.
+  const viewport: MapViewport = { north: -6.1, south: -6.3, east: 106.9, west: 106.7 };
   const curatedPlace = { ...makeInput("curated-a").place, latitude: -6.2, longitude: 106.8166 };
   const insideOrdinary = { ...makeInput("ordinary-inside").place, latitude: -6.25, longitude: 106.8166 };
   const outsideOrdinary = { ...makeInput("ordinary-outside").place, latitude: -6.6, longitude: 106.8166 };
@@ -354,16 +384,22 @@ test("P0: curated map coverage is an EXECUTABLE 10 km rule, independent of membe
   const curatedIdSet = new Set(["curated-a"]);
 
   const curatedListed = published.filter((place) => curatedIdSet.has(place.id));
-  const coverage = published.filter(
-    (place) =>
-      !curatedIdSet.has(place.id) &&
-      distanceMeters(viewer, { lat: place.latitude, lng: place.longitude }) <=
-        CURATED_MAP_COVERAGE_RADIUS_M,
+  const coverage = narrowToViewport(
+    published.filter((place) => !curatedIdSet.has(place.id)),
+    viewport,
   );
   const mapIds = [...curatedListed, ...coverage].map((place) => place.id);
   assert.deepEqual(curatedListed.map((place) => place.id), ["curated-a"], "list stays curated-only");
-  assert.deepEqual(coverage.map((place) => place.id), ["ordinary-inside"], "ordinary Places join the map only inside coverage");
-  assert.deepEqual(mapIds, ["curated-a", "ordinary-inside"], "curated + ordinary-in-coverage on the curated map");
+  assert.deepEqual(coverage.map((place) => place.id), ["ordinary-inside"], "ordinary Places join the map only inside the viewport");
+  assert.deepEqual(mapIds, ["curated-a", "ordinary-inside"], "curated + ordinary-in-viewport on the curated map");
+  // Panning the viewport (no data, no preset change) is what adds or removes
+  // the ordinary Place from the curated MAP — never a radius preset.
+  const pannedAway: MapViewport = { north: -6.1, south: -6.3, east: 106.75, west: 106.7 };
+  assert.deepEqual(
+    narrowToViewport([insideOrdinary], pannedAway).map((place) => place.id),
+    [],
+    "panning away removes the ordinary Place from the map dataset",
+  );
   // The ordinary Place that only appears on the map is NOT curated and does
   // not enter the curated list — and Discovery is not consulted for either.
   assert.equal(curatedIdSet.has("ordinary-inside"), false);
@@ -403,17 +439,20 @@ test("P0: the curated MAP shows curated + ordinary Places in coverage, the curat
   const visible = code.slice(code.indexOf("const visiblePlaces"), code.indexOf("const listedPlaces"));
   assert.match(visible, /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);\s*\}/);
   // ...the curated LIST reads that membership and nothing else...
-  assert.match(code, /const curatedListed = useMemo\(\s*\(\) => visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
+  assert.match(
+    code,
+    /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), mapViewport\)/,
+  );
   // ...and the extra MAP-only source is explicitly the NON-curated remainder,
   // bounded by the 10 km coverage around the REAL fix.
   const coverage = code.slice(code.indexOf("const curatedCoveragePlaces"), code.indexOf("const mapPlaces"));
   assert.match(coverage, /if \(!curatedOnly\) return \[\];/);
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
-  assert.match(coverage, /distanceMeters\(viewerPosition, \{ lat: place\.latitude, lng: place\.longitude \}\) <=\s*CURATED_MAP_COVERAGE_RADIUS_M/);
-  // No fallback coordinate: without a real fix there is no coverage to
-  // measure, so every published Place with coordinates is shown (display
-  // only — membership and the curated list are unchanged).
-  assert.match(coverage, /if \(!viewerPosition\) return nonCurated;/);
+  // SUPERSEDED (product decision, 2026-10-01): the 10 km coverage radius and
+  // the `!viewerPosition` fallback are retired — the extra map source is now
+  // the ordinary remainder INSIDE THE REAL VISIBLE VIEWPORT.
+  assert.match(coverage, /return narrowToViewport\(nonCurated, mapViewport\);/);
+  assert.doesNotMatch(coverage, /distanceMeters\(|viewerPosition|CURATED_MAP_COVERAGE_RADIUS_M/);
   // The map dataset is curated + coverage places, deduplicated, coordinates
   // fail-closed, and each Place carries its OWN curated flag for the marker.
   const mapDataset = code.slice(code.indexOf("const mapPlaces"), code.indexOf("const mapEmptyStateVisible"));
@@ -442,7 +481,7 @@ test("P0: ordinary coverage Places never leak into the curated list or its count
   // The curated row, its counter, and the map-only coverage source are three
   // separate statements: the coverage Places exist ONLY inside mapPlaces.
   const curatedListSlice = code.slice(code.indexOf("const curatedListed"), code.indexOf("const curatedCoveragePlaces"));
-  assert.doesNotMatch(curatedListSlice, /curatedCoveragePlaces|CURATED_MAP_COVERAGE_RADIUS_M|viewerPosition/);
+  assert.doesNotMatch(curatedListSlice, /curatedCoveragePlaces|CURATED_MAP_COVERAGE_RADIUS_M/);
   assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`/);
   // The coverage memo is referenced by exactly ONE consumer — the map dataset.
   const uses = code.match(/curatedCoveragePlaces/g) ?? [];

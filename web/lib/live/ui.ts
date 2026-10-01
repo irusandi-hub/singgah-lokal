@@ -101,14 +101,19 @@ export function shouldReportViewportStatus(last: boolean | null, hasPlaces: bool
 }
 
 /**
- * Distance LIST-filter semantics (MASTER_LIVE_POLICY §9 amended §12.5,
- * MASTER_LIVE_TECH §9) — the Place LIST below the map keeps its existing
- * proximity contract:
+ * Distance radius mapping (MASTER_LIVE_POLICY §12.5, MASTER_LIVE_TECH §9) —
+ * the locked radius VALUES behind the Home distance tabs.
+ *
+ * SUPERSEDED as a Home list gate (product decision, 2026-10-01): the Home
+ * Place rows and the map markers are now narrowed by the REAL Leaflet
+ * viewport (see MapViewport / narrowToViewport), so 1 km / 5 km / 10 km+ no
+ * longer decide which Places are listed. The tab radii remain locked as the
+ * CAMERA presets (CAMERA_PRESET_RADIUS_M) and this mapping stays the single
+ * declaration of those radius values:
  * - Bounded radii match Places whose canonical lat/lng is within the radius;
  *   "10 km+" is unbounded.
  * - A Place without canonical coordinates stays visible only under the
  *   unbounded filter — bounded radii never hide results by assumption.
- * The MAP camera does not use this mapping — see CAMERA_PRESET_RADIUS_M.
  */
 export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
   "1 km": 1000,
@@ -126,27 +131,74 @@ export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
 export const CURATED_CAMERA_RADIUS_M = 10_000;
 
 /**
- * "Tempat Pilihan" MAP-DATASET coverage (PO, 2026-09-30): on the curated map
- * the normal, NON-curated published Places shown are exactly those within
- * this radius of the real Current Location. This is a DATASET/COVERAGE value,
- * deliberately NOT a filter: it never changes curated membership (canonical
- * `places.is_curated` only), never adds a Place to the curated LIST, and is
- * never used as a Discovery signal. With no real Current Location fix there
- * is no coverage to measure, so the curated map shows every published Place
- * with canonical coordinates (display only — membership is unchanged).
+ * VIEWPORT AS THE GEOGRAPHIC COVERAGE SOURCE (product decision, 2026-10-01).
+ *
+ * The Leaflet viewport — the area the user can actually SEE — is the ONE
+ * geographic coverage source for the Home map markers and for the Discovery
+ * Place row + the "Tempat Pilihan" row. A fixed radius preset (1 km / 5 km /
+ * 10 km+) is a CAMERA frame only; it can no longer decide which Places are
+ * listed. Viewport narrowing can only REMOVE an entry from the canonical
+ * result: it never adds a Place, never re-orders one, and never makes an
+ * ineligible Place eligible.
+ *
+ * `MapViewport` is the plain, serializable shape the map reports (Leaflet's
+ * LatLngBounds, flattened — no Leaflet type crosses this boundary, so the
+ * rule stays unit-testable in plain Node).
  */
-export const CURATED_MAP_COVERAGE_RADIUS_M = 10_000;
+export type MapViewport = { north: number; south: number; east: number; west: number };
 
 /**
- * "Lokasi Saya" CURRENT-LOCATION camera coverage (PO, 2026-09-29; amended by
- * the product decision of 2026-09-30): the EXPLICIT "Lokasi Saya" action
- * centers on the REAL browser fix and frames the SAME 10 km coverage as the
- * "10 km+" tab and "Tempat Pilihan". It is a CAMERA-ONLY value for that ONE
- * action: it never filters the map dataset, never replaces the 1 km / 5 km /
- * 10 km+ LIST filters, never changes the selected distance tab, is not a
- * Discovery or curated signal, and never invents a position.
+ * Bounds equality — the report dedup. Panning inside one degree changes
+ * nothing visible in the list, and a fresh object identity on every
+ * moveend would re-render the Home rows for no reason. Equality is exact on
+ * purpose: Leaflet reports stable values for a settled viewport, and any real
+ * change must propagate.
  */
-export const CURRENT_LOCATION_CAMERA_RADIUS_M = 10_000;
+export function isSameViewport(a: MapViewport | null, b: MapViewport | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.north === b.north && a.south === b.south && a.east === b.east && a.west === b.west;
+}
+
+/**
+ * Is a canonical coordinate inside the reported viewport?
+ *
+ * - Fail-closed on non-finite coordinates: a Place without real coordinates
+ *   is never inside a viewport, never gets a marker, and never gets a
+ *   position invented for it.
+ * - Antimeridian-safe: when the viewport wraps (west > east — panning across
+ *   the ±180 line, which Leaflet can report), longitude membership becomes
+ *   ">= west OR <= east" instead of a broken empty range.
+ */
+export function isWithinViewport(viewport: MapViewport, latitude: number, longitude: number): boolean {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+  if (latitude < viewport.south || latitude > viewport.north) return false;
+  return viewport.west <= viewport.east
+    ? longitude >= viewport.west && longitude <= viewport.east
+    : longitude >= viewport.west || longitude <= viewport.east;
+}
+
+/**
+ * Narrow a canonical, ordered result to the visible viewport. The input
+ * order is preserved exactly (canonical ranking order is never re-sorted),
+ * and a Place is only ever removed, never added.
+ *
+ * A viewport that has not been reported yet (`null`) narrows NOTHING: before
+ * Leaflet is ready the full canonical result still renders, so the first
+ * paint can never show an empty list. A Place without canonical coordinates
+ * is dropped regardless — it has no position to be visible at.
+ */
+export function narrowToViewport<T extends { latitude: number | null; longitude: number | null }>(
+  places: readonly T[],
+  viewport: MapViewport | null,
+): T[] {
+  if (viewport === null) return places.filter((place) => place.latitude !== null && place.longitude !== null);
+  return places.filter(
+    (place) =>
+      place.latitude !== null &&
+      place.longitude !== null &&
+      isWithinViewport(viewport, place.latitude, place.longitude),
+  );
+}
 
 /**
  * Distance-tab CAMERA presets (PO, 2026-09-29 — amending the "10 km+ is
@@ -155,7 +207,9 @@ export const CURRENT_LOCATION_CAMERA_RADIUS_M = 10_000;
  * camera mechanism — the map frame covers this radius around the real Current
  * Location. The distance-tab radii stay strictly ordered
  * 1 km < 5 km < 10 km+, so the derived zoom levels are strictly ordered the
- * opposite way — independent of the current zoom. "Tempat Pilihan" and
+ * opposite way — independent of the current zoom. Choosing a tab moves the
+ * CAMERA only: it never filters the map dataset or the Place rows, which
+ * follow the viewport (product decision, 2026-10-01). "Tempat Pilihan" and
  * "Lokasi Saya" deliberately share the widest 10 km coverage, so their zoom
  * matches the "10 km+" tab by construction. CAMERA-ONLY values: they never
  * filter the map dataset (the Place-list proximity gate keeps its own mapping
