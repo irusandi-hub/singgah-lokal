@@ -91,6 +91,18 @@ type HomeMapProps = {
    */
   cameraRadiusMeters?: number | null;
   /**
+   * ACTIVE SEARCH CENTER (bug fix 2026-10-02): the ONE coordinate the radius
+   * preset frames — the searched city while a city search is active, otherwise
+   * the real Current Location fix.
+   *
+   * The preset used to hardcode `viewerPosition`, so choosing 1 km → 5 km
+   * while a city was searched dragged the camera back to the device and left
+   * the searched center owning nothing. This prop is resolved upstream by
+   * `resolveActiveCenter`, so this component never has to re-derive the mode.
+   * null = no usable center at all, in which case NO camera move is invented.
+   */
+  cameraCenter?: { lat: number; lng: number } | null;
+  /**
    * LOCATION SEARCH center (PO 2026-10-02): the canonical coordinate pair
    * returned by the server-only geocoder. When it changes, the camera moves
    * there INSTANTLY (animate: false — same rule as the preset mechanism, no
@@ -212,6 +224,7 @@ export default function HomeMap({
   locateNonce,
   onRequestLocate,
   cameraRadiusMeters = null,
+  cameraCenter = null,
   searchCenter = null,
   searchNonce = 0,
   pulsePinOnPresetChange = false,
@@ -648,18 +661,26 @@ export default function HomeMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Camera anchor: Current Location is the map's center. EVERY mode is a
-  // cameraRadiusMeters preset (distance tabs from CAMERA_PRESET_RADIUS_M,
-  // "Tempat Pilihan" = curated 50 km): a new preset ALWAYS refocuses
-  // deterministically through the one radiusZoom mechanism — zoom is derived
-  // from the preset radius, never from the current zoom, and the frame is
-  // ALWAYS bounded to that preset (never fit to the marker list). Manual
-  // pan/zoom wins between choices (latch re-arms on each new preset choice).
-  // Without a preset (no Home mode produces this) the one-shot focus on the
-  // real fix keeps its behavior; markers never drive the viewport.
+  // Camera anchor: the ACTIVE SEARCH CENTER is the map's center — the searched
+  // city while a city search is active, otherwise the real Current Location fix
+  // (bug fix 2026-10-02; previously the preset hardcoded the device fix, so a
+  // radius change during a city search silently discarded the searched center).
+  // EVERY mode is a cameraRadiusMeters preset (distance tabs from
+  // CAMERA_PRESET_RADIUS_M, "Tempat Pilihan" = curated 50 km): a new preset
+  // ALWAYS refocuses deterministically through the one radiusZoom mechanism —
+  // zoom is derived from the preset radius, never from the current zoom, and
+  // the frame is ALWAYS bounded to that preset (never fit to the marker list).
+  // Manual pan/zoom wins between choices (latch re-arms on each new preset
+  // choice). Without a preset (no Home mode produces this) the one-shot focus
+  // on the real fix keeps its behavior; markers never drive the viewport.
+  //
+  // The center is derived once per run and re-derived when it changes, so the
+  // effect re-arms for a new city exactly as it does for a fresh device fix.
+  const cameraCenterKey = cameraCenter ? `${cameraCenter.lat},${cameraCenter.lng}` : "";
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map || !viewerPosition) return;
+    const anchor = cameraCenter ?? viewerPosition;
+    if (!ready || !map || !anchor) return;
     if (userInteractedRef.current && lastRadiusRef.current === cameraRadiusMeters) return;
 
     const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters;
@@ -677,10 +698,10 @@ export default function HomeMap({
       // instead (instant-camera rule, PO 2026-09-30).
       if (cameraRadiusMeters !== null) {
         if (radiusChanged) userInteractedRef.current = false;
-        const zoom = await radiusZoom(map, viewerPosition, cameraRadiusMeters);
+        const zoom = await radiusZoom(map, anchor, cameraRadiusMeters);
         if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
         programmaticMoveRef.current = true;
-        map.setView([viewerPosition.lat, viewerPosition.lng], Math.max(2, zoom), { animate: false });
+        map.setView([anchor.lat, anchor.lng], Math.max(2, zoom), { animate: false });
         if (radiusChanged && pulsePinOnPresetChange) triggerLocatePulse();
         return;
       }
@@ -689,14 +710,14 @@ export default function HomeMap({
       // re-center afterwards.
       if (!autoFocusedRef.current) {
         autoFocusedRef.current = true;
-        focusUser(map, viewerPosition);
+        focusUser(map, anchor);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [ready, viewerPositionKey, cameraRadiusMeters, viewerPosition, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);
+  }, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);
 
   // Render/update the user marker from the real geolocation fix. Camera
   // decisions live in the anchor effect above.

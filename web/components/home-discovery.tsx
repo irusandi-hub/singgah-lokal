@@ -14,13 +14,16 @@ import {
   CURATED_RESULTS_ANCHOR_ID,
   DISCOVERY_RESULTS_ANCHOR_ID,
   DISTANCE_FILTERS,
+  acceptSearchResponse,
   activateCuratedFilter,
   buildDirectionsUrl,
+  clearCitySearch,
   distanceMeters,
   formatDistance,
   isSameViewport,
   liveDurationLabel,
   narrowToViewport,
+  resolveActiveCenter,
   resolveResultsAnchorId,
   stopNestedCardAction,
   toggleLiveFilter,
@@ -218,14 +221,31 @@ export default function HomeDiscovery({
   // earlier request can never overwrite a newer center (last-write-wins by
   // the query the user actually typed, not by arrival order).
   const activeSearchRef = useRef<string>("");
+  // EPOCH guard (bug fix 2026-10-02): the string guard above cannot see a
+  // response that was superseded by a LATER INTENT rather than a newer query
+  // — pressing "Lokasi Saya" after "Riyadh" was typed leaves the text
+  // unchanged, so the string guard would happily let the late Riyadh answer
+  // drag the map and the rows back. Every intent change (new search, cleared
+  // input, "Lokasi Saya") bumps the epoch, and a response carrying an older
+  // epoch is dropped on arrival.
+  const searchEpochRef = useRef(0);
+  // Leaflet's own bounds for the search-recentered camera supersede the
+  // synthetic ±0.05° bridge box. Releasing the latch on a NEW answer makes
+  // coverage follow the real viewport again (so panning after a search works)
+  // without a flash of the pre-search area in between.
+  const resetViewportLatch = useCallback(() => {
+    lastViewportRef.current = null;
+    setMapViewport(null);
+  }, []);
 
   const runSearch = useCallback(async (query: string) => {
     const trimmed = query.trim();
     if (!trimmed) {
-      setSearchQuery("");
-      setSearchPending(false);
-      setSearchError(null);
-      setSearchCenter(null);
+      const cleared = clearCitySearch();
+      setSearchQuery(cleared.query);
+      setSearchPending(cleared.pending);
+      setSearchError(cleared.error);
+      setSearchCenter(cleared.center);
       activeSearchRef.current = "";
       return;
     }
@@ -236,6 +256,18 @@ export default function HomeDiscovery({
     setSearchError(null);
     setSearchCenter(null);
 
+    // Captured BEFORE the request goes out: a response is only allowed to
+    // write state if no newer intent (new query, cleared input, "Lokasi
+    // Saya") replaced this one in the meantime.
+    const requestEpoch = searchEpochRef.current;
+    const isCurrent = () =>
+      acceptSearchResponse({
+        requestEpoch,
+        currentEpoch: searchEpochRef.current,
+        submitted: trimmed,
+        activeQuery: activeSearchRef.current,
+      });
+
     try {
       // The provider endpoint is server-only; the browser calls our own
       // route, which validates the query and returns one canonical center.
@@ -243,6 +275,7 @@ export default function HomeDiscovery({
         headers: { Accept: "application/json" },
       });
       if (activeSearchRef.current !== trimmed) return;
+      if (!isCurrent()) return;
       if (response.status === 404) {
         setSearchPending(false);
         setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
@@ -257,6 +290,7 @@ export default function HomeDiscovery({
       }
       const result = (await response.json()) as { latitude?: number; longitude?: number };
       if (activeSearchRef.current !== trimmed) return;
+      if (!isCurrent()) return;
       const latitude = Number(result.latitude);
       const longitude = Number(result.longitude);
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
@@ -267,8 +301,12 @@ export default function HomeDiscovery({
       }
       setSearchPending(false);
       setSearchCenter({ lat: latitude, lng: longitude });
+      // The real Leaflet bounds for this new center supersede the synthetic
+      // bridge box; the map reports them on the next moveend.
+      resetViewportLatch();
     } catch {
       if (activeSearchRef.current !== trimmed) return;
+      if (!isCurrent()) return;
       setSearchPending(false);
       setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
       setSearchCenter(null);
@@ -278,7 +316,7 @@ export default function HomeDiscovery({
       // overwrite a later center.
       setSearchNonce((nonce) => nonce + 1);
     }
-  }, []);
+  }, [resetViewportLatch]);
 
   useEffect(() => {
     if (debounceTimerRef.current !== null) {
@@ -316,26 +354,61 @@ export default function HomeDiscovery({
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
     if (value.trim()) return;
+    // Clearing the input is a real intent change: it must also invalidate a
+    // response still in flight, or the old city would land right after the
+    // user emptied the box.
+    searchEpochRef.current += 1;
     activeSearchRef.current = "";
-    setSearchPending(false);
-    setSearchError(null);
-    setSearchCenter(null);
+    const cleared = clearCitySearch();
+    setSearchPending(cleared.pending);
+    setSearchError(cleared.error);
+    setSearchCenter(cleared.center);
   }, []);
 
-  // "Lokasi Saya" press (locate-refresh regression fix, 2026-09-30): the
-  // recenter must NOT depend on the fresh request succeeding. The press
-  // bumps the locate nonce IMMEDIATELY — with a valid fix the map recentres
-  // to it through the ACTIVE preset right away (a denied/timed-out fresh
-  // request can no longer swallow the press); with no fix yet the existing
-  // pending latch resolves on the first real one. The fresh request then
-  // runs: on success it updates viewerPosition and bumps the nonce again so
-  // the camera follows the newest fix; on failure the camera simply stays
-  // where the immediate recenter put it. No fallback coordinate is ever
+  // "LOCATION MODE OWNERSHIP (bug fix 2026-10-02): ONE source of truth for
+  // "where is the user looking from". The searched city and the device fix are
+  // mutually exclusive, and everything that needs a coordinate — the viewport
+  // coverage, the distance labels, and the radius camera preset — reads THIS
+  // value. Before, the coverage filter used the searched city while both
+  // distance labels measured from the device, so a Place the filter had just
+  // admitted to the Riyadh area was still labelled with its distance from
+  // Dammam. With no city searched the active center IS the device fix, so the
+  // default experience is byte-for-byte unchanged.
+  const activeSearch = resolveActiveCenter({ searchCenter, viewerPosition });
+  const activeCenter = activeSearch.center;
+
+  // "Lokasi Saya" press (locate-refresh regression fix, 2026-09-30; state reset
+  // added 2026-10-02): the recenter must NOT depend on the fresh request
+  // succeeding. The press bumps the locate nonce IMMEDIATELY — with a valid fix
+  // the map recentres to it through the ACTIVE preset right away (a
+  // denied/timed-out fresh request can no longer swallow the press); with no fix
+  // yet the existing pending latch resolves on the first real one. The fresh
+  // request then runs: on success it updates viewerPosition and bumps the nonce
+  // again so the camera follows the newest fix; on failure the camera simply
+  // stays where the immediate recenter put it. No fallback coordinate is ever
   // invented in any branch.
+  //
+  // It now also RETURNS SEARCH MODE to the device. Previously the press only
+  // moved the camera, leaving the searched city as the coverage source and the
+  // city name as a live text filter — so the list, the markers, the distance
+  // labels and the "Area pencarian" status kept describing the abandoned city.
+  // The city state is dropped as ONE value (never a half-cleared frame) and the
+  // epoch is bumped so a still-in-flight geocode for the old city can no
+  // longer pull the map and the rows back to it.
   const handleLocatePress = useCallback(() => {
+    searchEpochRef.current += 1;
+    activeSearchRef.current = "";
+    const cleared = clearCitySearch();
+    setSearchQuery(cleared.query);
+    setSearchPending(cleared.pending);
+    setSearchError(cleared.error);
+    setSearchCenter(cleared.center);
+    // Coverage goes back to the REAL Leaflet bounds; the synthetic bridge box
+    // existed only for a city that no longer owns the viewport.
+    resetViewportLatch();
     setLocateNonce((nonce) => nonce + 1);
     requestViewerPosition();
-  }, [requestViewerPosition]);
+  }, [requestViewerPosition, resetViewportLatch]);
 
   const liveByPlaceId = useMemo(() => {
     const map = new Map<string, LiveDiscoveryItem>();
@@ -401,13 +474,17 @@ export default function HomeDiscovery({
 
   // LOCATION SEARCH VIEWPORT (PO 2026-10-02): when the server geocoder
   // answered, that canonical coordinate pair becomes the coverage source
-  // instead of the last reported Leaflet bounds, so the map and every row
-  // narrow to the newly centered area. The box is a small ±0.05° window
-  // (~5.5 km) purely to keep the filter deterministic until Leaflet reports
-  // its own bounds for the recentered camera; `narrowToViewport` accepts it
-  // because it is the same MapViewport shape. It never changes eligibility,
-  // membership, or ordering, and it is null (→ the REAL mapViewport) whenever
-  // the server returned nothing.
+  // until Leaflet reports its OWN bounds for the recentered camera. The box is
+  // a small ±0.05° window (~5.5 km) purely to keep the filter deterministic
+  // across that one gap; `narrowToViewport` accepts it because it is the same
+  // MapViewport shape. It never changes eligibility, membership, or ordering.
+  //
+  // The REAL viewport wins once it exists. The bridge box used to win
+  // FOREVER, which meant a searched city permanently overrode the user's
+  // manual panning — the map moved and the list refused to follow. Releasing
+  // the latch on every new answer keeps the Master rule intact (the visible
+  // Leaflet viewport is the one coverage source) with no flash of the
+  // pre-search area in between.
   const searchViewport = searchCenter
     ? {
         north: searchCenter.lat + 0.05,
@@ -416,7 +493,7 @@ export default function HomeDiscovery({
         west: searchCenter.lng - 0.05,
       }
     : null;
-  const coverageViewport = searchCenter ? searchViewport : mapViewport;
+  const coverageViewport = mapViewport ?? searchViewport;
 
   // PLACE RESULTS narrowed by the REAL VISIBLE VIEWPORT (product decision,
   // 2026-10-01). The 1 km / 5 km / 10 km+ tabs are CAMERA frames only and can
@@ -571,10 +648,13 @@ export default function HomeDiscovery({
     // Direction target from the REAL canonical coordinates —
     // null when the Place has none (safe disabled control).
     const directionsUrl = buildDirectionsUrl(place);
+    // Distance from the ACTIVE center (the searched city when one is active,
+    // otherwise the device fix) — the same coordinate the coverage filter used
+    // to admit this Place, so a label can never contradict the list it sits in.
     const distance =
-      viewerPosition && place.latitude != null && place.longitude != null
+      activeCenter && place.latitude != null && place.longitude != null
         ? formatDistance(
-            distanceMeters(viewerPosition, {
+            distanceMeters(activeCenter, {
               lat: place.latitude,
               lng: place.longitude,
             }),
@@ -813,6 +893,13 @@ export default function HomeDiscovery({
             cameraRadiusMeters={
               curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
             }
+            /* The radius preset re-frames the ACTIVE center, not the device
+               unconditionally: changing 1 km → 5 km while a city is searched
+               must keep that city in the middle instead of yanking the camera
+               back to the device fix. Null only when NO center is usable at
+               all, in which case the map keeps its current view and no
+               coordinate is invented. */
+            cameraCenter={activeCenter}
             /* LOCATION SEARCH recenter (PO 2026-10-02): the server-parsed
                canonical center moves the camera once per NEW answer. The
                radius preset above is untouched — the search recenters within
@@ -1079,12 +1166,13 @@ export default function HomeDiscovery({
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {liveCards.map((item) => {
               const place = places.find((candidate) => candidate.id === item.placeId);
-              // Distance from the REAL viewer position to canonical Place
-              // coordinates only (PO item 7). Omitted when either side is
-              // unavailable — never computed from an invented reference point.
+              // Distance from the ACTIVE center (searched city, else the device
+              // fix) to canonical Place coordinates only (PO item 7). Omitted
+              // when either side is unavailable — never computed from an
+              // invented reference point.
               const distance =
-                viewerPosition && place?.latitude != null && place?.longitude != null
-                  ? formatDistance(distanceMeters(viewerPosition, { lat: place.latitude, lng: place.longitude }))
+                activeCenter && place?.latitude != null && place?.longitude != null
+                  ? formatDistance(distanceMeters(activeCenter, { lat: place.latitude, lng: place.longitude }))
                   : null;
               return (
                 <VisitedLink

@@ -138,16 +138,21 @@ test("the geocoder returns null — never a guess — on every failure path", ()
 // ---------------------------------------------------------------------------
 
 test("a resolved search center becomes the coverage viewport for markers and both rows", () => {
-  // One shared coverage value: the search center when present, otherwise the
-  // REAL Leaflet viewport. Every consumer narrows by that SAME value, so the
-  // markers and the two rows can never disagree about the visible area.
-  assert.match(
-    discoveryCode,
-    /const coverageViewport = searchCenter \? searchViewport : mapViewport;/,
-  );
+  // One shared coverage value for every consumer, so the markers and the two
+  // rows can never disagree about the visible area.
+  //
+  // PRECEDENCE CORRECTED (bug fix 2026-10-02): the REAL Leaflet viewport now
+  // wins, and the ±0.05° box around a searched city is only the stand-in for
+  // the one gap before Leaflet reports bounds for the recentered camera. The
+  // box used to win FOREVER, so a searched city permanently overrode manual
+  // panning — the map moved and the list refused to follow. A new search
+  // answer releases the latch, so the box returns for that gap only.
+  assert.match(discoveryCode, /const coverageViewport = mapViewport \?\? searchViewport;/);
   assert.match(discoveryCode, /const searchViewport = searchCenter/);
   // A null center (no answer) leaves the map viewport in charge.
   assert.match(discoveryCode, /: null;/);
+  // The latch that keeps the two from disagreeing across the handoff.
+  assert.match(discoveryCode, /const resetViewportLatch = useCallback/);
   // All three consumers use it.
   assert.match(discoveryCode, /narrowToViewport\(visiblePlaces, coverageViewport\)/);
   assert.match(discoveryCode, /narrowToViewport\(canonical, coverageViewport\)/);
@@ -268,9 +273,16 @@ test("clearing the input resets the search state in the handler, not in an effec
     discoveryCode.indexOf("// Home filter bar"),
   );
   assert.match(handler, /if \(value\.trim\(\)\) return;/);
-  assert.match(handler, /setSearchCenter\(null\)/);
-  assert.match(handler, /setSearchError\(null\)/);
-  assert.match(handler, /setSearchPending\(false\)/);
+  // The four reset fields now come from ONE payload (bug fix 2026-10-02) so
+  // the handler can never leave a half-cleared state. The intent is unchanged:
+  // the whole reset happens here, in the handler, and not in an effect.
+  assert.match(handler, /const cleared = clearCitySearch\(\);/);
+  assert.match(handler, /setSearchCenter\(cleared\.center\)/);
+  assert.match(handler, /setSearchError\(cleared\.error\)/);
+  assert.match(handler, /setSearchPending\(cleared\.pending\)/);
+  // Emptying the box is a real intent change: a response still in flight must
+  // not land right after the user cleared it.
+  assert.match(handler, /searchEpochRef\.current \+= 1;/);
   // The effect body must NOT reset state synchronously (cascading renders).
   const effect = discoveryCode.slice(
     discoveryCode.indexOf("debounceTimerRef.current = setTimeout"),
