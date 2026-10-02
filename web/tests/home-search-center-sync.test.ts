@@ -155,13 +155,24 @@ test("LOC-04 LOC-05: the radius preset frames the active center, not the device 
 test("LOC-06 LOC-08: returning to the device drops the city center, query, error and pending flag together", () => {
   // One value, so the UI can never paint a half-cleared state (camera back on
   // the device while the rows are still narrowed to the old city).
+  //
+  // `placeName` is part of the SAME payload (bug fix 2026-10-03): leaving the
+  // resolved city name behind would let the radius caption keep saying
+  // "Riyadh" after the map and the results had already moved to the device.
   const cleared = clearCitySearch();
-  assert.deepEqual(cleared, { query: "", pending: false, error: null, center: null });
+  assert.deepEqual(cleared, {
+    query: "",
+    pending: false,
+    error: null,
+    center: null,
+    placeName: null,
+  });
   // Every field is reset, not just the center.
   assert.equal(cleared.query, "");
   assert.equal(cleared.pending, false);
   assert.equal(cleared.error, null);
   assert.equal(cleared.center, null);
+  assert.equal(cleared.placeName, null);
 
   // The center really goes back to the device afterwards.
   const after = resolveActiveCenter({ searchCenter: cleared.center, viewerPosition: DAMMAM });
@@ -184,6 +195,9 @@ test("LOC-06: the locate handler resets the city search and releases the viewpor
   assert.match(handler, /setSearchPending\(cleared\.pending\);/);
   assert.match(handler, /setSearchError\(cleared\.error\);/);
   assert.match(handler, /setSearchCenter\(cleared\.center\);/);
+  // The resolved city name goes with it, so no caption can keep describing
+  // the abandoned city.
+  assert.match(handler, /setSearchPlaceName\(cleared\.placeName\);/);
   // Coverage returns to the REAL Leaflet bounds, and the camera follows the
   // fresh fix.
   assert.match(handler, /resetViewportLatch\(\);/);
