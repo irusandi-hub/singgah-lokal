@@ -367,3 +367,72 @@ no RLS/scoring/canonical-read regression, map lifecycle, and the two distinct
 empty states) plus the updated `map-current-location`, `map-empty-state`,
 `map-stacking`, `home-map-first-ui`, `live-hardening`, and
 `discovery-home-integration` suites.
+
+## 16. RESOLVED BY PRODUCT DECISION — AUTO-FIT VIEWPORT + HOME UI REFINEMENT (2026-10-03)
+
+**Root cause.** The Home camera only ever framed ONE point: a fixed radius
+(`CURATED_CAMERA_RADIUS_M` = 10 km for "Tempat Pilihan") around the active
+center, or — for a city search — the geocoder's center alone. Because §15
+made the visible viewport the ONLY coverage source for the markers and both
+Place rows, a curated or regional Place that sat OUTSIDE that single frame was
+never on screen and therefore missing from the list until the user zoomed out
+by hand. Presenting that frame as the whole region was also simply wrong on a
+country-wide dataset.
+
+**The decision.** The camera frames the SPREAD of the relevant Places'
+canonical coordinates.
+
+1. **"Tempat Pilihan"** fits `cameraFitPlaces` — the map dataset with the
+   VIEWPORT GATE REMOVED (canonical curated membership + the ordinary
+   remainder). The curated 10 km value is no longer this tab's camera frame.
+2. **Location search** fits `searchFitPlaces` — the canonical Places inside the
+   searched region's own coverage box, not just the geocoding point. A search
+   with no Place holding coordinates keeps that center.
+3. **One shared mechanism** (`fitCamera` in `home-map.tsx`): 0 Places → the
+   camera does not move at all; 1 Place → focused on that coordinate at
+   `FIT_SINGLE_PLACE_ZOOM` (a degenerate box would jump to maxZoom); many →
+   `fitBounds` with padding that reserves the floating chrome and the map
+   controls (`resolveCameraFitPadding`, clamped to the real container size).
+4. **No circular dependency:** the bounds dataset never reads `mapViewport` /
+   `coverageViewport`; the markers still do. This is the whole point of the
+   split.
+5. **No recenter loop, manual pan/zoom respected:** both fits are gated on a
+   NONCE the caller bumps only on an explicit action (choosing the tab, a new
+   search answer). Marker refreshes, discovery polls, and viewport reports
+   carry no nonce, and each trigger is recorded so it can never apply twice.
+6. **No invented coordinates anywhere:** `boundsOfPoints([]) === null`, the
+   collector is fail-closed on non-finite lat/lng, and no fallback city,
+   country, or world view is ever produced.
+
+**Also in this decision (presentation only):** Leaflet's `+/-` stack moved
+BELOW both locate controls (offsets form one ladder: 190px → 240px → the 290px
+CSS offset), the search info panel is now full-bleed on an OPAQUE background
+(it was `bg-white/85` inside the capped content column, so the map showed
+through), and both Place strips sit in a visible, `overflow-hidden` carousel
+frame that keeps the horizontal snap-scroll.
+
+**Explicitly NOT changed:** curated MEMBERSHIP still reads only the canonical
+`places.is_curated` ids; the Discovery contract, ranking, and eligibility are
+untouched; the distance tabs keep their ordered radius presets (1 < 5 < 10 km)
+and still own the camera in normal modes; "Lokasi Saya" still centers the
+newest real fix at the CURRENT zoom and never widens the frame; the viewport
+is still the only coverage source for markers and rows; no backend, database,
+RLS, Place-status, copy, logo, or route changed.
+
+**Superseded wording (do NOT read these as current):** §14 items 1 and 2 (the
+curated camera framing the same 10 km coverage, and the explicit "no marker
+fitBounds" invariant) and the §15 sentence that a search recenters "at a zoom
+that frames the search window" are superseded FOR THE CAMERA ONLY, for the two
+paths named above. Everything else in §14/§15 stands. The distance tabs, their
+radius values, and their camera presets are unchanged, so the same Master note
+applies: `MASTER_LIVE_POLICY` §12.5 row 1 and `MASTER_LIVE_TECH` §9 still
+describe the tabs as a radius list gate, and a Master version note is required
+before those rows can be reworded.
+
+Regression coverage: the new `tests/map-auto-fit-camera.test.ts` (the ten
+acceptance rules, numbered AC 1–AC 10, including the executable 0/1/many
+matrix and the padding-share arithmetic) plus amended assertions — never
+deleted tests — in `map-current-location`, `map-viewport-coverage`,
+`discovery-home-integration`, `home-location-search`, `home-map-first-ui`, and
+`home-map-gesture`, which previously locked "no `fitBounds` anywhere",
+"a fixed 10 km curated frame", and the old control offsets.

@@ -100,6 +100,12 @@ export default function HomeDiscovery({
   // Explicit "Lokasi Saya" requests bump this nonce so the map re-centers on
   // the latest fix on demand.
   const [locateNonce, setLocateNonce] = useState(0);
+  // AUTO-FIT REFOCUS TRIGGER (product decision, 2026-10-03): bumped ONLY by
+  // the explicit "Tempat Pilihan" tab choice, so the map can re-frame the
+  // camera to the Place spread on exactly that action — and on nothing else.
+  // No marker refresh, discovery poll, or viewport report carries a nonce, so
+  // the camera can never be recentered in a loop.
+  const [fitNonce, setFitNonce] = useState(0);
   // Which Place card currently shows the "not Live" notice (pressed state of
   // the permanent LIVE indicator). Live state itself is never invented — the
   // canonical liveByPlaceId feed is the only source.
@@ -510,14 +516,18 @@ export default function HomeDiscovery({
   // the latch on every new answer keeps the Master rule intact (the visible
   // Leaflet viewport is the one coverage source) with no flash of the
   // pre-search area in between.
-  const searchViewport = searchCenter
-    ? {
-        north: searchCenter.lat + 0.05,
-        south: searchCenter.lat - 0.05,
-        east: searchCenter.lng + 0.05,
-        west: searchCenter.lng - 0.05,
-      }
-    : null;
+  const searchViewport = useMemo(
+    () =>
+      searchCenter
+        ? {
+            north: searchCenter.lat + 0.05,
+            south: searchCenter.lat - 0.05,
+            east: searchCenter.lng + 0.05,
+            west: searchCenter.lng - 0.05,
+          }
+        : null,
+    [searchCenter],
+  );
   const coverageViewport = mapViewport ?? searchViewport;
 
   // PLACE RESULTS narrowed by the REAL VISIBLE VIEWPORT (product decision,
@@ -588,11 +598,58 @@ export default function HomeDiscovery({
   // never touch Discovery. Curated membership is still read only from the
   // canonical curated ids — there is no "empty curated set → show everything"
   // fallback for the list, and Discovery is never used as one.
+  const curatedCoverageSource = useMemo(
+    () => searchFiltered.filter((place) => !curatedIdSet.has(place.id)),
+    [searchFiltered, curatedIdSet],
+  );
   const curatedCoveragePlaces = useMemo(() => {
     if (!curatedOnly) return [];
-    const nonCurated = searchFiltered.filter((place) => !curatedIdSet.has(place.id));
-    return narrowToViewport(nonCurated, coverageViewport);
-  }, [curatedOnly, searchFiltered, curatedIdSet, coverageViewport]);
+    return narrowToViewport(curatedCoverageSource, coverageViewport);
+  }, [curatedOnly, curatedCoverageSource, coverageViewport]);
+
+  // CAMERA BOUNDS DATASET — "Tempat Pilihan" AUTO-FIT (product decision,
+  // 2026-10-03).
+  //
+  // This is the MAP DATASET with the VIEWPORT GATE REMOVED, and that single
+  // difference is the whole fix. The markers are narrowed by the viewport (the
+  // 2026-10-01 coverage decision, unchanged), so fitting the camera to THEM
+  // would be circular: the camera would always frame exactly what it already
+  // framed, and an outlying Place could never pull the view. Reading the SAME
+  // canonical content filter one step earlier — curated membership + the
+  // ordinary remainder, both before the viewport gate — lets the camera cover
+  // the whole spread of the relevant Places at once.
+  //
+  // It is display geometry only: membership still comes solely from the
+  // canonical curated ids, no Place is added to or removed from any row by
+  // this value, and it is never used as a filter. Coordinates are canonical
+  // only — a Place without them is simply absent (no invented position).
+  const cameraFitPlaces = useMemo<HomeMapPlace[]>(() => {
+    const source = curatedOnly ? [...visiblePlaces, ...curatedCoverageSource] : visiblePlaces;
+    const seen = new Set<string>();
+    return source.flatMap((place) => {
+      if (seen.has(place.id)) return [];
+      seen.add(place.id);
+      if (place.latitude === null || place.longitude === null) return [];
+      return [{ id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude }];
+    });
+  }, [visiblePlaces, curatedCoverageSource, curatedOnly]);
+
+  // CAMERA BOUNDS DATASET — LOCATION SEARCH AUTO-FIT (product decision,
+  // 2026-10-03). The relevant Places for a searched region are the canonical
+  // Places inside that region's own coverage box (the SAME rule the rows use
+  // before Leaflet reports its real bounds) — never the current viewport, which
+  // is still centred on the device and would make the fit circular, and never
+  // the whole dataset, which would zoom to the country. Empty when the region
+  // holds no Place with canonical coordinates, and the camera then keeps the
+  // geocoding center instead.
+  const searchFitPlaces = useMemo<HomeMapPlace[]>(() => {
+    if (!searchViewport) return [];
+    return narrowToViewport(visiblePlaces, searchViewport).flatMap((place) =>
+      place.latitude === null || place.longitude === null
+        ? []
+        : [{ id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude }],
+    );
+  }, [visiblePlaces, searchViewport]);
 
   const mapPlaces = useMemo<HomeMapPlace[]>(() => {
     // Curated Places first (they are the point of the layer), then the
@@ -947,6 +1004,21 @@ export default function HomeDiscovery({
                user picked is never silently rewritten. */
             searchCenter={searchCenter}
             searchNonce={searchNonce}
+            /* AUTO-FIT CAMERA (product decision, 2026-10-03): the camera frames
+               the SPREAD of the relevant Places instead of a fixed 10 km frame
+               around one point. `cameraFitPlaces` is the MAP DATASET with the
+               viewport gate REMOVED — deliberately NOT the narrowed marker set,
+               so viewport, marker filtering, and camera can never form a
+               circular dependency. `fitNonce` is bumped ONLY by choosing
+               "Tempat Pilihan", so no marker refresh, discovery poll, or
+               viewport report can ever recenter the camera in a loop. */
+            fitPlaces={cameraFitPlaces}
+            fitNonce={fitNonce}
+            /* The Places relevant to the SEARCHED region (canonical, no
+               viewport gate). A new search answer frames their spread instead
+               of only the geocoder's city point; an empty set keeps that
+               center, and no coordinate is ever invented. */
+            searchFitPlaces={searchFitPlaces}
             /* Instant-camera rule (PO, 2026-09-30): the camera itself applies
                with no animation at all, so entering "Tempat Pilihan" is made
                visually obvious by a SHORT one-shot focus pulse on the
@@ -1011,15 +1083,39 @@ export default function HomeDiscovery({
                 server's canonical answer, formatted — never a rounded or
                 invented value. */}
             {searchQuery.trim() && (
+              /* SEARCH INFO PANEL — FULL WIDTH, SOLID (product decision,
+                 2026-10-03). Two real defects are fixed here, presentation
+                 only, with no change to the text, the data, the coordinates
+                 readout, or the ARIA status semantics:
+                 1. WIDTH — the panel used to sit inside the padded, capped
+                    content column, so it stopped short of both screen edges and
+                    read as a small floating card. The outer wrapper cancels
+                    both the horizontal padding AND the max-width cap:
+                    `-mx-4` moves it to the padded column's edge, `w-[100vw]`
+                    plus `left-[calc(50%_-_50vw)]` re-centres it on the VIEWPORT
+                    (exact at every width, including a desktop wider than the
+                    72rem column), so the panel spans left → right. The map
+                    stage is `overflow-hidden`, so the full-bleed row can never
+                    create page-level horizontal scroll.
+                 2. BACKGROUND — the old panel background was a TRANSLUCENT white,
+                    so the map tiles
+                    showed through the text. It is now an OPAQUE surface
+                    (a plain opaque white, and an opaque tint for the
+                    error state), with a
+                    soft shadow instead of rounded corners, because an
+                    edge-to-edge bar with rounded ends would look like a bug.
+                 The copy inside is unchanged: pending / error / resolved center
+                 with the server's canonical coordinate readout. */
+              <div className="-mx-4 relative left-[calc(50%_-_50vw)] w-[100vw]">
               <p
                 role="status"
                 aria-live="polite"
-                className={`mt-2 flex items-center gap-2 rounded-[16px] px-3 py-2 text-xs ${
+                className={`mt-2 flex w-full items-center gap-2 px-4 py-2 text-xs shadow-[0_2px_10px_rgb(0_0_0/0.10)] sm:px-6 ${
                   searchPending
-                    ? "bg-white/85 text-black/55"
+                    ? "bg-white text-black/55"
                     : searchError
-                      ? "bg-live/10 text-live"
-                      : "bg-white/85 text-brand-ink"
+                      ? "bg-[#fcebe7] text-live"
+                      : "bg-white text-brand-ink"
                 }`}
               >
                 {searchPending ? (
@@ -1041,6 +1137,7 @@ export default function HomeDiscovery({
                   </>
                 ) : null}
               </p>
+              </div>
             )}
           </div>
 
@@ -1084,6 +1181,12 @@ export default function HomeDiscovery({
                 const next = activateCuratedFilter();
                 setCuratedOnly(next.curatedOnly);
                 setLiveOnly(next.liveOnly);
+                // Choosing the tab is the EXPLICIT refocus action the camera
+                // is allowed to act on (product decision, 2026-10-03): it fits
+                // the frame to the spread of the relevant Places. No other
+                // state change carries a nonce, so the camera can never be
+                // taken back by a later marker or viewport update.
+                setFitNonce((nonce) => nonce + 1);
               }}
               aria-pressed={curatedOnly}
               className={`whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
@@ -1325,6 +1428,15 @@ export default function HomeDiscovery({
               <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
                 Tempat Pilihan
               </p>
+              {/* CAROUSEL FRAME (product decision, 2026-10-03): the strip is
+                  wrapped in a visible edge-to-edge band so the Place-card area
+                  reads as one container instead of cards floating loose on the
+                  cream background. `overflow-hidden` on the frame keeps the
+                  strip's bleed past the frame edge TIDY while dragging, while
+                  the strip itself keeps `overflow-x-auto` + `snap-x`, so the
+                  cards stay horizontally scrollable and snap exactly as
+                  before. Cards, spacing, order, and handlers are untouched. */}
+              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-2.5">
               <div
                 id={CURATED_RESULTS_ANCHOR_ID}
                 className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2"
@@ -1337,6 +1449,7 @@ export default function HomeDiscovery({
                     {renderPlaceCard(place, place.isCurated)}
                   </div>
                 ))}
+              </div>
               </div>
             </>
           )}
@@ -1367,6 +1480,9 @@ export default function HomeDiscovery({
                   the presentation-only fix: no data, order, eligibility, or
                   query changes, but the cards now render at their intended
                   size and several are visible side by side. */}
+              {/* Same framed band as Baris 1 — one consistent Place-card
+                  container across the whole result panel. */}
+              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-2.5">
               <div
                 id={DISCOVERY_RESULTS_ANCHOR_ID}
                 className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2"
@@ -1379,6 +1495,7 @@ export default function HomeDiscovery({
                     {renderPlaceCard(place, curatedIdSet.has(place.id))}
                   </div>
                 ))}
+              </div>
               </div>
             </>
           ) : (

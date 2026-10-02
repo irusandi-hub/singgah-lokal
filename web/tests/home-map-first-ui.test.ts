@@ -342,11 +342,16 @@ test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right follow the A
   );
 });
 
-test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome", () => {
+test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome AND below both locate buttons", () => {
   // The map is full-bleed now, so the topright +/- control would sit under the
   // search bar. Only the OFFSET moves — position and both buttons stay.
+  //
+  // RE-ORDERED (product decision, 2026-10-03): the +/- stack is now the LAST
+  // control of the right-hand ladder, BELOW the Re-center arrow (190px) and
+  // BELOW "Lokasi Saya" (240px), so the zoom buttons are reachable below the
+  // locate controls and the three never collide at 360 / 390 / 430 / 1280.
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(css, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 158px;/);
+  assert.match(css, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 290px;/);
   // ...and the offset is SCOPED to the Home map container, so the Producer
   // Place location picker (a second Leaflet map with its own default zoom
   // control) is never affected.
@@ -354,6 +359,8 @@ test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome",
     readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8"),
   );
   assert.match(map, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
+  assert.match(map, /absolute right-3 top-\[190px\] z-\[1100\]/);
+  assert.match(map, /absolute right-3 top-\[240px\] z-\[1100\]/);
 });
 
 test("MOCKUP §11: result header keeps title + real-count subtitle + Ke hasil", () => {

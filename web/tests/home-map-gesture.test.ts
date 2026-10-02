@@ -86,9 +86,13 @@ test("Gesture 7-8: scope discipline — layout, overlays, and cleanup untouched"
   // background, the right-hand control stack was moved DOWN to clear the
   // floating header/search/filter chrome — the offset only; size, shape,
   // handlers, and the Leaflet control position are untouched.
+  // RE-ORDERED (product decision, 2026-10-03): Leaflet's own +/- stack is now
+  // the LAST control, BELOW both locate buttons, so the three offsets form one
+  // ladder (190 → 240 → the 290px CSS offset) with no overlap. Sizes, shapes,
+  // handlers, and the control position are still untouched.
   assert.match(homeMapSource, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
-  assert.match(homeMapSource, /absolute right-3 top-\[232px\] z-\[1100\]/);
-  assert.match(homeMapSource, /absolute right-3 top-\[288px\] z-\[1100\]/);
+  assert.match(homeMapSource, /absolute right-3 top-\[190px\] z-\[1100\]/);
+  assert.match(homeMapSource, /absolute right-3 top-\[240px\] z-\[1100\]/);
   // The two-finger observer is passive (never blocks/prevents anything) and
   // is detached in teardown — no listener leak.
   assert.match(homeMapSource, /passive: true/);
