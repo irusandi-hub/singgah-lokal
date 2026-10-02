@@ -17,6 +17,7 @@ import {
   RIYADH_DUMMY_PLACE_IDS,
 } from "../lib/developer/dummy-places-core";
 import { clearCitySearch, narrowToViewport, resolveActiveCenter } from "../lib/live/ui";
+import { isValidPlaceRegion, placeRegionsFor } from "../lib/geo/countries";
 
 /**
  * DUMMY PLACE + DEVELOPER AUTHORITY (migrations 0039 / 0040).
@@ -103,6 +104,7 @@ async function withDb(run: (db: PGlite) => Promise<void>): Promise<void> {
   try {
     await db.exec(stripPgcrypto(readMigration("0039_dummy_place_developer_authority.sql")));
     await db.exec(stripPgcrypto(readMigration("0040_dev_dummy_riyadh_dataset.sql")));
+    await db.exec(stripPgcrypto(readMigration("0041_dev_dummy_riyadh_region.sql")));
     // supabase_admin is the platform's real superuser path (RLS-bypassing),
     // exactly as the 0036 migration test sets it up. Giving it BYPASSRLS and
     // full grants means it REACHES the guard trigger — without this a plain
@@ -425,6 +427,235 @@ test("0040 never touches a production or non-Dummy Place", async () => {
   // Every seeded row carries the canonical flag in the same insert.
   const inserts = sql.match(/true\)/g) ?? [];
   assert.equal(inserts.length, 10, "all ten rows set is_dummy in the insert itself");
+});
+
+// ---------------------------------------------------------------------------
+// E2. The corrective geography migration (0041)
+// ---------------------------------------------------------------------------
+
+/** The ten fixtures, with exactly the columns this section is about. */
+const regionRows = (db: PGlite) =>
+  rows(
+    db,
+    `select id, country_code, region_name, is_dummy, is_curated, currency
+       from public.places where id like 'dummy-riyadh-%' order by id`,
+  );
+
+test("the Riyadh fixtures are filed under Ar Riyad (SA-01), not the Eastern Province", async () => {
+  await withDb(async (db) => {
+    const fixtures = await regionRows(db);
+    assert.equal(fixtures.length, 10);
+    for (const row of fixtures) {
+      // THE DEFECT: these Places sit in Riyadh but were filed under
+      // 'Ash Sharqiyah', the Eastern Province (SA-04) — a real subdivision,
+      // just the wrong one, so no validation error ever surfaced it.
+      assert.equal(row.country_code, "SA", `${row.id} country`);
+      assert.equal(row.region_name, "Ar Riyad", `${row.id} must be in the Riyadh Region`);
+      assert.notEqual(row.region_name, "Ash Sharqiyah", `${row.id} must not claim the Eastern Province`);
+      // One region for the whole fixture set — never a per-row mix.
+    }
+    const regions = new Set(fixtures.map((r) => String(r.region_name)));
+    assert.deepEqual([...regions], ["Ar Riyad"]);
+  });
+});
+
+test("0041 is what corrects them — 0040 on its own still seeds the wrong subdivision", async () => {
+  // 0040 is an applied migration and is left byte-for-byte as it was; the fix
+  // is a SEPARATE corrective step. If this test ever fails with 0041 already
+  // applied at seed time, the seed was rewritten and the audit trail of the
+  // correction is gone.
+  const db = await bootstrapDb();
+  try {
+    await db.exec(stripPgcrypto(readMigration("0039_dummy_place_developer_authority.sql")));
+    await db.exec(stripPgcrypto(readMigration("0040_dev_dummy_riyadh_dataset.sql")));
+    const seeded = await regionRows(db);
+    assert.equal(seeded.length, 10);
+    for (const row of seeded) {
+      assert.equal(row.region_name, "Ash Sharqiyah", `${row.id} must still carry 0040's original value here`);
+    }
+
+    // The corrective migration moves every one of them to the Riyadh Region.
+    await db.exec(stripPgcrypto(readMigration("0041_dev_dummy_riyadh_region.sql")));
+    for (const row of await regionRows(db)) {
+      assert.equal(row.region_name, "Ar Riyad", `${row.id} must be corrected by 0041`);
+    }
+
+    // ...and the post-condition is LOUD, not decorative: run it against a
+    // database that still carries the defect and it must abort the apply.
+    const db2 = await bootstrapDb();
+    try {
+      await db2.exec(stripPgcrypto(readMigration("0039_dummy_place_developer_authority.sql")));
+      await db2.exec(stripPgcrypto(readMigration("0040_dev_dummy_riyadh_dataset.sql")));
+      const postCondition = readMigration("0041_dev_dummy_riyadh_region.sql").match(/do \$\$[\s\S]*\$\$;/);
+      assert.ok(postCondition, "0041 must carry its post-condition");
+      const error = await fails(db2, stripPgcrypto(postCondition[0]));
+      assert.match(error, /dev_dummy_riyadh_region_not_corrected/);
+    } finally {
+      await db2.close();
+    }
+  } finally {
+    await db.close();
+  }
+});
+
+test("0041 changes ONLY region_name — never the flag, the curation, or the currency", async () => {
+  const db = await bootstrapDb();
+  try {
+    await db.exec(stripPgcrypto(readMigration("0039_dummy_place_developer_authority.sql")));
+    await db.exec(stripPgcrypto(readMigration("0040_dev_dummy_riyadh_dataset.sql")));
+    const before = await rows(
+      db,
+      `select id, name, short_description, category, type, area, address, country_code, timezone,
+              currency, latitude, longitude, is_dummy, is_curated, claim_status,
+              publication_status, producer_id
+         from public.places where id like 'dummy-riyadh-%' order by id`,
+    );
+    await db.exec(stripPgcrypto(readMigration("0041_dev_dummy_riyadh_region.sql")));
+    const after = await rows(
+      db,
+      `select id, name, short_description, category, type, area, address, country_code, timezone,
+              currency, latitude, longitude, is_dummy, is_curated, claim_status,
+              publication_status, producer_id
+         from public.places where id like 'dummy-riyadh-%' order by id`,
+    );
+
+    // Everything except region_name is byte-identical. Nothing is promoted:
+    // curation stays exactly where 0040 left it (Master §4/§6 — only the
+    // audited Developer Authority path may move is_curated).
+    assert.equal(before.length, 10);
+    assert.deepEqual(after, before);
+    for (const row of after) {
+      assert.equal(row.is_dummy, true);
+      assert.equal(row.is_curated, false, `${row.id} must NOT be promoted to Tempat Pilihan`);
+      assert.equal(row.currency, "SAR");
+    }
+  } finally {
+    await db.close();
+  }
+});
+
+test("0041 touches ONLY the ten fixtures and never another Place", async () => {
+  const db = await bootstrapDb();
+  try {
+    await db.exec(stripPgcrypto(readMigration("0039_dummy_place_developer_authority.sql")));
+    await db.exec(stripPgcrypto(readMigration("0040_dev_dummy_riyadh_dataset.sql")));
+    // The 0032 backfill put a NON-dummy Saudi DEV seed under 'Ash Sharqiyah'.
+    // It is out of 0041's enumerated scope and must survive untouched — which
+    // is also the proof that 0041 is id-scoped rather than predicate-scoped.
+    const others = await rows(
+      db,
+      `select id, country_code, region_name from public.places
+        where id not like 'dummy-riyadh-%' and country_code is not null order by id`,
+    );
+    assert.ok(others.length > 0, "the foundation must seed non-fixture Places");
+    const saOthers = others.filter((r) => r.country_code === "SA");
+    assert.ok(saOthers.length > 0, "expected a non-fixture Saudi Place to exist");
+
+    await db.exec(stripPgcrypto(readMigration("0041_dev_dummy_riyadh_region.sql")));
+
+    const after = await rows(
+      db,
+      `select id, country_code, region_name from public.places
+        where id not like 'dummy-riyadh-%' and country_code is not null order by id`,
+    );
+    assert.deepEqual(after, others, "no non-fixture Place may change");
+    // And no fixture id was created or dropped by the correction.
+    const count = await rows(db, "select count(*)::int as n from public.places where id like 'dummy-riyadh-%'");
+    assert.equal(count[0]?.n, 10);
+  } finally {
+    await db.close();
+  }
+});
+
+test("0041 is idempotent, and never overwrites a later Admin correction", async () => {
+  await withDb(async (db) => {
+    // Re-applying changes nothing at all.
+    await db.exec(stripPgcrypto(readMigration("0041_dev_dummy_riyadh_region.sql")));
+    await db.exec(stripPgcrypto(readMigration("0041_dev_dummy_riyadh_region.sql")));
+    for (const row of await regionRows(db)) {
+      assert.equal(row.region_name, "Ar Riyad");
+    }
+
+    // An Admin who later re-assigns a DEV fixture to another REAL Saudi
+    // subdivision keeps that value: the update is guarded on the exact wrong
+    // value, not on "not already Ar Riyad". (Region is a canonical Place column
+    // both Admin and Producer may edit, so a corrective migration must not be a
+    // ratchet that reverts them.)
+    await db.exec(`update public.places set region_name = 'Al Qasim' where id = 'dummy-riyadh-tahlia'`);
+    await db.exec(stripPgcrypto(readMigration("0041_dev_dummy_riyadh_region.sql")));
+    const corrected = await rows(db, "select region_name from public.places where id = 'dummy-riyadh-tahlia'");
+    assert.equal(corrected[0]?.region_name, "Al Qasim");
+  });
+});
+
+test("0041 is scoped to an enumerated id list and widens nothing", async () => {
+  const sql = stripComments(readMigration("0041_dev_dummy_riyadh_region.sql"));
+  // Enumerated ids only — never a name/prefix/free-text predicate (Master §3).
+  assert.doesNotMatch(sql, /where\s+name\s/i);
+  assert.doesNotMatch(sql, /like\s+'/i);
+  assert.doesNotMatch(sql, /similar to/i);
+  assert.doesNotMatch(sql, /ilike/i);
+  // Its target list is EXACTLY the Riyadh fixture set the core module knows,
+  // so the migration and the acceptance helper cannot drift apart.
+  const ids = [...sql.matchAll(/'(dummy-riyadh-[a-z-]+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(ids)].sort(), [...RIYADH_DUMMY_PLACE_IDS].sort());
+  // One column is written; the flags are never touched.
+  assert.match(sql, /set region_name = 'Ar Riyad',\s*updated_at = now\(\)/);
+  assert.doesNotMatch(sql, /is_dummy\s*=/);
+  assert.doesNotMatch(sql, /is_curated\s*=/);
+  assert.doesNotMatch(sql, /insert\s+into/i);
+  // Nothing is destroyed and no protection is changed.
+  assert.doesNotMatch(sql, /delete\s+from/i);
+  assert.doesNotMatch(sql, /drop\s+/i);
+  assert.doesNotMatch(sql, /truncate/i);
+  assert.doesNotMatch(sql, /disable row level security/i);
+  assert.doesNotMatch(sql, /block_place_audit_mutation|block_place_is_curated_update|block_place_is_dummy_update/);
+  // Idempotency + a loud post-condition, both stated in SQL. The update guard
+  // names the exact wrong value, so it is a no-op on re-apply AND never a
+  // ratchet over a value an Admin chose later.
+  assert.match(sql, /region_name = 'Ash Sharqiyah'/);
+  assert.match(sql, /raise exception/);
+});
+
+test("Ar Riyad is the value this codebase can actually store and validate", async () => {
+  // The stored spelling must be the canonical one: `lib/geo/countries.ts`
+  // validates `region_name` against the ISO 3166-2 dataset on every write and
+  // fills the Admin/Producer dropdowns from it. Nominatim's own spelling of the
+  // same region is NOT in the list, so storing it would make these Places
+  // un-editable through the one shared Place validator.
+  const saRegions = placeRegionsFor("SA");
+  assert.equal(isValidPlaceRegion("SA", "Ar Riyad"), true);
+  assert.equal(isValidPlaceRegion("SA", "Riyadh Region"), false);
+  assert.equal(isValidPlaceRegion("SA", "Riyadh"), false);
+  // Two DIFFERENT subdivisions — the whole point of the correction. The
+  // Eastern Province is the one the fixtures were wrongly filed under.
+  assert.ok(saRegions.includes("Ash Sharqiyah"));
+  assert.ok(saRegions.includes("Ar Riyad"));
+  // Distinct entries in the one canonical list — two different real regions,
+  // which is exactly why swapping one for the other was a silent, valid-looking
+  // mistake rather than a rejected value.
+  assert.equal(saRegions.filter((r) => r === "Ar Riyad").length, 1);
+  assert.equal(saRegions.filter((r) => r === "Ash Sharqiyah").length, 1);
+  assert.notEqual(saRegions.indexOf("Ar Riyad"), saRegions.indexOf("Ash Sharqiyah"));
+});
+
+test("the Riyadh geography is unchanged by the correction — only the label was wrong", async () => {
+  await withDb(async (db) => {
+    const fixtures = await rows(
+      db,
+      `select id, latitude, longitude from public.places where id like 'dummy-riyadh-%'`,
+    );
+    for (const row of fixtures) {
+      const lat = Number(row.latitude);
+      const lng = Number(row.longitude);
+      // The coordinates were always Riyadh; only the subdivision label was not.
+      // The Eastern Province starts well east of this box (Dammam/Khobar sit
+      // around 26.4 N / 50.1 E), so the corrected subdivision and the existing
+      // coordinates now agree.
+      assert.ok(lat > 24.6 && lat < 24.9, `${row.id} latitude must be Riyadh`);
+      assert.ok(lng > 46.5 && lng < 46.9, `${row.id} longitude must be Riyadh`);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
