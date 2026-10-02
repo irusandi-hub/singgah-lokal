@@ -11,7 +11,6 @@ import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
-  CURATED_MAP_COVERAGE_RADIUS_M,
   CURATED_RESULTS_ANCHOR_ID,
   DISCOVERY_RESULTS_ANCHOR_ID,
   DISTANCE_FILTERS,
@@ -19,13 +18,15 @@ import {
   buildDirectionsUrl,
   distanceMeters,
   formatDistance,
+  isSameViewport,
   liveDurationLabel,
-  matchesDistance,
+  narrowToViewport,
   resolveResultsAnchorId,
   stopNestedCardAction,
   toggleLiveFilter,
   type DistanceFilter,
   type LiveDiscoveryItem,
+  type MapViewport,
 } from "@/lib/live/ui";
 
 // Home discovery (Map-first) — rendered by the / route (app/page.tsx,
@@ -115,6 +116,22 @@ export default function HomeDiscovery({
       reportedViewportRef.current = true;
       setViewportReported(true);
     }
+  }, []);
+  // REAL VISIBLE VIEWPORT (product decision, 2026-10-01): the map is the ONE
+  // geographic coverage source. HomeMap reports the Leaflet bounds on
+  // readiness, on every finished move/zoom, and on resize; this state is the
+  // ONLY input that narrows the markers and the two Place rows to the area the
+  // user can actually see. A fixed radius preset no longer decides any Place.
+  //
+  // `null` = Leaflet has not reported yet: the full canonical result renders
+  // (never a premature empty first paint). Reports are deduped by exact
+  // bounds equality, so a settled viewport never re-renders the rows.
+  const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
+  const lastViewportRef = useRef<MapViewport | null>(null);
+  const handleViewportChange = useCallback((viewport: MapViewport) => {
+    if (isSameViewport(lastViewportRef.current, viewport)) return;
+    lastViewportRef.current = viewport;
+    setMapViewport(viewport);
   }, []);
   const router = useRouter();
 
@@ -259,23 +276,17 @@ export default function HomeDiscovery({
     return result;
   }, [searchFiltered, liveOnly, curatedOnly, curatedIdSet, liveByPlaceId]);
 
-  // LIST-ONLY radius gate (PO, 2026-09-29): the Place results below the map
-  // keep their existing proximity semantics — a bounded radius narrows the
-  // list (viewerPosition + canonical lat/lng, fail-closed, a position is
-  // never invented), and "10 km+"/curated show everything. The MAP dataset
-  // is deliberately independent: see mapPlaces below.
-  const listedPlaces = useMemo(() => {
-    if (curatedOnly || distanceFilter === "10 km+") return visiblePlaces;
-    return visiblePlaces.filter((place) =>
-      matchesDistance(
-        distanceFilter,
-        viewerPosition,
-        place.latitude !== null && place.longitude !== null
-          ? { lat: place.latitude, lng: place.longitude }
-          : null,
-      ),
-    );
-  }, [visiblePlaces, curatedOnly, distanceFilter, viewerPosition]);
+  // PLACE RESULTS narrowed by the REAL VISIBLE VIEWPORT (product decision,
+  // 2026-10-01). The 1 km / 5 km / 10 km+ tabs are CAMERA frames only and can
+  // no longer decide which Places are listed: panning or zooming the map is
+  // what changes the result. Search, LIVE, and the curated layer remain the
+  // content filters above this step, and a Place without canonical
+  // coordinates is dropped (it can never be inside a viewport, so listing it
+  // would contradict the marker set). Nothing here re-orders or adds a Place.
+  const listedPlaces = useMemo(
+    () => narrowToViewport(visiblePlaces, mapViewport),
+    [visiblePlaces, mapViewport],
+  );
 
   const liveCards = useMemo(() => {
     if (liveItems.length === 0) return [];
@@ -283,40 +294,34 @@ export default function HomeDiscovery({
     return liveItems.filter((item) => listedIds.has(item.placeId));
   }, [liveItems, listedPlaces]);
 
-  // DISCOVERY PLACE ROW (canonical engine output). INTEGRITY (P0): this row is
-  // BUILT FROM the canonical `discovery.discovery` result — its ids ARE the
-  // eligibility set, produced by the engine from the canonical publication +
-  // readiness rules. The row is never rebuilt from the published place list
-  // and never re-sorted: ranking rank is presentation, not eligibility, so a
-  // published-but-ineligible Place can never enter this row by having its
-  // rank appended as a fallback. Search and the list radius gate narrow the
-  // canonical set; they can only remove entries, never add one. Never
-  // deduplicated against the curated row: a Place in both layers appears in
-  // both rows (OVERLAP rule).
+  // DISCOVERY PLACE ROW (canonical engine output, narrowed by the REAL
+  // VISIBLE VIEWPORT). INTEGRITY (P0): this row is BUILT FROM the canonical
+  // `discovery.discovery` result — its ids ARE the eligibility set, produced by
+  // the engine from the canonical publication + readiness rules. The row is
+  // never rebuilt from the published place list and never re-sorted: ranking
+  // rank is presentation, not eligibility, so a published-but-ineligible
+  // Place can never enter this row by having its rank appended as a fallback.
+  // Search and the viewport only REMOVE entries from that canonical order;
+  // neither adds nor re-orders one, and a viewport can never make an
+  // ineligible Place eligible. Never deduplicated against the curated row: a
+  // Place in both layers appears in both rows (OVERLAP rule).
   const discoveryRowPlaces = useMemo(() => {
     const canonical = (discovery?.discovery ?? []).flatMap((entry) => {
       const place = placeById.get(entry.placeId);
       return place && searchFilteredIds.has(place.id) ? [place] : [];
     });
-    if (curatedOnly || distanceFilter === "10 km+") return canonical;
-    return canonical.filter((place) =>
-      matchesDistance(
-        distanceFilter,
-        viewerPosition,
-        place.latitude !== null && place.longitude !== null
-          ? { lat: place.latitude, lng: place.longitude }
-          : null,
-      ),
-    );
-  }, [discovery, placeById, searchFilteredIds, curatedOnly, distanceFilter, viewerPosition]);
+    return narrowToViewport(canonical, mapViewport);
+  }, [discovery, placeById, searchFilteredIds, mapViewport]);
 
-  // TEMPAT PILIHAN ROW (Baris 1): published + is_curated only, through the
-  // same search gate (unbounded in the curated layer), server order —
-  // curation is Admin-promoted, never engine-ranked. Empty when nothing is
-  // curated; the row then renders nothing and Baris 2 stands alone.
+  // TEMPAT PILIHAN ROW (Baris 1): published + canonical is_curated only,
+  // through the same search gate and the SAME real-viewport narrowing as the
+  // Discovery row, server order — curation is Admin-promoted, never
+  // engine-ranked. Empty when nothing is curated; the row then renders nothing
+  // and Baris 2 stands alone. There is never a fallback to all published
+  // Places: an empty curated set is a real empty state.
   const curatedListed = useMemo(
-    () => visiblePlaces.filter((place) => curatedIdSet.has(place.id)),
-    [visiblePlaces, curatedIdSet],
+    () => narrowToViewport(visiblePlaces.filter((place) => curatedIdSet.has(place.id)), mapViewport),
+    [visiblePlaces, curatedIdSet, mapViewport],
   );
 
   // MAP DATASET — normal modes (PO, 2026-09-29): every content-filtered Place
@@ -326,30 +331,24 @@ export default function HomeDiscovery({
   // which markers are visually on screen; a Place without lat/lng is still
   // never invented onto the map (fail-closed).
   //
-  // "Tempat Pilihan" MAP (PO, 2026-09-30): the curated map shows BOTH layers —
+  // "Tempat Pilihan" MAP COVERAGE (product decision, 2026-10-01): the curated
+  // map still shows BOTH layers —
   //   1. every curated published Place (canonical `places.is_curated` only —
   //      the SAME set the curated LIST renders), and
-  //   2. the NORMAL, non-curated published Places that sit inside the 10 km
-  //      coverage around the real Current Location (CURATED_MAP_COVERAGE_RADIUS_M).
-  // The second group is a MAP COVERAGE rule only: those Places keep their
-  // ordinary marker treatment, never become curated, never enter the curated
-  // LIST, and never touch Discovery. Curated membership is still read only
-  // from the canonical curated ids — there is no "empty curated set → show
-  // everything" fallback for the list, and Discovery is never used as one.
-  // Without a real Current Location fix there is no coverage to measure, so
-  // the curated map simply shows every published Place with coordinates.
+  //   2. the NORMAL, non-curated published Places inside the REAL VISIBLE
+  //      VIEWPORT.
+  // The 10 km radius around the Current Location that used to define this
+  // coverage is RETIRED: the viewport is the coverage source now. The second
+  // group is a MAP COVERAGE rule only: those Places keep their ordinary
+  // marker treatment, never become curated, never enter the curated LIST, and
+  // never touch Discovery. Curated membership is still read only from the
+  // canonical curated ids — there is no "empty curated set → show everything"
+  // fallback for the list, and Discovery is never used as one.
   const curatedCoveragePlaces = useMemo(() => {
     if (!curatedOnly) return [];
     const nonCurated = searchFiltered.filter((place) => !curatedIdSet.has(place.id));
-    if (!viewerPosition) return nonCurated;
-    return nonCurated.filter(
-      (place) =>
-        place.latitude !== null &&
-        place.longitude !== null &&
-        distanceMeters(viewerPosition, { lat: place.latitude, lng: place.longitude }) <=
-          CURATED_MAP_COVERAGE_RADIUS_M,
-    );
-  }, [curatedOnly, searchFiltered, curatedIdSet, viewerPosition]);
+    return narrowToViewport(nonCurated, mapViewport);
+  }, [curatedOnly, searchFiltered, curatedIdSet, mapViewport]);
 
   const mapPlaces = useMemo<HomeMapPlace[]>(() => {
     // Curated Places first (they are the point of the layer), then the
@@ -376,11 +375,24 @@ export default function HomeDiscovery({
     });
   }, [visiblePlaces, curatedCoveragePlaces, curatedOnly, curatedIdSet]);
 
-  // Viewport-aware empty state (PO, 2026-09-30): overlay when the DATASET is
-  // empty, or when the map has reported and NO Place sits in the REAL
-  // viewport (that report flips live with pan/zoom — see HomeMap's
-  // moveend/zoomend evaluation). Before the first report (Leaflet not ready
-  // yet) only the dataset rule decides — no premature overlay, no stale one.
+  // MARKERS = the same canonical candidate set narrowed by the REAL VISIBLE
+  // VIEWPORT (product decision, 2026-10-01): markers and the two Place rows
+  // can therefore never disagree with the area on screen. Zooming or panning
+  // changes only which markers exist — it never moves the camera, never
+  // changes eligibility, and never re-orders or invents a Place.
+  const visibleMapPlaces = useMemo(
+    () => narrowToViewport(mapPlaces, mapViewport),
+    [mapPlaces, mapViewport],
+  );
+
+  // Viewport-aware empty state (PO, 2026-09-30): the two situations stay
+  // DISTINCT. (1) The canonical dataset itself is empty
+  // (mapPlaces.length === 0 — nothing to show anywhere) → overlay on.
+  // (2) The dataset has Places but NONE sits in the real viewport (that
+  // report flips live with pan/zoom — see HomeMap's moveend/zoomend
+  // evaluation) → overlay on, and it disappears again as soon as the user
+  // reaches a populated area. Before the first report (Leaflet not ready yet)
+  // only the dataset rule decides — no premature overlay, no stale one.
   const mapEmptyStateVisible =
     mapPlaces.length === 0 || (viewportReported && !viewportHasPlaces);
 
@@ -640,11 +652,15 @@ export default function HomeDiscovery({
         {/* Map base layer — full-bleed behind ALL floating chrome. */}
         <div className="absolute inset-0 z-0">
           <HomeMap
-            places={mapPlaces}
+            places={visibleMapPlaces}
             liveByPlaceId={liveByPlaceId}
             viewerPosition={viewerPosition}
             locateNonce={locateNonce}
             onRequestLocate={handleLocatePress}
+            /* The REAL visible viewport is reported back here: it is the ONE
+               geographic coverage source for the markers and for the Discovery
+               Place / "Tempat Pilihan" rows. It carries geometry only — it
+               never changes eligibility, membership, or the camera. */
             /* ONE deterministic camera preset for every mode (PO,
                2026-09-29; coverage unified by the product decision of
                2026-09-30): distance tabs map to their ordered preset radii
@@ -662,6 +678,7 @@ export default function HomeDiscovery({
                animation. */
             pulsePinOnPresetChange={curatedOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
+            onViewportChange={handleViewportChange}
           />
         </div>
 
@@ -672,14 +689,22 @@ export default function HomeDiscovery({
 
         {/* Search + Filter — floating chrome above the map surface. They stay
             in the normal flow (no fragile absolute offsets), so the stage
-            height is simply chrome + map area and nothing can overlap. */}
-        <div className="relative z-[1100] mx-auto w-full max-w-6xl px-4">
+            height is simply chrome + map area and nothing can overlap.
+            POINTER EVENTS (root-cause fix, 2026-10-01): this wrapper spans
+            the whole map window (it also holds the invisible map-height
+            spacer), so it used to sit over the Leaflet surface as an
+            invisible pointer target — the zoom controls and every drag/pinch
+            on the map area were swallowed by it. The wrapper is therefore
+            click-through (pointer-events-none) and only its real controls
+            (search bar, filter row) opt back in. Nothing about the map
+            surface, its markers, or the layout changes. */}
+        <div className="relative z-[1100] pointer-events-none mx-auto w-full max-w-6xl px-4">
           {/* Search — MOCKUP §2: floating white bar, search icon LEFT and the
               sliders/control icon RIGHT. The right icon is DECORATIVE ONLY
               (aria-hidden, non-inline, never a button): no search-settings
               feature exists, and none is invented. Copy, input, and search
               behavior are untouched (ONE search implementation). */}
-          <div className="mt-[60px] sm:mt-[64px]">
+          <div className="pointer-events-auto mt-[60px] sm:mt-[64px]">
             <div className="flex items-center gap-2.5 rounded-[20px] border border-black/10 bg-white px-3.5 py-2.5 shadow-[0_2px_10px_rgb(0_0_0/0.10)]">
               <span className="shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</span>
               <input
@@ -715,7 +740,7 @@ export default function HomeDiscovery({
               (bg-brand-primary), the distance tabs keep their white surface,
               and LIVE keeps its red dot. Selection logic, handlers, and
               semantics are completely unchanged — only the colors moved. */}
-          <div className="mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5">
+          <div className="pointer-events-auto mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5">
             <button
               onClick={() => {
                 // Mutually exclusive modes (lib/live/ui.ts): turning LIVE on
@@ -792,7 +817,7 @@ export default function HomeDiscovery({
             Leaflet pane (tile 200, map pane 400, tooltip 650, control
             1000) in any drag/zoom state. */}
         {mapEmptyStateVisible && (
-          <div className="absolute inset-x-6 bottom-24 z-[1100] rounded-2xl bg-white/95 p-4 text-center shadow-lg ring-1 ring-brand-ink/10">
+          <div className="pointer-events-none absolute inset-x-6 bottom-24 z-[1100] rounded-2xl bg-white/95 p-4 text-center shadow-lg ring-1 ring-brand-ink/10">
             <p className="text-sm font-bold">
               {curatedOnly
                 ? "Belum ada Tempat Pilihan di sekitar area ini"
@@ -807,7 +832,7 @@ export default function HomeDiscovery({
         {/* MOCKUP §8: coverage box, bottom-left of the map — white, rounded,
             compact, with a target icon and the ACTIVE camera radius in the
             copy (truthful label, never an invented state). */}
-        <div className="absolute bottom-9 left-4 z-[1100] flex max-w-[62%] items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-md ring-1 ring-black/10">
+        <div className="pointer-events-none absolute bottom-9 left-4 z-[1100] flex max-w-[62%] items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-md ring-1 ring-black/10">
           <span aria-hidden className="shrink-0 text-sm leading-none text-brand-ink">⌖</span>
           <p className="text-[11px] font-semibold leading-4 text-brand-ink">
             Menampilkan tempat dalam radius {activeRadiusLabel} dari lokasi Anda
@@ -818,7 +843,7 @@ export default function HomeDiscovery({
             ACTIVE camera radius (same truthful rule as the coverage box) and
             the bar is the mockup's scale line. It sits above the OSM
             attribution so the two never collide. */}
-        <div className="absolute bottom-9 right-4 z-[1100] flex flex-col items-end gap-1">
+        <div className="pointer-events-none absolute bottom-9 right-4 z-[1100] flex flex-col items-end gap-1">
           <span className="rounded bg-white/80 px-1 text-[11px] font-bold leading-4 text-brand-ink">
             {activeRadiusLabel}
           </span>
@@ -829,7 +854,7 @@ export default function HomeDiscovery({
             sits just BELOW the floating filter row so it never overlaps the
             header, the search bar, or the controls. Color treatment: deep
             brand green fill keeps the badge readable on light/busy tiles. */}
-        <div className="absolute left-4 top-[152px] z-[1100] rounded-full bg-brand-primary px-3 py-1 text-[11px] font-bold text-white shadow-md ring-1 ring-brand-accent/60 sm:top-[160px]">
+        <div className="pointer-events-none absolute left-4 top-[152px] z-[1100] rounded-full bg-brand-primary px-3 py-1 text-[11px] font-bold text-white shadow-md ring-1 ring-brand-accent/60 sm:top-[160px]">
           {liveOnly ? "LIVE • " : ""}
           {curatedOnly ? "Tempat Pilihan" : distanceFilter}
         </div>

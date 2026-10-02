@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { CURRENT_LOCATION_CAMERA_RADIUS_M, shouldReportViewportStatus } from "@/lib/live/ui";
+import { isSameViewport, shouldReportViewportStatus, type MapViewport } from "@/lib/live/ui";
 
 /**
  * Real interactive map for Home discovery.
@@ -24,11 +24,12 @@ import { CURRENT_LOCATION_CAMERA_RADIUS_M, shouldReportViewportStatus } from "@/
  *   (1 km / 5 km / 10 km+ / "Tempat Pilihan") is a radius preset and the
  *   camera moves INSTANTLY (setView, animate: false) so the frame covers
  *   exactly that radius around the real Current Location. Distance-tab radii
- *   stay strictly ordered (1 < 5 < 10 km); "Tempat Pilihan" and the explicit
- *   "Lokasi Saya" recenter deliberately share the widest 10 km coverage, so
- *   their zoom is derived from the radius alone — NEVER from the current
- *   zoom, and never from the marker set. A newly chosen preset always applies
- *   (deterministic refocus); manual pan/zoom wins between choices;
+ *   stay strictly ordered (1 < 5 < 10 km) and a preset zoom is derived from
+ *   the radius alone — NEVER from the marker set. A newly chosen preset
+ *   always applies (deterministic refocus); manual pan/zoom wins between
+ *   choices. The explicit "Lokasi Saya" recenter is NOT a preset: it centers
+ *   the real fix while PRESERVING the current close zoom (2026-10-01), so it
+ *   can never widen the visible area;
  *     · marker refreshes/API polling never move the camera;
  *     · the viewport is ALWAYS bounded to the chosen radius preset — the old
  *       one-shot marker fitBounds (which zoomed to a world view when no
@@ -105,6 +106,16 @@ type HomeMapProps = {
    * behavior are NOT affected by this callback.
    */
   onViewportHasPlaces?: (hasPlaces: boolean) => void;
+  /**
+   * The REAL visible viewport, reported as plain bounds (PO,
+   * 2026-10-01: the viewport — not a radius preset — is the geographic
+   * coverage source for the markers and the Home Place rows). Reported on
+   * readiness, on every FINISHED move/zoom, and on resize; deduped by exact
+   * bounds equality so a settled viewport never re-renders the list. It
+   * reports VIEWPORT state only: it never changes eligibility, membership,
+   * the marker dataset, or the camera.
+   */
+  onViewportChange?: (viewport: MapViewport) => void;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -123,6 +134,12 @@ const BRAND_PIN = "#2563eb";
 // green, LIVE uses the live red, and the Current Location disc is the BLUE
 // user marker (MOCKUP §6) so it never looks like a Place.
 const BRAND_SECONDARY = "var(--brand-secondary)";
+/**
+ * Name of the dedicated Current Location pane (see the map init effect). It
+ * exists so the user disc always paints ABOVE every Place pin, whatever the
+ * latitude-based z-ordering of DOM markers would do.
+ */
+const USER_PANE = "singgah-user-pane";
 
 /**
  * ONE-SHOT locate feedback window (PO, 2026-09-30): how long the Current
@@ -140,6 +157,14 @@ const LOCATE_PULSE_MS = 900;
  * every preset change).
  */
 const LOCATE_TRANSITION_MS = 350;
+/**
+ * CLOSEST USABLE FOCUS for "Lokasi Saya" (product decision, 2026-10-01).
+ * The recenter NEVER zooms OUT: it keeps the close zoom the viewer is
+ * already on and only ever raises a farther one, so the fix is centered
+ * without forcing a wide frame that would contradict the visible area. Same
+ * floor as the zoom-preserving fallback focus (focusUser) below.
+ */
+const LOCATE_MIN_ZOOM = 15;
 
 /**
  * Honor the OS reduced-motion setting for the locate transition. Guarded so
@@ -169,6 +194,7 @@ export default function HomeMap({
   cameraRadiusMeters = null,
   pulsePinOnPresetChange = false,
   onViewportHasPlaces,
+  onViewportChange,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -205,6 +231,16 @@ export default function HomeMap({
   // panned or zoomed. The first report must always happen, INCLUDING an
   // empty viewport; afterwards the value dedupes as before.
   const lastViewportHasPlacesRef = useRef<boolean | null>(null);
+  // REAL viewport reporting (product decision, 2026-10-01): the map owns the
+  // ONE geographic coverage source. The latest callback and the last
+  // reported bounds live in refs so the long-lived moveend/zoomend/resize
+  // listeners never capture a stale render closure and never report the
+  // same bounds twice (no re-render storms).
+  const onViewportChangeRef = useRef<((viewport: MapViewport) => void) | null>(null);
+  const lastViewportRef = useRef<MapViewport | null>(null);
+  // Last measured Leaflet size — the container-resize guard (a change that
+  // does not actually change the measured size must not re-report).
+  const measuredSizeRef = useRef<{ x: number; y: number } | null>(null);
 
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -217,6 +253,10 @@ export default function HomeMap({
   useEffect(() => {
     onViewportHasPlacesRef.current = onViewportHasPlaces ?? null;
   }, [onViewportHasPlaces]);
+
+  useEffect(() => {
+    onViewportChangeRef.current = onViewportChange ?? null;
+  }, [onViewportChange]);
 
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
@@ -255,6 +295,28 @@ export default function HomeMap({
     }
   }, []);
 
+  // REAL viewport report (product decision, 2026-10-01): the visible area,
+  // read from Leaflet itself and flattened into plain bounds. It is the ONLY
+  // geographic coverage source the Home rows consume, so markers and lists can
+  // never disagree with what the user can see. Deduped by exact bounds
+  // equality — Leaflet fires moveend/zoomend in bursts, and a settled
+  // viewport must never re-render the Home rows.
+  const reportViewportBounds = useCallback(() => {
+    const map = mapRef.current;
+    const report = onViewportChangeRef.current;
+    if (!map || !report) return;
+    const bounds = map.getBounds();
+    const viewport: MapViewport = {
+      north: bounds.getNorth(),
+      south: bounds.getSouth(),
+      east: bounds.getEast(),
+      west: bounds.getWest(),
+    };
+    if (isSameViewport(lastViewportRef.current, viewport)) return;
+    lastViewportRef.current = viewport;
+    report(viewport);
+  }, []);
+
   // Short pin focus feedback (PO, 2026-09-30 instant-camera rule): the
   // camera applies INSTANTLY (no flyTo, no duration/easing anywhere), so the
   // ONLY motion feedback is this one-shot pulse on the EXISTING Current
@@ -286,10 +348,10 @@ export default function HomeMap({
   // Jump to the real user position WITHOUT changing the frame width —
   // INSTANTLY (setView with animate: false; no duration/easing/animation).
   // Used ONLY by the no-preset path (cameraRadiusMeters === null, which no
-  // Home mode reaches): the one-shot fallback focus. Every real camera move
-  // — the preset anchor and the "Lokasi Saya" 10 km recenter — goes through
-  // radiusZoom instead (see the two effects below). The pin pulse marks the
-  // focus point either way.
+  // Home mode reaches): the one-shot fallback focus. The "Lokasi Saya"
+  // recenter uses the same zoom-preserving rule (see the locate effect
+  // below); only the preset anchor derives a zoom from a radius. The pin
+  // pulse marks the focus point either way.
   const focusUser = useCallback(
     (map: LeafletMap, position: { lat: number; lng: number }) => {
       programmaticMoveRef.current = true;
@@ -426,8 +488,10 @@ export default function HomeMap({
       tileLayerRef.current = tileLayer;
 
       // Functional interactions: drag/touch pan, +/- zoom buttons, scroll
-      // and touch zoom (single basemap, no layer selector).
-      L.control.zoom({ position: "topright" }).addTo(map);
+      // and touch zoom (single basemap, no layer selector). The control is a
+      // real Leaflet zoom control (touch + keyboard operable); the titles are
+      // its accessible names.
+      L.control.zoom({ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" }).addTo(map);
 
       map.on("moveend", () => {
         programmaticMoveRef.current = false;
@@ -438,8 +502,13 @@ export default function HomeMap({
         // it, so updates stay cheap. zoomend arrives right after moveend for
         // zooms (idempotent: it reports only on change).
         evaluateViewportStatus();
+        // The visible area itself is the coverage source for the Home rows
+        // (product decision, 2026-10-01), so it is reported on exactly the
+        // same finished-move events — never per frame.
+        reportViewportBounds();
       });
       map.on("zoomend", evaluateViewportStatus);
+      map.on("zoomend", reportViewportBounds);
       map.on("dragstart", () => {
         if (!programmaticMoveRef.current) userInteractedRef.current = true;
       });
@@ -459,6 +528,14 @@ export default function HomeMap({
       }
 
       mapRef.current = map;
+      // USER MARKER PANE (product decision, 2026-10-01): Place pins are DOM
+      // markers in Leaflet's markerPane (z-index 600) while a CircleMarker is
+      // SVG in overlayPane (400), so the user disc used to paint UNDER every
+      // Place pin — the exact opposite of "the user marker must be clearly
+      // visible above the Place markers". A dedicated pane at 640 keeps it
+      // above every Place pin (600) and still below tooltips (650).
+      const userPane = map.createPane(USER_PANE);
+      userPane.style.zIndex = "640";
       markerLayerRef.current = L.layerGroup().addTo(map);
       userLayerRef.current = L.layerGroup().addTo(map);
       container.dataset.singgahMap = "ready";
@@ -475,6 +552,9 @@ export default function HomeMap({
           // first. invalidateSize settled the real viewport size; any marker
           // set built before readiness is re-evaluated here too.
           evaluateViewportStatus();
+          // ...and the FIRST real viewport is reported here as well, so the
+          // rows follow the visible area without waiting for a gesture.
+          reportViewportBounds();
         }
       }, 150);
     })();
@@ -485,7 +565,32 @@ export default function HomeMap({
       // Resize changes the visible viewport without any map move —
       // re-evaluate (evaluateViewportStatus is stable, [] deps).
       evaluateViewportStatus();
+      reportViewportBounds();
     };
+
+    // CONTAINER RESIZE (2026-10-01): the Home map box is sized in vh/clamp,
+    // so it can change size WITHOUT a window resize event — the mobile
+    // browser chrome collapsing, an orientation change, or the on-screen
+    // keyboard. Leaflet only re-measures on window resize, which would leave
+    // the reported viewport (and therefore the Place rows) narrowed to an area
+    // that is no longer on screen. A ResizeObserver re-measures and re-reports
+    // whenever the CONTAINER itself changes, and only when the measured size
+    // really changed. It adds no global listener and no polling.
+    const resizeObserver =
+      typeof ResizeObserver === "function" && containerRef.current
+        ? new ResizeObserver(() => {
+            const map = mapRef.current;
+            if (!map) return;
+            const size = map.getSize();
+            const previous = measuredSizeRef.current;
+            if (previous && previous.x === size.x && previous.y === size.y) return;
+            measuredSizeRef.current = { x: size.x, y: size.y };
+            invalidate(map);
+            evaluateViewportStatus();
+            reportViewportBounds();
+          })
+        : null;
+    if (resizeObserver && containerRef.current) resizeObserver.observe(containerRef.current);
     window.addEventListener("resize", onWindowResize);
 
     return () => {
@@ -495,6 +600,7 @@ export default function HomeMap({
       if (locatePulseTimerRef.current !== null) clearTimeout(locatePulseTimerRef.current);
       locatePulseTimerRef.current = null;
       window.removeEventListener("resize", onWindowResize);
+      resizeObserver?.disconnect();
       const container = containerRef.current;
       if (container) {
         container.dataset.singgahMap = "";
@@ -586,6 +692,7 @@ export default function HomeMap({
       const accuracy = viewerPosition.accuracy ?? 0;
       if (Number.isFinite(accuracy) && accuracy > 0) {
         L.circle([viewerPosition.lat, viewerPosition.lng], {
+          pane: USER_PANE,
           radius: accuracy,
           color: BRAND_PIN,
           weight: 1,
@@ -599,6 +706,7 @@ export default function HomeMap({
       // in globals.css. Place pins are teardrops (brown/green); LIVE pins are
       // the red badge. No click behavior — it is not a navigation target.
       userPinRef.current = L.circleMarker([viewerPosition.lat, viewerPosition.lng], {
+        pane: USER_PANE,
         radius: 13,
         color: "#ffffff",
         weight: 4,
@@ -609,6 +717,7 @@ export default function HomeMap({
       // locate press) re-applies the one-shot feedback to the NEW element.
       if (Date.now() < locatePulseUntilRef.current) triggerLocatePulse();
       L.circleMarker([viewerPosition.lat, viewerPosition.lng], {
+        pane: USER_PANE,
         radius: 5,
         color: BRAND_PIN,
         weight: 0,
@@ -627,23 +736,20 @@ export default function HomeMap({
     };
   }, [ready, viewerPosition, triggerLocatePulse]);
 
-  // "Lokasi Saya": explicit recenter on the latest REAL fix with its OWN
-  // CURRENT-LOCATION camera coverage (10 km, CURRENT_LOCATION_CAMERA_RADIUS_M).
-  // The action deliberately does NOT reuse the currently selected distance
-  // preset (which may carry another coverage): pressing "Lokasi Saya" always
-  // frames the 10 km coverage around the newest real fix, while CHOOSING a tab
-  // (1 km / 5 km / 10 km+ / "Tempat Pilihan") keeps its own preset through the
-  // anchor effect above. The selected tab/filter state is never read or mutated
-  // here. The camera eases to that frame in ONE short, light transition
+  // "Lokasi Saya": explicit recenter on the latest REAL fix, WITHOUT widening
+  // the visible area (product decision, 2026-10-01). It never derives a zoom
+  // from a radius preset any more: the current close zoom is PRESERVED, and a
+  // farther zoom is only ever raised to the close LOCATE_MIN_ZOOM floor — it
+  // can never zoom out or force a wide radius. The action deliberately does
+  // NOT read or mutate the selected distance tab, and it never touches the
+  // dataset. The camera eases to that center in ONE short, light transition
   // (LOCATE_TRANSITION_MS) — no long fly-through, no visible wait — and falls
   // back to an instant apply when the viewer prefers reduced motion. The pin
   // pulse starts BEFORE the move, so it is already running while the camera
   // settles (and survives a pin that is created after this request). No marker
-  // fitBounds, no dataset or filter change, no fallback coordinate, no invented
-  // position. If the fix has not arrived yet, the request stays pending and
-  // resolves in the anchor effect above once geolocation returns; a failed
-  // fresh fix recentres on the existing real one (the nonce bump happens
-  // before the request).
+  // fitBounds, no fallback coordinate, no invented position. If the fix has not
+  // arrived yet the request stays PENDING and resolves once geolocation
+  // returns; a failed fresh fix leaves the camera exactly where it is.
   useEffect(() => {
     const map = mapRef.current;
     if (!locateNonce || lastLocateNonceRef.current === locateNonce) return;
@@ -653,11 +759,10 @@ export default function HomeMap({
     locatePendingRef.current = false;
     let cancelled = false;
     (async () => {
-      const zoom = await radiusZoom(map, viewerPosition, CURRENT_LOCATION_CAMERA_RADIUS_M);
       if (cancelled || mapRef.current !== map) return;
       programmaticMoveRef.current = true;
       const center: [number, number] = [viewerPosition.lat, viewerPosition.lng];
-      const targetZoom = Math.max(2, zoom);
+      const targetZoom = Math.max(map.getZoom(), LOCATE_MIN_ZOOM);
       // Feedback FIRST: the pulse covers the whole transition and stays
       // pending if the pin element does not exist yet.
       triggerLocatePulse();
@@ -673,7 +778,7 @@ export default function HomeMap({
     return () => {
       cancelled = true;
     };
-  }, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);
+  }, [locateNonce, ready, viewerPosition, triggerLocatePulse]);
 
   // Rebuild markers whenever the filtered marker set changes. Camera note:
   // the viewport is NEVER driven by the marker set — no marker fitBounds

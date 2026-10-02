@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import {
-  CAMERA_PRESET_RADIUS_M,
-  CURATED_CAMERA_RADIUS_M,
-  CURATED_MAP_COVERAGE_RADIUS_M,
-  CURRENT_LOCATION_CAMERA_RADIUS_M,
-} from "../lib/live/ui";
+import { CAMERA_PRESET_RADIUS_M, CURATED_CAMERA_RADIUS_M } from "../lib/live/ui";
 
 const homeMap = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
 const homePage = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
@@ -137,9 +132,14 @@ test("Place Location Picker offers Gunakan lokasi saya with loading and error fe
   assert.match(pickerCode, /flyTo\(\[lat, lng\], 16/);
 });
 
-test("Distance filtering stays anchored to the real Current Location", () => {
+test("Distance LABELS stay anchored to the real Current Location; the tabs never gate the list", () => {
   const pageCode = stripComments(homePage);
-  assert.match(pageCode, /matchesDistance\(\s*distanceFilter,\s*viewerPosition,/);
+  // SUPERSEDED (product decision, 2026-10-01): the 1 km / 5 km / 10 km+ tabs
+  // are CAMERA frames only — the visible Leaflet viewport is the geographic
+  // coverage source for the rows, so no radius gate may remain in Home.
+  assert.equal(pageCode.includes("matchesDistance"), false);
+  // The distance LABEL on a card still comes from the REAL fix + canonical
+  // Place coordinates, never from an invented point.
   assert.match(pageCode, /formatDistance\(distanceMeters\(viewerPosition/);
 });
 
@@ -185,18 +185,18 @@ test("Locate failure matrix: existing fix recentres, no fix never invents one", 
   const writes = pageCode.match(/setViewerPosition\(/g) ?? [];
   assert.equal(writes.length, 1, "viewerPosition is written only by the fresh-fix success callback");
   assert.match(pageCode, /lat: position\.coords\.latitude/);
-  // The locate recenter uses its OWN deterministic 10 km current-location
-  // coverage (never the active tab/curated preset radius), centered on the
-  // newest REAL fix, eased in with ONE short transition, with the pin pulse
-  // as the visual feedback (PO decision, 2026-09-30).
+  // The locate recenter centers on the newest REAL fix and PRESERVES the
+  // current close zoom (product decision, 2026-10-01: no forced zoom-out, no
+  // wide radius), eased in with ONE short transition and the pin pulse as the
+  // visual feedback.
   const mapCode = stripComments(homeMap);
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
   );
-  assert.match(locateEffect, /radiusZoom\(map, viewerPosition, CURRENT_LOCATION_CAMERA_RADIUS_M\)/);
   assert.match(locateEffect, /const center: \[number, number\] = \[viewerPosition\.lat, viewerPosition\.lng\]/);
-  assert.doesNotMatch(locateEffect, /Math\.max\(map\.getZoom\(\)/);
+  assert.match(locateEffect, /const targetZoom = Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
+  assert.doesNotMatch(locateEffect, /radiusZoom/);
   assert.doesNotMatch(locateEffect, /fitBounds/);
 });
 
@@ -223,25 +223,30 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   assert.equal(focusUserCalls.length, 1, "null-preset anchor fallback only");
 });
 
-test("Lokasi Saya frames its OWN 10 km coverage on the real fix, never the selected tab preset", () => {
+test("Lokasi Saya centers the real fix on the CURRENT zoom — it never widens the frame", () => {
   const mapCode = stripComments(homeMap);
-  // It derives the zoom from the dedicated 10,000 m current-location radius
-  // through the SAME canonical radiusZoom mechanism, centered on the newest
-  // REAL fix, and never reads the selected preset radius.
+  // It centers on the newest REAL fix and keeps the close zoom the viewer is
+  // already on (Math.max of the CURRENT zoom: it can raise a farther zoom to
+  // the close floor, but it can never zoom OUT), instead of deriving a zoom
+  // from a fixed wide radius (product decision, 2026-10-01).
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
   );
   assert.match(locateEffect, /locatePendingRef\.current = false;/);
-  assert.match(locateEffect, /radiusZoom\(map, viewerPosition, CURRENT_LOCATION_CAMERA_RADIUS_M\)/);
   assert.match(locateEffect, /const center: \[number, number\] = \[viewerPosition\.lat, viewerPosition\.lng\]/);
-  assert.match(locateEffect, /const targetZoom = Math\.max\(2, zoom\)/);
-  // No arbitrary zoom bump, no marker fitBounds, no mode/filter mutation, and
+  assert.match(locateEffect, /const targetZoom = Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
+  // No radius-derived zoom, no marker fitBounds, no mode/filter mutation, and
   // NO fallback coordinate in the locate path.
-  assert.doesNotMatch(locateEffect, /Math\.max\(map\.getZoom\(\)/);
+  assert.doesNotMatch(locateEffect, /radiusZoom/);
   assert.doesNotMatch(locateEffect, /fitBounds/);
   assert.doesNotMatch(locateEffect, /setCuratedOnly|setDistanceFilter|curatedOnly\s*=/);
   assert.doesNotMatch(locateEffect, /cameraRadiusMeters/);
+  // The floor is a CLOSE zoom, never a wide one, and it is the same value the
+  // zoom-preserving fallback focus uses.
+  const floor = Number(/const LOCATE_MIN_ZOOM = (\d+)/.exec(homeMap)?.[1] ?? "0");
+  assert.ok(floor >= 14, `locate must focus close (got zoom ${floor})`);
+  assert.match(mapCode, /map\.setView\(\[position\.lat, position\.lng\], Math\.max\(map\.getZoom\(\), \d+\)/);
   // The preset anchor is the ONLY place the selected preset radius reaches the
   // camera — the 1/5/10 km tabs AND the 10 km curated preset are untouched.
   const anchorEffect = mapCode.slice(
@@ -260,7 +265,7 @@ test("Lokasi Saya camera transition is SHORT and smooth, and respects reduced mo
   const mapCode = stripComments(homeMap);
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
   );
   // ONE transition, and it is NOT the old instant jump: the camera eases to
   // the 10 km frame instead of teleporting...
@@ -289,15 +294,18 @@ test("Lokasi Saya camera transition is SHORT and smooth, and respects reduced mo
   assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1, "exactly one animated move — the locate recenter");
 });
 
-test("Current-location, curated, and 10 km tab coverage are all exactly 10,000 m", () => {
-  // Executable proof of the three Home camera coverages (PO decision,
-  // 2026-09-30): all three frame the SAME 10 km around the real fix, and the
-  // curated map coverage rule that feeds the curated map dataset uses the
-  // same value. The narrower tabs stay narrower.
+test("The curated and 10 km tab camera coverages stay exactly 10,000 m; no coverage constant survives", () => {
+  // Executable proof of the REMAINING Home camera coverages (PO decision,
+  // 2026-09-30): the "10 km+" tab and the curated preset frame the SAME 10 km
+  // around the real fix. The narrower tabs stay narrower.
+  //
+  // SUPERSEDED (product decision, 2026-10-01): the dedicated "Lokasi Saya"
+  // coverage (CURRENT_LOCATION_CAMERA_RADIUS_M) and the curated MAP-DATASET
+  // coverage (CURATED_MAP_COVERAGE_RADIUS_M) no longer exist at all — the
+  // locate recenter preserves the current zoom, and the map/list coverage is
+  // the REAL Leaflet viewport. Neither symbol may come back as a fixed radius.
   assert.equal(CAMERA_PRESET_RADIUS_M["10 km+"], 10_000);
   assert.equal(CURATED_CAMERA_RADIUS_M, 10_000);
-  assert.equal(CURRENT_LOCATION_CAMERA_RADIUS_M, 10_000);
-  assert.equal(CURATED_MAP_COVERAGE_RADIUS_M, 10_000);
   // The distance tabs stay strictly ordered 1 km < 5 km < 10 km, so the
   // derived zoom is strictly ordered the opposite way and can never collapse
   // two tabs into the same frame (radiusZoom zoom delta = log2(ratio)).
@@ -307,27 +315,27 @@ test("Current-location, curated, and 10 km tab coverage are all exactly 10,000 m
   // 5 km -> 10 km is exactly one full zoom level, so the order stays strict
   // even after Leaflet's zoomSnap (0.25) rounding.
   assert.ok(Math.log2(CAMERA_PRESET_RADIUS_M["10 km+"] / CAMERA_PRESET_RADIUS_M["5 km"]) >= 1);
-  // The values reach ONLY their camera paths: the locate coverage never
-  // appears in Home discovery, and the curated map coverage never becomes a
-  // camera radius or a list gate.
+  // The values reach ONLY their camera paths: neither retired coverage symbol
+  // exists in the library or in either component.
+  const uiSource = readFileSync(new URL("../lib/live/ui.ts", import.meta.url), "utf8");
   const pageCode = stripComments(homePage);
   const mapCode = stripComments(homeMap);
-  assert.equal(pageCode.includes("CURRENT_LOCATION_CAMERA_RADIUS_M"), false, "Home discovery never reads the locate coverage");
+  assert.equal(uiSource.includes("CURRENT_LOCATION_CAMERA_RADIUS_M"), false, "the locate coverage constant is retired");
+  assert.equal(uiSource.includes("CURATED_MAP_COVERAGE_RADIUS_M"), false, "the curated map coverage constant is retired");
+  assert.equal(pageCode.includes("CURRENT_LOCATION_CAMERA_RADIUS_M"), false, "Home discovery never reads a locate coverage");
+  assert.equal(pageCode.includes("CURATED_MAP_COVERAGE_RADIUS_M"), false, "Home discovery never reads a map coverage radius");
   assert.equal(mapCode.includes("CAMERA_PRESET_RADIUS_M"), false, "the map takes its tab presets through the camera prop only");
-  assert.equal(mapCode.includes("CURATED_MAP_COVERAGE_RADIUS_M"), false, "the map never filters the dataset by coverage");
-  const locateUses = mapCode.match(/CURRENT_LOCATION_CAMERA_RADIUS_M/g) ?? [];
-  assert.equal(locateUses.length, 2, "map import + locate camera path only");
+  assert.equal(mapCode.includes("CURRENT_LOCATION_CAMERA_RADIUS_M"), false, "the map recenter derives no radius");
+  assert.equal(mapCode.includes("CURATED_MAP_COVERAGE_RADIUS_M"), false, "the map never filters the dataset by a fixed radius");
   const curatedCameraUses = pageCode.match(/CURATED_CAMERA_RADIUS_M/g) ?? [];
   // 3 uses: import + the camera prop + the MOCKUP coverage/scale LABEL that
   // mirrors the active radius (display only — never a filter input).
   assert.equal(curatedCameraUses.length, 3, "import + camera prop + display label only");
-  const curatedCoverageUses = pageCode.match(/CURATED_MAP_COVERAGE_RADIUS_M/g) ?? [];
-  assert.equal(curatedCoverageUses.length, 2, "import + curated map coverage only");
-  // The three camera paths are three SEPARATE mechanisms that happen to share
-  // the 10 km value — they never read each other's state.
+  // The locate path stays a SEPARATE mechanism: it never reads the preset
+  // radius of the selected tab.
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
   );
   assert.doesNotMatch(locateEffect, /cameraRadiusMeters|CURATED_CAMERA_RADIUS_M/);
 });
@@ -337,11 +345,11 @@ test("Current-location, curated, and 10 km tab coverage are all exactly 10,000 m
 test("Distance-tab camera radii stay strictly ordered: 1 km < 5 km < 10 km", () => {
   // The preset table is the single source of the ordering...
   assert.deepEqual(CAMERA_PRESET_RADIUS_M, { "1 km": 1_000, "5 km": 5_000, "10 km+": 10_000 });
-  // "Tempat Pilihan" and "Lokasi Saya" deliberately share the widest 10 km
-  // frame with the "10 km+" tab, so they are NOT part of this ordering (same
-  // radius => same derived zoom by construction).
+  // "Tempat Pilihan" deliberately shares the widest 10 km frame with the
+  // "10 km+" tab, so it is NOT part of this ordering (same radius => same
+  // derived zoom by construction). "Lokasi Saya" is no longer a preset at all:
+  // it preserves the current zoom (product decision, 2026-10-01).
   assert.equal(CURATED_CAMERA_RADIUS_M, CAMERA_PRESET_RADIUS_M["10 km+"]);
-  assert.equal(CURRENT_LOCATION_CAMERA_RADIUS_M, CAMERA_PRESET_RADIUS_M["10 km+"]);
   // ...and the tab ordering is locked MATHEMATICALLY: at a fixed center the
   // pixel footprint of the radius box scales linearly with the radius, so
   // the derived zoom differs by exactly log2(ratio) — INDEPENDENT of the
@@ -446,7 +454,7 @@ test("Exactly one tile layer exists for the map's whole lifetime", () => {
 test("Zoom controls stay available and user zoom/pan latches are re-armed per preset", () => {
   const mapCode = stripComments(homeMap);
   // +/- controls remain a real Leaflet zoom control...
-  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright" \}\)/);
+  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/);
   // ...and interactions are re-armed on a new preset choice so a new tab can
   // refocus after the user dragged on the previous one.
   assert.match(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
@@ -668,7 +676,7 @@ test("Lokasi Saya pulses the pin BEFORE the camera moves and survives a late mar
   // running while the map settles (not only after it).
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, radiusZoom, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
   );
   const pulseAt = locateEffect.indexOf("triggerLocatePulse();");
   const moveAt = locateEffect.indexOf("map.flyTo(");
@@ -723,5 +731,5 @@ test("MOCKUP 2026-10-01 §5: right-side control stack — Re-center + Lokasi Say
   // Both controls stay ABOVE the Leaflet control ceiling (z-[1100]).
   assert.match(mapCode, /z-\[1100\]/);
   // The Leaflet +/- stack keeps its locked topright position.
-  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright" \}\)/);
+  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/);
 });

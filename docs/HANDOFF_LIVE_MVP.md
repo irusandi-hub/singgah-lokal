@@ -10,14 +10,20 @@ Jangan mengulang pekerjaan yang sudah selesai.
 Selalu audit `main` + Supabase DEV sebelum perubahan baru.
 
 ## 2. CURRENT MAIN
-Latest verified commit:
-`ca7502f` — `Seed DEV demo Discovery dataset to guarantee 10+ eligible Places`
+Latest verified commit on the Home/Map branch:
+`fix/home-map-viewport-coverage` (PR #2, against `main`; `main` itself is
+`2803adb` = merge of PR #1)
 
 NOTE: repository history was squashed into a single root commit; earlier SHAs
 such as `aa6cc74...` and `34561997...` are no longer reachable. Audit always
 re-reads current `main`, never assumes prior SHAs.
 
-Verified 2026-09-30: web test suite green; lint 0 errors; `next build` OK.
+Verified 2026-10-01 (PR #2): web test suite 721/722. The single failure is
+`tests/discovery-aggregate.test.ts` dying with SIGKILL under whole-suite memory
+pressure in this 1-CPU/2 GB sandbox; run alone it passes 8/8 (and
+`tests/discovery-dev-dataset.test.ts` passes 5/5 alone and in the full run), so
+it is an environment limit, not a regression. Lint 0 errors / 7 warnings
+(baseline); `tsc --noEmit` clean; `next build` (28/28).
 
 ## 3. LIVE IMPLEMENTATION STATUS
 
@@ -302,3 +308,62 @@ locate recenter intentionally animates. Regression coverage:
 reduced motion, pulse lifecycle, per-Place marker treatment) and
 `tests/discovery-home-integration.test.ts` (curated map vs curated list,
 membership, Discovery independence).
+
+## 15. RESOLVED BY PRODUCT DECISION — VIEWPORT AS HOME COVERAGE (2026-10-01)
+
+This supersedes §14 items 2 and 5 only. Everything else in §14 (instant preset
+camera, per-Place marker treatment, bounded one-shot pulse, curated membership
+from `places.is_curated` only) still holds.
+
+1. **The visible Leaflet viewport is the ONLY geographic coverage source.**
+   `HomeMap` reports its real bounds (`onViewportChange`) on readiness, on
+   every finished move/zoom, and on resize, deduped by exact bounds equality.
+   The markers, the Discovery Place row, and the "Tempat Pilihan" row are all
+   narrowed by that viewport. 1 km / 5 km / 10 km+ remain CAMERA presets
+   (`CAMERA_PRESET_RADIUS_M`) and no longer decide any Place. Viewport
+   narrowing can only REMOVE canonical entries — never add, re-order, or make
+   an ineligible Place eligible. A Place without canonical coordinates is
+   never placed and never listed.
+2. **Curated map coverage** is the non-curated remainder INSIDE the viewport
+   (`curatedCoveragePlaces`), so the curated map still shows curated + ordinary
+   Places while the curated LIST stays curated-only and never falls back to
+   all published Places. `CURATED_MAP_COVERAGE_RADIUS_M` is deleted.
+3. **"Lokasi Saya"** centers the newest real fix on the CURRENT zoom
+   (`Math.max(map.getZoom(), LOCATE_MIN_ZOOM)` — it can raise a farther zoom to
+   a close floor but never zooms out). `CURRENT_LOCATION_CAMERA_RADIUS_M` is
+   deleted. A denied/timeout fix writes no position and moves no camera; the
+   selected tab is never read or mutated.
+4. **Map interaction root cause fixed:** the floating search/filter wrapper
+   spanned the whole map window (it also holds the invisible map-height
+   spacer) and intercepted every zoom click, drag, and pinch on the map. It is
+   `pointer-events-none` now; the search bar and filter row opt back in with
+   `pointer-events-auto`, and the empty state, coverage box, scale, and badge
+   are click-through too. The map container keeps `touch-none`
+   (`touch-action: none`), so a pinch on the map zooms the map, never the page.
+5. **Container resize:** the Home map box is sized in `vh`/`clamp`, so it can
+   change size WITHOUT a `window` resize event (mobile browser chrome
+   collapsing, orientation change, on-screen keyboard). Leaflet only
+   re-measures on window resize, which used to leave the reported viewport —
+   and therefore both Place rows — narrowed to an area that was no longer on
+   screen. A `ResizeObserver` on the map container now re-measures and
+   re-reports on a real size change (guarded, no polling, disconnected in
+   teardown, no new global listener).
+6. **User marker layer:** a dedicated `singgah-user-pane` (z-index 640) puts the
+   Current Location disc above every Place pin (markerPane 600) and below
+   tooltips (650). Previously the disc rendered in overlayPane (400) and could
+   disappear behind Place pins.
+
+Master note (do NOT edit the Masters): `MASTER_LIVE_POLICY` §12.5 row 1 and
+`MASTER_LIVE_TECH` §9 still describe the distance tabs as a radius list gate.
+That wording is superseded by this decision for the HOME list/map path only —
+the tab set, their radius values, and their camera presets are unchanged. A
+Master version note is required before those rows can be reworded.
+
+Regression coverage: `tests/map-viewport-coverage.test.ts` (15 numbered items:
+canonical-only narrowing, viewport-only coverage, finished-gesture updates,
+curated membership + overlap, no published fallback, search/LIVE, coordinate
+fail-closed, locate without zoom-out, user-marker pane, control reachability,
+no RLS/scoring/canonical-read regression, map lifecycle, and the two distinct
+empty states) plus the updated `map-current-location`, `map-empty-state`,
+`map-stacking`, `home-map-first-ui`, `live-hardening`, and
+`discovery-home-integration` suites.

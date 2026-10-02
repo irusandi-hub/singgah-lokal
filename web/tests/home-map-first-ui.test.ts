@@ -86,7 +86,10 @@ test("MOCKUP §4: the map is a full-bleed background field, not a standalone box
   assert.ok(mapMount > baseLayer, "the map must live inside the full-bleed base layer");
   // ...and the floating chrome rides ABOVE it (documented overlay ladder: 1100
   // for search/filter/map overlays, 1200 for the header).
-  assert.match(code, /className="relative z-\[1100\] mx-auto w-full max-w-6xl px-4"/);
+  // The chrome wrapper is click-through so the map surface underneath keeps
+  // receiving its gestures (root-cause fix, 2026-10-01); the search bar and
+  // the filter row opt back in explicitly.
+  assert.match(code, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
   assert.match(code, /<SiteNav floating \/>/);
 });
 
@@ -484,8 +487,12 @@ test("polish leaves the functional camera / coverage / marker wiring untouched",
     code,
     /isCurated: curatedOnly && curatedIdSet\.has\(place\.id\),/,
   );
+  // SUPERSEDED (product decision, 2026-10-01): the
+  // `curatedOnly || distanceFilter === "10 km+"` radius bypass in the
+  // Discovery row is gone — both rows are now narrowed by the REAL visible
+  // Leaflet viewport, which can only REMOVE canonical entries.
   assert.match(
     code,
-    /if \(curatedOnly \|\| distanceFilter === "10 km\+"\)/,
+    /return narrowToViewport\(canonical, mapViewport\)/,
   );
 });

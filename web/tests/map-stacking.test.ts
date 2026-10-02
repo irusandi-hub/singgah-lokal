@@ -156,7 +156,14 @@ test("MOCKUP §4/§5: the floating header, search, and filter stay above the map
   // (1000): header 1200, search/filter and map overlays 1100, map 0. Tiles can
   // therefore never paint over the chrome in any drag/zoom state.
   assert.match(pageCode, /<div className="absolute inset-0 z-0">/);
-  assert.match(pageCode, /className="relative z-\[1100\] mx-auto w-full max-w-6xl px-4"/);
+  // The chrome wrapper is CLICK-THROUGH (product decision, 2026-10-01): it
+  // spans the whole map window (it also holds the invisible map-height
+  // spacer), so as a normal pointer target it used to swallow every zoom /
+  // drag / pinch on the map surface. pointer-events-none lets the map receive
+  // them again; the search bar and filter row opt back in explicitly.
+  assert.match(pageCode, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
+  assert.match(pageCode, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
+  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5"/);
   const nav = stripComments(readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8"));
   assert.match(nav, /"absolute inset-x-0 top-0 z-\[1200\] border-b-0 bg-transparent"/);
 });

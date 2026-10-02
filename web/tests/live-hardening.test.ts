@@ -44,28 +44,28 @@ test("E2E: LIVE cards compute distance only from real viewer position + canonica
   assert.match(homeSource, /\(\) => undefined,/);
 });
 
-test("E2E: distance tabs are CAMERA presets — the map dataset never shrinks by radius", () => {
+test("E2E: distance tabs are CAMERA presets — markers and rows follow the REAL viewport", () => {
   // PO, 2026-09-29: 1 km / 5 km / 10 km+ are camera presets. The MAP dataset
   // comes from the content-filtered set (search/LIVE/curated) and must NOT
   // pass through a matchesDistance gate — zooming out after choosing 1 km
   // would otherwise never reveal Places an upstream filter had discarded.
-  // (The curated mode's own 10 km COVERAGE step is a separate, explicitly
-  // named map-only source — it never uses the distance-tab filter either.)
+  // (The curated mode's own coverage step is a separate, explicitly named
+  // map-only source — it never uses the distance-tab filter either.)
   const mapDataset = homeSource.slice(homeSource.indexOf("const mapPlaces"));
   assert.match(mapDataset, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
   assert.doesNotMatch(mapDataset, /matchesDistance/);
-  // The matchesDistance gate survives ONLY in the list pipeline (listedPlaces)
-  // — the list below the map keeps its existing proximity contract.
-  assert.match(homeSource, /matchesDistance\(\s*distanceFilter,\s*viewerPosition,/);
+  // SUPERSEDED (product decision, 2026-10-01): the radius gate no longer
+  // survives in the list pipeline either — the visible Leaflet viewport is the
+  // geographic coverage source for BOTH rows and the markers.
+  assert.equal(homeSource.includes("matchesDistance"), false, "no radius gate may remain in Home");
   const listGate = homeSource.slice(homeSource.indexOf("const listedPlaces"), homeSource.indexOf("const liveCards"));
-  assert.match(listGate, /matchesDistance/);
-  assert.match(listGate, /curatedOnly \|\| distanceFilter === "10 km\+"/);
+  assert.match(listGate, /narrowToViewport\(visiblePlaces, mapViewport\)/);
   // LIVE is a process/status filter on the content pipeline.
   assert.match(homeSource, /liveByPlaceId\.has\(place\.id\)/);
   // Map markers derive from the content-filtered set (canonical coords only)
   // through the real Leaflet map component — not raw liveItems, and the old
   // demo layout positions are gone.
-  assert.match(homeSource, /<HomeMap\n\s+places=\{mapPlaces\}\n\s+liveByPlaceId=\{liveByPlaceId\}/);
+  assert.match(homeSource, /<HomeMap\n\s+places=\{visibleMapPlaces\}\n\s+liveByPlaceId=\{liveByPlaceId\}/);
   // Current Location is passed into the map: real geolocation only.
   assert.match(homeSource, /viewerPosition=\{viewerPosition\}/);
   assert.match(homeSource, /locateNonce=\{locateNonce\}/);
