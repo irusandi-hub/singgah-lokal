@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  buildGeocoderUserAgent,
   normalizeGeocodeQuery,
   parseGeocodeResponse,
   type GeocodeResult,
@@ -35,6 +36,20 @@ const GEOCODE_TIMEOUT_MS = 5_000;
 const GEOCODER_ENDPOINT = "https://nominatim.openstreetmap.org/search";
 
 /**
+ * The identifying `User-Agent` every outbound geocode request MUST carry.
+ *
+ * Nominatim's usage policy requires it, and the endpoint enforces that: a
+ * request without one comes back `403 Access denied`, so a server-runtime
+ * fetch is refused outright rather than merely degraded. `NOMINATIM_CONTACT`
+ * optionally overrides the contact so operators can be reached about usage; the
+ * builder falls back to the public project home, so the header is never empty
+ * and the geocoder works with no configuration at all.
+ */
+function geocoderUserAgent(): string {
+  return buildGeocoderUserAgent(process.env.NOMINATIM_CONTACT);
+}
+
+/**
  * Resolve ONE canonical place center for a free-text query.
  *
  * Returns `null` — never a guess — when the provider is unreachable, answers
@@ -58,7 +73,9 @@ export async function geocodeLocation(query: string): Promise<GeocodeResult | nu
       // The geocoder must never serve a STALE or cached center for a place the
       // user just searched for.
       cache: "no-store",
-      headers: { Accept: "application/json" },
+      // `User-Agent` is mandatory for the public Nominatim endpoint (see
+      // `geocoderUserAgent` above) — the request is refused without it.
+      headers: { Accept: "application/json", "User-Agent": geocoderUserAgent() },
       signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS),
     });
   } catch {

@@ -38,6 +38,37 @@ export function normalizeGeocodeQuery(query: unknown): string | null {
   return trimmed;
 }
 
+/**
+ * Identity this application presents to the public Nominatim endpoint.
+ *
+ * Nominatim's usage policy REQUIRES a descriptive `User-Agent` that identifies
+ * the calling application. It is not decoration: a request sent without one is
+ * answered with `403 Access denied`, so a server-runtime fetch (which ships no
+ * identifying User-Agent of its own) is refused outright. Omitting this is what
+ * made the Home location search unreachable, not a rate limit or an IP ban.
+ */
+export const NOMINATIM_APP_ID = "SinggahLokal/0.1";
+
+/** Public project home, used as the contact when no override is configured. */
+export const NOMINATIM_DEFAULT_CONTACT = "https://github.com/irusandi-hub/singgah-lokal";
+
+/**
+ * Build the `User-Agent` value identifying this app to the geocoder.
+ *
+ * A configured contact (URL or email the operators can reach) is preferred;
+ * otherwise the public project home is used, so the header is ALWAYS populated
+ * and the geocoder works with no configuration at all. A blank/whitespace-only
+ * contact falls back rather than producing an unidentifying header.
+ *
+ * Control characters are stripped from the contact so it can never terminate
+ * the header line and append extra headers to the outbound geocode request.
+ */
+export function buildGeocoderUserAgent(contact?: string | null): string {
+  const configured =
+    typeof contact === "string" ? contact.replace(/[\u0000-\u001f\u007f]+/g, " ").trim() : "";
+  return `${NOMINATIM_APP_ID} (+${configured || NOMINATIM_DEFAULT_CONTACT})`;
+}
+
 type NominatimHit = {
   lat?: unknown;
   lon?: unknown;
