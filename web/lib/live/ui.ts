@@ -308,6 +308,16 @@ export type CitySearchState = {
   pending: boolean;
   error: string | null;
   center: ActiveCenter | null;
+  /**
+   * The RESOLVED place name the server geocoder returned for the center.
+   *
+   * It is carried here (not left behind in a separate piece of state) so the
+   * reset can never leave a stale city name describing a center that is gone —
+   * the radius caption would keep saying "Riyadh" while the map and the
+   * results had already moved to the device. It is the server's answer, never
+   * the raw text the user typed, so the caption never shows a guessed name.
+   */
+  placeName: string | null;
 };
 
 /**
@@ -320,7 +330,39 @@ export type CitySearchState = {
  * abandoned city.
  */
 export function clearCitySearch(): CitySearchState {
-  return { query: "", pending: false, error: null, center: null };
+  return { query: "", pending: false, error: null, center: null, placeName: null };
+}
+
+/** Neutral, always-accurate fallback when no resolved city name is known. */
+export const NEUTRAL_SEARCH_AREA_LABEL = "pusat area pencarian";
+
+/**
+ * Radius caption for the map coverage box (bug fix 2026-10-03).
+ *
+ * The caption used to be a fixed "dari lokasi Anda" while the map and the
+ * results were centered on a SEARCHED city — so a Riyadh result set was
+ * labelled as if it were measured from the device. The caption now names the
+ * origin that is actually doing the measuring, which is the same active center
+ * the coverage filter and the distance labels use.
+ *
+ * `placeName` is the geocoder's RESOLVED name. When it is absent the caption
+ * falls back to a neutral phrase rather than echoing typed text or inventing a
+ * location name, so it can never claim a city the search did not resolve.
+ */
+export function describeRadiusOrigin(input: {
+  radiusLabel: string;
+  mode: SearchMode;
+  placeName: string | null;
+}): string {
+  if (input.mode === "city_search") {
+    const name = typeof input.placeName === "string" ? input.placeName.trim() : "";
+    // The neutral label is a COMPLETE phrase on its own — it must not be
+    // appended after "dari pusat pencarian", which would read as
+    // "dari pusat pencarian pusat area pencarian".
+    const origin = name ? `pusat pencarian ${name}` : NEUTRAL_SEARCH_AREA_LABEL;
+    return `Menampilkan tempat dalam radius ${input.radiusLabel} dari ${origin}`;
+  }
+  return `Menampilkan tempat dalam radius ${input.radiusLabel} dari lokasi Anda`;
 }
 
 /**

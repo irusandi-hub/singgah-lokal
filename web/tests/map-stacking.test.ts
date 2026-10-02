@@ -73,17 +73,28 @@ test("React map overlays sit above Leaflet's documented z-index ceiling (1000)",
   const pageCode = stripComments(homeDiscovery);
   // Lokasi Saya button (inside the map component).
   assert.match(mapCode, /z-\[1100\][^"]*"/);
-  // Empty-state card and radius/status badge (map stage overlays).
+  // Empty-state card, coverage box and scale (map stage overlays).
   // MOCKUP §4 (2026-10-01): the map is now the full-bleed background of Home,
   // so the empty-state card anchors near the BOTTOM of the stage (clear of the
   // coverage box) instead of the stage's vertical middle — but it still rides
   // strictly above the Leaflet control ceiling, which is the actual lock here.
+  // COMPACT (bug fix 2026-10-03): the card is now a centered, content-sized
+  // box instead of a full-width panel that covered a large part of the map.
   assert.match(
     pageCode,
-    /absolute inset-x-6 bottom-24 z-\[1100\] rounded-2xl bg-white\/95/,
+    /absolute inset-x-0 bottom-24 z-\[1100\] flex justify-center px-4/,
     "empty-state card must ride above the Leaflet control ceiling",
   );
-  assert.match(pageCode, /absolute left-4 top-\[152px\] z-\[1100\] rounded-full/);
+  assert.match(pageCode, /w-fit max-w-\[min\(20rem,100%\)\] rounded-xl bg-white\/95 px-3 py-1\.5/);
+  // The DUPLICATE "Tempat Pilihan" chip is gone (bug fix 2026-10-03): the map
+  // stage repeated the filter bar's own control as a second chip. The filter
+  // itself is untouched in the main bar; only the duplicate is removed.
+  assert.equal(pageCode.includes("top-[152px]"), false, "duplicate map-area filter chip must not return");
+  assert.equal(
+    /absolute left-4 top-\[\d+px\] z-\[1100\] rounded-full bg-brand-primary/.test(pageCode),
+    false,
+    "duplicate status chip must not return",
+  );
 });
 
 // --- PO decision 2026-09-25: the map frame stays fully visible ---
@@ -138,13 +149,16 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   const pageCode = stripComments(homeDiscovery);
   const mapMount = pageCode.indexOf("<HomeMap\n");
   assert.ok(mapMount > 0, "HomeMap must be rendered by HomeDiscovery");
-  // The in-map Place bottom sheet was removed (PO 2026-09-25): the map stage
-  // keeps only the empty-state card and the radius/status badge above it.
+  // The in-map Place bottom sheet was removed (PO 2026-09-25) and the
+  // duplicate filter chip was removed (2026-10-03): the map stage keeps only
+  // the empty-state card, the coverage box and the scale above it.
   const emptyCard = pageCode.indexOf("bottom-24 z-[1100]");
-  const badge = pageCode.indexOf("left-4 top-[152px] z-[1100]");
+  const coverageBox = pageCode.indexOf("bottom-9 left-4 z-[1100]");
+  const scale = pageCode.indexOf("bottom-9 right-4 z-[1100]");
   for (const [name, index] of [
     ["empty-state card", emptyCard],
-    ["radius badge", badge],
+    ["coverage box", coverageBox],
+    ["scale", scale],
   ] as const) {
     assert.ok(index > mapMount, `${name} must come after the map in DOM order`);
   }

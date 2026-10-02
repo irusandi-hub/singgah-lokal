@@ -19,6 +19,7 @@ import {
   buildDirectionsUrl,
   clearCitySearch,
   distanceMeters,
+  describeRadiusOrigin,
   formatDistance,
   isSameViewport,
   liveDurationLabel,
@@ -78,6 +79,11 @@ export default function HomeDiscovery({
   const [searchPending, setSearchPending] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number } | null>(null);
+  // The RESOLVED place name the geocoder returned for searchCenter. It is
+  // server output, not the raw typed text, so the radius caption can name the
+  // city the search actually resolved instead of guessing. Cleared together
+  // with the center by every reset path.
+  const [searchPlaceName, setSearchPlaceName] = useState<string | null>(null);
   const [searchNonce, setSearchNonce] = useState(0);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
   // Viewer position — Current Location. Geolocation is the primary map
@@ -246,6 +252,7 @@ export default function HomeDiscovery({
       setSearchPending(cleared.pending);
       setSearchError(cleared.error);
       setSearchCenter(cleared.center);
+      setSearchPlaceName(cleared.placeName);
       activeSearchRef.current = "";
       return;
     }
@@ -288,7 +295,12 @@ export default function HomeDiscovery({
         setSearchCenter(null);
         return;
       }
-      const result = (await response.json()) as { latitude?: number; longitude?: number };
+      const result = (await response.json()) as {
+        latitude?: number;
+        longitude?: number;
+        displayName?: string;
+        name?: string;
+      };
       if (activeSearchRef.current !== trimmed) return;
       if (!isCurrent()) return;
       const latitude = Number(result.latitude);
@@ -301,6 +313,16 @@ export default function HomeDiscovery({
       }
       setSearchPending(false);
       setSearchCenter({ lat: latitude, lng: longitude });
+      // The geocoder's OWN resolved name drives the radius caption, so it can
+      // never name a city the search did not resolve. An absent name falls
+      // back to the neutral phrase rather than the typed text.
+      setSearchPlaceName(
+        typeof result.displayName === "string" && result.displayName.trim()
+          ? result.displayName.trim()
+          : typeof result.name === "string" && result.name.trim()
+            ? result.name.trim()
+            : null,
+      );
       // The real Leaflet bounds for this new center supersede the synthetic
       // bridge box; the map reports them on the next moveend.
       resetViewportLatch();
@@ -363,6 +385,7 @@ export default function HomeDiscovery({
     setSearchPending(cleared.pending);
     setSearchError(cleared.error);
     setSearchCenter(cleared.center);
+    setSearchPlaceName(cleared.placeName);
   }, []);
 
   // "LOCATION MODE OWNERSHIP (bug fix 2026-10-02): ONE source of truth for
@@ -403,6 +426,7 @@ export default function HomeDiscovery({
     setSearchPending(cleared.pending);
     setSearchError(cleared.error);
     setSearchCenter(cleared.center);
+    setSearchPlaceName(cleared.placeName);
     // Coverage goes back to the REAL Leaflet bounds; the synthetic bridge box
     // existed only for a city that no longer owns the viewport.
     resetViewportLatch();
@@ -635,6 +659,15 @@ export default function HomeDiscovery({
     : CAMERA_PRESET_RADIUS_M[distanceFilter];
   const activeRadiusLabel =
     activeRadiusMeters >= 1000 ? `${activeRadiusMeters / 1000} km` : `${activeRadiusMeters} m`;
+  // Radius caption (bug fix 2026-10-03): it names the origin that is actually
+  // doing the measuring — the SAME active center the coverage filter and the
+  // distance labels use. It used to be a fixed "dari lokasi Anda", so Riyadh
+  // results were captioned as if measured from the device.
+  const radiusCaption = describeRadiusOrigin({
+    radiusLabel: activeRadiusLabel,
+    mode: activeSearch.mode,
+    placeName: searchPlaceName,
+  });
 
   // ONE card renderer for every row: the existing card design verbatim; the
   // only addition is the optional "✦ Tempat Pilihan" marker so an overlap
@@ -1094,26 +1127,36 @@ export default function HomeDiscovery({
             Leaflet pane (tile 200, map pane 400, tooltip 650, control
             1000) in any drag/zoom state. */}
         {mapEmptyStateVisible && (
-          <div className="pointer-events-none absolute inset-x-6 bottom-24 z-[1100] rounded-2xl bg-white/95 p-4 text-center shadow-lg ring-1 ring-brand-ink/10">
-            <p className="text-sm font-bold">
-              {curatedOnly
-                ? "Belum ada Tempat Pilihan di sekitar area ini"
-                : "Belum ada Tempat Terdaftar di sekitar area ini"}
-            </p>
-            <p className="mt-1 text-xs text-black/55">
-              Geser peta dengan dua jari untuk melihat area lain.
-            </p>
+          /* COMPACT overlay (bug fix 2026-10-03). The copy is unchanged — an
+             empty state must stay an honest empty state — but the card no
+             longer spans the map: the wrapper is a centered flex line, the
+             card itself is content-sized (w-fit) and capped at 20 rem, so it
+             covers the smallest possible area and WRAPS instead of growing
+             when the sentence is long or the screen is narrow. Padding, text
+             size and shadow are reduced, and it stays clear of the coverage
+             box (bottom-9) and the Leaflet controls. */
+          <div className="pointer-events-none absolute inset-x-0 bottom-24 z-[1100] flex justify-center px-4">
+            <div className="w-fit max-w-[min(20rem,100%)] rounded-xl bg-white/95 px-3 py-1.5 text-center shadow-md ring-1 ring-brand-ink/10">
+              <p className="text-[11px] font-semibold leading-4 text-brand-ink">
+                {curatedOnly
+                  ? "Belum ada Tempat Pilihan di sekitar area ini"
+                  : "Belum ada Tempat Terdaftar di sekitar area ini"}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-3.5 text-black/55">
+                Geser peta dengan dua jari untuk melihat area lain.
+              </p>
+            </div>
           </div>
         )}
 
         {/* MOCKUP §8: coverage box, bottom-left of the map — white, rounded,
             compact, with a target icon and the ACTIVE camera radius in the
-            copy (truthful label, never an invented state). */}
+            copy (truthful label, never an invented state). The caption names
+            the origin that is really measuring — the searched city or the
+            user's own location — so it can never contradict the results. */}
         <div className="pointer-events-none absolute bottom-9 left-4 z-[1100] flex max-w-[62%] items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-md ring-1 ring-black/10">
           <span aria-hidden className="shrink-0 text-sm leading-none text-brand-ink">⌖</span>
-          <p className="text-[11px] font-semibold leading-4 text-brand-ink">
-            Menampilkan tempat dalam radius {activeRadiusLabel} dari lokasi Anda
-          </p>
+          <p className="text-[11px] font-semibold leading-4 text-brand-ink">{radiusCaption}</p>
         </div>
 
         {/* MOCKUP §9: scale, bottom-right of the map — the label follows the
@@ -1127,14 +1170,6 @@ export default function HomeDiscovery({
           <span aria-hidden className="block h-0.5 w-14 border-x-2 border-b-2 border-brand-ink/70" />
         </div>
 
-        {/* Radius/status badge — OVERLAY_LADDER above the Leaflet ceiling. It
-            sits just BELOW the floating filter row so it never overlaps the
-            header, the search bar, or the controls. Color treatment: deep
-            brand green fill keeps the badge readable on light/busy tiles. */}
-        <div className="pointer-events-none absolute left-4 top-[152px] z-[1100] rounded-full bg-brand-primary px-3 py-1 text-[11px] font-bold text-white shadow-md ring-1 ring-brand-accent/60 sm:top-[160px]">
-          {liveOnly ? "LIVE • " : ""}
-          {curatedOnly ? "Tempat Pilihan" : distanceFilter}
-        </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pb-8">

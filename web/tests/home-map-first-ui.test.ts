@@ -321,7 +321,14 @@ test("MOCKUP §9/§18: the star gold tone follows the real rating value, never a
 
 test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right follow the ACTIVE radius", () => {
   // Coverage box: white, rounded, icon, and the truthful active radius.
-  assert.match(code, /Menampilkan tempat dalam radius \{activeRadiusLabel\} dari lokasi Anda/);
+  // The caption is DYNAMIC (bug fix 2026-10-03): it names the origin that is
+  // really measuring — the searched city or the user's own location — instead
+  // of a hardcoded "dari lokasi Anda" that contradicted Riyadh results.
+  assert.match(code, /const radiusCaption = describeRadiusOrigin\(\{/);
+  assert.match(code, /mode: activeSearch\.mode,/);
+  assert.match(code, /placeName: searchPlaceName,/);
+  assert.match(code, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{radiusCaption\}<\/p>/);
+  assert.doesNotMatch(code, /dari lokasi Anda/);
   assert.match(code, /absolute bottom-9 left-4 z-\[1100\] flex max-w-\[62%\] items-center gap-2 rounded-xl bg-white/);
   // Scale: bottom-right with the bar; the label mirrors the same active
   // radius ("Tempat Pilihan" = 10 km, per the camera constants).

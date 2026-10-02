@@ -341,11 +341,12 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // starting on the map zooms the MAP, never the page — and page scrolling
   // outside the map is untouched.
   assert.match(homeMap, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
-  // The informational overlays never block a gesture either.
+  // The informational overlays never block a gesture either. The duplicate
+  // map-area filter chip was removed (2026-10-03), so there are three.
   assert.equal(
     (pageCode.match(/pointer-events-none absolute/g) ?? []).length,
-    4,
-    "empty state, coverage box, scale, and badge are all click-through",
+    3,
+    "empty state, coverage box, and scale are all click-through",
   );
   // Real Leaflet zoom control, with accessible names, plus the two locate
   // controls that share ONE handler.
