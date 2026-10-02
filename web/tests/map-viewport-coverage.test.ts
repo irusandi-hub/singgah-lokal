@@ -70,7 +70,7 @@ test("1. Discovery shows only canonical engine Places that are inside the viewpo
   // second list source anywhere in the component.
   const row = pageCode.slice(pageCode.indexOf("const discoveryRowPlaces"), pageCode.indexOf("const curatedListed"));
   assert.match(row, /const canonical = \(discovery\?\.discovery \?\? \[\]\)\.flatMap/);
-  assert.match(row, /return narrowToViewport\(canonical, mapViewport\);/);
+  assert.match(row, /return narrowToViewport\(canonical, coverageViewport\);/);
   assert.doesNotMatch(row, /places\.filter|searchFiltered\.flatMap/);
 });
 
@@ -82,9 +82,9 @@ test("2. A Place outside the viewport never appears in a viewport-following list
   assert.equal(listed.some((item) => item.id === "outside"), false);
   // All three consumers narrow by the SAME viewport value, so markers and the
   // two rows can never disagree.
-  assert.match(pageCode, /narrowToViewport\(visiblePlaces, mapViewport\)/);
-  assert.match(pageCode, /narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), mapViewport\)/);
-  assert.match(pageCode, /narrowToViewport\(mapPlaces, mapViewport\)/);
+  assert.match(pageCode, /narrowToViewport\(visiblePlaces, coverageViewport\)/);
+  assert.match(pageCode, /narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/);
+  assert.match(pageCode, /narrowToViewport\(mapPlaces, coverageViewport\)/);
   assert.match(pageCode, /places=\{visibleMapPlaces\}/);
 });
 
@@ -187,14 +187,14 @@ test("5. Tempat Pilihan comes only from canonical is_curated and follows the vie
   const curatedRow = pageCode.slice(pageCode.indexOf("const curatedListed"), pageCode.indexOf("const curatedCoveragePlaces"));
   assert.match(
     curatedRow,
-    /narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), mapViewport\)/,
+    /narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/,
   );
   assert.doesNotMatch(curatedRow, /distanceFilter|CURATED_CAMERA_RADIUS_M|curatedCoveragePlaces/);
   // The curated MAP's extra ordinary source is the non-curated remainder
   // inside the real viewport — never a fixed radius any more.
   const coverage = pageCode.slice(pageCode.indexOf("const curatedCoveragePlaces"), pageCode.indexOf("const mapPlaces"));
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
-  assert.match(coverage, /return narrowToViewport\(nonCurated, mapViewport\);/);
+  assert.match(coverage, /return narrowToViewport\(nonCurated, coverageViewport\);/);
   assert.doesNotMatch(coverage, /distanceMeters|viewerPosition/);
 });
 
@@ -419,9 +419,13 @@ test("15. Empty state separates an empty dataset from an empty viewport", () => 
   // from "nothing is visible right now".
   const candidates = pageCode.slice(pageCode.indexOf("const mapPlaces"), pageCode.indexOf("const visibleMapPlaces"));
   assert.match(candidates, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
-  assert.equal(candidates.includes("mapViewport"), false, "the canonical dataset is never viewport-filtered in place");
+  assert.equal(
+    candidates.includes("coverageViewport"),
+    false,
+    "the canonical dataset is never viewport-filtered in place",
+  );
   const visible = pageCode.slice(pageCode.indexOf("const visibleMapPlaces"), pageCode.indexOf("const mapEmptyStateVisible"));
-  assert.match(visible, /narrowToViewport\(mapPlaces, mapViewport\)/);
+  assert.match(visible, /narrowToViewport\(mapPlaces, coverageViewport\)/);
   // Copy stays the approved one, per mode.
   assert.match(pageCode, /Belum ada Tempat Terdaftar di sekitar area ini/);
   assert.match(pageCode, /Belum ada Tempat Pilihan di sekitar area ini/);

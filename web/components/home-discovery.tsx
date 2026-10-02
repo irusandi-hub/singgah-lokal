@@ -28,7 +28,6 @@ import {
   type LiveDiscoveryItem,
   type MapViewport,
 } from "@/lib/live/ui";
-import { geocodeLocation } from "@/lib/live/photon";
 
 // Home discovery (Map-first) — rendered by the / route (app/page.tsx,
 // force-dynamic server wrapper). It must stay a CLIENT component here so the
@@ -43,15 +42,6 @@ import { geocodeLocation } from "@/lib/live/photon";
 // canonical Discovery engine (stars + rank only — the numeric score never
 // leaves the server). The client NEVER recomputes eligibility, score, stars,
 // or ranking; it only joins card data by id and renders the engine order.
-//
-// LOCATION SEARCH (new, PO 2026-10-02): typing a city sends the query to the
-// server-only geocoder, which returns ONE canonical coordinate pair instead of
-// trusting the typed text. Loading sets a persistent search state, the map
-// recenters to that search center while its radius and filter mode stay
-// unchanged, and every layer (existing results, the Tempat Pilihan row, the
-// Discovery row) filters to places within the newly centered area. A user who
-// searches twice re-centers a second time; the latest query is the only one
-// that wins (a previous search cannot be overwritten by a slower/old response).
 export default function HomeDiscovery({
   initialPlaces = [],
   discovery,
@@ -74,12 +64,14 @@ export default function HomeDiscovery({
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("1 km");
   const [curatedOnly, setCuratedOnly] = useState(false);
   const [liveOnly, setLiveOnly] = useState(false);
-  // LOCATION SEARCH state (new): the typed text, the pending state, the
-  // parsed search center, and a search nonce. The search center is the only
-  // camera anchor the search flow changes (map recentering). Radius tabs are
-  // camera presets only, so a search does not alter them, and a radius tab
-  // never cancels an in-flight search.
   const [searchQuery, setSearchQuery] = useState("");
+  // LOCATION SEARCH state: the typed text (searchQuery above), the pending
+  // flag, the server-parsed center, and a nonce that bumps once the server
+  // answered. The search center is the ONLY camera anchor the search flow
+  // changes — the radius tabs stay camera-only presets, and a radius tab
+  // never cancels an in-flight search. No fallback coordinate is ever
+  // invented: without a server answer searchCenter stays null and the map
+  // keeps the REAL Leaflet viewport as its coverage source.
   const [searchPending, setSearchPending] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number } | null>(null);
@@ -163,68 +155,139 @@ export default function HomeDiscovery({
   );
   const placeById = useMemo(() => new Map(places.map((place) => [place.id, place])), [places]);
 
-  // LOCATION SEARCH: debounce is intentional. A server geocode should not run
-  // on every keystroke, and the UI must not reset the camera the moment the
-  // user is still typing. The debounce window is intentionally short and is
-  // applied by time, not by input length, and the search summary below the
-  // input is one single source of truth for "searching", "success",
-  // "error", and "result center".
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const runSearch = useCallback(
-    async (query: string) => {
-      const trimmed = query.trim();
-      if (!trimmed) {
-        setSearchQuery("");
+
+  // LIVE discovery feed (canonical live_sessions, published Places only).
+  // Performance rule (PO, 2026-09-25): the 15-second poll runs ONLY while
+  // the LIVE tab is actually active — distance/curated modes must not pay
+  // for continuous Live polling. Initial load + refresh happen when the tab
+  // is opened; the interval is torn down on every mode exit (tab switch off,
+  // Tempat Pilihan, unmount/route change), so leaving LIVE mode always
+  // stops the polling. LIVE badges (liveByPlaceId) stay correct for a full
+  // poll cycle after leaving the tab and never invent Live state.
+  useEffect(() => {
+    if (!liveOnly) return;
+
+    const load = () =>
+      fetch("/api/live/discovery")
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Live discovery unavailable"))))
+        .then((payload: { live: LiveDiscoveryItem[] }) => setLiveItems(payload.live ?? []))
+        .catch(() => setLiveItems([]));
+
+    load();
+    const interval = window.setInterval(load, 15000);
+    return () => window.clearInterval(interval);
+  }, [liveOnly]);
+
+  // Real viewer position when permission is granted; no fallback point is
+  // ever invented — without a position (or Place coordinates) no distance
+  // label is shown (PO: no fake positions). The SAME handler serves the
+  // initial mount fix and the explicit "Lokasi Saya" presses: a press always
+  // asks the browser for a FRESH position (locate-refresh fix, 2026-09-30).
+  const requestViewerPosition = useCallback(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setViewerPosition({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        });
+        // Recentre ONLY after the fresh position is committed to state —
+        // the locate effect (locateNonce) then flies to the ACTIVE preset
+        // radius around this newest fix. Never flies to a stale one.
+        setLocateNonce((nonce) => nonce + 1);
+      },
+      // Denial/failure is silent: the camera stays exactly where it is —
+      // no fallback coordinate, no default location, no dataset change.
+      () => undefined,
+      { timeout: 8000 },
+    );
+  }, []);
+
+  // Initial mount fix — the same fresh-position request path.
+  useEffect(() => {
+    requestViewerPosition();
+  }, [requestViewerPosition]);
+
+  // LOCATION SEARCH — debounce is intentional: a server geocode must not run
+  // on every keystroke, and the camera must not move while the user is still
+  // typing. The window is short and time-based (250 ms), never length-based.
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A response only wins while it is still for the CURRENT query, so a slow
+  // earlier request can never overwrite a newer center (last-write-wins by
+  // the query the user actually typed, not by arrival order).
+  const activeSearchRef = useRef<string>("");
+
+  const runSearch = useCallback(async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setSearchQuery("");
+      setSearchPending(false);
+      setSearchError(null);
+      setSearchCenter(null);
+      activeSearchRef.current = "";
+      return;
+    }
+
+    activeSearchRef.current = trimmed;
+    setSearchQuery(trimmed);
+    setSearchPending(true);
+    setSearchError(null);
+    setSearchCenter(null);
+
+    try {
+      // The provider endpoint is server-only; the browser calls our own
+      // route, which validates the query and returns one canonical center.
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(trimmed)}`, {
+        headers: { Accept: "application/json" },
+      });
+      if (activeSearchRef.current !== trimmed) return;
+      if (response.status === 404) {
         setSearchPending(false);
-        setSearchError(null);
+        setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
         setSearchCenter(null);
         return;
       }
-
-      setSearchQuery(trimmed);
-      setSearchPending(true);
-      setSearchError(null);
-      setSearchCenter(null);
-
-      try {
-        const result = await geocodeLocation(trimmed);
-        if (!result) {
-          setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
-          setSearchCenter(null);
-          return;
-        }
-        setSearchCenter({ lat: result.latitude, lng: result.longitude });
-      } catch (error) {
-        setSearchError("Geocoding service sedang tidak tersedia. Coba lagi nanti.");
-        setSearchCenter(null);
-      } finally {
-        // The nonce is bumped only after the server answered, so the newest
-        // successful request always drives the UI.
-        setSearchNonce((nonce) => nonce + 1);
-      } finally {
+      if (!response.ok) {
         setSearchPending(false);
+        setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
+        setSearchCenter(null);
+        return;
       }
-    },
-    [],
-  );
+      const result = (await response.json()) as { latitude?: number; longitude?: number };
+      if (activeSearchRef.current !== trimmed) return;
+      const latitude = Number(result.latitude);
+      const longitude = Number(result.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        setSearchPending(false);
+        setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
+        setSearchCenter(null);
+        return;
+      }
+      setSearchPending(false);
+      setSearchCenter({ lat: latitude, lng: longitude });
+    } catch {
+      if (activeSearchRef.current !== trimmed) return;
+      setSearchPending(false);
+      setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
+      setSearchCenter(null);
+    } finally {
+      // The nonce is bumped only AFTER the server answered, so the newest
+      // successful request always wins — a slow earlier response can never
+      // overwrite a later center.
+      setSearchNonce((nonce) => nonce + 1);
+    }
+  }, []);
 
-  // Debounced search: after the user stops typing we run the server-only
-  // geocoder. We clear the timer only when a new debounce starts, not when
-  // the request is still running, so a long request never blocks later
-  // keystrokes.
   useEffect(() => {
     if (debounceTimerRef.current !== null) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
-    if (!searchQuery.trim()) {
-      setSearchPending(false);
-      setSearchError(null);
-      setSearchCenter(null);
-      return;
-    }
+    // An empty query is cleared in the input handler (handleSearchChange),
+    // NOT here: synchronizing state from an effect body would cascade renders.
+    if (!searchQuery.trim()) return;
     debounceTimerRef.current = setTimeout(() => {
       runSearch(searchQuery);
     }, 250);
@@ -236,8 +299,8 @@ export default function HomeDiscovery({
     };
   }, [searchQuery, runSearch]);
 
-  // Release the debounce handle on unmount so the final timer never fires
-  // after the component leaves the page.
+  // Release the debounce handle on unmount so a pending timer never fires
+  // after the component has left the page.
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current !== null) {
@@ -247,10 +310,17 @@ export default function HomeDiscovery({
     };
   }, []);
 
-  // Initial mount fix — the same fresh-position request path.
-  useEffect(() => {
-    requestViewerPosition();
-  }, [requestViewerPosition]);
+  // Clearing the input is the ONE place the search state resets (no effect):
+  // an empty query immediately drops the pending flag, the error, and the
+  // center, so the map and every row fall back to the REAL Leaflet viewport.
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    if (value.trim()) return;
+    activeSearchRef.current = "";
+    setSearchPending(false);
+    setSearchError(null);
+    setSearchCenter(null);
+  }, []);
 
   // "Lokasi Saya" press (locate-refresh regression fix, 2026-09-30): the
   // recenter must NOT depend on the fresh request succeeding. The press
@@ -278,7 +348,9 @@ export default function HomeDiscovery({
   // CONTENT FILTER (PO, 2026-09-29): search, LIVE, and the curated layer —
   // the filters that decide WHAT content exists. The distance tabs are NOT
   // part of this pipeline anymore: 1 km / 5 km / 10 km+ are CAMERA PRESETS,
-  // and the map dataset must never shrink because a radius tab was chosen.
+  // and the map dataset must never shrink because a radius tab was chosen
+  // (zooming out would otherwise never reveal Places that an upstream
+  // radius filter had already discarded).
   //
   // Search is extracted as its own step so EVERY layer (existing results,
   // the Tempat Pilihan row, and the Discovery rows) applies the exact same
@@ -307,16 +379,6 @@ export default function HomeDiscovery({
     [searchFiltered],
   );
 
-  // LOCATION SEARCH: the viewport now follows the parsed search center.
-  // mapViewport is the geographic coverage source for the markers and the
-  // two Place rows, so the search center is fed through narrowToViewport.
-  // The search still does not invent a fallback position if the server
-  // returns no coordinates, and re-running the search does not reset the
-  // radius or the curated/LIVE mode.
-  const searchViewport = searchCenter
-    ? { north: searchCenter.lat + 0.05, south: searchCenter.lat - 0.05, east: searchCenter.lng + 0.05, west: searchCenter.lng - 0.05 }
-    : null;
-
   const visiblePlaces = useMemo(() => {
     // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26), backed
     // by the canonical is_curated flag (PO Stage 3, migration 0035): published
@@ -337,6 +399,25 @@ export default function HomeDiscovery({
     return result;
   }, [searchFiltered, liveOnly, curatedOnly, curatedIdSet, liveByPlaceId]);
 
+  // LOCATION SEARCH VIEWPORT (PO 2026-10-02): when the server geocoder
+  // answered, that canonical coordinate pair becomes the coverage source
+  // instead of the last reported Leaflet bounds, so the map and every row
+  // narrow to the newly centered area. The box is a small ±0.05° window
+  // (~5.5 km) purely to keep the filter deterministic until Leaflet reports
+  // its own bounds for the recentered camera; `narrowToViewport` accepts it
+  // because it is the same MapViewport shape. It never changes eligibility,
+  // membership, or ordering, and it is null (→ the REAL mapViewport) whenever
+  // the server returned nothing.
+  const searchViewport = searchCenter
+    ? {
+        north: searchCenter.lat + 0.05,
+        south: searchCenter.lat - 0.05,
+        east: searchCenter.lng + 0.05,
+        west: searchCenter.lng - 0.05,
+      }
+    : null;
+  const coverageViewport = searchCenter ? searchViewport : mapViewport;
+
   // PLACE RESULTS narrowed by the REAL VISIBLE VIEWPORT (product decision,
   // 2026-10-01). The 1 km / 5 km / 10 km+ tabs are CAMERA frames only and can
   // no longer decide which Places are listed: panning or zooming the map is
@@ -344,13 +425,10 @@ export default function HomeDiscovery({
   // content filters above this step, and a Place without canonical
   // coordinates is dropped (it can never be inside a viewport, so listing it
   // would contradict the marker set). Nothing here re-orders or adds a Place.
-  const listedPlaces = useMemo(() => {
-    // When a search supplies the center, the list is first narrowed to the
-    // search area. Otherwise the map viewport is the coverage source for the
-    // list, exactly as before a search existed.
-    const viewport = searchCenter ? searchViewport : mapViewport;
-    return narrowToViewport(visiblePlaces, viewport);
-  }, [searchCenter, searchViewport, visiblePlaces, mapViewport]);
+  const listedPlaces = useMemo(
+    () => narrowToViewport(visiblePlaces, coverageViewport),
+    [visiblePlaces, coverageViewport],
+  );
 
   const liveCards = useMemo(() => {
     if (liveItems.length === 0) return [];
@@ -374,8 +452,8 @@ export default function HomeDiscovery({
       const place = placeById.get(entry.placeId);
       return place && searchFilteredIds.has(place.id) ? [place] : [];
     });
-    return narrowToViewport(canonical, searchCenter ? searchViewport : mapViewport);
-  }, [discovery, placeById, searchFilteredIds, searchCenter, searchViewport, mapViewport]);
+    return narrowToViewport(canonical, coverageViewport);
+  }, [discovery, placeById, searchFilteredIds, coverageViewport]);
 
   // TEMPAT PILIHAN ROW (Baris 1): published + canonical is_curated only,
   // through the same search gate and the SAME real-viewport narrowing as the
@@ -384,8 +462,8 @@ export default function HomeDiscovery({
   // and Baris 2 stands alone. There is never a fallback to all published
   // Places: an empty curated set is a real empty state.
   const curatedListed = useMemo(
-    () => narrowToViewport(visiblePlaces.filter((place) => curatedIdSet.has(place.id)), searchCenter ? searchViewport : mapViewport),
-    [visiblePlaces, curatedIdSet, searchCenter, searchViewport, mapViewport],
+    () => narrowToViewport(visiblePlaces.filter((place) => curatedIdSet.has(place.id)), coverageViewport),
+    [visiblePlaces, curatedIdSet, coverageViewport],
   );
 
   // MAP DATASET — normal modes (PO, 2026-09-29): every content-filtered Place
@@ -411,8 +489,8 @@ export default function HomeDiscovery({
   const curatedCoveragePlaces = useMemo(() => {
     if (!curatedOnly) return [];
     const nonCurated = searchFiltered.filter((place) => !curatedIdSet.has(place.id));
-    return narrowToViewport(nonCurated, searchCenter ? searchViewport : mapViewport);
-  }, [curatedOnly, searchFiltered, curatedIdSet, searchCenter, searchViewport, mapViewport]);
+    return narrowToViewport(nonCurated, coverageViewport);
+  }, [curatedOnly, searchFiltered, curatedIdSet, coverageViewport]);
 
   const mapPlaces = useMemo<HomeMapPlace[]>(() => {
     // Curated Places first (they are the point of the layer), then the
@@ -445,8 +523,8 @@ export default function HomeDiscovery({
   // changes only which markers exist — it never moves the camera, never
   // changes eligibility, and never re-orders or invents a Place.
   const visibleMapPlaces = useMemo(
-    () => narrowToViewport(mapPlaces, searchCenter ? searchViewport : mapViewport),
-    [mapPlaces, searchCenter, searchViewport, mapViewport],
+    () => narrowToViewport(mapPlaces, coverageViewport),
+    [mapPlaces, coverageViewport],
   );
 
   // Viewport-aware empty state (PO, 2026-09-30): the two situations stay
@@ -596,7 +674,9 @@ export default function HomeDiscovery({
             {[1, 2, 3, 4, 5].map((slot) => (
               <span
                 key={slot}
-                className={`singgah-star ${slot <= stars ? `singgah-star-active singgah-star-gold-${stars}` : "singgah-star-empty"}`}
+                className={`singgah-star ${
+                  slot <= stars ? `singgah-star-active singgah-star-gold-${stars}` : "singgah-star-empty"
+                }`}
               >
                 ★
               </span>
@@ -722,22 +802,29 @@ export default function HomeDiscovery({
             /* The REAL visible viewport is reported back here: it is the ONE
                geographic coverage source for the markers and for the Discovery
                Place / "Tempat Pilihan" rows. It carries geometry only — it
-               never changes eligibility, membership, or the camera. */}
+               never changes eligibility, membership, or the camera. */
             /* ONE deterministic camera preset for every mode (PO,
                2026-09-29; coverage unified by the product decision of
                2026-09-30): distance tabs map to their ordered preset radii
                (1 < 5 < 10 km) and "Tempat Pilihan" frames the SAME 10 km
                coverage. CAMERA-ONLY — the curated membership (canonical
                is_curated) and the curated LIST below stay independent of
-               this value. */}
+               this value. */
             cameraRadiusMeters={
               curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
             }
+            /* LOCATION SEARCH recenter (PO 2026-10-02): the server-parsed
+               canonical center moves the camera once per NEW answer. The
+               radius preset above is untouched — the search recenters within
+               whatever frame the active preset already owns, so the tab the
+               user picked is never silently rewritten. */
+            searchCenter={searchCenter}
+            searchNonce={searchNonce}
             /* Instant-camera rule (PO, 2026-09-30): the camera itself applies
                with no animation at all, so entering "Tempat Pilihan" is made
                visually obvious by a SHORT one-shot focus pulse on the
                EXISTING Current Location pin — no new marker, no map
-               animation. */}
+               animation. */
             pulsePinOnPresetChange={curatedOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
             onViewportChange={handleViewportChange}
@@ -770,11 +857,10 @@ export default function HomeDiscovery({
             <div className="flex items-center gap-2.5 rounded-[20px] border border-black/10 bg-white px-3.5 py-2.5 shadow-[0_2px_10px_rgb(0_0_0/0.10)]">
               <span className="shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</span>
               <input
-                ref={searchInputRef}
                 className="w-full bg-transparent text-sm outline-none placeholder:text-black/40"
                 placeholder="Cari tempat, cerita, produksi..."
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => handleSearchChange(event.target.value)}
                 aria-label="Cari tempat, cerita, produksi"
               />
               {/* Sliders/control icon (MOCKUP §2) — replaces the previous gear
@@ -788,44 +874,46 @@ export default function HomeDiscovery({
                 </svg>
               </span>
             </div>
-            {/* LOCATION SEARCH summary (new): one single source of truth for
-                the search flow — searching, successful center, error. The
-                summary never assumes a result, never clears on error, and is
-                hidden on the first empty query so the "not found" copy never
-                dominates the empty search input. It does not replace the map
-                or the results, and it cannot be turned into a second search
-                path. */}
+            {/* LOCATION SEARCH status (PO 2026-10-02): ONE source of truth for
+                the geocoder flow — searching, resolved center, or failure.
+                It only REPORTS server state; it never runs a second search,
+                never edits the input, and never decides which Places are
+                listed. aria-live="polite" so the outcome is announced without
+                interrupting typing. Rendered only for a non-empty query, so
+                the empty input stays clean. The coordinate readout is the
+                server's canonical answer, formatted — never a rounded or
+                invented value. */}
             {searchQuery.trim() && (
-              <div
-                className={`mt-2 flex items-center gap-2 rounded-[16px] px-3 py-2 text-xs ${
-                  searchPending
-                    ? "pointer-events-none opacity-60"
-                    : searchError
-                      ? "text-red-600"
-                      : "text-brand-ink"
-                }`}
+              <p
                 role="status"
                 aria-live="polite"
+                className={`mt-2 flex items-center gap-2 rounded-[16px] px-3 py-2 text-xs ${
+                  searchPending
+                    ? "bg-white/85 text-black/55"
+                    : searchError
+                      ? "bg-live/10 text-live"
+                      : "bg-white/85 text-brand-ink"
+                }`}
               >
                 {searchPending ? (
                   <>
-                    <span aria-hidden className="h-3.5 w-3.5 animate-pulse rounded-full bg-brand-ink/30" />
+                    <span aria-hidden className="h-3.5 w-3.5 animate-pulse rounded-full bg-black/25" />
                     <span>Mencari lokasi…</span>
                   </>
                 ) : searchError ? (
                   <>
-                    <span aria-hidden className="h-3.5 w-3.5 rounded-full bg-red-600/20" />
+                    <span aria-hidden className="h-3.5 w-3.5 rounded-full bg-live/60" />
                     <span>{searchError}</span>
                   </>
                 ) : searchCenter ? (
                   <>
-                    <span aria-hidden className="h-3.5 w-3.5 rounded-full bg-brand-primary/20" />
+                    <span aria-hidden className="h-3.5 w-3.5 rounded-full bg-brand-primary" />
                     <span>
-                      Berhasil menemukan <b>{searchQuery.trim()}</b> di {searchCenter.lat.toFixed(4)}, {searchCenter.lng.toFixed(4)}
+                      Area pencarian: {searchCenter.lat.toFixed(4)}, {searchCenter.lng.toFixed(4)}
                     </span>
                   </>
                 ) : null}
-              </div>
+              </p>
             )}
           </div>
 
@@ -853,7 +941,11 @@ export default function HomeDiscovery({
                 setCuratedOnly(next.curatedOnly);
               }}
               aria-pressed={liveOnly}
-              className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-sm transition sm:px-3.5 sm:text-xs ${liveOnly ? "bg-live text-white" : "border border-live/40 bg-white text-live"}`}
+              className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-sm transition sm:px-3.5 sm:text-xs ${
+                liveOnly
+                  ? "bg-live text-white"
+                  : "border border-live/40 bg-white text-live"
+              }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-live"}`} />
               LIVE
@@ -867,7 +959,11 @@ export default function HomeDiscovery({
                 setLiveOnly(next.liveOnly);
               }}
               aria-pressed={curatedOnly}
-              className={`whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${curatedOnly ? "bg-brand-primary text-white" : "border border-brand-ink/20 bg-white text-brand-ink/70"}`}
+              className={`whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
+                curatedOnly
+                  ? "bg-brand-primary text-white"
+                  : "border border-brand-ink/20 bg-white text-brand-ink/70"
+              }`}
             >
               Tempat Pilihan
             </button>
@@ -879,7 +975,11 @@ export default function HomeDiscovery({
                   setCuratedOnly(false);
                 }}
                 aria-pressed={distanceFilter === filter && !curatedOnly}
-                className={`whitespace-nowrap rounded-[16px] px-1 py-1.5 text-center text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${distanceFilter === filter && !curatedOnly ? "bg-brand-primary text-white" : "border border-black/10 bg-white text-black/65"}`}
+                className={`whitespace-nowrap rounded-[16px] px-1 py-1.5 text-center text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
+                  distanceFilter === filter && !curatedOnly
+                    ? "bg-brand-primary text-white"
+                    : "border border-black/10 bg-white text-black/65"
+                }`}
               >
                 {filter}
               </button>
@@ -1040,5 +1140,146 @@ export default function HomeDiscovery({
           {/* Panel handle — small centered bar, mockup §10 (visual only). */}
           <span
             aria-hidden
+            className="mx-auto mb-2.5 block h-1.5 w-12 rounded-full bg-black/15"
+          />
+          <div className="mb-3 flex items-end justify-between gap-3 px-1">
+            <div className="min-w-0">
+              <h2 id="place-results-heading" className="text-lg font-bold leading-tight">
+                {searchQuery.trim()
+                  ? `Hasil untuk “${searchQuery.trim()}”`
+                  : curatedOnly
+                    ? "Tempat Pilihan"
+                    : "Discovery Place"}
+              </h2>
+              <p className="mt-1 text-[11px] font-semibold text-black/50">
+                {/* Count semantics (PO, 2026-09-30): each layer counts ONLY
+                    its own rows — the Tempat Pilihan header counts the
+                    curated selection (Baris 1), never the Discovery Place row
+                    beneath it; normal modes keep the Discovery Place count. */}
+                {curatedOnly
+                  ? `${curatedListed.length} tempat pilihan di sekitar Anda`
+                  : `${discoveryRowPlaces.length} tempat di sekitar Anda`}
+              </p>
+            </div>
+            {/* "Ke hasil" (bug fix 2026-10-01) — non-inventive affordance:
+                there is NO separate all-results page in the MVP (only
+                /places/[id] exists), so this only SCROLLS to the first
+                visible strip and never claims to open every Place. The label
+                says exactly that. With no results at all there is no strip to
+                scroll to, so the same label renders as plain text (no dead
+                anchor). */}
+            {resultsAnchorId ? (
+              <a
+                href={`#${resultsAnchorId}`}
+                className="inline-flex shrink-0 items-center gap-0.5 text-xs font-bold text-brand-ink/80 transition hover:text-brand-ink"
+              >
+                Ke hasil <span aria-hidden>›</span>
+              </a>
+            ) : (
+              <span className="shrink-0 text-xs font-bold text-black/35">Ke hasil</span>
+            )}
+          </div>
 
-[write_file: showing lines 1-952 of 1382. The window was shortened to stay under 50,000 characters. Use code_search to locate the part you need and read a window around it, or call read_files again with offset=953 to continue.]
+          {/* Baris 1 (curated layer only): the Admin-promoted selection.
+              Renders nothing when no Place is curated — the curated layer
+              never substitutes the full published set.
+              MOCKUP §12 (2026-10-01): the row is a HORIZONTAL STRIP at every
+              viewport (mobile swipe AND desktop 1280) — same dataset, same
+              order, same cards; presentation only. */}
+          {curatedOnly && curatedListed.length > 0 && (
+            <>
+              <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
+                Tempat Pilihan
+              </p>
+              <div
+                id={CURATED_RESULTS_ANCHOR_ID}
+                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2"
+              >
+                {curatedListed.map((place) => (
+                  <div
+                    key={place.id}
+                    className="w-[46vw] max-w-[200px] min-w-[132px] shrink-0 snap-start"
+                  >
+                    {renderPlaceCard(place, place.isCurated)}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* Baris 2 (curated layer) / the single row everywhere else: the
+              canonical Discovery result — engine order, stars only, no
+              numeric score. Source of eligibility is the engine's own
+              discovery.discovery ids, never the published place list. */}
+          {discoveryRowPlaces.length > 0 ? (
+            <>
+              {curatedOnly && (
+                <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
+                  Discovery Place
+                </p>
+              )}
+              {/* MOCKUP §12 (2026-10-01): horizontal strip at EVERY viewport
+                  — the same snap-strip pattern as Baris 1. Same dataset, same
+                  order, same cards (presentation only).
+
+                  GAP FIX (2026-10-01, §19 root cause): the Discovery row used
+                  to render the cards DIRECTLY into the flex strip. Each card is
+                  `w-full`, so every one of them claimed the full strip width
+                  and flex-shrank it down to a few pixels — which is exactly the
+                  "tall empty vertical stripes" pattern seen in the actual
+                  render (no skeleton, no loading state, no empty pattern: the
+                  cards themselves were collapsing). Wrapping each card in the
+                  SAME fixed-width, non-shrinking track as the curated row is
+                  the presentation-only fix: no data, order, eligibility, or
+                  query changes, but the cards now render at their intended
+                  size and several are visible side by side. */}
+              <div
+                id={DISCOVERY_RESULTS_ANCHOR_ID}
+                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2"
+              >
+                {discoveryRowPlaces.map((place) => (
+                  <div
+                    key={place.id}
+                    className="w-[46vw] max-w-[200px] min-w-[132px] shrink-0 snap-start"
+                  >
+                    {renderPlaceCard(place, curatedIdSet.has(place.id))}
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="rounded-2xl border border-black/10 bg-white px-4 py-5 text-center">
+              {searchQuery.trim() ? (
+                <>
+                  <p className="text-sm font-bold">Tempat tidak ditemukan</p>
+                  <p className="mt-1 text-xs text-black/55">
+                    Coba kata kunci atau radius yang berbeda.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-bold">Belum ada Discovery Place</p>
+                  <p className="mt-1 text-xs text-black/55">
+                    Tempat yang siap tayang akan muncul di sini secara otomatis.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+
+        {/* Intro */}
+        <section className="px-1 pb-4 pt-8">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-accent">
+            SINGGAH LOKAL
+          </p>
+          <h1 className="mt-2 max-w-xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+            Jangan hanya datang.
+            <br />
+            Kenali ceritanya.
+          </h1>
+        </section>
+      </section>
+    </main>
+  );
+}

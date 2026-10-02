@@ -493,6 +493,6 @@ test("polish leaves the functional camera / coverage / marker wiring untouched",
   // Leaflet viewport, which can only REMOVE canonical entries.
   assert.match(
     code,
-    /return narrowToViewport\(canonical, mapViewport\)/,
+    /return narrowToViewport\(canonical, coverageViewport\)/,
   );
 });
