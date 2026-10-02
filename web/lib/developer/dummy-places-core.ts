@@ -77,6 +77,12 @@ export type DeveloperPlaceTarget = {
   isCurated: boolean;
 };
 
+/** The single `places` column each permitted operation writes. */
+export type DeveloperPlaceFlagColumn = "is_dummy" | "is_curated";
+
+/** A write to exactly ONE flag column — never both, never a wider update. */
+export type DeveloperPlaceFlagPatch = Partial<Record<DeveloperPlaceFlagColumn, boolean>>;
+
 const ok: DeveloperPlaceDecision = { ok: true };
 const refuse = (reason: DeveloperPlaceRefusal): DeveloperPlaceDecision => ({ ok: false, reason });
 
@@ -188,4 +194,41 @@ export function developerAuditAction(input: {
  */
 export function normalizeDeveloperReason(reason: string): string {
   return reason.trim();
+}
+
+/** Which single column an operation writes. Total over the two permitted operations. */
+export function developerFlagColumn(operation: DeveloperPlaceOperation): DeveloperPlaceFlagColumn {
+  return operation === "set_dummy" ? "is_dummy" : "is_curated";
+}
+
+/**
+ * The FORWARD patch: the value the Creator asked for.
+ *
+ * This is the patch that makes the change, and it is the ONLY patch that may
+ * carry a caller-supplied value.
+ */
+export function developerFlagPatch(operation: DeveloperPlaceOperation, desiredValue: boolean): DeveloperPlaceFlagPatch {
+  return { [developerFlagColumn(operation)]: desiredValue };
+}
+
+/**
+ * The REVERT patch: the value the Place held BEFORE the change.
+ *
+ * Master §5 — "an audit failure must not leave data": when the audit write
+ * fails, the flag is rolled back BEFORE the error is surfaced. A revert that
+ * re-applied the requested value would leave the Place in the state the audit
+ * refused to record, which is precisely the unattributed change the Master
+ * forbids.
+ *
+ * The ORIGINAL value is derived from the loaded target rather than passed in,
+ * so this function has no parameter a caller could fill with `desiredValue`.
+ * The revert therefore cannot repeat the requested change even by mistake: the
+ * type system makes the wrong patch unrepresentable.
+ */
+export function developerRevertPatch(
+  operation: DeveloperPlaceOperation,
+  target: DeveloperPlaceTarget,
+): DeveloperPlaceFlagPatch {
+  const original = operation === "set_dummy" ? target.isDummy : target.isCurated;
+  return { [developerFlagColumn(operation)]: original };
 }

@@ -7,6 +7,9 @@ import {
   DEVELOPER_PLACE_REFUSALS,
   decideDeveloperPlaceMutation,
   developerAuditAction,
+  developerFlagColumn,
+  developerFlagPatch,
+  developerRevertPatch,
   isPermittedOperation,
   isValidDeveloperReason,
   MAX_DEVELOPER_REASON_LENGTH,
@@ -508,6 +511,73 @@ test("scope is checked BEFORE the reason, so a refusal cannot be used to probe P
   });
   assert.equal(decision.ok, false);
   assert.equal((decision as { reason: string }).reason, DEVELOPER_PLACE_REFUSALS.target_not_dummy);
+});
+
+// ---------------------------------------------------------------------------
+// F2. The ROLLBACK patch (regression: the audit-failure rollback)
+// ---------------------------------------------------------------------------
+
+test("the rollback patch restores the ORIGINAL value, not the requested one", () => {
+  // THE REGRESSION. A previous build reused the forward patch in the audit
+  // failure handler, so "rolling back" re-applied the value the audit had just
+  // refused to record: the flag stayed flipped with no trail. The revert is
+  // derived from the pre-write target and has no parameter a caller could fill
+  // with `desiredValue`.
+  const target = { id: "dummy-riyadh-olaya", isDummy: true, isCurated: false };
+
+  // set_dummy: the Place was NOT dummy, the Creator asked for true.
+  const dummyTarget = { id: "real-place", isDummy: false, isCurated: false };
+  const revert = developerRevertPatch("set_dummy", dummyTarget);
+  assert.deepEqual(revert, { is_dummy: false }, "rollback must restore is_dummy = false");
+  assert.notDeepEqual(revert, developerFlagPatch("set_dummy", true), "the revert must not be the forward patch");
+
+  // set_curated: the Place was NOT curated, the Creator asked for true.
+  const curatedTarget = { id: "dummy-riyadh-malaz", isDummy: true, isCurated: false };
+  const curatedRevert = developerRevertPatch("set_curated", curatedTarget);
+  assert.deepEqual(curatedRevert, { is_curated: false }, "rollback must restore is_curated = false");
+  assert.notDeepEqual(curatedRevert, developerFlagPatch("set_curated", true), "the revert must not be the forward patch");
+
+  // And the reverse direction: unmarking / uncurating rolls the flag back up.
+  assert.deepEqual(developerRevertPatch("set_dummy", target), { is_dummy: true });
+  assert.deepEqual(developerRevertPatch("set_curated", { ...target, isCurated: true }), { is_curated: true });
+
+  // The revert touches ONLY the operated column, so a rollback can never touch
+  // the other flag as a side effect.
+  for (const operation of DEVELOPER_PLACE_OPERATIONS) {
+    const patch = developerRevertPatch(operation, { id: "p", isDummy: true, isCurated: true });
+    assert.deepEqual(Object.keys(patch), [developerFlagColumn(operation)]);
+    assert.equal(Object.keys(patch).length, 1);
+  }
+});
+
+test("the rollback patch agrees with the audit's own 'before' snapshot", () => {
+  // Master §5: the rollback must leave the row in the state the audit recorded
+  // as `before`. If the two ever disagreed, a failed audit would leave data
+  // that no trail describes — so they are derived from the same original.
+  for (const operation of DEVELOPER_PLACE_OPERATIONS) {
+    for (const original of [false, true]) {
+      const target = {
+        id: "dummy-riyadh-kafd",
+        isDummy: operation === "set_dummy" ? original : true,
+        isCurated: operation === "set_curated" ? original : false,
+      };
+      const revert = developerRevertPatch(operation, target);
+      const before = { ...target, is_dummy: target.isDummy, is_curated: target.isCurated };
+      assert.equal(revert[developerFlagColumn(operation)], before[developerFlagColumn(operation)]);
+      // The requested value is always the opposite, so the two patches differ.
+      const forward = developerFlagPatch(operation, !original);
+      assert.notDeepEqual(revert, forward);
+    }
+  }
+});
+
+test("the forward patch carries the requested value for the same single column", () => {
+  assert.equal(developerFlagColumn("set_dummy"), "is_dummy");
+  assert.equal(developerFlagColumn("set_curated"), "is_curated");
+  assert.deepEqual(developerFlagPatch("set_dummy", true), { is_dummy: true });
+  assert.deepEqual(developerFlagPatch("set_dummy", false), { is_dummy: false });
+  assert.deepEqual(developerFlagPatch("set_curated", true), { is_curated: true });
+  assert.deepEqual(developerFlagPatch("set_curated", false), { is_curated: false });
 });
 // ---------------------------------------------------------------------------
 // G. The point of the dataset: a Riyadh search from Dammam

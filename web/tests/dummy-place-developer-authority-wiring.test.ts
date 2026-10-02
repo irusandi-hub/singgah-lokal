@@ -156,6 +156,47 @@ test("the reason is mandatory and normalized into the audit row", () => {
   assert.match(boundaryCode, /detail: \{ operation: params\.operation, reason, developerAuthority: true \}/);
 });
 
+test("the rollback writes the ORIGINAL value, never the requested one", () => {
+  // THE REGRESSION. A previous build rolled back by spreading the SAME forward
+  // patch, so the audit-failure handler re-applied the requested value and the
+  // flag was never actually reverted. The handler must spread the revert patch,
+  // which the pure core derives from the pre-write target.
+  const rollbackAt = boundaryCode.indexOf("catch (error) {", boundaryCode.indexOf("await recordPlaceAudit({"));
+  assert.ok(rollbackAt > 0, "the audit failure handler must exist");
+  // The single UPDATE inside the handler — the rollback statement itself.
+  const revertAt = boundaryCode.indexOf(".update({", rollbackAt);
+  assert.ok(revertAt > rollbackAt, "the handler must roll the change back with an UPDATE");
+  const revertStatement = boundaryCode.slice(revertAt, boundaryCode.indexOf(";", revertAt));
+
+  // The rollback writes `revertPatch`; the forward `patch` — and therefore the
+  // requested value it carries — must not appear inside it.
+  assert.match(revertStatement, /^\.update\(\{ \.\.\.revertPatch, updated_at: new Date\(\)\.toISOString\(\) \}\)/);
+  assert.doesNotMatch(revertStatement, /\.\.\.patch\b|desiredValue|params\./);
+
+  // The revert patch is built from the target read BEFORE the write, and the
+  // forward patch is the only one built from the requested value.
+  assert.match(boundaryCode, /const patch = developerFlagPatch\(params\.operation, params\.desiredValue\);/);
+  assert.match(boundaryCode, /const revertPatch = developerRevertPatch\(params\.operation, target\);/);
+  // It is built BEFORE the update, so the original value is captured while it
+  // is still the value in the database.
+  assert.ok(
+    boundaryCode.indexOf("developerRevertPatch(") < boundaryCode.indexOf(".update({ ...patch"),
+    "the revert patch must be captured before the change is written",
+  );
+
+  // A failed revert is reported rather than assumed: the rollback result is
+  // read back and compared against the original value.
+  assert.match(boundaryCode, /rolledBack = !revertError && reverted\?\.\[flagColumn\] === originalFlagValue;/);
+  assert.match(boundaryCode, /if \(!rolledBack\) throw new DeveloperPlaceError\("place_rollback_failed"\);/);
+
+  // The pure core's revert helper cannot be handed a requested value at all.
+  assert.match(
+    core,
+    /export function developerRevertPatch\(\s*operation: DeveloperPlaceOperation,\s*target: DeveloperPlaceTarget,\s*\): DeveloperPlaceFlagPatch \{/,
+  );
+  assert.match(core, /const original = operation === "set_dummy" \? target\.isDummy : target\.isCurated;/);
+});
+
 // ---------------------------------------------------------------------------
 // 4. Scope limits
 // ---------------------------------------------------------------------------
