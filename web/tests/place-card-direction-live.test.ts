@@ -104,10 +104,17 @@ test("Place NOT LIVE → pressing the indicator shows the honest non-live status
 
 test("Card distance uses the real viewer fix and canonical Place coordinates", () => {
   // The existing shared haversine implementation is reused (no duplicate).
-  assert.match(code, /formatDistance\(\s*distanceMeters\(viewerPosition/);
+  //
+  // The origin is the ACTIVE search center (bug fix 2026-10-02): the searched
+  // city while one is active, otherwise the real fix. It stays fail-closed —
+  // `resolveActiveCenter` yields null when no real origin exists — so this is
+  // still a REAL origin, never a fabricated one, and the label can no longer
+  // contradict the coverage filter that admitted the Place.
+  assert.match(code, /formatDistance\(\s*distanceMeters\(activeCenter/);
   // Never a hardcoded/fabricated distance: the row only renders with a real
-  // viewerPosition and real Place lat/lng.
-  assert.match(code, /viewerPosition && place\.latitude != null && place\.longitude != null/);
+  // origin and real Place lat/lng.
+  assert.match(code, /activeCenter && place\.latitude != null && place\.longitude != null/);
+  assert.doesNotMatch(code, /formatDistance\(\s*distanceMeters\(viewerPosition/);
   assert.doesNotMatch(code, /distance\s*=\s*\d/);
 });
 

@@ -38,8 +38,13 @@ test("E2E: LIVE cards compute distance only from real viewer position + canonica
   // distance "bila tersedia", never a fake position).
   assert.doesNotMatch(homeSource, /lat: -6\.2/);
   assert.doesNotMatch(homeSource, /106\.816/);
-  // Distance renders only when geolocation resolved AND Place coords exist.
-  assert.match(homeSource, /viewerPosition && place\?\.latitude != null && place\?\.longitude != null/);
+  // Distance renders only when a REAL origin resolved AND Place coords exist.
+  // The origin is the ACTIVE search center (bug fix 2026-10-02): the searched
+  // city while one is active, otherwise the real device fix. It stays
+  // fail-closed — `resolveActiveCenter` returns null when neither is usable,
+  // so denial still renders no label rather than an invented one.
+  assert.match(homeSource, /activeCenter && place\?\.latitude != null && place\?\.longitude != null/);
+  assert.doesNotMatch(homeSource, /distanceMeters\(viewerPosition/);
   // Geolocation is optional: denial/absence must never surface as an error.
   assert.match(homeSource, /\(\) => undefined,/);
 });

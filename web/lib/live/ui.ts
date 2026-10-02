@@ -252,6 +252,100 @@ export function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1).replace(".", ",")} km`;
 }
 
+// ---------------------------------------------------------------------------
+// ACTIVE SEARCH CENTER — the single source of truth (bug fix 2026-10-02)
+// ---------------------------------------------------------------------------
+
+/**
+ * Home has TWO mutually exclusive ways to know "where am I looking from": a
+ * city the user searched for, and the device's own fix. This is the ONE place
+ * that decides which of the two is active, so the camera, the viewport
+ * coverage, the distance labels, and the radius presets can no longer each
+ * read a different coordinate and disagree with the user.
+ *
+ * Before this existed, the coverage filter used the searched city while BOTH
+ * distance labels measured from the device fix — so searching "Riyadh" from
+ * Dammam admitted Places into the list and then labelled them "399 km", which
+ * is exactly the self-contradiction users reported.
+ *
+ * Fail-closed: a non-finite coordinate is treated as absent, and when NEITHER
+ * source is usable the active center is `null`. No fallback point is ever
+ * invented, and the caller renders no distance at all rather than a guess.
+ */
+export type SearchMode = "device_location" | "city_search";
+
+export type ActiveCenter = { lat: number; lng: number };
+
+export function isUsableCenter(value: ActiveCenter | null | undefined): value is ActiveCenter {
+  return (
+    !!value && Number.isFinite(value.lat) && Number.isFinite(value.lng)
+  );
+}
+
+export function resolveActiveCenter(input: {
+  searchCenter: ActiveCenter | null;
+  viewerPosition: ActiveCenter | null;
+}): { mode: SearchMode; center: ActiveCenter | null } {
+  if (isUsableCenter(input.searchCenter)) {
+    return { mode: "city_search", center: input.searchCenter };
+  }
+  if (isUsableCenter(input.viewerPosition)) {
+    return { mode: "device_location", center: input.viewerPosition };
+  }
+  return { mode: "device_location", center: null };
+}
+
+/**
+ * The whole city-search state, so "Lokasi Saya" can drop it ATOMICALLY.
+ *
+ * Returning one value (rather than four separate setters) is what guarantees
+ * the UI can never render a half-cleared state — a frame where the camera is
+ * back on the device but the rows are still narrowed to the old city, or where
+ * the query text is gone but its center still owns the viewport.
+ */
+export type CitySearchState = {
+  query: string;
+  pending: boolean;
+  error: string | null;
+  center: ActiveCenter | null;
+};
+
+/**
+ * Drop the city search entirely and hand the active center back to the device.
+ *
+ * Clearing the TYPED query is deliberate: leaving "Riyadh" in the box would
+ * keep it as a live text filter over Place names, so the Home list would stay
+ * filtered to Riyadh even after the center returned to the device. It also
+ * removes the "Area pencarian: …" status line, which must stop describing the
+ * abandoned city.
+ */
+export function clearCitySearch(): CitySearchState {
+  return { query: "", pending: false, error: null, center: null };
+}
+
+/**
+ * May this response still be applied? (bug fix 2026-10-02)
+ *
+ * Two independent guards, because they catch different races:
+ * - the EPOCH guard rejects a response that was superseded by a LATER intent
+ *   (the user pressed "Lokasi Saya" after this request went out), which the
+ *   query-string guard alone cannot see — the text is still "Riyadh" in both
+ *   cases;
+ * - the QUERY guard rejects a slow earlier response for a query the user has
+ *   since replaced.
+ *
+ * Either failure means the answer is stale and must never reach state.
+ */
+export function acceptSearchResponse(input: {
+  requestEpoch: number;
+  currentEpoch: number;
+  submitted: string;
+  activeQuery: string;
+}): boolean {
+  if (input.requestEpoch !== input.currentEpoch) return false;
+  return input.submitted === input.activeQuery;
+}
+
 export function liveDurationLabel(startedAt: string, now: number = Date.now()): string {
   const minutes = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 60000));
   if (minutes < 60) return `${minutes} menit`;

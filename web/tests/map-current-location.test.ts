@@ -39,7 +39,7 @@ test("Home Map shows a user marker from the real fix and centers on it", () => {
   const mapCode = stripComments(homeMap);
   assert.match(mapCode, /circleMarker\(\[viewerPosition\.lat, viewerPosition\.lng\]/);
   assert.match(mapCode, /Lokasi Anda/);
-  assert.match(mapCode, /focusUser\(map, viewerPosition\)/);
+  assert.match(mapCode, /focusUser\(map, anchor\)/);
 });
 
 test("Home Map provides a Lokasi Saya button that recenters on the real fix", () => {
@@ -47,7 +47,7 @@ test("Home Map provides a Lokasi Saya button that recenters on the real fix", ()
   assert.match(mapCode, /Lokasi Saya/);
   assert.match(mapCode, /onRequestLocate/);
   assert.match(mapCode, /locatePendingRef\.current = true/);
-  assert.match(mapCode, /focusUser\(map, viewerPosition\)/);
+  assert.match(mapCode, /focusUser\(map, anchor\)/);
 });
 
 test("No fake user position is ever invented when geolocation is unavailable", () => {
@@ -138,9 +138,28 @@ test("Distance LABELS stay anchored to the real Current Location; the tabs never
   // are CAMERA frames only — the visible Leaflet viewport is the geographic
   // coverage source for the rows, so no radius gate may remain in Home.
   assert.equal(pageCode.includes("matchesDistance"), false);
-  // The distance LABEL on a card still comes from the REAL fix + canonical
-  // Place coordinates, never from an invented point.
-  assert.match(pageCode, /formatDistance\(distanceMeters\(viewerPosition/);
+  // The distance LABEL on a card still comes from a REAL origin + canonical
+  // Place coordinates, never from an invented point. The origin is the ACTIVE
+  // search center (bug fix 2026-10-02): the searched city while one is active,
+  // otherwise the real fix — so a Place admitted by the Riyadh coverage is no
+  // longer labelled with its distance from Dammam.
+  assert.match(pageCode, /formatDistance\(distanceMeters\(activeCenter/);
+  assert.doesNotMatch(pageCode, /formatDistance\(distanceMeters\(viewerPosition/);
+});
+
+test("the camera anchor falls back to the REAL fix, so the default behavior is unchanged", () => {
+  const mapCode = stripComments(homeMap);
+  // Bug fix 2026-10-02: the radius preset used to hardcode `viewerPosition`,
+  // so choosing a different radius during a city search discarded the searched
+  // center. It now resolves ONE anchor — the searched city when active,
+  // otherwise the real fix — which preserves this suite's whole contract in
+  // the default case (no city searched) while fixing the city case.
+  assert.match(mapCode, /const anchor = cameraCenter \?\? viewerPosition;/);
+  // The preset effect still requires a real, usable origin: no fix and no
+  // searched city means no camera move at all, never an invented point.
+  assert.match(mapCode, /const anchor = cameraCenter \?\? viewerPosition;\s*\n\s*if \(!ready \|\| !map \|\| !anchor\) return;/);
+  // The anchor is re-keyed so a new center re-arms the effect.
+  assert.match(mapCode, /const cameraCenterKey = cameraCenter \? `\$\{cameraCenter\.lat\},\$\{cameraCenter\.lng\}` : "";/);
 });
 
 test("Lokasi Saya: immediate recenter on the existing fix + fresh geolocation refinement", () => {
@@ -206,8 +225,8 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   // One preset mechanism: the camera frame covers a preset radius around the
   // REAL Current Location via radiusZoom — no unbounded camera path is left.
   assert.match(mapCode, /cameraRadiusMeters !== null/);
-  assert.match(mapCode, /radiusZoom\(map, viewerPosition, cameraRadiusMeters\)/);
-  assert.match(mapCode, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
+  assert.match(mapCode, /radiusZoom\(map, anchor, cameraRadiusMeters\)/);
+  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
   // Home feeds every mode into that ONE camera prop: distance tabs through
   // the ordered preset mapping, curated through its 10 km value.
   assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
@@ -219,7 +238,7 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   // Home mode reaches it). Every real camera move — the preset anchor and the
   // "Lokasi Saya" 10 km recenter — goes through the canonical radiusZoom
   // mechanism, never Math.max(getZoom(), 15).
-  const focusUserCalls = mapCode.match(/focusUser\(map, viewerPosition\)/g) ?? [];
+  const focusUserCalls = mapCode.match(/focusUser\(map, anchor\)/g) ?? [];
   assert.equal(focusUserCalls.length, 1, "null-preset anchor fallback only");
 });
 
@@ -251,13 +270,13 @@ test("Lokasi Saya centers the real fix on the CURRENT zoom — it never widens t
   // camera — the 1/5/10 km tabs AND the 10 km curated preset are untouched.
   const anchorEffect = mapCode.slice(
     mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
-    mapCode.indexOf("}, [ready, viewerPositionKey, cameraRadiusMeters, viewerPosition, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);"),
   );
-  assert.match(anchorEffect, /radiusZoom\(map, viewerPosition, cameraRadiusMeters\)/);
-  assert.match(anchorEffect, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
+  assert.match(anchorEffect, /radiusZoom\(map, anchor, cameraRadiusMeters\)/);
+  assert.match(anchorEffect, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
   // The zoom-preserving focus remains ONLY on the null-preset anchor
   // fallback (one call site).
-  const focusUserCalls = mapCode.match(/focusUser\(map, viewerPosition\)/g) ?? [];
+  const focusUserCalls = mapCode.match(/focusUser\(map, anchor\)/g) ?? [];
   assert.equal(focusUserCalls.length, 1, "null-preset anchor fallback only");
 });
 
@@ -288,7 +307,7 @@ test("Lokasi Saya camera transition is SHORT and smooth, and respects reduced mo
   // instant preset apply.
   const anchorEffect = mapCode.slice(
     mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
-    mapCode.indexOf("}, [ready, viewerPositionKey, cameraRadiusMeters, viewerPosition, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);"),
   );
   assert.doesNotMatch(anchorEffect, /flyTo|duration/);
   assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1, "exactly one animated move — the locate recenter");
@@ -374,7 +393,7 @@ test("Bounded radius focuses the camera on the real Current Location, never on m
   // The camera effect is driven by the preset radius...
   assert.match(mapCode, /cameraRadiusMeters/);
   // ...centers on the REAL geolocation fix — INSTANTLY...
-  assert.match(mapCode, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\]/);
+  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\]/);
   // ...derives zoom from the radius itself (radius-sized bounds box)...
   assert.match(mapCode, /getBoundsZoom\(bounds\)/);
   assert.match(mapCode, /latDelta = radiusMeters \/ 111_320/);
@@ -392,7 +411,7 @@ test("No-preset fallback keeps the one-shot unbounded focus; it is not a distanc
   // The null-preset fallback exists ONLY for safety (no Home mode reaches
   // it) and stays a one-shot focus on the actual location, never a radius
   // re-zoom and never a marker fit.
-  assert.match(mapCode, /if \(!autoFocusedRef\.current\) \{\n\s*autoFocusedRef\.current = true;\n\s*focusUser\(map, viewerPosition\);\n\s*\}/);
+  assert.match(mapCode, /if \(!autoFocusedRef\.current\) \{\n\s*autoFocusedRef\.current = true;\n\s*focusUser\(map, anchor\);\n\s*\}/);
 });
 
 test("Camera is ALWAYS bounded: no filter/tab ever fits the whole marker set (map coverage)", () => {
@@ -403,7 +422,7 @@ test("Camera is ALWAYS bounded: no filter/tab ever fits the whole marker set (ma
   // the "Lokasi Saya" recenter (its own 15 km current-location coverage) —
   // BOTH derive zoom from a radius and BOTH center the real fix; neither
   // ever fits markers.
-  const moves = mapCode.match(/map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\]/g) ?? [];
+  const moves = mapCode.match(/map\.setView\(\[anchor\.lat, anchor\.lng\]/g) ?? [];
   assert.equal(moves.length, 1, "the preset anchor — the only instant setView on the raw fix (the locate recenter centers the same real fix through the shared `center` value)");
   // ...whose zoom is derived from the preset radius box (bounded), and no
   // world/country fallback view is invented for the no-fix case.
@@ -469,7 +488,7 @@ test("A new preset refocuses deterministically; manual pan/zoom wins between cho
   assert.match(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
   // ...and still centers on the REAL geolocation fix with preset-derived
   // zoom, applied instantly (setView).
-  assert.match(mapCode, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\]/);
+  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\]/);
   assert.match(mapCode, /getBoundsZoom\(bounds\)/);
   // Home passes the ONE preset mapping (curated 50 km or the tab preset).
   const pageCode = stripComments(homePage);
@@ -507,8 +526,8 @@ test("Curated mode centers the camera on Current Location with 10 km coverage", 
   // coordinate is ever introduced (the no-fake-position test above still
   // applies to every setViewerPosition call).
   assert.match(mapCode, /cameraRadiusMeters !== null/);
-  assert.match(mapCode, /radiusZoom\(map, viewerPosition, cameraRadiusMeters\)/);
-  assert.match(mapCode, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
+  assert.match(mapCode, /radiusZoom\(map, anchor, cameraRadiusMeters\)/);
+  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
 });
 
 test("Curated MEMBERSHIP never comes from the camera radius or the coverage rule", () => {
@@ -622,7 +641,7 @@ test("Preset camera moves stay INSTANT; only the locate recenter animates (and b
   // its animated-zoom path entirely for these options (synchronous
   // _resetView, no requestAnimFrame, no easing curve). The null-preset focus
   // uses position.lat and is locked in the locate pulse test below.
-  const setViews = mapCode.match(/map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\],[\s\S]*?\{ animate: false \}\)/g) ?? [];
+  const setViews = mapCode.match(/map\.setView\(\[anchor\.lat, anchor\.lng\],[\s\S]*?\{ animate: false \}\)/g) ?? [];
   assert.equal(setViews.length, 1, "the preset anchor applies instantly");
   // The ONLY animated move is the locate recenter, and it is bounded (the
   // locate-transition test proves the real duration value).
