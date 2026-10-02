@@ -19,6 +19,7 @@ import {
   buildDirectionsUrl,
   clearCitySearch,
   distanceMeters,
+  describeNearOrigin,
   describeRadiusOrigin,
   formatDistance,
   isSameViewport,
@@ -668,6 +669,12 @@ export default function HomeDiscovery({
     mode: activeSearch.mode,
     placeName: searchPlaceName,
   });
+  // Results-count origin fragment (bug fix 2026-10-03). It resolves from the
+  // SAME active center as the map caption above it, so the results panel can
+  // no longer say "di sekitar Anda" about a count that actually came from a
+  // searched city. The device wording is the Master/MOCKUP §11 copy and is
+  // preserved verbatim.
+  const nearOrigin = describeNearOrigin({ mode: activeSearch.mode, placeName: searchPlaceName });
 
   // ONE card renderer for every row: the existing card design verbatim; the
   // only addition is the optional "✦ Tempat Pilihan" marker so an overlap
@@ -1278,10 +1285,14 @@ export default function HomeDiscovery({
                 {/* Count semantics (PO, 2026-09-30): each layer counts ONLY
                     its own rows — the Tempat Pilihan header counts the
                     curated selection (Baris 1), never the Discovery Place row
-                    beneath it; normal modes keep the Discovery Place count. */}
+                    beneath it; normal modes keep the Discovery Place count.
+                    The numbers are the exact arrays each row renders from, so
+                    the count can never disagree with the cards on screen; the
+                    ORIGIN fragment follows the active search center (bug fix
+                    2026-10-03) instead of always claiming "di sekitar Anda". */}
                 {curatedOnly
-                  ? `${curatedListed.length} tempat pilihan di sekitar Anda`
-                  : `${discoveryRowPlaces.length} tempat di sekitar Anda`}
+                  ? `${curatedListed.length} tempat pilihan ${nearOrigin}`
+                  : `${discoveryRowPlaces.length} tempat ${nearOrigin}`}
               </p>
             </div>
             {/* "Ke hasil" (bug fix 2026-10-01) — non-inventive affordance:

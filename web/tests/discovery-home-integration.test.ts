@@ -357,11 +357,13 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
     code,
     /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/,
   );
-  // The header count stays per-layer (PO fix, 2026-09-30) — copy now follows
-  // MOCKUP 2026-10-01 §11 ("… tempat pilihan di sekitar Anda"), same numbers.
+  // The header count stays per-layer (PO fix, 2026-09-30). The NUMBERS are
+  // unchanged and still per-layer; the ORIGIN fragment is now `nearOrigin`
+  // (bug fix 2026-10-03), which keeps the MOCKUP §11 device wording verbatim
+  // and names a searched city when one is active.
   assert.match(
     code,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat di sekitar Anda`/,
+    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}`/,
   );
   assert.doesNotMatch(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
 });
@@ -482,7 +484,7 @@ test("P0: ordinary coverage Places never leak into the curated list or its count
   // separate statements: the coverage Places exist ONLY inside mapPlaces.
   const curatedListSlice = code.slice(code.indexOf("const curatedListed"), code.indexOf("const curatedCoveragePlaces"));
   assert.doesNotMatch(curatedListSlice, /curatedCoveragePlaces|CURATED_MAP_COVERAGE_RADIUS_M/);
-  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`/);
+  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`/);
   // The coverage memo is referenced by exactly ONE consumer — the map dataset.
   const uses = code.match(/curatedCoveragePlaces/g) ?? [];
   assert.equal(uses.length, 3, "declaration + the curated dataset union + its dependency list only");
