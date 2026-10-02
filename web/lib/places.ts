@@ -16,9 +16,13 @@ export const PLACE_CATEGORIES: readonly PlaceCategory[] = [
  * The complete currency vocabulary (PO, 2026-09-28): the exact values the
  * server accepts and migration 0033's `places_currency_check` enforces.
  */
-export const PLACE_CURRENCIES: readonly PlaceCurrency[] = ["IDR", "USD"] as const;
+// SAR admitted (migration 0039) so a Place can always carry an honest currency
+// for its own geography (Master 01: "Currency follows Place"). The initial
+// market is unchanged — this widens the accepted vocabulary, it does not open
+// a new market.
+export const PLACE_CURRENCIES: readonly PlaceCurrency[] = ["IDR", "USD", "SAR"] as const;
 
-export type PlaceCurrency = "IDR" | "USD";
+export type PlaceCurrency = "IDR" | "USD" | "SAR";
 
 export type PlaceType = "production" | "experience";
 
@@ -83,6 +87,14 @@ export type Place = {
    * Place may live in both layers and the layers cannot cancel each other.
    */
   isCurated: boolean;
+  /**
+   * Dummy Place marker (Master Dummy Place v1.0, migration 0039).
+   * `true` = development/test fixture, never a real listing. It is a CANONICAL
+   * server-side fact written only through the Creator-controlled Developer
+   * Authority path — never inferred from a name or description, and never
+   * writable by a Producer, a Platform Admin, or any client.
+   */
+  isDummy: boolean;
 };
 
 const placeIdPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -108,6 +120,7 @@ export const places: Place[] = [
     claimStatus: "unverified",
     publicationStatus: "published",
     isCurated: false,
+    isDummy: false,
   },
   {
     id: "rumah-teh-lokal",
@@ -129,6 +142,7 @@ export const places: Place[] = [
     claimStatus: "unverified",
     publicationStatus: "published",
     isCurated: false,
+    isDummy: false,
   },
   {
     id: "dapur-rasa",
@@ -150,6 +164,7 @@ export const places: Place[] = [
     claimStatus: "unverified",
     publicationStatus: "published",
     isCurated: false,
+    isDummy: false,
   },
 ];
 
@@ -212,9 +227,11 @@ export function validatePlace(place: Place): void {
 }
 
 export function validatePlaceInput(
-  place: Omit<Place, "producer" | "claimStatus" | "publicationStatus" | "isCurated">,
+  place: Omit<Place, "producer" | "claimStatus" | "publicationStatus" | "isCurated" | "isDummy">,
 ): void {
-  validatePlace({ ...place, producer: null, claimStatus: "unverified", publicationStatus: "draft", isCurated: false });
+  // `isDummy` is defaulted to false on every PRODUCER-submitted input: the Dummy
+  // flag is Creator/Developer-Authority only and is never client-supplied.
+  validatePlace({ ...place, producer: null, claimStatus: "unverified", publicationStatus: "draft", isCurated: false, isDummy: false });
 }
 
 export function isPlacePublicationReady(place: Place): boolean {

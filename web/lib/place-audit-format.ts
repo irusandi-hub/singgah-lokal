@@ -27,6 +27,13 @@ export const PLACE_AUDIT_ACTIONS = {
   // changes publication, claim, or ownership, and never touches Discovery.
   curated: "admin_place_curated",
   uncurated: "admin_place_uncurated",
+  // Developer Authority (Creator-controlled, Dummy Place only). Distinct keys
+  // from the admin_* pair above so the trail never blurs a Developer decision
+  // with a Platform Admin one (Master Dummy Place v1.0 §5).
+  developerDummyMarked: "developer_place_dummy_marked",
+  developerDummyCleared: "developer_place_dummy_cleared",
+  developerCurated: "developer_place_curated",
+  developerUncurated: "developer_place_uncurated",
 } as const;
 
 export type PlaceAuditAction = (typeof PLACE_AUDIT_ACTIONS)[keyof typeof PLACE_AUDIT_ACTIONS];
@@ -43,11 +50,18 @@ export const PLACE_AUDIT_ACTION_LABEL: Record<PlaceAuditAction, string> = {
   place_claim_rejected: "Klaim ditolak",
   admin_place_curated: "Dijadikan Tempat Pilihan",
   admin_place_uncurated: "Promosi Tempat Pilihan dicabut",
+  developer_place_dummy_marked: "Ditandai sebagai Dummy Place (Developer)",
+  developer_place_dummy_cleared: "Status Dummy Place dicabut (Developer)",
+  developer_place_curated: "Dijadikan Tempat Pilihan (Developer)",
+  developer_place_uncurated: "Promosi Tempat Pilihan dicabut (Developer)",
 };
 
 /** Canonical Place columns, in a stable order, as stored in the audit row. */
 const SNAPSHOT_FIELDS = [
   "is_curated",
+  // The canonical Dummy flag is part of the snapshot so a Developer Authority
+  // decision is explainable from the trail alone (Master Dummy Place v1.0 §5).
+  "is_dummy",
   "name",
   "short_description",
   "category",
@@ -82,6 +96,7 @@ export function placeAuditSnapshot(place: Place): PlaceAuditSnapshot {
     // promotion/revocation is a decision the trail exists to explain
     // (Stage 4), exactly like claim_status and publication_status.
     is_curated: place.isCurated,
+    is_dummy: place.isDummy,
     name: place.name,
     short_description: place.shortDescription,
     category: place.category,
@@ -102,6 +117,7 @@ export function placeAuditSnapshot(place: Place): PlaceAuditSnapshot {
 
 const FIELD_LABEL: Record<string, string> = {
   is_curated: "Tempat Pilihan",
+  is_dummy: "Dummy Place",
   name: "Nama",
   short_description: "Deskripsi singkat",
   category: "Kategori",

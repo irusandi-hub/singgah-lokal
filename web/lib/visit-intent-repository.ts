@@ -106,6 +106,7 @@ function mapPlace(row: Record<string, unknown>): Place {
     claimStatus: row.claim_status as Place["claimStatus"],
     publicationStatus: row.publication_status as Place["publicationStatus"],
     isCurated: row.is_curated === true,
+    isDummy: row.is_dummy === true,
   };
 }
 
