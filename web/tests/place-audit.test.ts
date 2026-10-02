@@ -282,6 +282,10 @@ test("migration 0031 is idempotent and additive — it touches nothing that alre
 // ---------------------------------------------------------------------------
 
 test("the action vocabulary covers exactly the required Admin Place actions", () => {
+  // The Admin vocabulary is unchanged. Migration 0039 EXTENDS it with the
+  // Creator-only Developer Authority keys, which are distinct on purpose so a
+  // Developer decision is never recorded as a Platform Admin one (Master Dummy
+  // Place v1.0 §5).
   assert.deepEqual(Object.values(PLACE_AUDIT_ACTIONS).sort(), [
     "admin_place_archived",
     "admin_place_created",
@@ -291,6 +295,10 @@ test("the action vocabulary covers exactly the required Admin Place actions", ()
     "admin_place_restored",
     "admin_place_uncurated",
     "admin_place_updated",
+    "developer_place_curated",
+    "developer_place_dummy_cleared",
+    "developer_place_dummy_marked",
+    "developer_place_uncurated",
     "place_claim_approved",
     "place_claim_rejected",
   ]);
@@ -299,11 +307,13 @@ test("the action vocabulary covers exactly the required Admin Place actions", ()
     assert.ok(PLACE_AUDIT_ACTION_LABEL[action], `${action} needs a label`);
   }
   // The vocabulary in code is the vocabulary the database enforces — the
-  // workspace actions in 0031 and the Stage 4 curation actions in 0036
-  // (which replaced the CHECK additively).
+  // workspace actions in 0031, the Stage 4 curation actions in 0036, and the
+  // Creator-only Developer Authority actions in 0039 (all additive CHECK
+  // replacements, none of which removes a prior key).
   const sql =
     stripComments(readMigration("0031_place_audit.sql")) +
-    stripComments(readMigration("0036_place_curated_admin.sql"));
+    stripComments(readMigration("0036_place_curated_admin.sql")) +
+    stripComments(readMigration("0039_dummy_place_developer_authority.sql"));
   for (const action of Object.values(PLACE_AUDIT_ACTIONS)) {
     assert.match(sql, new RegExp(`'${action}'`));
   }
@@ -450,7 +460,11 @@ test("the audit trail holds Place columns only — never user email, credentials
     claimStatus: "unverified",
     publicationStatus: "draft",
     isCurated: false,
+    isDummy: false,
   });
+  // `is_dummy` joins the snapshot so a Developer Authority decision is
+  // explainable from the trail alone; it is still a canonical Place column and
+  // still carries no user or infrastructure value.
   assert.deepEqual(Object.keys(snapshot).sort(), [
     "address",
     "area",
@@ -460,6 +474,7 @@ test("the audit trail holds Place columns only — never user email, credentials
     "cover_image_url",
     "currency",
     "is_curated",
+    "is_dummy",
     "latitude",
     "longitude",
     "name",

@@ -180,6 +180,10 @@ export function evaluateDiscoveryEligibility(place: DiscoveryPlaceBase): boolean
     regionName: null,
     coverImageUrl: null,
     isCurated: false,
+    // Discovery is deliberately dummy-blind: a Dummy Place is eligible on
+    // exactly the same canonical terms as any other Place, so E1+E2 never
+    // reads the flag (Master Dummy Place v1.0 §6).
+    isDummy: false,
     producer: null,
   });
 }

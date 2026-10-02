@@ -45,6 +45,7 @@ function mapPlaceForAudit(row: Record<string, unknown>) {
     claimStatus: row.claim_status as never,
     publicationStatus: row.publication_status as never,
     isCurated: row.is_curated === true,
+    isDummy: row.is_dummy === true,
   };
 }
 

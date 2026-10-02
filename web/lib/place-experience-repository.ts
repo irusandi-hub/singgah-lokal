@@ -48,6 +48,7 @@ function mapPlace(row: Record<string, unknown>): Place {
     claimStatus: row.claim_status as Place["claimStatus"],
     publicationStatus: row.publication_status as Place["publicationStatus"],
     isCurated: row.is_curated === true,
+    isDummy: row.is_dummy === true,
     address: String(row.address ?? ""),
     contactInformation: String(row.contact_information ?? ""),
   };
@@ -439,6 +440,27 @@ export class SupabasePlaceManagementRepository {
     const { data, error } = await this.client.from("places").select("*, producers(display_name)").eq("id", id).maybeSingle();
     if (error) throw error;
     return data ? mapPlace({ ...data, producer_display_name: data.producers?.display_name }) : undefined;
+  }
+
+  /**
+   * Every Place carrying the canonical Dummy flag (migration 0039).
+   *
+   * Deliberately NOT a generic "list everything": the only caller is the
+   * Creator-gated Developer Authority module, and the filter is the server-side
+   * `is_dummy` column — never a text match on a name or description, which
+   * would make the flag derivable from editable free text (Master Dummy Place
+   * v1.0 §4).
+   */
+  async listDummyPlaces(): Promise<Place[]> {
+    const { data, error } = await this.client
+      .from("places")
+      .select("*, producers(display_name)")
+      .eq("is_dummy", true)
+      .order("id");
+    if (error) throw error;
+    return (data ?? []).map((row) =>
+      mapPlace({ ...row, producer_display_name: row.producers?.display_name }),
+    );
   }
 
   async create(input: PlaceMutation, producerId: string, creatorUserId?: string): Promise<Place> {
