@@ -32,6 +32,10 @@ const homeDiscovery = readFileSync(
 );
 const geocodeRoute = readFileSync(new URL("../app/api/geocode/route.ts", import.meta.url), "utf8");
 const photon = readFileSync(new URL("../lib/live/photon.ts", import.meta.url), "utf8");
+const geocodingCore = readFileSync(
+  new URL("../lib/live/geocoding-core.ts", import.meta.url),
+  "utf8",
+);
 
 function stripComments(source: string): string {
   return source
@@ -59,6 +63,10 @@ function boxAround(lat: number, lng: number, half = 0.05): MapViewport {
 
 test("the geocoder module is server-only and no provider endpoint is client-reachable", () => {
   assert.match(photon, /^import "server-only";/);
+  // The pure core deliberately has NO server-only import, so its logic is
+  // executable in unit tests (mirrors comment-moderation-core.ts). Check the
+  // actual import, not the word, which appears in its explanatory comment.
+  assert.doesNotMatch(geocodingCore, /^import "server-only";/m);
   // The route is the ONLY importer of the server-only module.
   assert.match(geocodeRoute, /from "@\/lib\/live\/photon"/);
   // The client component must NOT import it, and must not name the provider.
@@ -91,8 +99,10 @@ test("query validation happens on the server, before any outbound request", () =
   );
   assert.match(geocodeRoute, /status: 400/);
   // A too-long query is rejected, never truncated into a provider call.
+  assert.match(geocodingCore, /MAX_GEOCODE_QUERY_LENGTH/);
+  assert.match(geocodingCore, /if \(trimmed\.length > MAX_GEOCODE_QUERY_LENGTH\) return null;/);
+  // The route imports the validation through the server-only boundary.
   assert.match(photon, /MAX_GEOCODE_QUERY_LENGTH/);
-  assert.match(photon, /if \(trimmed\.length > MAX_GEOCODE_QUERY_LENGTH\) return null;/);
   // An unresolvable query is an honest 404, not a fabricated center.
   assert.match(geocodeRoute, /location_not_resolved/);
   assert.match(geocodeRoute, /status: 404/);
@@ -104,17 +114,23 @@ test("the geocoder returns null — never a guess — on every failure path", ()
   assert.match(body, /catch \{\s*\n\s*\/\/ Network failure[\s\S]*?return null;/);
   // Non-2xx answer.
   assert.match(body, /if \(!response\.ok\) return null;/);
-  // Unparseable or non-array payload.
-  assert.match(body, /if \(!Array\.isArray\(payload\)\) return null;/);
+  // Unparseable body, or a payload the parser rejects.
+  assert.match(body, /payload = await response\.json\(\)/);
+  assert.match(body, /catch \{\s*\n\s*return null;/);
+  assert.match(geocodingCore, /if \(!Array\.isArray\(payload\)\) return null;/);
   // No usable hit.
-  assert.match(body, /if \(hits\.length === 0\) return null;/);
+  assert.match(geocodingCore, /if \(hits\.length === 0\) return null;/);
   // Non-finite coordinates — the only case that could otherwise smuggle a
   // bogus center into the camera.
-  assert.match(body, /if \(!Number\.isFinite\(latitude\) \|\| !Number\.isFinite\(longitude\)\) return null;/);
+  assert.match(
+    geocodingCore,
+    /if \(!Number\.isFinite\(latitude\) \|\| !Number\.isFinite\(longitude\)\) return null;/,
+  );
   // A hung provider can never hold a socket open.
   assert.match(photon, /AbortSignal\.timeout/);
   // No invented fallback center anywhere in the helper.
   assert.doesNotMatch(photon, /latitude:\s*0\b|longitude:\s*0\b/);
+  assert.doesNotMatch(geocodingCore, /latitude:\s*0\b|longitude:\s*0\b/);
 });
 
 // ---------------------------------------------------------------------------
