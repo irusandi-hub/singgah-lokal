@@ -10,9 +10,13 @@ import {
   RIYADH_DUMMY_PLACE_IDS,
   decideDeveloperPlaceMutation,
   developerAuditAction,
+  developerFlagColumn,
+  developerFlagPatch,
+  developerRevertPatch,
   normalizeDeveloperReason,
   type DeveloperPlaceOperation,
   type DeveloperPlaceRefusal,
+  type DeveloperPlaceTarget,
 } from "./dummy-places-core";
 
 /**
@@ -40,7 +44,9 @@ import {
  * AUDIT (Master §5): every mutation writes an append-only `place_audit` row
  * with the Creator's own user id, the action key, the reason, and the
  * before/after snapshot. If the audit write fails the flag change is ROLLED
- * BACK first, so a change can never outlive its own audit trail.
+ * BACK to the value the Place held BEFORE the change — never to the requested
+ * value — so a change can never outlive its own audit trail, and a failed
+ * revert is reported (`place_rollback_failed`) instead of being assumed.
  */
 
 export class DeveloperPlaceError extends Error {
@@ -80,31 +86,39 @@ async function runDeveloperMutation(params: {
   if (!id) refuse("place_not_found");
 
   const place = await loadTarget(id);
+  if (!place) refuse("place_not_found");
+  // The state read BEFORE any write. It is the single source of truth for both
+  // the authorization decision and — if the audit fails — the rollback.
+  const target: DeveloperPlaceTarget = {
+    id: place.id,
+    isDummy: place.isDummy,
+    isCurated: place.isCurated,
+  };
   const decision = decideDeveloperPlaceMutation({
     operation: params.operation,
-    target: place ? { id: place.id, isDummy: place.isDummy, isCurated: place.isCurated } : null,
+    target,
     desiredValue: params.desiredValue,
     reason: params.reason,
   });
   // An idempotent no-op is not an error: it returns the Place and writes
   // nothing, matching the Admin curation path's no-op contract.
   if (!decision.ok && decision.reason !== "no_op") refuse(decision.reason);
-  if (!place) refuse("place_not_found");
   if (!decision.ok) return { place, action: "developer_place_noop" };
 
   const before = placeAuditSnapshot(place);
-  const after: PlaceAuditSnapshot = {
-    ...before,
-    [params.operation === "set_dummy" ? "is_dummy" : "is_curated"]: params.desiredValue,
-  };
+  const flagColumn = developerFlagColumn(params.operation);
+  const after: PlaceAuditSnapshot = { ...before, [flagColumn]: params.desiredValue };
   const action = developerAuditAction({ operation: params.operation, desiredValue: params.desiredValue });
   const reason = normalizeDeveloperReason(params.reason as string);
 
   const admin = createSupabaseServiceClient();
-  const patch =
-    params.operation === "set_dummy"
-      ? { is_dummy: params.desiredValue }
-      : { is_curated: params.desiredValue };
+  // FORWARD: the requested value. The only patch that may carry `desiredValue`.
+  const patch = developerFlagPatch(params.operation, params.desiredValue);
+  // REVERT: the ORIGINAL value, derived from the pre-write `target`. It is built
+  // here, before the write, so the rollback can never reach back for a value
+  // that has already been overwritten.
+  const revertPatch = developerRevertPatch(params.operation, target);
+  const originalFlagValue = revertPatch[flagColumn];
 
   const { error } = await admin
     .from("places")
@@ -126,18 +140,26 @@ async function runDeveloperMutation(params: {
   } catch (error) {
     // Roll back BEFORE surfacing the failure. Never leave an unattributed or
     // un-audited change behind (Master §3).
+    //
+    // The revert writes `revertPatch` — the value the Place held BEFORE this
+    // change — and NOT `patch`, the requested value. Re-applying the requested
+    // value here would leave the row in exactly the state the failed audit
+    // refused to record, which is the unattributed change Master §5 forbids.
+    // The result is read back and compared against the original value, so a
+    // revert that silently failed is reported instead of being assumed.
+    let rolledBack = false;
     try {
-      await admin
+      const { data: reverted, error: revertError } = await admin
         .from("places")
-        .update({ ...patch, updated_at: new Date().toISOString() })
+        .update({ ...revertPatch, updated_at: new Date().toISOString() })
         .eq("id", id)
         .select("is_dummy, is_curated")
         .maybeSingle();
+      rolledBack = !revertError && reverted?.[flagColumn] === originalFlagValue;
     } catch {
-      // Best-effort revert; the audit failure is surfaced regardless.
+      // Best-effort revert; `rolledBack` stays false and is reported below.
     }
-    void before;
-    void after;
+    if (!rolledBack) throw new DeveloperPlaceError("place_rollback_failed");
     throw error instanceof PlaceAuditError
       ? new DeveloperPlaceError("place_audit_unavailable")
       : error;
