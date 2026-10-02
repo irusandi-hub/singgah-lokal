@@ -358,8 +358,10 @@ test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome",
 
 test("MOCKUP §11: result header keeps title + real-count subtitle + Ke hasil", () => {
   // Subtitle uses the REAL per-layer count (the mockup's "10 tempat pilihan
-  // di sekitar Anda" shape) — never a fabricated number.
-  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat di sekitar Anda`/);
+  // di sekitar Anda" shape) — never a fabricated number. The origin fragment
+  // is `nearOrigin`, which preserves that device wording verbatim and names a
+  // searched city when one is active (bug fix 2026-10-03).
+  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}`/);
   // "Ke hasil" is the honest label for a SCROLL (bug fix 2026-10-01): there is
   // no all-results page in the MVP, so the link must not claim to show every
   // Place. The old label "Lihat semua" and the old self-referencing target

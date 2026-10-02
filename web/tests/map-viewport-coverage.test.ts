@@ -228,7 +228,7 @@ test("7. Discovery and Tempat Pilihan keep the approved overlap behaviour", () =
   // The header counter stays per layer.
   assert.match(
     pageCode,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan di sekitar Anda`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat di sekitar Anda`/,
+    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}`/,
   );
 });
 

@@ -337,6 +337,29 @@ export function clearCitySearch(): CitySearchState {
 export const NEUTRAL_SEARCH_AREA_LABEL = "pusat area pencarian";
 
 /**
+ * THE ORIGIN PHRASE — one resolver shared by every element that tells the user
+ * WHERE results are being measured from (bug fix 2026-10-03).
+ *
+ * Two separate UI elements used to hardcode their own wording: the map
+ * coverage caption and the results-section count. Fixing only one of them left
+ * the screen contradicting itself — the caption said "dari pusat pencarian
+ * Riyadh" directly above a count that still read "di sekitar Anda", which is
+ * the Dammam origin. They now derive from this single function, so the two can
+ * never name different places.
+ *
+ * `placeName` is the geocoder's RESOLVED name. When it is absent the phrase
+ * falls back to a neutral one rather than echoing typed text or inventing a
+ * location name, so it can never claim a city the search did not resolve.
+ */
+export function resolveSearchOrigin(input: { mode: SearchMode; placeName: string | null }): string {
+  if (input.mode === "city_search") {
+    const name = typeof input.placeName === "string" ? input.placeName.trim() : "";
+    return name ? `pusat pencarian ${name}` : NEUTRAL_SEARCH_AREA_LABEL;
+  }
+  return "lokasi Anda";
+}
+
+/**
  * Radius caption for the map coverage box (bug fix 2026-10-03).
  *
  * The caption used to be a fixed "dari lokasi Anda" while the map and the
@@ -344,25 +367,27 @@ export const NEUTRAL_SEARCH_AREA_LABEL = "pusat area pencarian";
  * labelled as if it were measured from the device. The caption now names the
  * origin that is actually doing the measuring, which is the same active center
  * the coverage filter and the distance labels use.
- *
- * `placeName` is the geocoder's RESOLVED name. When it is absent the caption
- * falls back to a neutral phrase rather than echoing typed text or inventing a
- * location name, so it can never claim a city the search did not resolve.
  */
 export function describeRadiusOrigin(input: {
   radiusLabel: string;
   mode: SearchMode;
   placeName: string | null;
 }): string {
-  if (input.mode === "city_search") {
-    const name = typeof input.placeName === "string" ? input.placeName.trim() : "";
-    // The neutral label is a COMPLETE phrase on its own — it must not be
-    // appended after "dari pusat pencarian", which would read as
-    // "dari pusat pencarian pusat area pencarian".
-    const origin = name ? `pusat pencarian ${name}` : NEUTRAL_SEARCH_AREA_LABEL;
-    return `Menampilkan tempat dalam radius ${input.radiusLabel} dari ${origin}`;
-  }
-  return `Menampilkan tempat dalam radius ${input.radiusLabel} dari lokasi Anda`;
+  return `Menampilkan tempat dalam radius ${input.radiusLabel} dari ${resolveSearchOrigin(input)}`;
+}
+
+/**
+ * "di sekitar …" fragment for the results-section count (bug fix 2026-10-03).
+ *
+ * This is the Master/MOCKUP §11 count subtitle ("{n} tempat pilihan di sekitar
+ * Anda"), so the DEVICE wording is preserved VERBATIM — that string is quoted
+ * by the mockup and is the default case. Only the searched-city case changed:
+ * it used to keep claiming "di sekitar Anda" while the count itself came from
+ * the city's own coverage, which is exactly the inconsistency this fixes.
+ */
+export function describeNearOrigin(input: { mode: SearchMode; placeName: string | null }): string {
+  if (input.mode === "city_search") return `di sekitar ${resolveSearchOrigin(input)}`;
+  return "di sekitar Anda";
 }
 
 /**
