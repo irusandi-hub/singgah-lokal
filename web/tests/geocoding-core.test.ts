@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildGeocoderUserAgent,
   MAX_GEOCODE_QUERY_LENGTH,
+  NOMINATIM_DEFAULT_CONTACT,
   normalizeGeocodeQuery,
   parseGeocodeResponse,
 } from "../lib/live/geocoding-core";
@@ -215,4 +217,41 @@ test("empty-string metadata is treated as absent", () => {
   assert.ok(result);
   assert.equal("country" in result, false);
   assert.equal("state" in result, false);
+});
+
+// ---------------------------------------------------------------------------
+// Identifying User-Agent — the header that decides whether the geocoder
+// answers at all. Nominatim returns `403 Access denied` to a request that
+// does not identify its application, which is exactly what a bare server-side
+// fetch sends. Dropping this leaves the whole Home search permanently
+// unreachable, so it is pinned by executable tests rather than a code comment.
+// ---------------------------------------------------------------------------
+
+test("the geocoder is always identified, with no configuration at all", () => {
+  // Every argument shape that can arrive from an unset/blank env var.
+  for (const contact of [undefined, null, "", "   ", "\t\n"]) {
+    const agent = buildGeocoderUserAgent(contact);
+    assert.equal(agent, `SinggahLokal/0.1 (+${NOMINATIM_DEFAULT_CONTACT})`);
+    assert.ok(agent.includes("SinggahLokal"), "header must name the application");
+    assert.ok(agent.length > 0, "header must never be empty");
+  }
+});
+
+test("a configured contact replaces the default, trimmed", () => {
+  assert.equal(
+    buildGeocoderUserAgent("ops@singgah.local"),
+    "SinggahLokal/0.1 (+ops@singgah.local)",
+  );
+  assert.equal(
+    buildGeocoderUserAgent("  https://singgah.local/contact  "),
+    "SinggahLokal/0.1 (+https://singgah.local/contact)",
+  );
+});
+
+test("the User-Agent carries no newline, so it cannot split the header block", () => {
+  // A newline smuggled in through the contact would let an untrusted value
+  // inject extra request headers onto the outbound geocode call.
+  const agent = buildGeocoderUserAgent("ops@singgah.local\r\nX-Injected: 1");
+  assert.equal(agent.includes("\n"), false);
+  assert.equal(agent.includes("\r"), false);
 });
