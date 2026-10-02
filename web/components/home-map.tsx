@@ -4,7 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { isSameViewport, shouldReportViewportStatus, type MapViewport } from "@/lib/live/ui";
+import {
+  FIT_SINGLE_PLACE_ZOOM,
+  boundsOfPoints,
+  collectGeoPoints,
+  isSameViewport,
+  resolveCameraFitPadding,
+  shouldReportViewportStatus,
+  type MapViewport,
+} from "@/lib/live/ui";
 
 /**
  * Real interactive map for Home discovery.
@@ -36,6 +44,27 @@ import { isSameViewport, shouldReportViewportStatus, type MapViewport } from "@/
  *       Current Location existed yet and the demo marker set was spread out)
  *       was REMOVED. With no real fix the map keeps the neutral world
  *       overview and NEVER auto-fits to the marker list.
+ * - AUTO-FIT VIEWPORT (product decision, 2026-10-03 — supersedes the curated
+ *   10 km frame and the search-center-only recenter, and ONLY those two
+ *   rules): the camera frames the SPREAD of the relevant Places' canonical
+ *   coordinates instead of a fixed radius around one point.
+ *     · the bounds dataset is a SEPARATE dataset from the rendered markers:
+ *       the same canonical content filter WITHOUT the viewport gate, so
+ *       viewport -> markers -> camera can never become a circular dependency;
+ *     · the fit happens ONLY on an EXPLICIT refocus trigger (choosing
+ *       "Tempat Pilihan", or a new search answer). Marker refreshes,
+ *       discovery re-polls, and every viewport report can never re-frame the
+ *       camera, so there is no recenter loop and no repeated zoom;
+ *     · manual pan/zoom still wins in between: no viewport or marker update
+ *       can ever take the camera back;
+ *     · ZERO Places with valid coordinates never invents a coordinate — a
+ *       search keeps its geocoding center and the curated tab keeps the
+ *       current view;
+ *     · ONE Place is FOCUSED on its canonical coordinate (a degenerate box
+ *       would otherwise jump to the map's maximum zoom);
+ *     · the fit reserves the floating chrome (header, search, filter) and the
+ *       map controls, so the framed Places are never hidden underneath them;
+ *     · the distance tabs keep their ordered radius presets (unchanged).
  * - One container = one Leaflet instance: the container is claimed
  *   synchronously before the async import resolves (Strict Mode double-mount
  *   and fast route transitions cannot initialize twice), and teardown fully
@@ -114,6 +143,30 @@ type HomeMapProps = {
   searchCenter?: { lat: number; lng: number } | null;
   /** Bumped by the caller once a NEW search answer arrived (never per keystroke). */
   searchNonce?: number;
+  /**
+   * AUTO-FIT BOUNDS DATASET (product decision, 2026-10-03) for the curated
+   * layer: the relevant Places' canonical coordinates, gathered WITHOUT the
+   * viewport gate. It is deliberately NOT the `places` prop — that one is
+   * narrowed to the visible viewport, which is what keeps the camera from
+   * chasing the markers it just moved. Same canonical data, same membership,
+   * one step earlier in the pipeline.
+   */
+  fitPlaces?: HomeMapPlace[];
+  /**
+   * EXPLICIT refocus trigger for the auto-fit camera (product decision,
+   * 2026-10-03): bumped ONLY when the user chooses "Tempat Pilihan". Nothing
+   * else — no marker refresh, no discovery poll, no viewport report — can
+   * re-frame the camera.
+   */
+  fitNonce?: number;
+  /**
+   * AUTO-FIT BOUNDS DATASET for a location search (product decision,
+   * 2026-10-03): the canonical coordinates of the Places relevant to the
+   * SEARCHED region. A new answer frames their spread instead of only
+   * centering on the geocoder's city point. An empty set keeps the search
+   * center — no coordinate is ever invented.
+   */
+  searchFitPlaces?: HomeMapPlace[];
   /**
    * Short one-shot focus pulse on the EXISTING Current Location pin when a
    * preset applies: the camera itself moves instantly with NO animation, so
@@ -227,6 +280,9 @@ export default function HomeMap({
   cameraCenter = null,
   searchCenter = null,
   searchNonce = 0,
+  fitPlaces = [],
+  fitNonce = 0,
+  searchFitPlaces = [],
   pulsePinOnPresetChange = false,
   onViewportHasPlaces,
   onViewportChange,
@@ -276,6 +332,15 @@ export default function HomeMap({
   // Last measured Leaflet size — the container-resize guard (a change that
   // does not actually change the measured size must not re-report).
   const measuredSizeRef = useRef<{ x: number; y: number } | null>(null);
+  // AUTO-FIT camera refs (product decision, 2026-10-03). The bounds datasets
+  // are mirrored into refs so the fit effects can be keyed on their NONCE
+  // ALONE: a new Place array (discovery re-poll, search refresh, viewport
+  // narrowing upstream) can therefore never re-run a fit that already
+  // happened, which is what makes a recenter loop impossible. lastFitNonceRef
+  // guarantees the fit applies exactly once per explicit trigger.
+  const fitPlacesRef = useRef<HomeMapPlace[]>(fitPlaces);
+  const searchFitPlacesRef = useRef<HomeMapPlace[]>(searchFitPlaces);
+  const lastFitNonceRef = useRef(0);
 
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -292,6 +357,14 @@ export default function HomeMap({
   useEffect(() => {
     onViewportChangeRef.current = onViewportChange ?? null;
   }, [onViewportChange]);
+
+  useEffect(() => {
+    fitPlacesRef.current = fitPlaces;
+  }, [fitPlaces]);
+
+  useEffect(() => {
+    searchFitPlacesRef.current = searchFitPlaces;
+  }, [searchFitPlaces]);
 
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
@@ -661,6 +734,53 @@ export default function HomeMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // AUTO-FIT MECHANISM (product decision, 2026-10-03) — ONE function, shared by
+  // the curated refocus and the location search, so both obey the same three
+  // rules and there is never a second, subtly different camera path.
+  //
+  // It frames the SPREAD of the given canonical coordinates, never the markers
+  // currently rendered:
+  //  - 0 valid Places  -> returns false and moves NOTHING. An empty dataset can
+  //    never become a coordinate, a default city, or a world view; the caller
+  //    keeps its search center or the current viewport.
+  //  - 1 valid Place   -> focused directly on that coordinate. `fitBounds` on a
+  //    degenerate box would jump to the map's maximum zoom, which is not
+  //    "a suitable zoom for one Place".
+  //  - many Places     -> fitBounds with the reserved chrome/control padding,
+  //    so the whole spread is visible in the AREA the user can really see.
+  //
+  // The move is INSTANT (`animate: false`), like every other camera apply here,
+  // and it flags itself as programmatic so its own moveend/zoomend events can
+  // never be mistaken for a user interaction (which would latch the camera).
+  const fitCamera = useCallback(async (map: LeafletMap, candidatePlaces: HomeMapPlace[]) => {
+    const L = (await import("leaflet")).default;
+    if (mapRef.current !== map) return false;
+    const points = collectGeoPoints(candidatePlaces);
+    const bounds = boundsOfPoints(points);
+    // No Place with canonical coordinates: the camera stays exactly where it
+    // is. Nothing is invented here (AGENTS.md: no fabricated data).
+    if (!bounds) return false;
+    programmaticMoveRef.current = true;
+    if (points.length === 1) {
+      map.setView([points[0].lat, points[0].lng], FIT_SINGLE_PLACE_ZOOM, { animate: false });
+      return true;
+    }
+    // Padding reserves the floating header/search/filter chrome, the right-hand
+    // control column, and the coverage box + scale, clamped to the real
+    // container size so a short mobile map still has room to fit into.
+    const padding = resolveCameraFitPadding(map.getSize());
+    const corners: [[number, number], [number, number]] = [
+      [bounds.south, bounds.west],
+      [bounds.north, bounds.east],
+    ];
+    map.fitBounds(L.latLngBounds(corners), {
+      paddingTopLeft: padding.paddingTopLeft,
+      paddingBottomRight: padding.paddingBottomRight,
+      animate: false,
+    });
+    return true;
+  }, []);
+
   // Camera anchor: the ACTIVE SEARCH CENTER is the map's center — the searched
   // city while a city search is active, otherwise the real Current Location fix
   // (bug fix 2026-10-02; previously the preset hardcoded the device fix, so a
@@ -679,6 +799,30 @@ export default function HomeMap({
   const cameraCenterKey = cameraCenter ? `${cameraCenter.lat},${cameraCenter.lng}` : "";
   useEffect(() => {
     const map = mapRef.current;
+    // AUTO-FIT REFOCUS (product decision, 2026-10-03) — checked FIRST and
+    // BEFORE the anchor guard, because a fit carries its OWN canonical
+    // coordinates and must therefore still work when geolocation was denied
+    // and no anchor exists at all.
+    const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef.current;
+    if (fitChanged) {
+      if (!ready || !map) return;
+      // Marked as applied even when the dataset is still empty: a later
+      // viewport report or marker refresh must never re-frame the camera for
+      // the SAME choice (that would be the recenter loop).
+      lastFitNonceRef.current = fitNonce;
+      lastRadiusRef.current = cameraRadiusMeters;
+      // An explicit choice re-arms the manual-interaction latch exactly like a
+      // new radius preset does: the fit IS the refocus the user asked for.
+      userInteractedRef.current = false;
+      void (async () => {
+        const applied = await fitCamera(map, fitPlacesRef.current);
+        // The instant-camera rule (PO 2026-09-30) is unchanged: the transition
+        // into the layer is confirmed by the one-shot Current Location pin
+        // pulse, never by an animated camera move.
+        if (applied && pulsePinOnPresetChange) triggerLocatePulse();
+      })();
+      return;
+    }
     const anchor = cameraCenter ?? viewerPosition;
     if (!ready || !map || !anchor) return;
     if (userInteractedRef.current && lastRadiusRef.current === cameraRadiusMeters) return;
@@ -717,7 +861,7 @@ export default function HomeMap({
     return () => {
       cancelled = true;
     };
-  }, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);
+  }, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);
 
   // Render/update the user marker from the real geolocation fix. Camera
   // decisions live in the anchor effect above.
@@ -823,31 +967,52 @@ export default function HomeMap({
     };
   }, [locateNonce, ready, viewerPosition, triggerLocatePulse]);
 
-  // LOCATION SEARCH recenter (PO 2026-10-02): the moment a NEW server geocode
-  // answer arrives, the camera jumps to that canonical center INSTANTLY and
-  // holds the current zoom (never zooms out, never animates a fly-through).
-  // It is deliberately keyed on `searchNonce`, not on the coordinates, so a
-  // repeated search for the SAME place still recenters once. Clearing the
-  // query (searchCenter → null) never moves the camera — the map simply keeps
-  // the user's last view. No marker is added, the Current Location pin and its
-  // pulse are untouched, and no radius/filter state is read or written here.
+  // LOCATION SEARCH camera (PO 2026-10-02; AUTO-FIT extended by the product
+  // decision of 2026-10-03): the moment a NEW server geocode answer arrives,
+  // the camera frames the SPREAD of the Places relevant to the searched region,
+  // instantially and with the chrome/control padding reserved — it no longer
+  // only centers on the geocoder's city point, so Places scattered across the
+  // searched region are all visible instead of the ones near the midpoint.
+  //
+  // It stays keyed on `searchNonce`, not on the coordinates or on the Place
+  // array, so a repeated search for the SAME place re-frames exactly once and
+  // a later marker/viewport update can never loop the camera. Manual pan/zoom
+  // in between is respected: nothing but a new answer re-frames it.
+  // Clearing the query (searchCenter → null) never moves the camera. No
+  // marker is added, the Current Location pin and its pulse are untouched, and
+  // no radius/filter state is read or written here.
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !searchCenter || !searchNonce) return;
-    programmaticMoveRef.current = true;
+    let cancelled = false;
     userInteractedRef.current = false;
-    map.setView([searchCenter.lat, searchCenter.lng], Math.max(map.getZoom(), SEARCH_MIN_ZOOM), {
-      animate: false,
-    });
-  }, [ready, searchNonce, searchCenter]);
+    (async () => {
+      const applied = await fitCamera(map, searchFitPlacesRef.current);
+      if (cancelled || applied) return;
+      // NO Place with canonical coordinates in the searched region: keep the
+      // geocoding center at the current zoom floor. Never a fabricated point,
+      // never a world view, never a marker fit.
+      programmaticMoveRef.current = true;
+      map.setView([searchCenter.lat, searchCenter.lng], Math.max(map.getZoom(), SEARCH_MIN_ZOOM), {
+        animate: false,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // The nonce is the trigger; searchFitPlacesRef carries the current dataset
+    // (a ref, so a new Place array can never re-run a completed re-frame).
+  }, [ready, searchNonce, searchCenter, fitCamera]);
 
   // Rebuild markers whenever the filtered marker set changes. Camera note:
-  // the viewport is NEVER driven by the marker set — no marker fitBounds
-  // exists anywhere in this component (map-coverage fix, 2026-09-30). When no
-  // Current Location fix exists yet the map stays on the neutral world
-  // overview until the real fix arrives; with a fix the bounded radius
-  // preset owns the camera. Marker refreshes (markerKey effect) never move
-  // the camera at all.
+  // the viewport is NEVER driven by the marker set — there is NO fit to the
+  // markers in this component. The auto-fit camera reads a SEPARATE bounds
+  // dataset (`fitPlaces` / `searchFitPlaces`), which is the same canonical
+  // content filter WITHOUT the viewport gate; that separation is exactly what
+  // keeps viewport, marker filtering, and camera from becoming a circular
+  // dependency. When no Current Location fix exists yet the map stays on the
+  // neutral world overview until the real fix arrives. Marker refreshes
+  // (markerKey effect) never move the camera at all.
   // Performance (PO 2026-09-26): the effect is keyed on markerKey — the
   // stable signature of the marker set (ids + live sessions) — NOT on the
   // places/liveByPlaceId object identities, so discovery state updates that
@@ -990,28 +1155,31 @@ export default function HomeMap({
           (max control z-index = 1000): 1100+ keeps the React layer strictly
           on top in any drag/zoom state.
 
-          MOCKUP §5/§9 (2026-10-01): the right-side control stack reads as ONE
-          white rounded column — Leaflet's +/- zoom control (position
-          "topright", restyled white in globals.css) sits directly above the
-          React Re-center arrow and the labeled "Lokasi Saya" control. The
-          Re-center arrow is a SECOND entry point into the EXISTING locate
-          flow (the same onRequestLocate handler the "Lokasi Saya" control
-          uses): no new camera logic, no geolocation change. The dot on the
-          labeled control is decorative (aria-hidden) — the accessible name
-          stays on the button.
+          MOCKUP §5/§9 (2026-10-01; re-ordered by the product decision of
+          2026-10-03): the right-side control stack reads as ONE white rounded
+          column, ordered from the floating chrome downwards — the React
+          Re-center arrow, then the labeled "Lokasi Saya" control, then
+          Leaflet's own +/- zoom control BELOW them (position "topright",
+          restyled white in globals.css). The Re-center arrow is a SECOND
+          entry point into the EXISTING locate flow (the same onRequestLocate
+          handler the "Lokasi Saya" control uses): no new camera logic, no
+          geolocation change. The dot on the labeled control is decorative
+          (aria-hidden) — the accessible name stays on the button.
 
-          POSITION (MOCKUP §9): the map is now the full-bleed background of
-          Home, so the controls are pushed DOWN to clear the floating
-          header/search/filter chrome — Leaflet's zoom control ends around
-          226px (see .leaflet-top offset in globals.css), so Re-center sits at
-          232px and the labeled control at 288px. Same controls, same
-          handlers, same size: only the offset moved, so nothing is ever
-          covered by the floating UI and nothing covers the coverage box,
-          the scale, or the Result panel. */}
+          POSITION (product decision, 2026-10-03): the map is the full-bleed
+          background of Home, so the whole ladder is pushed DOWN to clear the
+          floating header/search/filter chrome (~190px). The offsets below and
+          the .leaflet-top offset in globals.css form ONE ladder and must move
+          together: Re-center 190px → "Lokasi Saya" 240px (≈41px tall, ends
+          ≈281px) → Leaflet's +/- stack 290px (ends ≈350px). The zoom control
+          therefore sits BELOW both buttons and never collides with them, with
+          the coverage box / scale at the bottom-right, or with the map surface
+          — at every supported width (360 / 390 / 430 / 1280). Same controls,
+          same handlers, same sizes: only the offsets changed. */}
       <button
         type="button"
         onClick={onRequestLocate}
-        className="absolute right-3 top-[232px] z-[1100] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
+        className="absolute right-3 top-[190px] z-[1100] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
         aria-label="Pusatkan peta ke lokasi saya"
       >
         {/* Navigation arrow (MOCKUP §5 "Re-center") — visual only. */}
@@ -1020,7 +1188,7 @@ export default function HomeMap({
       <button
         type="button"
         onClick={onRequestLocate}
-        className="absolute right-3 top-[288px] z-[1100] inline-flex w-11 flex-col items-center gap-1 rounded-xl bg-white px-1 py-2 text-[9px] font-bold leading-tight text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
+        className="absolute right-3 top-[240px] z-[1100] inline-flex w-11 flex-col items-center gap-1 rounded-xl bg-white px-1 py-2 text-[9px] font-bold leading-tight text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
         aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
       >
         <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-[#2563eb] ring-2 ring-white" />

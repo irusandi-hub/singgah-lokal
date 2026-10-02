@@ -80,19 +80,29 @@ select {
   overflow: hidden;
 }
 
-/* MOCKUP §5/§9 (2026-10-01, full-bleed Home map): the map is now the
-   background field of Home, so Leaflet's own +/- stack is nudged BELOW the
-   floating header / search / filter chrome (~158px) instead of sitting in
-   the top-right corner where the search bar now lives. Only the control
-   OFFSET moves — position "topright", both buttons, and every handler stay
-   exactly as they were (locked by tests/map-current-location.test.ts and
-   tests/home-map-gesture.test.ts).
+/* MOCKUP §5/§9 (2026-10-01, full-bleed Home map); re-ordered by the product
+   decision of 2026-10-03: Leaflet's own +/- stack is not the FIRST control
+   under the floating chrome any more — it is the LAST one. The right-hand
+   ladder now reads top to bottom as
+
+     floating header / search / filter chrome  ...ends ~190px
+     Re-center arrow (React overlay)           190px .. 234px
+     "Lokasi Saya" (React overlay)             240px .. ~281px
+     Leaflet's +/- zoom stack                  290px .. ~350px
+
+   so the zoom buttons sit BELOW "Lokasi Saya" as required, and the whole
+   stack still clears the coverage box / scale at the bottom of the map at
+   every supported width. Only the OFFSET moves — position "topright", both
+   buttons, and every handler stay exactly as they were (locked by
+   tests/map-current-location.test.ts and tests/home-map-gesture.test.ts).
+   These four numbers are ONE ladder shared with the two React buttons in
+   components/home-map.tsx and must be changed together.
 
    SCOPED to .singgah-home-map (the Home map container) on purpose: the
    Producer Place location picker is a second Leaflet map with its own
    default zoom control, and this Home-only offset must never move it. */
 .singgah-home-map .leaflet-top.leaflet-right {
-  top: 158px;
+  top: 290px;
 }
 
 /* MOCKUP §6: Current Location reads as the BLUE user marker with a soft

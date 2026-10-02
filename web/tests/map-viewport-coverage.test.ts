@@ -192,9 +192,13 @@ test("5. Tempat Pilihan comes only from canonical is_curated and follows the vie
   assert.doesNotMatch(curatedRow, /distanceFilter|CURATED_CAMERA_RADIUS_M|curatedCoveragePlaces/);
   // The curated MAP's extra ordinary source is the non-curated remainder
   // inside the real viewport — never a fixed radius any more.
-  const coverage = pageCode.slice(pageCode.indexOf("const curatedCoveragePlaces"), pageCode.indexOf("const mapPlaces"));
+  // RE-ORDERED (product decision, 2026-10-03): the non-curated remainder is
+  // now named ONCE in `curatedCoverageSource` (the un-narrowed candidate set)
+  // and the marker set narrows that — so the coverage rule is provably still
+  // the non-curated remainder, never Discovery and never a radius.
+  const coverage = pageCode.slice(pageCode.indexOf("const curatedCoverageSource"), pageCode.indexOf("const mapPlaces"));
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
-  assert.match(coverage, /return narrowToViewport\(nonCurated, coverageViewport\);/);
+  assert.match(coverage, /return narrowToViewport\(curatedCoverageSource, coverageViewport\);/);
   assert.doesNotMatch(coverage, /distanceMeters|viewerPosition/);
 });
 

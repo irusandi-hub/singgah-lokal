@@ -148,7 +148,12 @@ test("a resolved search center becomes the coverage viewport for markers and bot
   // panning — the map moved and the list refused to follow. A new search
   // answer releases the latch, so the box returns for that gap only.
   assert.match(discoveryCode, /const coverageViewport = mapViewport \?\? searchViewport;/);
-  assert.match(discoveryCode, /const searchViewport = searchCenter/);
+  // MEMOIZED (product decision, 2026-10-03): the region box is now derived
+  // through useMemo so the search camera's own bounds dataset keeps a stable
+  // identity — an unstable box would re-derive that dataset on every render.
+  // The value and the ±0.05° size are unchanged.
+  assert.match(discoveryCode, /const searchViewport = useMemo\(/);
+  assert.match(discoveryCode, /searchCenter\n\s*\?\s*\{\n\s*north: searchCenter\.lat \+ 0\.05,/);
   // A null center (no answer) leaves the map viewport in charge.
   assert.match(discoveryCode, /: null;/);
   // The latch that keeps the two from disagreeing across the handoff.
@@ -216,7 +221,7 @@ test("searching never re-sorts or re-sources the Discovery row", () => {
 test("the curated layer still reads ONLY canonical is_curated (search adds no membership)", () => {
   const curatedRow = discoveryCode.slice(
     discoveryCode.indexOf("const curatedListed"),
-    discoveryCode.indexOf("const curatedCoveragePlaces"),
+    discoveryCode.indexOf("const curatedCoverageSource"),
   );
   assert.match(curatedRow, /curatedIdSet\.has\(place\.id\)/);
   // A search can only REMOVE a Place from the curated row, never add one.
@@ -227,21 +232,31 @@ test("the curated layer still reads ONLY canonical is_curated (search adds no me
 // 5. Camera behavior and honest UI state.
 // ---------------------------------------------------------------------------
 
-test("the map recenters once per new server answer, instantly and without a new marker", () => {
+test("the map frames the searched region's Place spread once per new server answer", () => {
   assert.match(homeMap, /searchCenter\?: \{ lat: number; lng: number \} \| null;/);
   assert.match(homeMap, /searchNonce\?: number;/);
   const effect = mapCode.slice(
     mapCode.indexOf("if (!ready || !map || !searchCenter || !searchNonce) return;"),
-    mapCode.indexOf("if (!ready || !map || !searchCenter || !searchNonce) return;") + 400,
+    mapCode.indexOf("if (!ready || !map || !searchCenter || !searchNonce) return;") + 700,
   );
-  // Keyed on the nonce (one recenter per answer), never per keystroke.
-  assert.match(effect, /map\.setView\(\[searchCenter\.lat, searchCenter\.lng\]/);
+  // Keyed on the nonce (one re-frame per answer), never per keystroke.
+  assert.match(effect, /fitCamera\(map, searchFitPlacesRef\.current\)/);
   // Instant, like every other camera apply — no fly-through.
   assert.match(effect, /animate: false/);
-  // No marker is invented for the search center, and no radius is consulted.
-  assert.doesNotMatch(effect, /circleMarker|L\.marker|fitBounds|radiusZoom/);
-  // A null center (query cleared) never moves the camera.
+  // No marker is invented for the search center and no radius preset is
+  // consulted. AUTO-FIT (product decision, 2026-10-03): the search now frames
+  // the SPREAD of the Places relevant to the searched region instead of only
+  // centering on the geocoder's city point — so `fitBounds` is now EXPECTED
+  // here, but only through the shared auto-fit mechanism and only over the
+  // canonical `searchFitPlaces` dataset (never the markers, never a radius).
+  assert.doesNotMatch(effect, /circleMarker|L\.marker|radiusZoom/);
+  assert.doesNotMatch(effect, /fitBounds/);
+  assert.match(mapCode, /const fitCamera = useCallback/);
+  assert.match(mapCode, /map\.fitBounds\(L\.latLngBounds\(corners\)/);
+  // A null center (query cleared) never moves the camera, and the geocoding
+  // center is KEPT whenever the region holds no Place with coordinates.
   assert.match(effect, /!searchCenter/);
+  assert.match(effect, /if \(cancelled \|\| applied\) return;/);
 });
 
 test("the search status line reports server state without becoming a second search path", () => {

@@ -447,13 +447,16 @@ test("P0: the curated MAP shows curated + ordinary Places in coverage, the curat
   );
   // ...and the extra MAP-only source is explicitly the NON-curated remainder,
   // bounded by the 10 km coverage around the REAL fix.
-  const coverage = code.slice(code.indexOf("const curatedCoveragePlaces"), code.indexOf("const mapPlaces"));
+  // RE-ORDERED (product decision, 2026-10-03): the non-curated remainder is
+  // named ONCE as `curatedCoverageSource` (the un-narrowed candidate set) and
+  // the marker coverage narrows that, so the slice starts there.
+  const coverage = code.slice(code.indexOf("const curatedCoverageSource"), code.indexOf("const mapPlaces"));
   assert.match(coverage, /if \(!curatedOnly\) return \[\];/);
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
   // SUPERSEDED (product decision, 2026-10-01): the 10 km coverage radius and
   // the `!viewerPosition` fallback are retired — the extra map source is now
   // the ordinary remainder INSIDE THE REAL VISIBLE VIEWPORT.
-  assert.match(coverage, /return narrowToViewport\(nonCurated, coverageViewport\);/);
+  assert.match(coverage, /return narrowToViewport\(curatedCoverageSource, coverageViewport\);/);
   assert.doesNotMatch(coverage, /distanceMeters\(|viewerPosition|CURATED_MAP_COVERAGE_RADIUS_M/);
   // The map dataset is curated + coverage places, deduplicated, coordinates
   // fail-closed, and each Place carries its OWN curated flag for the marker.

@@ -101,12 +101,22 @@ test("Marker refresh and filter changes never steal the viewport from the user",
   const mapCode = stripComments(homeMap);
   // A real user pan/zoom latches the camera against automatic moves...
   assert.match(mapCode, /userInteractedRef\.current = true/);
-  // ...marker fitBounds NO LONGER EXISTS anywhere: the viewport is owned by
-  // the real Current Location + the bounded radius preset only. Marker
-  // refreshes and filter-driven marker rebuilds never move the camera
-  // (map-coverage fix, 2026-09-30 — the old one-shot marker overview zoomed
-  // to a world view whenever the demo marker set was spread out).
-  assert.equal(mapCode.includes("fitBounds"), false, "no marker fitBounds at all");
+  // ...the camera is NEVER fitted to the markers. SUPERSEDED (product decision,
+  // 2026-10-03): the 2026-09-30 rule "no fitBounds anywhere at all" is replaced
+  // by a STRICTLY NARROWER one — a fit now exists, but it reads a SEPARATE
+  // bounds dataset that is NOT the marker set (`fitPlaces` / `searchFitPlaces`),
+  // it fires ONLY on an explicit refocus trigger (a nonce), and it is never
+  // reachable from a marker refresh or a filter-driven marker rebuild. The old
+  // one-shot MARKER overview (which zoomed to a world view on a spread marker
+  // set) still does not exist in any form.
+  const fitBoundsCalls = mapCode.match(/map\.fitBounds\(/g) ?? [];
+  assert.equal(fitBoundsCalls.length, 1, "one fit, and it is inside the shared auto-fit mechanism");
+  // The fit's dataset is read from a REF, never from the narrowed `places`
+  // prop — that is what keeps viewport/marker/camera from becoming circular.
+  assert.match(mapCode, /const points = collectGeoPoints\(candidatePlaces\)/);
+  assert.doesNotMatch(mapCode, /fitBounds\(L\.latLngBounds\(corners\)[\s\S]{0,200}collectGeoPoints\(places\)/);
+  assert.match(mapCode, /fitPlacesRef = useRef<HomeMapPlace\[\]>\(fitPlaces\)/);
+  assert.match(mapCode, /searchFitPlacesRef = useRef<HomeMapPlace\[\]>\(searchFitPlaces\)/);
   // ...and programmatic flights are excluded from the latch.
   assert.match(mapCode, /programmaticMoveRef\.current = true/);
 });
@@ -270,7 +280,7 @@ test("Lokasi Saya centers the real fix on the CURRENT zoom — it never widens t
   // camera — the 1/5/10 km tabs AND the 10 km curated preset are untouched.
   const anchorEffect = mapCode.slice(
     mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
-    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);"),
   );
   assert.match(anchorEffect, /radiusZoom\(map, anchor, cameraRadiusMeters\)/);
   assert.match(anchorEffect, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
@@ -307,7 +317,7 @@ test("Lokasi Saya camera transition is SHORT and smooth, and respects reduced mo
   // instant preset apply.
   const anchorEffect = mapCode.slice(
     mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
-    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, focusUser, radiusZoom, pulsePinOnPresetChange, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);"),
   );
   assert.doesNotMatch(anchorEffect, /flyTo|duration/);
   assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1, "exactly one animated move — the locate recenter");
@@ -414,7 +424,7 @@ test("No-preset fallback keeps the one-shot unbounded focus; it is not a distanc
   assert.match(mapCode, /if \(!autoFocusedRef\.current\) \{\n\s*autoFocusedRef\.current = true;\n\s*focusUser\(map, anchor\);\n\s*\}/);
 });
 
-test("Camera is ALWAYS bounded: no filter/tab ever fits the whole marker set (map coverage)", () => {
+test("Camera is ALWAYS bounded to CANONICAL Place coordinates: no marker-set camera, no invented world view", () => {
   const mapCode = stripComments(homeMap);
   const pageCode = stripComments(homePage);
   // Every camera move centers the REAL Current Location... TWO preset
@@ -427,7 +437,10 @@ test("Camera is ALWAYS bounded: no filter/tab ever fits the whole marker set (ma
   // ...whose zoom is derived from the preset radius box (bounded), and no
   // world/country fallback view is invented for the no-fix case.
   assert.match(mapCode, /map\.fitWorld\(\)/);
+  // Home itself never calls Leaflet's fitBounds — the camera mechanism lives
+  // entirely in the map component, which frames a CANONICAL Place spread.
   assert.equal(pageCode.includes("fitBounds"), false);
+  assert.equal(pageCode.includes("collectGeoPoints"), false, "Home hands over canonical Places, never bounds");
   // A chosen tab still refocuses to its own preset radius: the anchor effect
   // re-derives zoom from cameraRadiusMeters on EVERY radius change.
   assert.match(mapCode, /const radiusChanged = lastRadiusRef\.current !== cameraRadiusMeters/);
@@ -550,8 +563,10 @@ test("Curated MEMBERSHIP never comes from the camera radius or the coverage rule
   // dataset input; the membership rule above stays untouched).
   assert.equal(cameraUses.length, 3, "import + camera prop + truthful display label only");
   // The coverage rule may only ADD ordinary Places to the curated MAP, and
-  // only as the non-curated remainder.
-  assert.match(pageCode, /const curatedCoveragePlaces = useMemo\(\(\) => \{[\s\S]*searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
+  // only as the non-curated remainder. RE-ORDERED (product decision,
+  // 2026-10-03): that remainder is named ONCE as `curatedCoverageSource` and
+  // the curated marker coverage narrows it — same rule, one named step.
+  assert.match(pageCode, /const curatedCoverageSource = useMemo\([\s\S]*searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
   assert.doesNotMatch(pageCode, /matchesDistance\([^)]*CURATED/);
   // Discovery is never used as the extra map source either.
   assert.doesNotMatch(pageCode, /discovery\?\.discovery[^\n]*curatedCoveragePlaces|curatedCoveragePlaces[^\n]*discovery\?\.discovery/);
@@ -650,8 +665,13 @@ test("Preset camera moves stay INSTANT; only the locate recenter animates (and b
   assert.equal(pageCode.includes("flyTo"), false, "no flyTo in Home discovery");
   assert.equal(pageCode.includes("duration"), false, "no duration in Home discovery");
   assert.equal(pageCode.includes("easeLinearity"), false, "no easing in Home discovery");
-  // No fitBounds and no fallback camera anywhere in either file.
-  assert.equal(mapCode.includes("fitBounds"), false);
+  // No animated fit and no fallback camera anywhere in either file.
+  // SUPERSEDED (product decision, 2026-10-03): an INSTANT `fitBounds` now
+  // exists for the curated tab and a location search — the auto-fit camera.
+  // It is deliberately `animate: false`, so the "instant camera" rule above
+  // still holds in full: the only animated move is the locate recenter.
+  const animatedFits = mapCode.match(/fitBounds\([\s\S]{0,240}?animate: true/g) ?? [];
+  assert.equal(animatedFits.length, 0, "the auto-fit is never animated");
   assert.equal(pageCode.includes("fitBounds"), false);
 });
 

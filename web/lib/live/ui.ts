@@ -127,6 +127,14 @@ export const DISTANCE_FILTER_RADIUS_M: Record<DistanceFilter, number | null> = {
  * as the "10 km+" tab around the real Current Location — the old 50 km frame
  * is retired. This is a CAMERA value ONLY: it never decides curated
  * membership and never filters the Place list.
+ *
+ * SUPERSEDED as the "Tempat Pilihan" camera FRAME (product decision,
+ * 2026-10-03): choosing the curated tab now fits the camera to the SPREAD of
+ * the relevant Places' canonical coordinates, so an outlying Place can never
+ * be missed just because it sat outside a fixed 10 km frame. The value stays
+ * as the curated DISPLAY radius (the coverage caption + scale that mirror the
+ * active mode) and as the radius prop Home hands the map; it is no longer the
+ * curated camera's frame. See AUTO-FIT CAMERA COVERAGE below.
  */
 export const CURATED_CAMERA_RADIUS_M = 10_000;
 
@@ -220,6 +228,134 @@ export const CAMERA_PRESET_RADIUS_M: Record<DistanceFilter, number> = {
   "5 km": 5_000,
   "10 km+": 10_000,
 };
+
+// ---------------------------------------------------------------------------
+// AUTO-FIT CAMERA COVERAGE (product decision, 2026-10-03)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE CAMERA FITS THE PLACE SPREAD — superseding the fixed curated 10 km frame.
+ *
+ * Root cause this replaces: "Tempat Pilihan" and a city search both framed the
+ * camera from a RADIUS around one point (the 10 km `CURATED_CAMERA_RADIUS_M`
+ * preset, or the geocoder's city center), so Places on the edge of the region
+ * were never on screen — the list was narrowed by the viewport and the
+ * outlying Places were simply missing until the user zoomed out by hand.
+ *
+ * The camera now derives its coverage from the SPREAD of the relevant Places'
+ * canonical coordinates. Every value below stays a pure function over canonical
+ * data so the rule is unit-testable in plain Node, exactly like the viewport
+ * rules above:
+ * - `collectGeoPoints` keeps only finite canonical coordinates — a Place
+ *   without real coordinates can never pull the camera (fail-closed, no
+ *   invented position, AGENTS.md);
+ * - `boundsOfPoints` returns `null` for ZERO Points, so an empty dataset can
+ *   never be turned into a coordinate;
+ * - `resolveCameraFitPadding` reserves the floating chrome (header, search
+ *   bar, filter row) and the map controls (re-center, "Lokasi Saya", +/−,
+ *   coverage box, scale) so a fitted frame is never hidden underneath them.
+ *
+ * The padding is expressed as a SHARE of the real container size as well as an
+ * absolute cap: on a short mobile map the reserved chrome must never eat the
+ * whole viewport, which is what makes the same numbers safe at 360 px and at
+ * 1280 px without a second, hard-coded mobile table.
+ */
+
+/** A canonical Place coordinate — only ever a real, finite lat/lng pair. */
+export type GeoPoint = { lat: number; lng: number };
+
+/** Canonical Place coordinates for the camera, fail-closed on non-finite values. */
+export function collectGeoPoints<T extends { latitude: number | null; longitude: number | null }>(
+  places: readonly T[],
+): GeoPoint[] {
+  const points: GeoPoint[] = [];
+  for (const place of places) {
+    if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
+    points.push({ lat: place.latitude as number, lng: place.longitude as number });
+  }
+  return points;
+}
+
+/**
+ * The bounding box of a point set, or `null` when there is NO point.
+ *
+ * `null` is the whole point: "no Place has valid coordinates" must leave the
+ * camera exactly where it is (or on the search center), never zoom to a
+ * fabricated or default box. One Point yields a degenerate (single-coordinate)
+ * box, which the camera handles as a plain focus rather than a fit.
+ */
+export function boundsOfPoints(points: readonly GeoPoint[]): MapViewport | null {
+  if (points.length === 0) return null;
+  let north = -90;
+  let south = 90;
+  let east = -180;
+  let west = 180;
+  for (const point of points) {
+    if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) continue;
+    if (point.lat > north) north = point.lat;
+    if (point.lat < south) south = point.lat;
+    if (point.lng > east) east = point.lng;
+    if (point.lng < west) west = point.lng;
+  }
+  // Every input was non-finite: treated exactly like an empty set.
+  if (north < south || east < west) return null;
+  return { north, south, east, west };
+}
+
+/**
+ * Reserved camera padding in CSS pixels, matching the Home layout ladder:
+ * header + search bar + filter row at the top, the right-hand control column
+ * (re-center, "Lokasi Saya", and the +/− stack below it) on the right, and
+ * the coverage box + scale at the bottom. Left is only the natural map inset.
+ */
+export const CAMERA_FIT_PADDING = {
+  top: 190,
+  right: 76,
+  bottom: 84,
+  left: 24,
+} as const;
+
+/**
+ * Clamp the reserved padding to the REAL container size.
+ *
+ * An absolute padding is only safe while the map is big enough to hold it:
+ * a 42 vh map on a short phone must not reserve more chrome than it has
+ * pixels, or the fitted frame would collapse. Every side is therefore capped
+ * at a share of the measured size, and the two vertical reserves together can
+ * never exceed 70% of the height.
+ */
+export function resolveCameraFitPadding(size: { x: number; y: number }): {
+  paddingTopLeft: [number, number];
+  paddingBottomRight: [number, number];
+} {
+  const width = Number.isFinite(size.x) && size.x > 0 ? size.x : 0;
+  const height = Number.isFinite(size.y) && size.y > 0 ? size.y : 0;
+  // An unmeasured container reserves nothing — Leaflet's own fit then has the
+  // full box, and the real size arrives with the next resize report.
+  if (width === 0 || height === 0) {
+    return { paddingTopLeft: [0, 0], paddingBottomRight: [0, 0] };
+  }
+  let top = Math.min(CAMERA_FIT_PADDING.top, Math.floor(height * 0.45));
+  let bottom = Math.min(CAMERA_FIT_PADDING.bottom, Math.floor(height * 0.3));
+  if (top + bottom > height * 0.7) {
+    const scale = (height * 0.7) / (top + bottom);
+    top = Math.floor(top * scale);
+    bottom = Math.floor(bottom * scale);
+  }
+  return {
+    paddingTopLeft: [Math.min(CAMERA_FIT_PADDING.left, Math.floor(width * 0.1)), top],
+    paddingBottomRight: [Math.min(CAMERA_FIT_PADDING.right, Math.floor(width * 0.25)), bottom],
+  };
+}
+
+/**
+ * FOCUS ZOOM FOR A SINGLE PLACE (product decision, 2026-10-03).
+ *
+ * One Place has no spread to fit, and `fitBounds` on a degenerate box would
+ * jump to the map's maximum zoom. It is therefore focused directly on the
+ * canonical coordinate at the same close floor "Lokasi Saya" uses.
+ */
+export const FIT_SINGLE_PLACE_ZOOM = 15;
 
 export function distanceMeters(
   from: { lat: number; lng: number },
