@@ -1,0 +1,17 @@
+name = "web"
+version = "0.1.0"
+languageName = "node"
+requirements = "4.23.13"
+legacyJSON = false
+
+[[target]]
+name = "node"
+version = "20.19.4"
+
+[bootstrap]
+engine = "bun"
+version = "1.2.20"
+
+[[workspace]]
+type = "local"
+directory = "."

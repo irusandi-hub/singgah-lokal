@@ -91,6 +91,18 @@ type HomeMapProps = {
    */
   cameraRadiusMeters?: number | null;
   /**
+   * LOCATION SEARCH center (PO 2026-10-02): the canonical coordinate pair
+   * returned by the server-only geocoder. When it changes, the camera moves
+   * there INSTANTLY (animate: false — same rule as the preset mechanism, no
+   * fly-through) at a zoom that frames the search window. It carries geometry
+   * only: it never adds a marker, never touches the Current Location pin or
+   * its pulse, never reads or writes the distance tabs, and never changes
+   * the dataset. null = no search answer yet, so the camera is untouched.
+   */
+  searchCenter?: { lat: number; lng: number } | null;
+  /** Bumped by the caller once a NEW search answer arrived (never per keystroke). */
+  searchNonce?: number;
+  /**
    * Short one-shot focus pulse on the EXISTING Current Location pin when a
    * preset applies: the camera itself moves instantly with NO animation, so
    * entering "Tempat Pilihan" is made visually obvious by this short pin
@@ -165,6 +177,14 @@ const LOCATE_TRANSITION_MS = 350;
  * floor as the zoom-preserving fallback focus (focusUser) below.
  */
 const LOCATE_MIN_ZOOM = 15;
+/**
+ * LOCATION SEARCH focus floor (PO 2026-10-02): a search recenter follows the
+ * SAME never-zoom-out rule as "Lokasi Saya" — it keeps the viewer's current
+ * close zoom and only ever raises a farther one, so a city-level result is
+ * centered without forcing an unexpectedly wide frame. There is no pulse and
+ * no transition: the geocoder already told us exactly where to look.
+ */
+const SEARCH_MIN_ZOOM = 13;
 
 /**
  * Honor the OS reduced-motion setting for the locate transition. Guarded so
@@ -192,6 +212,8 @@ export default function HomeMap({
   locateNonce,
   onRequestLocate,
   cameraRadiusMeters = null,
+  searchCenter = null,
+  searchNonce = 0,
   pulsePinOnPresetChange = false,
   onViewportHasPlaces,
   onViewportChange,
@@ -779,6 +801,24 @@ export default function HomeMap({
       cancelled = true;
     };
   }, [locateNonce, ready, viewerPosition, triggerLocatePulse]);
+
+  // LOCATION SEARCH recenter (PO 2026-10-02): the moment a NEW server geocode
+  // answer arrives, the camera jumps to that canonical center INSTANTLY and
+  // holds the current zoom (never zooms out, never animates a fly-through).
+  // It is deliberately keyed on `searchNonce`, not on the coordinates, so a
+  // repeated search for the SAME place still recenters once. Clearing the
+  // query (searchCenter → null) never moves the camera — the map simply keeps
+  // the user's last view. No marker is added, the Current Location pin and its
+  // pulse are untouched, and no radius/filter state is read or written here.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !searchCenter || !searchNonce) return;
+    programmaticMoveRef.current = true;
+    userInteractedRef.current = false;
+    map.setView([searchCenter.lat, searchCenter.lng], Math.max(map.getZoom(), SEARCH_MIN_ZOOM), {
+      animate: false,
+    });
+  }, [ready, searchNonce, searchCenter]);
 
   // Rebuild markers whenever the filtered marker set changes. Camera note:
   // the viewport is NEVER driven by the marker set — no marker fitBounds

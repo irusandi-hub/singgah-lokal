@@ -59,7 +59,7 @@ test("E2E: distance tabs are CAMERA presets — markers and rows follow the REAL
   // geographic coverage source for BOTH rows and the markers.
   assert.equal(homeSource.includes("matchesDistance"), false, "no radius gate may remain in Home");
   const listGate = homeSource.slice(homeSource.indexOf("const listedPlaces"), homeSource.indexOf("const liveCards"));
-  assert.match(listGate, /narrowToViewport\(visiblePlaces, mapViewport\)/);
+  assert.match(listGate, /narrowToViewport\(visiblePlaces, coverageViewport\)/);
   // LIVE is a process/status filter on the content pipeline.
   assert.match(homeSource, /liveByPlaceId\.has\(place\.id\)/);
   // Map markers derive from the content-filtered set (canonical coords only)

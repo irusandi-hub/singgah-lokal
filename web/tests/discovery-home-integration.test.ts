@@ -313,7 +313,7 @@ test("P0: the Discovery row can never widen the canonical id set", () => {
   const filtering = row.split("return").slice(1).join("return");
   assert.match(
     filtering,
-    /narrowToViewport\(canonical, mapViewport\)/,
+    /narrowToViewport\(canonical, coverageViewport\)/,
     "only filter steps, no re-mapping from a wider source",
   );
   assert.doesNotMatch(row, /listedPlaces/);
@@ -355,7 +355,7 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
   // Discovery Place count.
   assert.match(
     code,
-    /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), mapViewport\)/,
+    /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/,
   );
   // The header count stays per-layer (PO fix, 2026-09-30) — copy now follows
   // MOCKUP 2026-10-01 §11 ("… tempat pilihan di sekitar Anda"), same numbers.
@@ -441,7 +441,7 @@ test("P0: the curated MAP shows curated + ordinary Places in coverage, the curat
   // ...the curated LIST reads that membership and nothing else...
   assert.match(
     code,
-    /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), mapViewport\)/,
+    /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/,
   );
   // ...and the extra MAP-only source is explicitly the NON-curated remainder,
   // bounded by the 10 km coverage around the REAL fix.
@@ -451,7 +451,7 @@ test("P0: the curated MAP shows curated + ordinary Places in coverage, the curat
   // SUPERSEDED (product decision, 2026-10-01): the 10 km coverage radius and
   // the `!viewerPosition` fallback are retired — the extra map source is now
   // the ordinary remainder INSIDE THE REAL VISIBLE VIEWPORT.
-  assert.match(coverage, /return narrowToViewport\(nonCurated, mapViewport\);/);
+  assert.match(coverage, /return narrowToViewport\(nonCurated, coverageViewport\);/);
   assert.doesNotMatch(coverage, /distanceMeters\(|viewerPosition|CURATED_MAP_COVERAGE_RADIUS_M/);
   // The map dataset is curated + coverage places, deduplicated, coordinates
   // fail-closed, and each Place carries its OWN curated flag for the marker.

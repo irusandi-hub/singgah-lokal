@@ -65,6 +65,17 @@ export default function HomeDiscovery({
   const [curatedOnly, setCuratedOnly] = useState(false);
   const [liveOnly, setLiveOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // LOCATION SEARCH state: the typed text (searchQuery above), the pending
+  // flag, the server-parsed center, and a nonce that bumps once the server
+  // answered. The search center is the ONLY camera anchor the search flow
+  // changes — the radius tabs stay camera-only presets, and a radius tab
+  // never cancels an in-flight search. No fallback coordinate is ever
+  // invented: without a server answer searchCenter stays null and the map
+  // keeps the REAL Leaflet viewport as its coverage source.
+  const [searchPending, setSearchPending] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number } | null>(null);
+  const [searchNonce, setSearchNonce] = useState(0);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
   // Viewer position — Current Location. Geolocation is the primary map
   // anchor: when available the Home Map centers on it and shows the user
@@ -199,6 +210,118 @@ export default function HomeDiscovery({
     requestViewerPosition();
   }, [requestViewerPosition]);
 
+  // LOCATION SEARCH — debounce is intentional: a server geocode must not run
+  // on every keystroke, and the camera must not move while the user is still
+  // typing. The window is short and time-based (250 ms), never length-based.
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A response only wins while it is still for the CURRENT query, so a slow
+  // earlier request can never overwrite a newer center (last-write-wins by
+  // the query the user actually typed, not by arrival order).
+  const activeSearchRef = useRef<string>("");
+
+  const runSearch = useCallback(async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      setSearchQuery("");
+      setSearchPending(false);
+      setSearchError(null);
+      setSearchCenter(null);
+      activeSearchRef.current = "";
+      return;
+    }
+
+    activeSearchRef.current = trimmed;
+    setSearchQuery(trimmed);
+    setSearchPending(true);
+    setSearchError(null);
+    setSearchCenter(null);
+
+    try {
+      // The provider endpoint is server-only; the browser calls our own
+      // route, which validates the query and returns one canonical center.
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(trimmed)}`, {
+        headers: { Accept: "application/json" },
+      });
+      if (activeSearchRef.current !== trimmed) return;
+      if (response.status === 404) {
+        setSearchPending(false);
+        setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
+        setSearchCenter(null);
+        return;
+      }
+      if (!response.ok) {
+        setSearchPending(false);
+        setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
+        setSearchCenter(null);
+        return;
+      }
+      const result = (await response.json()) as { latitude?: number; longitude?: number };
+      if (activeSearchRef.current !== trimmed) return;
+      const latitude = Number(result.latitude);
+      const longitude = Number(result.longitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        setSearchPending(false);
+        setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
+        setSearchCenter(null);
+        return;
+      }
+      setSearchPending(false);
+      setSearchCenter({ lat: latitude, lng: longitude });
+    } catch {
+      if (activeSearchRef.current !== trimmed) return;
+      setSearchPending(false);
+      setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
+      setSearchCenter(null);
+    } finally {
+      // The nonce is bumped only AFTER the server answered, so the newest
+      // successful request always wins — a slow earlier response can never
+      // overwrite a later center.
+      setSearchNonce((nonce) => nonce + 1);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    // An empty query is cleared in the input handler (handleSearchChange),
+    // NOT here: synchronizing state from an effect body would cascade renders.
+    if (!searchQuery.trim()) return;
+    debounceTimerRef.current = setTimeout(() => {
+      runSearch(searchQuery);
+    }, 250);
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [searchQuery, runSearch]);
+
+  // Release the debounce handle on unmount so a pending timer never fires
+  // after the component has left the page.
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Clearing the input is the ONE place the search state resets (no effect):
+  // an empty query immediately drops the pending flag, the error, and the
+  // center, so the map and every row fall back to the REAL Leaflet viewport.
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchQuery(value);
+    if (value.trim()) return;
+    activeSearchRef.current = "";
+    setSearchPending(false);
+    setSearchError(null);
+    setSearchCenter(null);
+  }, []);
+
   // "Lokasi Saya" press (locate-refresh regression fix, 2026-09-30): the
   // recenter must NOT depend on the fresh request succeeding. The press
   // bumps the locate nonce IMMEDIATELY — with a valid fix the map recentres
@@ -276,6 +399,25 @@ export default function HomeDiscovery({
     return result;
   }, [searchFiltered, liveOnly, curatedOnly, curatedIdSet, liveByPlaceId]);
 
+  // LOCATION SEARCH VIEWPORT (PO 2026-10-02): when the server geocoder
+  // answered, that canonical coordinate pair becomes the coverage source
+  // instead of the last reported Leaflet bounds, so the map and every row
+  // narrow to the newly centered area. The box is a small ±0.05° window
+  // (~5.5 km) purely to keep the filter deterministic until Leaflet reports
+  // its own bounds for the recentered camera; `narrowToViewport` accepts it
+  // because it is the same MapViewport shape. It never changes eligibility,
+  // membership, or ordering, and it is null (→ the REAL mapViewport) whenever
+  // the server returned nothing.
+  const searchViewport = searchCenter
+    ? {
+        north: searchCenter.lat + 0.05,
+        south: searchCenter.lat - 0.05,
+        east: searchCenter.lng + 0.05,
+        west: searchCenter.lng - 0.05,
+      }
+    : null;
+  const coverageViewport = searchCenter ? searchViewport : mapViewport;
+
   // PLACE RESULTS narrowed by the REAL VISIBLE VIEWPORT (product decision,
   // 2026-10-01). The 1 km / 5 km / 10 km+ tabs are CAMERA frames only and can
   // no longer decide which Places are listed: panning or zooming the map is
@@ -284,8 +426,8 @@ export default function HomeDiscovery({
   // coordinates is dropped (it can never be inside a viewport, so listing it
   // would contradict the marker set). Nothing here re-orders or adds a Place.
   const listedPlaces = useMemo(
-    () => narrowToViewport(visiblePlaces, mapViewport),
-    [visiblePlaces, mapViewport],
+    () => narrowToViewport(visiblePlaces, coverageViewport),
+    [visiblePlaces, coverageViewport],
   );
 
   const liveCards = useMemo(() => {
@@ -310,8 +452,8 @@ export default function HomeDiscovery({
       const place = placeById.get(entry.placeId);
       return place && searchFilteredIds.has(place.id) ? [place] : [];
     });
-    return narrowToViewport(canonical, mapViewport);
-  }, [discovery, placeById, searchFilteredIds, mapViewport]);
+    return narrowToViewport(canonical, coverageViewport);
+  }, [discovery, placeById, searchFilteredIds, coverageViewport]);
 
   // TEMPAT PILIHAN ROW (Baris 1): published + canonical is_curated only,
   // through the same search gate and the SAME real-viewport narrowing as the
@@ -320,8 +462,8 @@ export default function HomeDiscovery({
   // and Baris 2 stands alone. There is never a fallback to all published
   // Places: an empty curated set is a real empty state.
   const curatedListed = useMemo(
-    () => narrowToViewport(visiblePlaces.filter((place) => curatedIdSet.has(place.id)), mapViewport),
-    [visiblePlaces, curatedIdSet, mapViewport],
+    () => narrowToViewport(visiblePlaces.filter((place) => curatedIdSet.has(place.id)), coverageViewport),
+    [visiblePlaces, curatedIdSet, coverageViewport],
   );
 
   // MAP DATASET — normal modes (PO, 2026-09-29): every content-filtered Place
@@ -347,8 +489,8 @@ export default function HomeDiscovery({
   const curatedCoveragePlaces = useMemo(() => {
     if (!curatedOnly) return [];
     const nonCurated = searchFiltered.filter((place) => !curatedIdSet.has(place.id));
-    return narrowToViewport(nonCurated, mapViewport);
-  }, [curatedOnly, searchFiltered, curatedIdSet, mapViewport]);
+    return narrowToViewport(nonCurated, coverageViewport);
+  }, [curatedOnly, searchFiltered, curatedIdSet, coverageViewport]);
 
   const mapPlaces = useMemo<HomeMapPlace[]>(() => {
     // Curated Places first (they are the point of the layer), then the
@@ -381,8 +523,8 @@ export default function HomeDiscovery({
   // changes only which markers exist — it never moves the camera, never
   // changes eligibility, and never re-orders or invents a Place.
   const visibleMapPlaces = useMemo(
-    () => narrowToViewport(mapPlaces, mapViewport),
-    [mapPlaces, mapViewport],
+    () => narrowToViewport(mapPlaces, coverageViewport),
+    [mapPlaces, coverageViewport],
   );
 
   // Viewport-aware empty state (PO, 2026-09-30): the two situations stay
@@ -671,6 +813,13 @@ export default function HomeDiscovery({
             cameraRadiusMeters={
               curatedOnly ? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M[distanceFilter]
             }
+            /* LOCATION SEARCH recenter (PO 2026-10-02): the server-parsed
+               canonical center moves the camera once per NEW answer. The
+               radius preset above is untouched — the search recenters within
+               whatever frame the active preset already owns, so the tab the
+               user picked is never silently rewritten. */
+            searchCenter={searchCenter}
+            searchNonce={searchNonce}
             /* Instant-camera rule (PO, 2026-09-30): the camera itself applies
                with no animation at all, so entering "Tempat Pilihan" is made
                visually obvious by a SHORT one-shot focus pulse on the
@@ -711,7 +860,7 @@ export default function HomeDiscovery({
                 className="w-full bg-transparent text-sm outline-none placeholder:text-black/40"
                 placeholder="Cari tempat, cerita, produksi..."
                 value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
+                onChange={(event) => handleSearchChange(event.target.value)}
                 aria-label="Cari tempat, cerita, produksi"
               />
               {/* Sliders/control icon (MOCKUP §2) — replaces the previous gear
@@ -725,6 +874,47 @@ export default function HomeDiscovery({
                 </svg>
               </span>
             </div>
+            {/* LOCATION SEARCH status (PO 2026-10-02): ONE source of truth for
+                the geocoder flow — searching, resolved center, or failure.
+                It only REPORTS server state; it never runs a second search,
+                never edits the input, and never decides which Places are
+                listed. aria-live="polite" so the outcome is announced without
+                interrupting typing. Rendered only for a non-empty query, so
+                the empty input stays clean. The coordinate readout is the
+                server's canonical answer, formatted — never a rounded or
+                invented value. */}
+            {searchQuery.trim() && (
+              <p
+                role="status"
+                aria-live="polite"
+                className={`mt-2 flex items-center gap-2 rounded-[16px] px-3 py-2 text-xs ${
+                  searchPending
+                    ? "bg-white/85 text-black/55"
+                    : searchError
+                      ? "bg-live/10 text-live"
+                      : "bg-white/85 text-brand-ink"
+                }`}
+              >
+                {searchPending ? (
+                  <>
+                    <span aria-hidden className="h-3.5 w-3.5 animate-pulse rounded-full bg-black/25" />
+                    <span>Mencari lokasi…</span>
+                  </>
+                ) : searchError ? (
+                  <>
+                    <span aria-hidden className="h-3.5 w-3.5 rounded-full bg-live/60" />
+                    <span>{searchError}</span>
+                  </>
+                ) : searchCenter ? (
+                  <>
+                    <span aria-hidden className="h-3.5 w-3.5 rounded-full bg-brand-primary" />
+                    <span>
+                      Area pencarian: {searchCenter.lat.toFixed(4)}, {searchCenter.lng.toFixed(4)}
+                    </span>
+                  </>
+                ) : null}
+              </p>
+            )}
           </div>
 
           {/* Home filter bar — ONE row (PO 2026-09-26; MOCKUP §3): LIVE
