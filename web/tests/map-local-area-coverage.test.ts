@@ -7,9 +7,15 @@ import {
   CURATED_CAMERA_RADIUS_M,
   LOCAL_AREA_SEPARATION_RATIO,
   MAP_SCALE_MAX_BAR_PX,
+  NO_ORIGIN_AREA_LABEL,
   boundsOfPoints,
   collectGeoPoints,
+  describeCoverageCaption,
+  describeNearOrigin,
   distanceMeters,
+  narrowToViewport,
+  resolveActiveCenter,
+  resolveCameraFitPadding,
   resolveLocalAreaCoverage,
   resolveMapScale,
   type MapViewport,
@@ -102,6 +108,8 @@ const WEST_JAVA_PLACES: Row[] = [
 const WORLD = [...WEST_JAVA_PLACES, ...RIYADH_PLACES];
 const RIYADH_CENTER = { lat: 24.7136, lng: 46.6753 };
 const BANDUNG = { lat: -6.9, lng: 107.61 };
+/** The widest possible "visible area" — used to prove the gates still drop. */
+const WORLD_VIEWPORT: MapViewport = { north: 85, south: -85, east: 180, west: -180 };
 
 function widestSpan(places: Row[]): number {
   const lats = places.map((place) => place.latitude);
@@ -322,9 +330,13 @@ test("AC 5: the frame an explicit request produced stays; nothing re-arms it", (
     mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
   );
   assert.match(locateEffect, /userInteractedRef\.current = true;/);
-  // The radius path stays guarded by the latch, so an automatic apply is
-  // blocked while the user's own frame is on screen.
-  assert.match(mapCode, /if \(userInteractedRef\.current && lastRadiusRef\.current === cameraRadiusMeters\) return;/);
+  // The radius path is guarded by the latch UNCONDITIONALLY (fix, 2026-10-03).
+  // It used to compare the radius too, so ANY change of the radius value
+  // re-armed the preset — leaving "Tempat Pilihan" through the LIVE toggle
+  // silently snapped the camera back to a distance frame. Every explicit tab
+  // choice bumps the request nonce above, so nothing legitimate is lost.
+  assert.match(mapCode, /if \(userInteractedRef\.current\) return;/);
+  assert.doesNotMatch(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false;/);
   // No timer, debounce, or interval was introduced anywhere in the camera.
   assert.doesNotMatch(mapCode, /setInterval|setTimeout\([^)]*fit/);
 });
@@ -493,7 +505,17 @@ test("AC 3: the frame is applied once and then left alone", () => {
     "the locate fit is keyed on the nonce alone, so it can never re-run on its own",
   );
   assert.match(locateEffect, /userInteractedRef\.current = true;/);
-  assert.match(mapCode, /if \(userInteractedRef\.current && lastRadiusRef\.current === cameraRadiusMeters\) return;/);
+  assert.match(mapCode, /if \(userInteractedRef\.current\) return;/);
+  // A radius preset that DID apply latches too (fix, 2026-10-03), so a later
+  // geolocation fix cannot silently re-derive the frame underneath a pan.
+  const presetBranch = mapCode.slice(
+    mapCode.indexOf("if (cameraRadiusMeters !== null) {"),
+    mapCode.indexOf("// No preset at all (cameraRadiusMeters === null)"),
+  );
+  assert.match(
+    presetBranch,
+    /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\);\s*userInteractedRef\.current = true;/,
+  );
   // Manual pan/zoom survives until an explicit request releases the latch.
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
@@ -537,9 +559,11 @@ test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the 
 // ---------------------------------------------------------------------------
 
 test("AC 8: the panel and the map window above it are more compact", () => {
-  // The map window shrank by one clamp band...
-  assert.match(pageCode, /h-\[36vh\] min-h-\[240px\] max-h-\[440px\] sm:h-\[38vh\]/);
-  assert.doesNotMatch(pageCode, /h-\[42vh\]|max-h-\[520px\]/);
+  // MOBILE MAP BUDGET (fix, 2026-10-03): the map window's FLOOR is now sized
+  // from the floating control ladder, because at 240px the section ended above
+  // the bottom of the zoom control and clipped it on an ordinary phone.
+  assert.match(pageCode, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
+  assert.doesNotMatch(pageCode, /min-h-\[240px\]|sm:h-\[38vh\]/);
   // ...and the panel's own padding went with it.
   assert.match(
     pageCode,
@@ -576,8 +600,8 @@ test("AC 9: the caption names a radius only while a radius preset owns the frame
   // The neutral wording: no distance, no radius, no invented state.
   assert.equal(AREA_COVERAGE_CAPTION, "Menampilkan tempat di area peta");
   assert.doesNotMatch(AREA_COVERAGE_CAPTION, /km|m\b|radius/);
-  assert.match(pageCode, /import \{\s*\n\s*AREA_COVERAGE_CAPTION,/);
-  assert.match(pageCode, /const coverageCaption = cameraCoverage === "radius" \? radiusCaption : AREA_COVERAGE_CAPTION;/);
+  assert.match(pageCode, /const coverageCaption = describeCoverageCaption\(\{/);
+  assert.match(pageCode, /hasCenter: hasActiveCenter,/);
   assert.match(pageCode, /text-brand-ink">\{coverageCaption\}<\/p>/);
   // Which rule owns the frame is set by the SAME handlers that move the camera —
   // never inferred afterwards, and never from the radius constant.
@@ -672,4 +696,238 @@ test("AC 10: membership, data, eligibility, and the distance tabs are untouched"
   assert.equal(/countryCode\s*:\s*"(ID|SA)"|regionName\s*:\s*"(Jawa Barat|Ash Sharqiyah)"/.test(pageCode), false);
   // No Place coordinate is invented, defaulted, or rounded anywhere.
   assert.equal(/Math\.random|Date\.now\(\)\s*%\s*90|toFixed\(\d\)\s*as number/.test(pageCode), false);
+});
+// ---------------------------------------------------------------------------
+// 10. NO-ORIGIN CAMERA SCOPE (fix, 2026-10-03)
+//
+// ROOT CAUSE THIS SECTION LOCKS SHUT: the camera has exactly ONE anchor — the
+// active center, i.e. the searched city or the REAL device fix. When neither
+// exists (geolocation denied/never granted and nothing searched),
+// `resolveActiveCenter` answers `center: null`, so the distance preset has no
+// anchor and the anchor effect returned before it could move anything. The map
+// therefore stayed on the neutral `fitWorld()` overview, the viewport then
+// admitted the WHOLE canonical dataset, and the coverage box still claimed
+// "… dari lokasi Anda" about a world-scale frame.
+//
+// The three properties held below:
+//   · no origin  -> NO radius claim anywhere (map caption AND results count),
+//     and no camera move is invented to satisfy the claim;
+//   · an origin  -> the radius preset is applied once, centred on the ACTIVE
+//     center (searched city first, else the device fix), and then LATCHED;
+//   · the camera is moved ONLY by an explicit request — a marker refresh, a
+//     discovery poll, a viewport report, a later geolocation fix, or a mode
+//     switch that silently changes the radius value may never move it.
+// ---------------------------------------------------------------------------
+
+const globalsCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+
+test("10.1 the caption names a radius ONLY with a real origin behind it", () => {
+  // The full truth table. "coverage" answers "does a distance preset really own
+  // the frame"; "hasCenter" answers "is there anything to measure a radius
+  // from". Both must be true before a radius may be printed.
+  const radius = { radiusLabel: "1 km", mode: "device_location", placeName: null } as const;
+  assert.equal(describeCoverageCaption({ ...radius, coverage: "radius", hasCenter: true }), "Menampilkan tempat dalam radius 1 km dari lokasi Anda");
+  assert.equal(describeCoverageCaption({ ...radius, coverage: "area", hasCenter: true }), AREA_COVERAGE_CAPTION);
+  // THE BUG: no origin at all -> the radius claim is dropped.
+  assert.equal(describeCoverageCaption({ ...radius, coverage: "radius", hasCenter: false }), AREA_COVERAGE_CAPTION);
+  assert.equal(describeCoverageCaption({ ...radius, coverage: "area", hasCenter: false }), AREA_COVERAGE_CAPTION);
+  // The searched city keeps naming ITSELF, never the device.
+  const city = describeCoverageCaption({
+    radiusLabel: "10 km",
+    mode: "city_search",
+    placeName: "Riyadh",
+    coverage: "radius",
+    hasCenter: true,
+  });
+  assert.ok(city.includes("Riyadh"));
+  assert.equal(city.includes("lokasi Anda"), false);
+  // The neutral caption is the same one the local-area modes use: no distance,
+  // no radius, no origin invented.
+  assert.equal(AREA_COVERAGE_CAPTION, "Menampilkan tempat di area peta");
+  assert.doesNotMatch(AREA_COVERAGE_CAPTION, /km|m\b|radius|lokasi/i);
+});
+
+test("10.2 the results count never claims an origin that does not exist", () => {
+  // Existing Master/MOCKUP §11 wording is preserved VERBATIM whenever there
+  // IS an origin — this fix changes nothing about the normal case.
+  assert.equal(describeNearOrigin({ mode: "device_location", placeName: null }), "di sekitar Anda");
+  assert.equal(describeNearOrigin({ mode: "device_location", placeName: null, hasCenter: true }), "di sekitar Anda");
+  assert.equal(describeNearOrigin({ mode: "city_search", placeName: "Riyadh" }), "di sekitar pusat pencarian Riyadh");
+  // No origin: the count describes the visible map area instead, using the
+  // same wording as the caption so the two can never contradict each other.
+  assert.equal(describeNearOrigin({ mode: "device_location", placeName: null, hasCenter: false }), NO_ORIGIN_AREA_LABEL);
+  assert.equal(describeNearOrigin({ mode: "city_search", placeName: "Riyadh", hasCenter: false }), NO_ORIGIN_AREA_LABEL);
+  assert.equal(/Anda/.test(NO_ORIGIN_AREA_LABEL), false);
+});
+
+test("10.3 a denied location yields NO center, and never a fabricated one", () => {
+  // The three real states of the world, run through the ONE resolver.
+  assert.deepEqual(resolveActiveCenter({ searchCenter: null, viewerPosition: null }), {
+    mode: "device_location",
+    center: null,
+  });
+  assert.deepEqual(resolveActiveCenter({ searchCenter: null, viewerPosition: BANDUNG }), {
+    mode: "device_location",
+    center: BANDUNG,
+  });
+  assert.deepEqual(resolveActiveCenter({ searchCenter: RIYADH_CENTER, viewerPosition: BANDUNG }), {
+    mode: "city_search",
+    center: RIYADH_CENTER,
+  });
+  // A non-finite "fix" is not a fix — it can never become a camera anchor.
+  assert.equal(resolveActiveCenter({ searchCenter: null, viewerPosition: { lat: Number.NaN, lng: 0 } }).center, null);
+  // An unusable SEARCH answer falls back to the device fix — it never becomes
+  // a camera anchor of its own, and never blanks a real one.
+  assert.deepEqual(resolveActiveCenter({ searchCenter: { lat: 0, lng: Number.NaN }, viewerPosition: BANDUNG }).center, BANDUNG);
+
+  // And the camera really does bail out before it could invent a frame.
+  assert.match(mapCode, /const anchor = cameraCenter \?\? viewerPosition;/);
+  assert.match(mapCode, /if \(!ready \|\| !map \|\| !anchor\) return;/);
+  // The ONLY place this component creates a coordinate out of nothing is the
+  // neutral init overview, which is deliberately the whole world — never a
+  // default city, country, or Place coordinate.
+  assert.match(mapCode, /map\.fitWorld\(\);/);
+  assert.equal(/-6\.9|107\.6|24\.71|46\.67/.test(mapCode), false);
+});
+
+test("10.4 a radius preset is centred on the ACTIVE center and applied once", () => {
+  const anchorEffect = mapCode.slice(
+    mapCode.indexOf("const cameraCenterKey"),
+    mapCode.indexOf("// Render/update the user marker"),
+  );
+  // The searched city wins over the device fix while a search is active.
+  assert.match(anchorEffect, /const anchor = cameraCenter \?\? viewerPosition;/);
+  // The zoom comes from the RADIUS ALONE, never from the Place set and never
+  // from the current zoom — so a far-away Place cannot widen the frame.
+  assert.match(anchorEffect, /const zoom = await radiusZoom\(map, anchor, cameraRadiusMeters\);/);
+  assert.equal(/radiusZoom\(map, anchor, cameraRadiusMeters/.test(mapCode), true);
+  // Applied exactly once, then LATCHED: the frame it produced stays.
+  assert.match(
+    anchorEffect,
+    /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\);\s*userInteractedRef\.current = true;/,
+  );
+  // The caller wires the preset and the active center; the tabs own the radius.
+  assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  assert.match(pageCode, /cameraCenter=\{activeCenter\}/);
+  assert.equal(CAMERA_PRESET_RADIUS_M["1 km"] < CAMERA_PRESET_RADIUS_M["5 km"], true);
+  assert.equal(CAMERA_PRESET_RADIUS_M["5 km"] < CAMERA_PRESET_RADIUS_M["10 km+"], true);
+});
+
+test("10.5 only an EXPLICIT request may move the camera", () => {
+  // Three hand-driven actions, and nothing else, bump the request nonce.
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+  // The guard is UNCONDITIONAL: a frame the user (or an applied preset) owns is
+  // never re-derived. The old radius comparison let a silent mode switch — the
+  // LIVE toggle leaving "Tempat Pilihan", which changes the radius value with
+  // no request at all — snap the camera back to a distance frame.
+  assert.match(mapCode, /if \(userInteractedRef\.current\) return;/);
+  assert.equal(/if \(userInteractedRef\.current && lastRadiusRef\.current === cameraRadiusMeters\) return;/.test(mapCode), false);
+  assert.equal(/if \(radiusChanged\) userInteractedRef\.current = false;/.test(mapCode), false);
+  // Manual pan/zoom is what arms it, and only an explicit request disarms it.
+  assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
+  assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
+  // Marker refreshes and viewport reports carry NO nonce of any kind.
+  const markerEffect = mapCode.slice(
+    mapCode.indexOf("}, [ready, markerKey]);") - 4000,
+    mapCode.indexOf("}, [ready, markerKey]);"),
+  );
+  assert.equal(/setView|fitBounds|flyTo/.test(markerEffect), false);
+  assert.match(mapCode, /reportViewportBounds/);
+  const reportViewport = mapCode.slice(
+    mapCode.indexOf("const reportViewportBounds = useCallback"),
+    mapCode.indexOf("const triggerLocatePulse"),
+  );
+  assert.equal(/setView|fitBounds|flyTo/.test(reportViewport), false);
+  // The whole component stays animation-free.
+  assert.equal(/flyTo\(|setTimeout\([^)]*duration/.test(mapCode), false);
+});
+
+test("10.6 widely spread Places can never widen a LOCAL-AREA frame", () => {
+  // The real two-continent DEV dataset: West Java and Riyadh together.
+  for (const origin of [BANDUNG, RIYADH_CENTER]) {
+    const bounded = resolveLocalAreaCoverage({ origin, places: WORLD }).places;
+    assert.ok(bounded.length > 0);
+    // A world-scale frame is the failure this closes: the bounded set is
+    // orders of magnitude tighter than the whole dataset.
+    assert.ok(
+      widestSpan(bounded) * 20 < widestSpan(WORLD),
+      `the local area must be far tighter than the dataset (origin ${origin.lat})`,
+    );
+    // Every selected Place is genuinely local to the origin...
+    const localIds = new Set(bounded.map((place) => place.id));
+    const foreign = WORLD.filter((place) => !localIds.has(place.id));
+    for (const place of foreign) {
+      assert.ok(distance(origin, place) > 1000, "a far-away Place must not join the frame");
+    }
+    // ...and it is a real subdivision, not a truncated list.
+    assert.equal(new Set(bounded.map((place) => place.countryCode)).size, 1);
+    // The proximity fallback bounds it too, even with no trusted geography.
+    const fallback = resolveLocalAreaCoverage({
+      origin,
+      places: withoutGeography(WORLD),
+    }).places;
+    assert.ok(fallback.length > 0);
+    assert.ok(widestSpan(fallback) * 20 < widestSpan(WORLD));
+  }
+  // And with no origin at all the camera dataset is EMPTY — never the world.
+  const none = resolveLocalAreaCoverage({ origin: null, places: WORLD });
+  assert.equal(none.basis, "none");
+  assert.deepEqual(none.places, []);
+});
+
+test("10.7 a dataset with no valid coordinates keeps the current center", () => {
+  const coordinateFree = WORLD.map(({ id }) => ({
+    id,
+    latitude: null,
+    longitude: null,
+    countryCode: "ID",
+    regionName: "Jawa Barat",
+  }));
+  // The local-area resolver drops every Place it cannot place.
+  assert.deepEqual(resolveLocalAreaCoverage({ origin: BANDUNG, places: coordinateFree }).places, []);
+  // The coverage gate drops them too, so neither markers nor rows can claim a
+  // Place the map cannot show.
+  assert.deepEqual(narrowToViewport(coordinateFree, WORLD_VIEWPORT), []);
+  // The camera never invents a coordinate out of an empty dataset...
+  assert.equal(boundsOfPoints(collectGeoPoints(coordinateFree)), null);
+  assert.equal(collectGeoPoints(coordinateFree).length, 0);
+  // ...and a non-finite coordinate is treated exactly like a missing one.
+  const broken = [{ id: "x", latitude: Number.NaN, longitude: 0 }];
+  assert.deepEqual(collectGeoPoints(broken), []);
+  assert.equal(boundsOfPoints(collectGeoPoints(broken)), null);
+});
+
+test("10.8 the map is never covered by its own overlays on a phone", () => {
+  // The floating control ladder is a FIXED slice of the stage height, and the
+  // section clips its overflow — so the map window's FLOOR has to clear all of
+  // it. This is the arithmetic the previous 240px minimum violated: the zoom
+  // stack alone ends at 354px, so the "+/-" control was cut off.
+  const RE_CENTER_TOP = 190;
+  const LOCATE_TOP = 240;
+  const ZOOM_TOP = 290;
+  const LEAFLET_ZOOM_HEIGHT = 64;
+  const COVERAGE_BOTTOM_OFFSET = 36;
+  const COVERAGE_HEIGHT = 40;
+  assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 290px;/);
+  assert.match(mapCode, /absolute right-3 top-\[190px\]/);
+  assert.match(mapCode, /absolute right-3 top-\[240px\]/);
+  assert.match(pageCode, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
+  const floor = 440;
+  assert.ok(floor >= ZOOM_TOP + LEAFLET_ZOOM_HEIGHT, "the zoom control must not be clipped");
+  assert.ok(floor >= COVERAGE_BOTTOM_OFFSET + COVERAGE_HEIGHT, "the coverage box must fit");
+  assert.ok(RE_CENTER_TOP < LOCATE_TOP, "the control ladder keeps its order");
+  assert.ok(LOCATE_TOP < ZOOM_TOP, "the zoom stack stays BELOW both locate controls");
+  // The camera padding reserves that same chrome, so a fit never hides a Place
+  // under it.
+  const padding = resolveCameraFitPadding({ x: 390, y: floor });
+  assert.equal(padding.paddingTopLeft[0], 24);
+  assert.equal(padding.paddingTopLeft[1], 190);
+  assert.equal(padding.paddingBottomRight[0], 76);
+  assert.equal(padding.paddingBottomRight[1], 84);
+  assert.ok(padding.paddingTopLeft[1] >= 190, "the fitted area starts below the floating chrome");
+  // Nothing was hidden, collapsed, or made scrollable: the panel still renders
+  // both strips and the same count line.
+  assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);
+  assert.match(pageCode, /curatedListed\.length\} tempat pilihan \$\{nearOrigin\}/);
+  assert.match(pageCode, /discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}/);
 });

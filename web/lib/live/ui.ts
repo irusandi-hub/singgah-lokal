@@ -596,6 +596,18 @@ export function resolveMapScale(input: { bounds: MapViewport; widthPx: number })
  */
 export const AREA_COVERAGE_CAPTION = "Menampilkan tempat di area peta";
 
+/**
+ * The origin fragment used when there is NO origin at all (bug fix, 2026-10-03).
+ *
+ * Geolocation denied and nothing searched means the results were not measured
+ * from anywhere near the user, so neither "di sekitar Anda" nor a radius may be
+ * printed. This is the SAME approved wording as AREA_COVERAGE_CAPTION — the
+ * visible map area — reduced to the "di …" fragment the results count needs, so
+ * the count and the coverage box speak about the same thing. No new product
+ * term is introduced.
+ */
+export const NO_ORIGIN_AREA_LABEL = "di area peta";
+
 export function matchesDistance(
   filter: DistanceFilter,
   viewerPosition: { lat: number; lng: number } | null,
@@ -737,6 +749,39 @@ export function describeRadiusOrigin(input: {
 }
 
 /**
+ * THE coverage caption the map box actually renders (bug fix, 2026-10-03).
+ *
+ * A radius may be named only while BOTH facts are true: a distance-tab preset
+ * really owns the frame (`coverage === "radius"`), and there IS an origin to
+ * measure it from (`hasCenter`). The second condition is the one that was
+ * missing. `resolveActiveCenter` answers `center: null` when geolocation was
+ * denied and nothing was searched — and in that state the radius preset has no
+ * anchor at all, so the camera never applied it and simply stayed on the
+ * neutral world overview. The caption went on naming "dari lokasi Anda"
+ * anyway: a world-scale frame described as "1 km dari lokasi Anda".
+ *
+ * There is nothing to fall back to and nothing may be invented (no default
+ * city, no fabricated fix), so the caption states the one thing that is true
+ * at ANY zoom — the approved AREA_COVERAGE_CAPTION, which names no distance
+ * and no origin. The user is told what the map is showing, never a radius the
+ * camera did not apply.
+ */
+export function describeCoverageCaption(input: {
+  radiusLabel: string;
+  mode: SearchMode;
+  placeName: string | null;
+  coverage: "radius" | "area";
+  hasCenter: boolean;
+}): string {
+  if (input.coverage !== "radius" || !input.hasCenter) return AREA_COVERAGE_CAPTION;
+  return describeRadiusOrigin({
+    radiusLabel: input.radiusLabel,
+    mode: input.mode,
+    placeName: input.placeName,
+  });
+}
+
+/**
  * "di sekitar …" fragment for the results-section count (bug fix 2026-10-03).
  *
  * This is the Master/MOCKUP §11 count subtitle ("{n} tempat pilihan di sekitar
@@ -744,8 +789,22 @@ export function describeRadiusOrigin(input: {
  * by the mockup and is the default case. Only the searched-city case changed:
  * it used to keep claiming "di sekitar Anda" while the count itself came from
  * the city's own coverage, which is exactly the inconsistency this fixes.
+ *
+ * `hasCenter` (bug fix, 2026-10-03) closes the DEVICE half of the same lie:
+ * with geolocation denied and nothing searched there is no origin at all, so
+ * "di sekitar Anda" described a count measured from nowhere. It then names the
+ * visible map area instead — the same "area peta" wording the coverage caption
+ * uses, so the count and the caption can never contradict each other.
+ *
+ * It defaults to `true`: with a usable center the Master/MOCKUP §11 wording is
+ * returned VERBATIM and nothing about the existing copy changes.
  */
-export function describeNearOrigin(input: { mode: SearchMode; placeName: string | null }): string {
+export function describeNearOrigin(input: {
+  mode: SearchMode;
+  placeName: string | null;
+  hasCenter?: boolean;
+}): string {
+  if (input.hasCenter === false) return NO_ORIGIN_AREA_LABEL;
   if (input.mode === "city_search") return `di sekitar ${resolveSearchOrigin(input)}`;
   return "di sekitar Anda";
 }

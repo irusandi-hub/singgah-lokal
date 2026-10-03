@@ -581,3 +581,121 @@ assertions in `map-current-location`, `map-viewport-coverage`,
 `map-auto-fit-camera`, and `home-map-first-ui` that locked the OLD locate
 behaviour (zoom-preserving recentre, one bounded flyTo, radius-at-the-time) were
 amended, never deleted.
+
+## 19. CORRECTION — CAMERA SCOPE WITH NO ORIGIN + MOBILE MAP BUDGET (2026-10-03)
+
+This section corrects the two items it names in §14–§18. Everything else still
+stands: the curated membership rule, the viewport-as-coverage rule for markers
+and rows, the 0/1/many fit matrix, the local-area resolver, the chrome padding,
+the carousel frames, the measured scale bar, the neutral area caption, "Lokasi
+Saya" clearing the city search and refitting the local area, and the curated
+tab fitting the selected distribution.
+
+### Phase 1 — audit and root cause
+
+1. **The reported screen was the PREVIOUS production build.** `e8bc6d7`
+   (PR #12) rendered the coverage box from `radiusCaption` directly, and in
+   "Tempat Pilihan" mode `activeRadiusMeters` is `CURATED_CAMERA_RADIUS_M`
+   (10 km) — so that build could print "… dalam radius 10 km dari lokasi Anda"
+   while §16's fit framed the WHOLE content-filtered Place list. That is
+   literally the reported pair: a world-scale frame with a "10 km dari lokasi
+   Anda" caption. §17/§18 (merged as `642c4ae`, PR #13) already removed that
+   half: the curated/locate fit is now bounded by `resolveLocalAreaCoverage`
+   and the caption is `AREA_COVERAGE_CAPTION` in the local-area modes.
+2. **The second half of the defect was still on `main`.** The camera has
+   exactly ONE anchor: `activeCenter` = the searched city, else the REAL device
+   fix. With geolocation denied (or never granted) and nothing searched,
+   `resolveActiveCenter` answers `{ mode: "device_location", center: null }`,
+   so in `home-map.tsx` the anchor effect returned at
+   `if (!ready || !map || !anchor) return;` — **the chosen distance preset was
+   never applied, on first load and on every later tap of a distance tab.** The
+   map therefore kept the neutral `map.fitWorld()` frame created at init. That
+   viewport contains the entire canonical dataset (production: 74 Places, 12 in
+   Jawa Barat and 62 across five Saudi regions, ~13,000 km apart), so
+   `narrowToViewport` admitted EVERY Place: markers on two continents and every
+   card listed — "markers clustered or geographically disconnected from the
+   displayed Place results". Meanwhile the coverage box still printed
+   "… dari lokasi Anda" and the count still printed "di sekitar Anda": both
+   false, because there is no location at all.
+3. **A third, smaller leak in the same path.** The preset guard was
+   `if (userInteracted && lastRadius === cameraRadiusMeters) return;`, so ANY
+   change of the radius VALUE re-armed the preset. "Tempat Pilihan" passes
+   `CURATED_CAMERA_RADIUS_M`, and leaving that layer through the LIVE toggle
+   changes the radius back to the distance tab with no camera request at all —
+   silently snapping the map to a 1 km device frame and discarding a manual pan.
+
+Nothing was changed until this was established from the code, from the
+deployed bundle, and from the canonical dataset.
+
+### Phase 2 — what changed
+
+1. **No origin → no radius claim, anywhere.** `describeCoverageCaption` in
+   `lib/live/ui.ts` now owns BOTH halves of the existing rule: a radius is
+   named only while a distance-tab preset owns the frame AND an origin exists
+   to measure it from. With no origin it returns the approved
+   `AREA_COVERAGE_CAPTION` ("Menampilkan tempat di area peta") — the one string
+   that is true at any zoom. `describeNearOrigin` gained the matching
+   `hasCenter` flag and answers `NO_ORIGIN_AREA_LABEL` ("di area peta") instead
+   of "di sekitar Anda". Both default to the previous behaviour, so the
+   Master/MOCKUP §11 wording is preserved VERBATIM whenever a real origin
+   exists. **No new product term and no new copy were invented.**
+2. **No origin → still no invented camera move.** The neutral world overview
+   stays (there is no coordinate that could honestly centre a radius, and
+   AGENTS.md forbids fabricating one), and the map reports its real bounds and
+   scale as before. The empty-coordinate rule from §17 is untouched.
+3. **The camera is moved only by an explicit request.** The preset guard is now
+   unconditional (`if (userInteractedRef.current) return;`) and the radius
+   re-arm line is gone; `cameraRequestNonce` — already bumped by exactly the
+   three hand-driven actions (a distance tab, "Tempat Pilihan", "Lokasi Saya")
+   — is the only thing that releases the latch. A preset that DID apply now
+   also latches, so a later geolocation fix, marker refresh, discovery poll, or
+   viewport report cannot re-derive the frame underneath a pan.
+4. **Mobile map budget (the confirmed layout defect).** The floating control
+   ladder is a fixed slice of the stage height: Re-center 190→234px, "Lokasi
+   Saya" 240→~281px, Leaflet's +/- stack 290→~354px, coverage box/scale from
+   ~366px. The map window's floor was `min-h-[240px]`, so the section — which
+   clips its own overflow — ended ABOVE the bottom of the zoom control and the
+   "+/-" stack was cut off on an ordinary phone. The window is now
+   `h-[42vh] min-h-[440px] max-h-[560px] sm:h-[46vh]`, which clears the whole
+   ladder plus the coverage box at every supported width (360 / 390 / 430 /
+   1280) and gives the map more of the screen, as reported. Nothing was hidden,
+   collapsed, made scrollable, or redesigned: same sections, same search bar,
+   same filter row, same branding, same cards.
+
+### Phase 3 — explicitly NOT changed
+
+Curated MEMBERSHIP still reads only the canonical `places.is_curated` ids; the
+Discovery contract, ranking, and eligibility are untouched; the distance tabs
+and their ordered radius presets (1 < 5 < 10 km) are unchanged, as is the
+search mechanism and its ±0.05° box; markers, the LIVE treatment, Place cards,
+navigation, the scale bar, the backend, the database, RLS, Place data,
+branding, and routes are all unchanged.
+
+### Phase 4 — regression coverage and verification
+
+`tests/map-local-area-coverage.test.ts` gained section 10 — the nine named
+areas (distance-preset centre and radius; searched city vs device; "Tempat
+Pilihan"; no valid coordinates; widely spread coordinates; manual pan/zoom
+persistence; marker refresh and viewport reports causing no camera loop;
+radius caption consistency; mobile viewport and map controls) — with executable
+assertions over the caption truth table, `resolveActiveCenter`, the real
+two-continent DEV fixtures, and the control-ladder arithmetic. Assertions that
+locked the superseded behaviour were amended, never deleted, in
+`map-current-location`, `map-auto-fit-camera`, `home-map-first-ui`,
+`home-search-clarity`, and `home-results-count-sync`.
+
+Verified on `fix/home-map-camera-scope`: 16 map/search/Discovery suites
+258 pass / 0 fail; full suite in four batches 301 / 306 / 154 (1 pre-existing
+failure) / 113, the failure being `place-management.test.ts` → "Only IDR and
+USD are valid currencies", reproduced identically on unmodified `origin/main`
+and unrelated to this work (`discovery-aggregate` and `discovery-dev-dataset`
+remain excluded: PGlite is OOM-killed in this 1-CPU/2 GB sandbox);
+`eslint .` 0 errors / 10 warnings (baseline unchanged); `tsc -b --noEmit` clean;
+`next build` exit 0.
+
+The live screen cannot be re-inspected from here: the managed preview serves
+this app without hydrating in any headless browser available in the sandbox
+(verified identical on the unmodified baseline `main`). The root cause above
+was therefore established from the code, from the deployed bundle, and from the
+canonical dataset — not from observation — and every rule is covered
+executably instead.

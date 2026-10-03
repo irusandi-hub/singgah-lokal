@@ -9,7 +9,6 @@ import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
 import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
-  AREA_COVERAGE_CAPTION,
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
   CURATED_RESULTS_ANCHOR_ID,
@@ -20,8 +19,8 @@ import {
   buildDirectionsUrl,
   clearCitySearch,
   distanceMeters,
+  describeCoverageCaption,
   describeNearOrigin,
-  describeRadiusOrigin,
   formatDistance,
   isSameViewport,
   liveDurationLabel,
@@ -796,27 +795,44 @@ export default function HomeDiscovery({
     : CAMERA_PRESET_RADIUS_M[distanceFilter];
   const activeRadiusLabel =
     activeRadiusMeters >= 1000 ? `${activeRadiusMeters / 1000} km` : `${activeRadiusMeters} m`;
-  // Radius caption (bug fix 2026-10-03): it names the origin that is actually
-  // doing the measuring — the SAME active center the coverage filter and the
-  // distance labels use. It used to be a fixed "dari lokasi Anda", so Riyadh
-  // results were captioned as if measured from the device.
-  const radiusCaption = describeRadiusOrigin({
-    radiusLabel: activeRadiusLabel,
-    mode: activeSearch.mode,
-    placeName: searchPlaceName,
-  });
+  // Whether there is an ORIGIN to measure from at all: the searched city, else
+  // the real device fix, else nothing (geolocation denied and nothing
+  // searched). Both the coverage caption and the results count below read it,
+  // so neither can claim a radius or an origin the camera/rows never used.
+  const hasActiveCenter = activeCenter !== null;
   // COVERAGE CAPTION (bug fix, 2026-10-03): a radius may only be named while a
   // radius preset actually owns the frame. "Tempat Pilihan" and "Lokasi Saya"
   // frame the viewer's LOCAL AREA, so the old fixed "10 km" wording claimed a
   // radius the camera was not using; those modes now state what is true, with
   // no distance and no radius at all.
-  const coverageCaption = cameraCoverage === "radius" ? radiusCaption : AREA_COVERAGE_CAPTION;
+  //
+  // ROOT CAUSE FIXED HERE (bug fix, 2026-10-03): `hasActiveCenter` is the
+  // second half of that rule. With geolocation denied and nothing searched,
+  // `activeCenter` is null, so the distance preset has NO anchor at all and the
+  // camera never applied it — the map simply kept the neutral world overview,
+  // while this box went on claiming "dari lokasi Anda" about a world-scale
+  // frame. The same truthfulness rule now covers the origin, not only the
+  // radius: no origin, no radius claim.
+  // The caption resolves through the ONE helper that owns both halves of the
+  // rule: the radius is named only when a distance-tab preset owns the frame
+  // AND an origin exists to measure it from.
+  const coverageCaption = describeCoverageCaption({
+    radiusLabel: activeRadiusLabel,
+    mode: activeSearch.mode,
+    placeName: searchPlaceName,
+    coverage: cameraCoverage,
+    hasCenter: hasActiveCenter,
+  });
   // Results-count origin fragment (bug fix 2026-10-03). It resolves from the
   // SAME active center as the map caption above it, so the results panel can
   // no longer say "di sekitar Anda" about a count that actually came from a
   // searched city. The device wording is the Master/MOCKUP §11 copy and is
   // preserved verbatim.
-  const nearOrigin = describeNearOrigin({ mode: activeSearch.mode, placeName: searchPlaceName });
+  const nearOrigin = describeNearOrigin({
+    mode: activeSearch.mode,
+    placeName: searchPlaceName,
+    hasCenter: hasActiveCenter,
+  });
 
   // ONE card renderer for every row: the existing card design verbatim; the
   // only addition is the optional "✦ Tempat Pilihan" marker so an overlap
@@ -1333,15 +1349,24 @@ export default function HomeDiscovery({
               dominant field. Sized in vh + clamp: never the old flat 64vh,
               and never so tall that Result is pushed out of sight. The
               container keeps a valid, non-degenerate Leaflet size.
-              COMPACTED (correction, 2026-10-03): 42vh / min 260 / max 520 /
-              44vh left a wide empty band between the filter row and the first
-              Place card, so the results panel started far below the content the
-              user is looking for. This is one clamp band lower (36vh, min 240,
-              max 440, 38vh on ≥sm): the map stays the dominant field and still
-              clears the whole floating control ladder (190 / 240 / 290 px), but
-              the panel now starts where the content does. Nothing was cut —
-              only the empty space above it. */}
-          <div aria-hidden className="h-[36vh] min-h-[240px] max-h-[440px] sm:h-[38vh]" />
+              MOBILE MAP BUDGET (fix, 2026-10-03): the band is
+              now sized from the floating control ladder, which is a FIXED
+              amount of the stage's height and was simply being clipped:
+                · Re-center arrow        top 190px → ends 234px
+                · "Lokasi Saya" control  top 240px → ends ~281px
+                · Leaflet +/- stack      top 290px → ends ~354px
+                · coverage box / scale   bottom 36px → start ~366px
+              At the previous min-height of 240px the section ended ABOVE the
+              bottom of the zoom control, so on an ordinary phone the +/- stack
+              was cut off by the section's own `overflow-hidden` — essential map
+              context removed by the layout itself, and the map/results
+              relationship made unclear. The floor is now 440px, which fits the
+              entire ladder plus the coverage box at every supported height
+              (360 / 390 / 430 / 1280), and 42vh / 46vh keeps the map the
+              dominant field on taller screens. Nothing was cut, hidden, or
+              redesigned: same sections, same chrome, same cards — the map
+              simply gets the height its own controls need. */}
+          <div aria-hidden className="h-[42vh] min-h-[440px] max-h-[560px] sm:h-[46vh]" />
         </div>
 
         {/* Viewport-aware map empty state (PO, 2026-09-30): shown when the

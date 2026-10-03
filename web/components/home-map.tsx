@@ -165,6 +165,13 @@ type HomeMapProps = {
    * the searched center owning nothing. This prop is resolved upstream by
    * `resolveActiveCenter`, so this component never has to re-derive the mode.
    * null = no usable center at all, in which case NO camera move is invented.
+   *
+   * WHAT null MEANS ON SCREEN (bug fix, 2026-10-03): geolocation denied and
+   * nothing searched leaves the camera exactly where it is — on the neutral
+   * world overview created at init — because there is no coordinate that could
+   * honestly centre a radius (AGENTS.md: never fabricate one). The caller
+   * therefore also stops naming a radius "dari lokasi Anda" in that state, so
+   * a world frame is never presented as a local one.
    */
   cameraCenter?: { lat: number; lng: number } | null;
   /**
@@ -916,9 +923,15 @@ export default function HomeMap({
   // ALWAYS refocuses deterministically through the one radiusZoom mechanism —
   // zoom is derived from the preset radius, never from the current zoom, and
   // the frame is ALWAYS bounded to that preset (never fit to the marker list).
-  // Manual pan/zoom wins between choices (latch re-arms on each new preset
-  // choice). Without a preset (no Home mode produces this) the one-shot focus
-  // on the real fix keeps its behavior; markers never drive the viewport.
+  // Manual pan/zoom wins between choices (the EXPLICIT CAMERA REQUEST below
+  // is what re-arms it). Without a preset (no Home mode produces this) the
+  // one-shot focus on the real fix keeps its behavior; markers never drive the
+  // viewport.
+  //
+  // NO ORIGIN (bug fix, 2026-10-03): with `cameraCenter` null — geolocation
+  // denied and nothing searched — there is nothing to centre, so the preset is
+  // NOT applied and the map keeps its current (neutral world) frame. Nothing is
+  // invented here, and the caller stops naming a radius in that state.
   //
   // The center is derived once per run and re-derived when it changes, so the
   // effect re-arms for a new city exactly as it does for a fresh device fix.
@@ -960,7 +973,21 @@ export default function HomeMap({
     }
     const anchor = cameraCenter ?? viewerPosition;
     if (!ready || !map || !anchor) return;
-    if (userInteractedRef.current && lastRadiusRef.current === cameraRadiusMeters) return;
+    // CAMERA AUTHORITY (bug fix, 2026-10-03). Once the frame belongs to the
+    // user — a preset applied, a curated/locate focus, or a real pan/zoom —
+    // NOTHING may move it except a new explicit request, which released the
+    // latch at the top of this effect.
+    //
+    // The guard used to be narrower: `userInteracted && lastRadius ===
+    // cameraRadiusMeters`, so ANY change of the radius value re-armed the
+    // preset. "Tempat Pilihan" passes CURATED_CAMERA_RADIUS_M, and leaving
+    // that layer through the LIVE toggle changes the radius back to the
+    // distance tab without any camera request at all — which silently snapped
+    // the map to a 1 km device frame and threw away a manual pan. Every
+    // explicit tab choice already bumps `cameraRequestNonce` above, so the
+    // deterministic refocus rule is unchanged; only the accidental
+    // reframing is gone.
+    if (userInteractedRef.current) return;
 
     const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters;
     lastRadiusRef.current = cameraRadiusMeters;
@@ -976,11 +1003,16 @@ export default function HomeMap({
       // change) is made visually obvious by the one-shot pin focus pulse
       // instead (instant-camera rule, PO 2026-09-30).
       if (cameraRadiusMeters !== null) {
-        if (radiusChanged) userInteractedRef.current = false;
         const zoom = await radiusZoom(map, anchor, cameraRadiusMeters);
         if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
         programmaticMoveRef.current = true;
         map.setView([anchor.lat, anchor.lng], Math.max(2, zoom), { animate: false });
+        // THE FRAME STAYS (bug fix, 2026-10-03): the preset that was just
+        // applied is now the camera's state, so a later geolocation fix, a
+        // marker refresh, or a mode switch cannot re-derive it. Without this
+        // the preset re-applied on every fix, and each application silently
+        // undid a pan the user had made in between.
+        userInteractedRef.current = true;
         if (radiusChanged && pulsePinOnPresetChange) triggerLocatePulse();
         return;
       }
