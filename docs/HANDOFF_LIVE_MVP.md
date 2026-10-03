@@ -779,3 +779,163 @@ clearing the search and refitting.
    `discovery-dev-dataset` remain excluded: PGlite is OOM-killed in this
    1-CPU/2 GB sandbox); `eslint .` 0 errors / 10 warnings (baseline); `tsc -b
    --noEmit` clean; `next build` exit 0.
+---
+
+## 21. RIYADH CURATED DATA + CAMERA ELIGIBILITY (2026-10-03)
+
+Audit of the reported Riyadh findings against the canonical dataset, the
+Masters, migrations 0035/0036/0039/0040/0041, and the production read path.
+
+### 21.1 The data, verified
+
+Re-queried `https://singgah-lokal.vercel.app/api/places` (74 published Places,
+20 curated). The reported split reproduces exactly:
+
+| country | region | curated | dummy | published |
+| --- | --- | --- | --- | --- |
+| SA | `Ar Riyad` | true | true | 10 |
+| SA | `Riyadh` | false | false | 25 |
+
+Zero published, non-dummy curated Places in Riyadh. The 10 curated ids are
+`dummy-riyadh-{al-izza, kafd, king-fahd, malaz, nakheel, olaya,
+sulaymaniyah, tahlia, umm-al-hamam, yasmin}`; the 25 real ones are
+`dummy-riyadh-01` … `dummy-riyadh-25`.
+
+### 21.2 Are the ten curated Dummies intentional? YES — settled from the Masters
+
+This was NOT guessed, and the answer is the opposite of the intuitive one.
+
+- `MASTER_DEVELOPER_AUTHORITY_DUMMY_PLACE_v1.0` §2, canonical-flag table:
+  *"Is it a Discovery input? **No.** The engine is dummy-blind; a Dummy Place
+  is eligible on exactly the same canonical terms as any other Place."*
+- Migration 0039 marked exactly the ten migration-0037 fixtures, by enumerated
+  id (§3: never a text predicate). Migration 0040 seeded the ten Riyadh
+  fixtures. Migration 0041 corrected their subdivision and states they
+  *"stay exactly as 0040 left them, awaiting the Creator's audited
+  `markRiyadhDummyPlacesCurated` call if and when that is wanted."*
+- `web/lib/discovery/scoring.ts` already implements §2 in
+  `evaluateDiscoveryEligibility` (it passes `isDummy: false` into the
+  publication-readiness check so E1+E2 never reads the flag).
+
+So the ten curated rows are INTENTIONAL demo curation produced by the audited
+Creator path, and `listCuratedPublishedPlaceIds` selecting
+`publication_status = 'published' AND is_curated` **without** excluding
+`is_dummy` is CORRECT. Adding an `is_dummy` exclusion would invent an
+eligibility rule the Master explicitly denies. The real Riyadh Places must
+**not** be promoted to make the Dummies unnecessary — that is an admin data
+decision, reported in §21.6, not an engineering fix.
+
+### 21.3 Root cause — `region_name` is free text and was trusted as a boundary
+
+`web/lib/live/ui.ts` `localityKey()` was
+`` `${country}|${region.toLowerCase()}` `` and `resolveLocalAreaCoverage`
+selected by exact key equality.
+
+`Ar Riyad` is the ISO 3166-2 subdivision of Saudi Arabia (SA-01). **`Riyadh`
+is not in the dataset at all** — it is the city. The dataset has 13 SA
+subdivisions (`Ar Riyad`, `Ash Sharqiyah`, `Makkah al Mukarramah`, …) and
+`Riyadh`, `Dammam`, `Al Khobar`, `Al Rakah` are all city names. All 35 Riyadh
+Places sit in one real city (bounding boxes overlap: curated 24.6895–24.8325 /
+46.6400–46.7211, real 24.5489–24.8457 / 46.5769–46.8084), yet the camera saw
+two localities. Executed against the real resolver, two Places 5.7 km apart
+(`dummy-riyadh-olaya` / `dummy-riyadh-01`) resolved to a single-Place area.
+
+### 21.4 The fix (code only — no data, no migration, no curation change)
+
+1. `web/lib/geo/countries.ts` gains `canonicalPlaceSubdivisionKey(country,
+   region)`: an **exact** lookup in the same `country-region-data` vocabulary
+   that already validates every Place write, returning the ISO identity
+   (`"SA-01"`) or `null`. No alias table, no fuzzy or case-folded matching, no
+   invented mapping — `"Riyadh"` stays `null`, and that is the finding being
+   reported rather than hidden.
+2. `localityKey()` now returns that canonical key. Two Places of one
+   subdivision therefore always share a key, and an unverifiable value no
+   longer pretends to be a boundary.
+3. `resolveLocalAreaCoverage` keeps its two existing rules and adds one case:
+   when the anchor HAS a verified subdivision, a candidate whose own
+   subdivision cannot be verified is admitted by the **existing** adaptive
+   proximity rule (`compactCluster`) rather than being dropped for a spelling.
+   A candidate with a verified *different* subdivision is still refused
+   outright — a real boundary always wins.
+
+**Second-order defect found and closed while verifying.** `compactCluster`
+decides on a *ratio* between successive distances, which is scale-free: a set
+of Places all ~380 km away is internally "compact" and never trips the 3×
+separation. Admitting unverifiable Places by that rule alone pulled the entire
+Eastern Province curated set into a Riyadh frame. The admission is therefore
+additionally bounded by **the reach of the anchor's own verified subdivision** —
+the furthest that boundary demonstrably extends, measured from the origin, and
+derived entirely from real Places with no invented kilometre figure. On the
+real dataset that admits the genuine Riyadh Places (2.8–13.7 km) and refuses
+both the far outliers and the Eastern Province (386 km). A subdivision with a
+single Place has no measurable spread, so that case keeps the pre-existing
+proximity rule alone rather than shrinking the area to the anchor.
+
+### 21.5 What the camera now produces for the real Riyadh curated search
+
+Against the production dataset, replicating `cameraFitPlaces` exactly:
+
+- selected: **10** curated Places, `basis: "region"` (was: the same 10, but
+  with no usable context);
+- context: **25** real Riyadh Places resolved as context;
+- `cameraFitPlaces`: **35**, of which **25 non-curated**;
+- regions in frame: `Ar Riyad` + `Riyadh` only — no Eastern Province.
+
+Context markers stay out of curated membership, the count, and the result rows
+with **no component change at all**: `mapPlaces` already tags every Place with
+`isCurated: curatedOnly && curatedIdSet.has(place.id)`, so a context Place is
+`false`; the count line renders `curatedListed.length`; context enters only the
+map layer and the camera, never `visiblePlaces`.
+
+### 21.6 OPEN — needs an admin data decision (nothing was changed)
+
+1. **Promote real Riyadh Places to `is_curated`?** Riyadh has zero non-dummy
+   curated Places. If Tempat Pilihan is meant to show real content there, the
+   candidates are `dummy-riyadh-01` … `dummy-riyadh-25` — but note their ids
+   say "dummy" while `is_dummy = false`, so their provenance should be checked
+   before any promotion. NOT executed: Master §6 gives only two audited tiers
+   the power, and a bulk `is_curated` write is an admin decision.
+2. **Repair `region_name` on the Saudi rows.** `isValidPlaceRegion("SA",
+   "Riyadh")` is **false** — as it is for `Dammam`, `Al Khobar`, `Al Rakah`
+   (35 of the 74 published Places in total). These values predate the
+   validator and are stored verbatim, so they can never be corrected through
+   the shared Place form. A DEV-only corrective migration in the shape of
+   0041 (enumerated ids, guarded on the exact wrong value, DEV-only, never
+   production) would fix them at source. NOT written and NOT applied.
+3. **Demo data in the canonical dataset.** The published dataset still serves
+   migration-0040 fixtures (migration 0041 is DEV-only by design, and the
+   canonical dataset clearly still holds 0037/0040 rows). Whether that is
+   intended for the canonical environment is a product decision. Nothing was
+   changed.
+
+### 21.7 Out of scope, noticed during the audit
+
+`/api/places` returns `isDummy` on every public Place row (the repository
+selects `*`). Master §8 calls dummy status "metadata for operators and
+developers". Not changed here — it is outside this fix and outside the eight
+tasks — but worth a decision.
+
+### 21.8 Verification
+
+- New `tests/riyadh-curated-camera-eligibility.test.ts` — 18 tests: the
+  canonical mapping (`Ar Riyad` → `SA-01`; `Riyadh`/`Dammam`/`Al Khobar`/
+  `Al Rakah` → `null`; exact-match, no case folding; wrong-country → `null`);
+  the 5.7 km mismatch regression; the real 10 + 25 curated camera; a verified
+  *other* subdivision refused even when adjacent; the far-cluster guard; the
+  Eastern Province anchor; fail-closed on a missing origin and on missing
+  coordinates; and dummy eligibility in both directions (a curated Dummy IS a
+  member; a real Place is never promoted) with the server and in-memory
+  curated predicates pinned as dummy-blind read paths. **2 of the 18 fail
+  against `origin/main`'s `ui.ts`** and pass with the fix.
+- Full suite in batches: 331 / 188 / 142 / 129 (1 pre-existing failure) / 118,
+  plus the new suite inside those batches. The single failure is
+  `place-management.test.ts` → "Only IDR and USD are valid currencies",
+  reproduced identically on the clean stashed baseline. `discovery-aggregate`
+  and `discovery-dev-dataset` remain excluded — PGlite is SIGKILL/OOM-killed
+  in this 1-CPU/2 GB sandbox, verified identical on the baseline.
+- `eslint .` 0 errors / 10 warnings (baseline, unchanged); `tsc -b --noEmit`
+  exit 0; `next build` exit 0 (29/29). Total client JS grew **429 bytes** —
+  `country-region-data` was already in a shared chunk, so the new import is
+  effectively free for the Home map.
+- No migration applied, no production data touched, no `is_curated`,
+  publication, or dummy value changed anywhere.

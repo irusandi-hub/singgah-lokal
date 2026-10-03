@@ -398,6 +398,8 @@ export function distanceMeters(
 export const LOCAL_AREA_SEPARATION_RATIO = 3;
 
 /** The Place facts the local-area rule is allowed to read. All optional. */
+import { canonicalPlaceSubdivisionKey } from "@/lib/geo/countries";
+
 export type LocalAreaPlace = {
   id: string;
   latitude: number | null;
@@ -411,11 +413,13 @@ export type LocalAreaPlace = {
 /**
  * How the local area was determined.
  * - `region`   — a TRUSTED geographic boundary: the anchor Place's own
- *                canonical country + subdivision, taken from the ISO
+ *                canonical subdivision, resolved to its ISO code through the
  *                vocabulary the server already validates every Place write
  *                against (`lib/geo/countries.ts`). Every Place of that
  *                subdivision is included, so coverage is as complete as the
- *                data allows.
+ *                data allows. A nearby Place whose own subdivision cannot be
+ *                verified is added on proximity evidence alone (see
+ *                `resolveLocalAreaCoverage`).
  * - `proximity`— no trusted subdivision on the anchor, so the adaptive
  *                separation rule above decided the area.
  * - `none`     — nothing to frame: no usable origin, or no Place with
@@ -434,11 +438,26 @@ export type LocalAreaCoverage<T extends LocalAreaPlace> = {
   consideredCount: number;
 };
 
+/**
+ * The Place's canonical ISO 3166-1/3166-2 subdivision identity ("SA-01"), or
+ * `null` when the row names no subdivision this product can TRUST.
+ *
+ * Corrected 2026-10-03. This used to be `${country}|${region.toLowerCase()}`,
+ * which quietly treated any string in `places.region_name` as a geographic
+ * boundary. `region_name` is free text in the database, so two spellings of one
+ * real region became two different localities: the live dataset carries
+ * "Riyadh" on 25 Places and "Ar Riyad" on 10 more, all in the same city, and
+ * only the first spelling is the ISO subdivision (the dataset spells the
+ * Riyadh Region "Ar Riyad"; "Riyadh" is the city).
+ *
+ * The key now comes from `canonicalPlaceSubdivisionKey`, an EXACT lookup in the
+ * trusted `country-region-data` vocabulary that `lib/geo/countries.ts` already
+ * validates every Place write against — so two Places of one subdivision always
+ * share a key, an unverifiable value yields `null` instead of a fake boundary,
+ * and no alias or fuzzy matching is introduced.
+ */
 function localityKey(place: LocalAreaPlace): string | null {
-  const country = typeof place.countryCode === "string" ? place.countryCode.trim().toUpperCase() : "";
-  const region = typeof place.regionName === "string" ? place.regionName.trim() : "";
-  if (!country || !region) return null;
-  return `${country}|${region.toLocaleLowerCase("id-ID")}`;
+  return canonicalPlaceSubdivisionKey(place.countryCode, place.regionName);
 }
 
 /**
@@ -473,12 +492,22 @@ function compactCluster<T extends LocalAreaPlace>(
  * here and no fallback to the whole dataset: the area is bounded by geography.
  *
  * Order of preference:
- *  1. a trusted boundary — the anchor Place's own canonical country +
- *     subdivision (ISO 3166-1 / 3166-2). Every Place of that subdivision is in
- *     the area, which is what "cover the local area as completely as possible"
- *     means for the real data;
+ *  1. a trusted boundary — the anchor Place's own canonical subdivision
+ *     (ISO 3166-1 / 3166-2, resolved through `canonicalPlaceSubdivisionKey`).
+ *     Every Place of that subdivision is in the area, which is what "cover the
+ *     local area as completely as possible" means for the real data;
  *  2. the adaptive separation rule, for an anchor that carries no subdivision
  *     (an older row, or a Place whose geography was never filled in).
+ *
+ * A THIRD CASE, added 2026-10-03: a candidate whose own `region_name` is not a
+ * subdivision of its country (a bare city name such as "Riyadh") makes no
+ * geographic claim the product can verify, so it must not be excluded from an
+ * area anchored inside a real subdivision — that is exactly what silently
+ * emptied the "Tempat Pilihan" context in Riyadh. Such a candidate is admitted
+ * only through rule 2, the same adaptive proximity rule that has always applied
+ * to an anchor without geography, so it can still never widen the area beyond a
+ * genuinely compact cluster around the origin. It also never grants a boundary:
+ * a candidate WITH a verified subdivision is governed by rule 1 alone.
  *
  * Fail-closed everywhere: a non-finite origin, a Place without canonical
  * coordinates, or an empty candidate list yields `basis: "none"` and an EMPTY
@@ -508,9 +537,52 @@ export function resolveLocalAreaCoverage<T extends LocalAreaPlace>(input: {
   const anchor = ordered[0].place;
   const key = localityKey(anchor);
 
-  const selected = key
-    ? candidates.filter((candidate) => localityKey(candidate.place) === key).map((c) => c.place)
-    : compactCluster(origin, ordered);
+  // `ordered` is already sorted by distance, and `filter` preserves that order,
+  // so both branches below hand `compactCluster` a correctly ordered list.
+  let selected: T[];
+  if (!key) {
+    selected = compactCluster(origin, ordered);
+  } else {
+    const subdivision = candidates.filter((candidate) => localityKey(candidate.place) === key);
+    const unverified = ordered.filter((candidate) => localityKey(candidate.place) === null);
+
+    // THE REACH OF THE VERIFIED SUBDIVISION — the furthest the anchor's own
+    // trusted boundary actually extends, measured from the ORIGIN. This is the
+    // bound that keeps the branch above honest, and it is derived entirely from
+    // real Places; no kilometre figure is invented here.
+    //
+    // It is needed because `compactCluster` decides on a RATIO between
+    // successive distances, which is scale-free: a set of Places 380 km away
+    // but all roughly the same distance apart never trips the 3x separation, so
+    // admitting unverifiable Places by that rule alone pulled the whole Eastern
+    // Province curated set into a Riyadh frame. With the reach, the real Riyadh
+    // Places (2.8-13.7 km) are admitted and the far outliers are not, while a
+    // Place carrying a genuine OTHER subdivision is still refused outright by
+    // the filter above — a verified boundary always wins.
+    //
+    // A subdivision with a single Place has NO measurable spread, so there is
+    // nothing to bound against; that case keeps the pre-existing proximity rule
+    // alone (exactly the branch above), rather than shrinking the area to the
+    // anchor and silently discarding every nearby Place.
+    const reach =
+      subdivision.length >= 2
+        ? Math.max(...subdivision.map((candidate) => distanceMeters(origin, candidate)))
+        : Number.POSITIVE_INFINITY;
+
+    const reached = new Map(
+      ordered.map((candidate) => [
+        candidate.place.id,
+        distanceMeters(origin, { lat: candidate.lat, lng: candidate.lng }),
+      ]),
+    );
+
+    selected = [
+      ...subdivision.map((candidate) => candidate.place),
+      // Unverifiable geography (see the note above): reachable only by
+      // proximity within that reach, never by a boundary we cannot substantiate.
+      ...compactCluster(origin, unverified).filter((place) => (reached.get(place.id) ?? Infinity) <= reach),
+    ];
+  }
   const selectedIds = new Set(selected.map((place) => place.id));
 
   // The answer keeps the INPUT order, so canonical Place order is untouched no
