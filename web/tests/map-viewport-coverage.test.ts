@@ -198,7 +198,7 @@ test("5. Tempat Pilihan comes only from canonical is_curated and follows the vie
   // the non-curated remainder, never Discovery and never a radius. The slice
   // ends before the CAMERA dataset, which is a separate rule (the viewer's
   // local area, correction 2026-10-03) and legitimately reads the real fix.
-  const coverage = pageCode.slice(pageCode.indexOf("const curatedCoverageSource"), pageCode.indexOf("const cameraFitPlaces"));
+  const coverage = pageCode.slice(pageCode.indexOf("const curatedCoverageSource"), pageCode.indexOf("const selectedLocalArea"));
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
   assert.match(coverage, /return narrowToViewport\(curatedCoverageSource, coverageViewport\);/);
   assert.doesNotMatch(coverage, /distanceMeters|viewerPosition/);
@@ -234,7 +234,7 @@ test("7. Discovery and Tempat Pilihan keep the approved overlap behaviour", () =
   // The header counter stays per layer.
   assert.match(
     pageCode,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}`/,
+    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/,
   );
 });
 
@@ -333,9 +333,10 @@ test("11. The Current Location marker renders in its own pane above every Place 
   // Every user layer (accuracy circle, pin, core dot) is drawn in that pane.
   const userLayers = mapCode.slice(mapCode.indexOf("const accuracy = viewerPosition.accuracy"), mapCode.indexOf("}, [ready, viewerPosition, triggerLocatePulse]);"));
   assert.equal((userLayers.match(/pane: USER_PANE/g) ?? []).length, 3);
-  // Place markers keep their own pane and their z-priority untouched.
+  // Place markers keep their own pane, and their z-priority is the explicit
+  // ladder: LIVE chip 1000 · SELECTED (curated) 900 · ordinary 500.
   assert.equal(mapCode.includes("pane: USER_PANE"), true);
-  assert.match(mapCode, /zIndexOffset: live \? 0 : 500/);
+  assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
   assert.match(mapCode, /zIndexOffset: 1000/);
 });
 
@@ -356,11 +357,13 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // outside the map is untouched.
   assert.match(homeMap, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
   // The informational overlays never block a gesture either. The duplicate
-  // map-area filter chip was removed (2026-10-03), so there are three.
+  // map-area filter chip (2026-10-03) and the floating coverage box
+  // (consolidated into the results panel, 2026-10-03) are both gone, so two
+  // click-through overlays remain: the empty state and the scale.
   assert.equal(
     (pageCode.match(/pointer-events-none absolute/g) ?? []).length,
-    3,
-    "empty state, coverage box, and scale are all click-through",
+    2,
+    "empty state and scale are both click-through",
   );
   // Real Leaflet zoom control, with accessible names, plus the two locate
   // controls that share ONE handler.

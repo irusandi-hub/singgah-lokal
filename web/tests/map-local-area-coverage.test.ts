@@ -152,7 +152,7 @@ test("AC 1: Lokasi Saya can no longer frame a far-away global Place with the loc
   }
   // And the component really feeds the camera THAT set, resolved around the
   // active center (the searched city, else the real fix).
-  assert.match(pageCode, /resolveLocalAreaCoverage\(\{\s*\n\s*origin: searchCenter \?\? viewerPosition,\s*\n\s*places: candidates,/);
+  assert.match(pageCode, /origin: searchCenter \?\? viewerPosition,\s*\n\s*places: toCameraCandidates\(visiblePlaces\),/);
   assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current\)/);
 });
 
@@ -282,17 +282,20 @@ test("AC 3: a Place 25 km away is framed, a Place 400 km away is not", () => {
 test("AC 4: the bounds dataset is still un-narrowed by the viewport", () => {
   // The local-area resolver reads the CONTENT filter one step before the
   // viewport gate, so a Place outside the current frame is still inside the
-  // area. Since the 2026-10-03 correction #2 the curated camera pool is the
-  // SELECTED Places only (`visiblePlaces` already resolves curated membership);
-  // the ordinary remainder stays a marker-layer decision.
-  assert.match(pageCode, /const source = visiblePlaces;/);
+  // area. The curated camera pool is the SELECTED local area PLUS nearby
+  // camera context (bug fix 2026-10-03); the context is resolved from the
+  // ordinary, un-narrowed candidate set anchored on the SELECTED anchor, so it
+  // can never leave the selection's own subdivision.
+  assert.match(pageCode, /places: toCameraCandidates\(visiblePlaces\),/);
   const fitPool = pageCode.slice(
     pageCode.indexOf("const cameraFitPlaces"),
     pageCode.indexOf("const searchFitPlaces"),
   );
-  // The ordinary remainder is still a MARKER-layer decision (`mapPlaces`, §15
-  // item 2) — it must not appear in the CAMERA pool.
-  assert.doesNotMatch(fitPool, /const source = curatedOnly \?|curatedCoverageSource/);
+  // The context is drawn from the ordinary candidates and anchored on the
+  // SELECTED anchor Place's own coordinate — never on the device fix.
+  assert.match(fitPool, /const anchor = visiblePlaces\.find\(\(place\) => place\.id === selectedLocalArea\.anchorId\);/);
+  assert.match(fitPool, /origin: \{ lat: anchor\.latitude, lng: anchor\.longitude \},/);
+  assert.match(fitPool, /places: toCameraCandidates\(curatedCoverageSource\),/);
   assert.match(pageCode, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
   const fitDataset = pageCode.slice(
     pageCode.indexOf("const cameraFitPlaces"),
@@ -420,7 +423,7 @@ test("AC 1: \"My Location\" refits the local distribution instead of recentring 
   assert.equal((mapCode.match(/const fitCamera = useCallback/g) ?? []).length, 1);
   // The page hands it the local-area dataset under its own prop and trigger.
   assert.match(pageCode, /locateFitPlaces=\{locateFitPlaces\}/);
-  assert.match(pageCode, /const locateFitPlaces = cameraFitPlaces;/);
+  assert.match(pageCode, /const locateFitPlaces = selectedFitPlaces;/);
   assert.match(mapCode, /locateFitPlaces = \[\],/);
 });
 
@@ -529,15 +532,22 @@ test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the 
     pageCode.indexOf("const searchFitPlaces"),
   );
   // The camera pool is the SELECTED places `visiblePlaces` resolves from the
-  // canonical curated ids — the ordinary remainder is a marker-layer rule.
-  assert.match(fitPool, /const source = visiblePlaces;/);
-  assert.doesNotMatch(fitPool, /curatedCoverageSource/);
+  // canonical curated ids, PLUS nearby ordinary Places as frame CONTEXT.
+  //
+  // REASON FOR THE CHANGE (bug fix, 2026-10-03): "curated Places only" was
+  // what produced the over-tight frame — the fit framed exactly the pins that
+  // were already on screen, so one curated Place collapsed to a single-point
+  // frame with no surrounding context at all. Context is CAMERA geometry only:
+  // it is resolved outside every result row, and it can never make a Place
+  // curated, eligible, ranked, or counted.
+  assert.match(fitPool, /places: toCameraCandidates\(curatedCoverageSource\),/);
+  assert.match(fitPool, /origin: \{ lat: anchor\.latitude, lng: anchor\.longitude \},/);
   assert.match(
     pageCode,
     /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
   );
-  // Eligible-but-not-curated Places can therefore never steer that camera,
-  // while the curated MAP still shows both layers.
+  // The curated MAP still shows both layers, and curated MEMBERSHIP still
+  // comes only from the canonical curated ids.
   assert.match(pageCode, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
   // Two selected Places ~25 km apart: the fit must span both, which no 10 km
   // circle could ever contain.
@@ -574,7 +584,7 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // NOTHING important was cut: the title, the count, the "Ke hasil" link, the
   // category labels, both strips, and both carousel frames are all still there.
   assert.match(pageCode, /id="place-results-heading"/);
-  assert.match(pageCode, /\{curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`/);
+  assert.match(pageCode, /\{curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`/);
   assert.match(pageCode, /Ke hasil <span aria-hidden>›<\/span>/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*\n\s*<\/p>/);
   assert.match(pageCode, />\s*Discovery Place\s*\n\s*<\/p>/);
@@ -600,9 +610,13 @@ test("AC 9: the caption names a radius only while a radius preset owns the frame
   // The neutral wording: no distance, no radius, no invented state.
   assert.equal(AREA_COVERAGE_CAPTION, "Menampilkan tempat di area peta");
   assert.doesNotMatch(AREA_COVERAGE_CAPTION, /km|m\b|radius/);
-  assert.match(pageCode, /const coverageCaption = describeCoverageCaption\(\{/);
+  assert.match(pageCode, /const coverageScope = describeCoverageScope\(\{/);
   assert.match(pageCode, /hasCenter: hasActiveCenter,/);
-  assert.match(pageCode, /text-brand-ink">\{coverageCaption\}<\/p>/);
+  // The scope is rendered on the ONE consolidated information line, together
+  // with the count and the origin (bug fix, 2026-10-03) — the floating
+  // coverage box that used to restate it is gone.
+  assert.match(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.doesNotMatch(pageCode, /bottom-9 left-4 z-\[1100\]/);
   // Which rule owns the frame is set by the SAME handlers that move the camera —
   // never inferred afterwards, and never from the radius constant.
   const locatePress = pageCode.slice(
@@ -928,6 +942,6 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   // Nothing was hidden, collapsed, or made scrollable: the panel still renders
   // both strips and the same count line.
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.match(pageCode, /curatedListed\.length\} tempat pilihan \$\{nearOrigin\}/);
-  assert.match(pageCode, /discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}/);
+  assert.match(pageCode, /curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.match(pageCode, /discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}/);
 });

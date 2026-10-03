@@ -123,8 +123,9 @@ test("R-A: the hardcoded caption can never return", () => {
   // The caption element renders the RESOLVED value, which is the radius
   // caption while a distance preset owns the frame and the neutral area
   // caption in the local-area modes ("Tempat Pilihan", "Lokasi Saya").
-  assert.match(discoveryCode, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{coverageCaption\}<\/p>/);
-  assert.match(discoveryCode, /const coverageCaption = describeCoverageCaption\(\{/);
+  // The consolidated information line renders the RESOLVED origin and scope.
+  assert.match(discoveryCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.match(discoveryCode, /const coverageScope = describeCoverageScope\(\{/);
   // And the ORIGIN half: with no center there is nothing to measure a radius
   // from, so the caption resolves to the always-true area caption instead of
   // claiming "dari lokasi Anda" about a frame the preset never framed.
@@ -168,7 +169,9 @@ test("R-B: the overlay stays clear of the coverage box and the Leaflet controls"
   // Still strictly above the Leaflet z-index ceiling, and above the coverage
   // box (bottom-9) so the two never stack on top of each other.
   assert.match(discoveryCode, /bottom-24 z-\[1100\]/);
-  assert.match(discoveryCode, /absolute bottom-9 left-4 z-\[1100\]/);
+  // The redundant floating coverage box is gone: its information is now on the
+  // consolidated panel line, so nothing floats over the map's bottom-left.
+  assert.doesNotMatch(discoveryCode, /bottom-9 left-4 z-\[1100\]/);
   // Click-through: the overlay can never swallow a pan or a pinch.
   assert.match(discoveryCode, /pointer-events-none absolute inset-x-0 bottom-24/);
 });

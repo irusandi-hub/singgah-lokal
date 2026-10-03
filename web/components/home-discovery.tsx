@@ -19,7 +19,7 @@ import {
   buildDirectionsUrl,
   clearCitySearch,
   distanceMeters,
-  describeCoverageCaption,
+  describeCoverageScope,
   describeNearOrigin,
   formatDistance,
   isSameViewport,
@@ -35,6 +35,55 @@ import {
   type MapScale,
   type MapViewport,
 } from "@/lib/live/ui";
+
+/**
+ * CANONICAL CAMERA CANDIDATE — one canonical Place projected to exactly what
+ * the camera rules are allowed to read: its id, name, REAL coordinates, and its
+ * canonical ISO country/subdivision.
+ *
+ * It is display geometry only. `null` when the Place has no real coordinates,
+ * because a Place without them can never define or anchor a frame (fail-closed,
+ * AGENTS.md: never fabricate a position). Nothing here reads eligibility,
+ * ranking, or membership.
+ */
+function toCameraCandidate(place: Place): {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  countryCode: string | null;
+  regionName: string | null;
+} | null {
+  if (place.latitude === null || place.longitude === null) return null;
+  return {
+    id: place.id,
+    name: place.name,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    countryCode: place.countryCode,
+    regionName: place.regionName,
+  };
+}
+
+/** Deduplicated candidate list — a Place can only ever appear once. */
+function toCameraCandidates(source: readonly Place[]): NonNullable<ReturnType<typeof toCameraCandidate>>[] {
+  const seen = new Set<string>();
+  const result: NonNullable<ReturnType<typeof toCameraCandidate>>[] = [];
+  for (const place of source) {
+    if (seen.has(place.id)) continue;
+    seen.add(place.id);
+    const candidate = toCameraCandidate(place);
+    if (candidate) result.push(candidate);
+  }
+  return result;
+}
+
+/** The geometry-only shape the map consumes. */
+function toHomeMapPlaces(
+  source: readonly NonNullable<ReturnType<typeof toCameraCandidate>>[],
+): HomeMapPlace[] {
+  return source.map(({ id, name, latitude, longitude }) => ({ id, name, latitude, longitude }));
+}
 
 // Home discovery (Map-first) — rendered by the / route (app/page.tsx,
 // force-dynamic server wrapper). It must stay a CLIENT component here so the
@@ -673,34 +722,77 @@ export default function HomeDiscovery({
   // canonical curated ids, no Place is added to or removed from any row by
   // this value, and it is never used as a filter. Coordinates are canonical
   // only — a Place without them is simply absent (no invented position).
+  const selectedLocalArea = useMemo(
+    () =>
+      resolveLocalAreaCoverage({
+        // The local-area origin is read from the SAME two state values the
+        // active center resolves from (searched city first, then the real
+        // fix), so the memo depends on stable state identities rather than on
+        // a derived object — and a stale fix can never override a live search.
+        origin: searchCenter ?? viewerPosition,
+        places: toCameraCandidates(visiblePlaces),
+      }),
+    [visiblePlaces, searchCenter, viewerPosition],
+  );
+
+  // THE SELECTED DISTRIBUTION — the local area of the SELECTED Places, i.e.
+  // the primary camera focus of the "Tempat Pilihan" choice. Unchanged from
+  // the §18 rule: canonical membership only, coordinates only, never the
+  // viewport, never a fallback to the whole dataset.
+  const selectedFitPlaces = useMemo(() => toHomeMapPlaces(selectedLocalArea.places), [selectedLocalArea]);
+
+  // CURATED CAMERA POOL — SELECTED PLACES + NEARBY CONTEXT (bug fix,
+  // 2026-10-03).
+  //
+  // ROOT CAUSE of the over-tight frame: since §18 the curated camera pool was
+  // `visiblePlaces` alone, which in that mode is the curated set — so the fit
+  // framed exactly the pins that were already on screen and nothing around
+  // them. One curated Place produced a single-point frame at
+  // FIT_SINGLE_PLACE_ZOOM with no neighbourhood at all, which reads as a broken
+  // zoom rather than as "here is your selection".
+  //
+  // The fix keeps every approved rule and only adds CONTEXT:
+  //   · the SELECTED local area stays the primary focus and is never dropped;
+  //   · the context is the ordinary, coordinate-valid Places of the SAME local
+  //     area — resolved by re-running `resolveLocalAreaCoverage` ANCHORED ON
+  //     THE SELECTED ANCHOR PLACE'S OWN COORDINATE, so the canonical ISO
+  //     country/subdivision rule (or the scale-free proximity rule) decides it
+  //     exactly as it does everywhere else;
+  //   · anchoring on the selected anchor — never on the device fix — is what
+  //     keeps the frame LOCAL: the context is drawn from the selection's own
+  //     subdivision, so a distant Place (or a user standing on another
+  //     continent) can never expand it to a regional or worldwide frame. It is
+  //     also why "Tempat Pilihan" is no longer framed by the device alone;
+  //   · context is CAMERA geometry only. It never enters the curated list, the
+  //     curated count, curated membership, Discovery, or any row — those keep
+  //     reading the canonical `places.is_curated` ids alone;
+  //   · fail-closed: an empty local area, or a selected anchor without real
+  //     coordinates, frames the SELECTED set alone (or nothing at all), and no
+  //     coordinate is ever invented or defaulted.
+  //
+  // It still reads NO viewport state, so camera and viewport filtering remain
+  // independent, and it is still keyed on `fitNonce` alone, so marker refreshes,
+  // polls, and viewport reports cannot re-frame it.
   const cameraFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    const source = visiblePlaces;
+    const selected = selectedLocalArea.places;
+    if (!curatedOnly || selected.length === 0) return toHomeMapPlaces(selected);
+    const anchor = visiblePlaces.find((place) => place.id === selectedLocalArea.anchorId);
+    if (!anchor || anchor.latitude === null || anchor.longitude === null) {
+      return toHomeMapPlaces(selected);
+    }
+    const context = resolveLocalAreaCoverage({
+      origin: { lat: anchor.latitude, lng: anchor.longitude },
+      places: toCameraCandidates(curatedCoverageSource),
+    }).places;
     const seen = new Set<string>();
-    const candidates = source.flatMap((place) => {
-      if (seen.has(place.id)) return [];
-      seen.add(place.id);
-      if (place.latitude === null || place.longitude === null) return [];
-      return [
-        {
-          id: place.id,
-          name: place.name,
-          latitude: place.latitude,
-          longitude: place.longitude,
-          // Canonical geography, read for the local-area decision only — it
-          // never changes membership, eligibility, or any row.
-          countryCode: place.countryCode,
-          regionName: place.regionName,
-        },
-      ];
-    });
-    // The local-area origin is read from the SAME two state values the active
-    // center resolves from (searched city first, then the real fix), so the
-    // memo depends on stable state identities rather than on a derived object.
-    return resolveLocalAreaCoverage({
-    origin: searchCenter ?? viewerPosition,
-    places: candidates,
-  }).places.map(({ id, name, latitude, longitude }) => ({ id, name, latitude, longitude }));
-  }, [visiblePlaces, searchCenter, viewerPosition]);
+    return toHomeMapPlaces(
+      [...selected, ...context].filter((place) => {
+        if (seen.has(place.id)) return false;
+        seen.add(place.id);
+        return true;
+      }),
+    );
+  }, [curatedOnly, selectedLocalArea, visiblePlaces, curatedCoverageSource]);
 
   // "LOKASI SAYA" BOUNDS DATASET — the SAME local-area set, handed to the map
   // under its own prop and its own trigger (correction 2026-10-03).
@@ -710,7 +802,7 @@ export default function HomeDiscovery({
   // simply fire from two different explicit actions. The origin is the REAL
   // fix (not the searched city): pressing "Lokasi Saya" clears the search first,
   // so `searchCenter` is already null when this recomputes.
-  const locateFitPlaces = cameraFitPlaces;
+  const locateFitPlaces = selectedFitPlaces;
 
   // CAMERA BOUNDS DATASET — LOCATION SEARCH AUTO-FIT (product decision,
   // 2026-10-03). The relevant Places for a searched region are the canonical
@@ -786,10 +878,10 @@ export default function HomeDiscovery({
     discoveryCount: discoveryRowPlaces.length,
   });
 
-  // MOCKUP §8/§9: the coverage box and the scale label mirror the ACTIVE
-  // camera radius so the copy stays truthful — the exact preset that owns
-  // the camera (1 km / 5 km / 10 km; "Tempat Pilihan" and "Lokasi Saya" =
-  // 10 km). Display only; never an invented state.
+  // MOCKUP §8/§9: the consolidated information line names the ACTIVE camera
+  // scope so the copy stays truthful — the exact preset that owns the camera
+  // (1 km / 5 km / 10 km). "Tempat Pilihan" and "Lokasi Saya" frame the local
+  // area, so they name no radius. Display only; never an invented state.
   const activeRadiusMeters = curatedOnly
     ? CURATED_CAMERA_RADIUS_M
     : CAMERA_PRESET_RADIUS_M[distanceFilter];
@@ -797,34 +889,30 @@ export default function HomeDiscovery({
     activeRadiusMeters >= 1000 ? `${activeRadiusMeters / 1000} km` : `${activeRadiusMeters} m`;
   // Whether there is an ORIGIN to measure from at all: the searched city, else
   // the real device fix, else nothing (geolocation denied and nothing
-  // searched). Both the coverage caption and the results count below read it,
-  // so neither can claim a radius or an origin the camera/rows never used.
+  // searched). The scope and the results count below both read it, so neither
+  // can claim a radius or an origin the camera/rows never used.
   const hasActiveCenter = activeCenter !== null;
-  // COVERAGE CAPTION (bug fix, 2026-10-03): a radius may only be named while a
+  // SCOPE FRAGMENT (bug fix, 2026-10-03): a radius may only be named while a
   // radius preset actually owns the frame. "Tempat Pilihan" and "Lokasi Saya"
   // frame the viewer's LOCAL AREA, so the old fixed "10 km" wording claimed a
-  // radius the camera was not using; those modes now state what is true, with
-  // no distance and no radius at all.
+  // radius the camera was not using; those modes now state the scope without
+  // any distance at all.
   //
-  // ROOT CAUSE FIXED HERE (bug fix, 2026-10-03): `hasActiveCenter` is the
-  // second half of that rule. With geolocation denied and nothing searched,
-  // `activeCenter` is null, so the distance preset has NO anchor at all and the
-  // camera never applied it — the map simply kept the neutral world overview,
-  // while this box went on claiming "dari lokasi Anda" about a world-scale
-  // frame. The same truthfulness rule now covers the origin, not only the
-  // radius: no origin, no radius claim.
-  // The caption resolves through the ONE helper that owns both halves of the
-  // rule: the radius is named only when a distance-tab preset owns the frame
-  // AND an origin exists to measure it from.
-  const coverageCaption = describeCoverageCaption({
+  // `hasActiveCenter` is the second half of that rule. With geolocation denied
+  // and nothing searched, `activeCenter` is null, so the distance preset has NO
+  // anchor at all and the camera never applied it — the map simply kept the
+  // neutral world overview. No origin, no radius claim.
+  //
+  // It is a FRAGMENT, not a sentence: it carries no origin and no count, so
+  // the consolidated line states the place name and the number exactly once and
+  // cannot contradict itself.
+  const coverageScope = describeCoverageScope({
     radiusLabel: activeRadiusLabel,
-    mode: activeSearch.mode,
-    placeName: searchPlaceName,
     coverage: cameraCoverage,
     hasCenter: hasActiveCenter,
   });
   // Results-count origin fragment (bug fix 2026-10-03). It resolves from the
-  // SAME active center as the map caption above it, so the results panel can
+  // SAME active center as the scope above it, so the results panel can
   // no longer say "di sekitar Anda" about a count that actually came from a
   // searched city. The device wording is the Master/MOCKUP §11 copy and is
   // preserved verbatim.
@@ -1355,13 +1443,13 @@ export default function HomeDiscovery({
                 · Re-center arrow        top 190px → ends 234px
                 · "Lokasi Saya" control  top 240px → ends ~281px
                 · Leaflet +/- stack      top 290px → ends ~354px
-                · coverage box / scale   bottom 36px → start ~366px
+                · scale chip             bottom 36px → start ~366px
               At the previous min-height of 240px the section ended ABOVE the
               bottom of the zoom control, so on an ordinary phone the +/- stack
               was cut off by the section's own `overflow-hidden` — essential map
               context removed by the layout itself, and the map/results
               relationship made unclear. The floor is now 440px, which fits the
-              entire ladder plus the coverage box at every supported height
+              entire ladder plus the scale chip at every supported height
               (360 / 390 / 430 / 1280), and 42vh / 46vh keeps the map the
               dominant field on taller screens. Nothing was cut, hidden, or
               redesigned: same sections, same chrome, same cards — the map
@@ -1402,17 +1490,17 @@ export default function HomeDiscovery({
           </div>
         )}
 
-        {/* MOCKUP §8: coverage box, bottom-left of the map — white, rounded,
-            compact, with a target icon. The caption states what the camera is
-            ACTUALLY doing: while a distance tab preset owns the frame it names
-            that radius and the origin it is measured from (the searched city or
-            the user's own location), and in the LOCAL-AREA modes ("Tempat
-            Pilihan", "Lokasi Saya") it names no radius at all — the retired
-            fixed "10 km" wording claimed a radius the camera was not using. */}
-        <div className="pointer-events-none absolute bottom-9 left-4 z-[1100] flex max-w-[62%] items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-md ring-1 ring-black/10">
-          <span aria-hidden className="shrink-0 text-sm leading-none text-brand-ink">⌖</span>
-          <p className="text-[11px] font-semibold leading-4 text-brand-ink">{coverageCaption}</p>
-        </div>
+        {/* CONSOLIDATED INFORMATION AREA (bug fix, 2026-10-03).
+            The floating coverage box that used to sit here is GONE. It restated
+            the same geographic fact the results panel one screen lower already
+            gave — the origin and the scope — in two different shapes, and it
+            permanently covered the bottom-left of the map. Both facts now live
+            on ONE compact line in the results panel header (count · origin ·
+            scope), so the map surface is free, the origin is stated exactly
+            once, and the two can never contradict each other.
+            The measured SCALE BAR below is deliberately untouched: it is map
+            chrome describing the visible map, not Home result context, and it
+            stays bottom-right where it never overlapped anything. */}
 
         {/* MOCKUP §9: scale, bottom-right of the map — a REAL scale bar (bug
             fix, 2026-10-03). It used to print the active camera RADIUS as if
@@ -1554,8 +1642,8 @@ export default function HomeDiscovery({
                     ORIGIN fragment follows the active search center (bug fix
                     2026-10-03) instead of always claiming "di sekitar Anda". */}
                 {curatedOnly
-                  ? `${curatedListed.length} tempat pilihan ${nearOrigin}`
-                  : `${discoveryRowPlaces.length} tempat ${nearOrigin}`}
+                  ? `${curatedListed.length} tempat pilihan ${nearOrigin} · ${coverageScope}`
+                  : `${discoveryRowPlaces.length} tempat ${nearOrigin} · ${coverageScope}`}
               </p>
             </div>
             {/* "Ke hasil" (bug fix 2026-10-01) — non-inventive affordance:
