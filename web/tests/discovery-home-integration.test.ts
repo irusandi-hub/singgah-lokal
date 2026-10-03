@@ -449,8 +449,10 @@ test("P0: the curated MAP shows curated + ordinary Places in coverage, the curat
   // bounded by the 10 km coverage around the REAL fix.
   // RE-ORDERED (product decision, 2026-10-03): the non-curated remainder is
   // named ONCE as `curatedCoverageSource` (the un-narrowed candidate set) and
-  // the marker coverage narrows that, so the slice starts there.
-  const coverage = code.slice(code.indexOf("const curatedCoverageSource"), code.indexOf("const mapPlaces"));
+  // the marker coverage narrows that, so the slice starts there. It ends at
+  // the CAMERA dataset, which is a separate rule (the viewer's local area,
+  // 2026-10-03) and legitimately reads the real fix.
+  const coverage = code.slice(code.indexOf("const curatedCoverageSource"), code.indexOf("const cameraFitPlaces"));
   assert.match(coverage, /if \(!curatedOnly\) return \[\];/);
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
   // SUPERSEDED (product decision, 2026-10-01): the 10 km coverage radius and

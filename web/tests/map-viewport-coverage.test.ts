@@ -195,8 +195,10 @@ test("5. Tempat Pilihan comes only from canonical is_curated and follows the vie
   // RE-ORDERED (product decision, 2026-10-03): the non-curated remainder is
   // now named ONCE in `curatedCoverageSource` (the un-narrowed candidate set)
   // and the marker set narrows that — so the coverage rule is provably still
-  // the non-curated remainder, never Discovery and never a radius.
-  const coverage = pageCode.slice(pageCode.indexOf("const curatedCoverageSource"), pageCode.indexOf("const mapPlaces"));
+  // the non-curated remainder, never Discovery and never a radius. The slice
+  // ends before the CAMERA dataset, which is a separate rule (the viewer's
+  // local area, correction 2026-10-03) and legitimately reads the real fix.
+  const coverage = pageCode.slice(pageCode.indexOf("const curatedCoverageSource"), pageCode.indexOf("const cameraFitPlaces"));
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
   assert.match(coverage, /return narrowToViewport\(curatedCoverageSource, coverageViewport\);/);
   assert.doesNotMatch(coverage, /distanceMeters|viewerPosition/);
@@ -283,20 +285,28 @@ test("9. A Place without canonical coordinates is never placed, marked, or liste
 // 10. Lokasi Saya: real GPS, no forced zoom-out, no camera move on failure.
 // ---------------------------------------------------------------------------
 
-test("10. Lokasi Saya centers the real fix without widening the frame", () => {
+test("10. Lokasi Saya frames the viewer's local Place distribution around the real fix", () => {
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
   );
-  // The center is the REAL fix and the zoom is the CURRENT one (only raised to
-  // a close floor) — never derived from a radius preset.
-  assert.match(locateEffect, /const center: \[number, number\] = \[viewerPosition\.lat, viewerPosition\.lng\]/);
-  assert.match(locateEffect, /const targetZoom = Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
-  assert.doesNotMatch(locateEffect, /radiusZoom|fitBounds/);
+  // The frame is built from the eligible LOCAL places plus the REAL fix — never
+  // from a radius preset, never from a bare setView at the previous zoom, and
+  // never from the global dataset.
+  assert.match(locateEffect, /const localPlaces = locateFitPlacesRef\.current;/);
+  assert.match(locateEffect, /const candidates: HomeMapPlace\[\] =\s*localPlaces\.length > 0/);
+  assert.match(locateEffect, /id: VIEWER_FIT_POINT_ID,/);
+  assert.match(locateEffect, /const applied = await fitCamera\(map, candidates, LOCATE_FIT_MAX_ZOOM\);/);
+  // With NO eligible local Place the camera focuses the user's own coordinate
+  // at the close floor — and stops there.
+  assert.match(locateEffect, /if \(cancelled \|\| mapRef\.current !== map \|\| applied\) return;/);
+  assert.match(locateEffect, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
+  assert.doesNotMatch(locateEffect, /radiusZoom/);
+  assert.doesNotMatch(locateEffect, /CAMERA_PRESET_RADIUS_M|CURATED_CAMERA_RADIUS_M/);
   // It never reads or mutates the selected tab, and never invents a position.
   assert.doesNotMatch(locateEffect, /setCuratedOnly|setDistanceFilter|cameraRadiusMeters/);
   const floor = Number(/const LOCATE_MIN_ZOOM = (\d+)/.exec(homeMap)?.[1] ?? "0");
-  assert.ok(floor >= 14, "the locate focus must be a CLOSE zoom");
+  assert.ok(floor >= 14, "the locate fallback focus must be a CLOSE zoom");
   // Failure handling: a denied/timeout fix writes no position and moves no
   // camera; the request simply stays pending.
   assert.match(pageCode, /\(\) => undefined,\s*\{\s*timeout: 8000\s*\}/);

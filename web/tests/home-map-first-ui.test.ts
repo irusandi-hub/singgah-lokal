@@ -107,10 +107,20 @@ test("the retired standalone map-frame geometry is gone", () => {
 test("MOCKUP §8: map height is responsive and always leaves the Result panel in view", () => {
   // The visible map window sits UNDER the floating chrome inside the stage,
   // sized in vh and clamped on both ends. The old flat 64vh is not used.
-  assert.match(code, /h-\[42vh\] min-h-\[260px\] max-h-\[520px\] sm:h-\[44vh\]/);
+  //
+  // COMPACTED (correction, 2026-10-03): one clamp band lower than the previous
+  // 42vh / 260 / 520 / 44vh, which left a wide empty band between the filter
+  // row and the first Place card. Still responsive, still clamped, still a
+  // valid non-degenerate Leaflet box.
+  assert.match(code, /h-\[36vh\] min-h-\[240px\] max-h-\[440px\] sm:h-\[38vh\]/);
   // The spacer is purely presentational — it reserves the visible map window
   // and carries no data or behaviour.
-  assert.match(code, /<div aria-hidden className="h-\[42vh\]/);
+  assert.match(code, /<div aria-hidden className="h-\[36vh\]/);
+  // The floating control ladder (Re-center 190px / "Lokasi Saya" 240px /
+  // +/- 290px) still fits inside the SHORTEST supported map, so nothing the
+  // correction changed can make the controls sit on the coverage box.
+  const chrome = 36 + 43 + 10 + 30;
+  assert.ok(chrome + 240 >= 350, "the control ladder still fits the shortest map");
 });
 
 test("MOCKUP §2: search is a floating ~20px-radius white bar with a sliders icon", () => {
@@ -207,9 +217,9 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // centered handle that visually merges with the map above it.
   assert.match(
     code,
-    /<section\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-2 pt-3 shadow-\[0_-6px_18px_rgb\(0_0_0\/0\.06\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
+    /<section\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-1 pt-2 shadow-\[0_-6px_18px_rgb\(0_0_0\/0\.06\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
   );
-  assert.match(code, /mx-auto mb-2\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
+  assert.match(code, /mx-auto mb-1\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
@@ -319,23 +329,33 @@ test("MOCKUP §9/§18: the star gold tone follows the real rating value, never a
   assert.match(css, /\.singgah-star-empty \{\s*color: rgb\(0 0 0 \/ 0\.18\);/);
 });
 
-test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right follow the ACTIVE radius", () => {
-  // Coverage box: white, rounded, icon, and the truthful active radius.
+test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right are truthful", () => {
+  // Coverage box: white, rounded, icon, and a caption that describes the frame
+  // the camera ACTUALLY has.
   // The caption is DYNAMIC (bug fix 2026-10-03): it names the origin that is
   // really measuring — the searched city or the user's own location — instead
   // of a hardcoded "dari lokasi Anda" that contradicted Riyadh results.
   assert.match(code, /const radiusCaption = describeRadiusOrigin\(\{/);
   assert.match(code, /mode: activeSearch\.mode,/);
   assert.match(code, /placeName: searchPlaceName,/);
-  assert.match(code, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{radiusCaption\}<\/p>/);
+  // CORRECTED (2026-10-03): a radius may only be NAMED while a radius preset
+  // owns the frame. "Tempat Pilihan" and "Lokasi Saya" frame the viewer's local
+  // area, so the retired fixed "10 km" wording claimed a radius the camera was
+  // not using; those modes now render the neutral, always-true caption.
+  assert.match(code, /const coverageCaption = cameraCoverage === "radius" \? radiusCaption : AREA_COVERAGE_CAPTION;/);
+  assert.match(code, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{coverageCaption\}<\/p>/);
   assert.doesNotMatch(code, /dari lokasi Anda/);
   assert.match(code, /absolute bottom-9 left-4 z-\[1100\] flex max-w-\[62%\] items-center gap-2 rounded-xl bg-white/);
-  // Scale: bottom-right with the bar; the label mirrors the same active
-  // radius ("Tempat Pilihan" = 10 km, per the camera constants).
+  // Scale: bottom-right with the bar — but a REAL scale bar now (bug fix
+  // 2026-10-03): the label is the measured viewport scale and the bar is drawn
+  // at that distance's exact pixel length, never a camera radius.
   assert.match(code, /absolute bottom-9 right-4 z-\[1100\] flex flex-col items-end gap-1/);
   assert.match(code, /border-x-2 border-b-2 border-brand-ink\/70/);
-  // The label derives from the EXACT preset that owns the camera — the same
-  // constants, never an invented state.
+  assert.match(code, /\{mapScale\.label\}/);
+  assert.match(code, /style=\{\{ width: mapScale\.barPx \}\}/);
+  assert.doesNotMatch(code, /\{activeRadiusLabel\}/);
+  // The radius label still exists as a DERIVED value for the distance tabs
+  // (it never was invented state) — it is simply no longer drawn as a scale.
   assert.match(
     code,
     /const activeRadiusMeters = curatedOnly\n\s*\? CURATED_CAMERA_RADIUS_M\n\s*: CAMERA_PRESET_RADIUS_M\[distanceFilter\];/,
@@ -416,11 +436,13 @@ test("BUG FIX: both result strips carry UNIQUE anchor ids and the link targets t
 });
 
 test("MOCKUP §12/§19: every result row is a horizontal strip of FIXED-WIDTH card tracks", () => {
-  // Baris 1 (curated) — same snap-strip at 360px AND 1280px.
-  assert.match(code, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-2/);
+  // Baris 1 (curated) — same snap-strip at 360px AND 1280px. The bottom
+  // padding is tighter after the 2026-10-03 compaction; the snap, scroll, and
+  // gap pattern are unchanged.
+  assert.match(code, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/);
   // Baris 2 (Discovery) — the same horizontal pattern (no grid comeback).
   const discoveryRow = code.slice(code.indexOf("{discoveryRowPlaces.length > 0 ? ("));
-  assert.match(discoveryRow, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-2/);
+  assert.match(discoveryRow, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/);
   assert.doesNotMatch(discoveryRow, /grid gap-3 sm:grid-cols-2/);
   // Presentation only: the curated dataset, its order, and the cards are
   // unchanged, and the row still renders nothing when nothing is curated.

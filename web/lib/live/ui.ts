@@ -372,6 +372,230 @@ export function distanceMeters(
   return Math.round(2 * R * Math.asin(Math.sqrt(a)));
 }
 
+// ---------------------------------------------------------------------------
+// LOCAL AREA COVERAGE — which Places the camera is allowed to frame (2026-10-03)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE DECISIVE SEPARATION of the adaptive local-area rule (below).
+ *
+ * A Places dataset has no boundary geometry: `country-region-data` carries ISO
+ * codes and subdivision NAMES only (no polygons), and the geocoder returns a
+ * centre point with a resolved name (no geometry either). There is therefore no
+ * trusted polygon to fit a "city" against, and inventing one — or replacing the
+ * retired 10 km cap with another fixed number in metres — is exactly what the
+ * correction forbids.
+ *
+ * So the fallback area is derived from the DATA itself: walking the candidates
+ * outward from the real fix, the local area ends at the first Place that sits
+ * at least this many times farther away than the Place before it. That is a
+ * statement about the SHAPE of the dataset (a cluster, then a jump), never
+ * about a distance in metres: it is scale-free, so it behaves identically for a
+ * neighbourhood of coffee shops and for a country-sized Place set, and it can
+ * never be satisfied by "the whole database" unless the whole database really
+ * is one continuous cluster around the user.
+ */
+export const LOCAL_AREA_SEPARATION_RATIO = 3;
+
+/** The Place facts the local-area rule is allowed to read. All optional. */
+export type LocalAreaPlace = {
+  id: string;
+  latitude: number | null;
+  longitude: number | null;
+  /** Canonical ISO 3166-1 country code (`places.country_code`) — trusted. */
+  countryCode?: string | null;
+  /** Canonical ISO 3166-2 subdivision name (`places.region_name`) — trusted. */
+  regionName?: string | null;
+};
+
+/**
+ * How the local area was determined.
+ * - `region`   — a TRUSTED geographic boundary: the anchor Place's own
+ *                canonical country + subdivision, taken from the ISO
+ *                vocabulary the server already validates every Place write
+ *                against (`lib/geo/countries.ts`). Every Place of that
+ *                subdivision is included, so coverage is as complete as the
+ *                data allows.
+ * - `proximity`— no trusted subdivision on the anchor, so the adaptive
+ *                separation rule above decided the area.
+ * - `none`     — nothing to frame: no usable origin, or no Place with
+ *                canonical coordinates. The camera MUST then stay where it is
+ *                (never fall back to the whole dataset).
+ */
+export type LocalAreaBasis = "region" | "proximity" | "none";
+
+export type LocalAreaCoverage<T extends LocalAreaPlace> = {
+  /** The selected Places, in the INPUT order — canonical order is preserved. */
+  places: T[];
+  basis: LocalAreaBasis;
+  /** The Place the area was grown from: the nearest one to the origin. */
+  anchorId: string | null;
+  /** How many Places with canonical coordinates were considered. */
+  consideredCount: number;
+};
+
+function localityKey(place: LocalAreaPlace): string | null {
+  const country = typeof place.countryCode === "string" ? place.countryCode.trim().toUpperCase() : "";
+  const region = typeof place.regionName === "string" ? place.regionName.trim() : "";
+  if (!country || !region) return null;
+  return `${country}|${region.toLocaleLowerCase("id-ID")}`;
+}
+
+/**
+ * Grow a compact cluster outward from the anchor, stopping at the first
+ * decisive separation (see `LOCAL_AREA_SEPARATION_RATIO`). `ordered` must be
+ * sorted by distance from the origin; the distances are non-decreasing, so one
+ * pass is enough and the result is a genuine prefix of that ordering.
+ */
+function compactCluster<T extends LocalAreaPlace>(
+  origin: ActiveCenter,
+  ordered: readonly { place: T; lat: number; lng: number }[],
+): T[] {
+  const cluster: T[] = ordered.length > 0 ? [ordered[0].place] : [];
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = distanceMeters(origin, { lat: ordered[index - 1].lat, lng: ordered[index - 1].lng });
+    const current = distanceMeters(origin, { lat: ordered[index].lat, lng: ordered[index].lng });
+    // A Place AT the origin (previous === 0) is not a separation on its own:
+    // only a genuinely farther Place ends the cluster there.
+    if (previous === 0 ? current > 0 : current >= previous * LOCAL_AREA_SEPARATION_RATIO) break;
+    cluster.push(ordered[index].place);
+  }
+  return cluster;
+}
+
+/**
+ * THE LOCAL AREA around a real origin (product decision, 2026-10-03).
+ *
+ * Root cause this closes: the auto-fit dataset used to be the whole
+ * content-filtered Place list, so one "Lokasi Saya" / "Tempat Pilihan" focus
+ * could frame West Java and Riyadh in a single fit — a world view where the
+ * user's own neighbourhood was one pixel wide. There is no fixed radius cap
+ * here and no fallback to the whole dataset: the area is bounded by geography.
+ *
+ * Order of preference:
+ *  1. a trusted boundary — the anchor Place's own canonical country +
+ *     subdivision (ISO 3166-1 / 3166-2). Every Place of that subdivision is in
+ *     the area, which is what "cover the local area as completely as possible"
+ *     means for the real data;
+ *  2. the adaptive separation rule, for an anchor that carries no subdivision
+ *     (an older row, or a Place whose geography was never filled in).
+ *
+ * Fail-closed everywhere: a non-finite origin, a Place without canonical
+ * coordinates, or an empty candidate list yields `basis: "none"` and an EMPTY
+ * selection, so the caller keeps its safe fallback instead of framing every
+ * Place on earth. No coordinate is ever invented, defaulted, or rounded into
+ * existence, and no Place is re-ordered, re-scored, or added to any row.
+ */
+export function resolveLocalAreaCoverage<T extends LocalAreaPlace>(input: {
+  origin: ActiveCenter | null;
+  places: readonly T[];
+}): LocalAreaCoverage<T> {
+  const empty: LocalAreaCoverage<T> = { places: [], basis: "none", anchorId: null, consideredCount: 0 };
+  if (!isUsableCenter(input.origin)) return empty;
+
+  // Fail-closed: a Place without real coordinates can never define an area.
+  const candidates = input.places.flatMap((place) =>
+    Number.isFinite(place.latitude) && Number.isFinite(place.longitude)
+      ? [{ place, lat: place.latitude as number, lng: place.longitude as number }]
+      : [],
+  );
+  if (candidates.length === 0) return { ...empty, consideredCount: 0 };
+
+  const origin = input.origin;
+  const ordered = [...candidates].sort(
+    (a, b) => distanceMeters(origin, a) - distanceMeters(origin, b),
+  );
+  const anchor = ordered[0].place;
+  const key = localityKey(anchor);
+
+  const selected = key
+    ? candidates.filter((candidate) => localityKey(candidate.place) === key).map((c) => c.place)
+    : compactCluster(origin, ordered);
+  const selectedIds = new Set(selected.map((place) => place.id));
+
+  // The answer keeps the INPUT order, so canonical Place order is untouched no
+  // matter how the area was determined.
+  return {
+    places: input.places.filter((place) => selectedIds.has(place.id)),
+    basis: key ? "region" : "proximity",
+    anchorId: anchor.id,
+    consideredCount: candidates.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// MAP SCALE — a scale bar derived from the REAL viewport (2026-10-03)
+// ---------------------------------------------------------------------------
+
+/** Widest scale bar we are willing to draw, so it never crowds the map. */
+export const MAP_SCALE_MAX_BAR_PX = 56;
+
+export type MapScale = {
+  /** Ground resolution of the current viewport — the honest scale of the map. */
+  metersPerPixel: number;
+  /** The round distance the drawn bar actually represents. */
+  meters: number;
+  /** e.g. 500 m or 2 km — the same wording the distance labels use. */
+  label: string;
+  /** Exact pixel length of `meters` at this resolution. */
+  barPx: number;
+};
+
+/**
+ * The REAL scale of the current viewport (bug fix 2026-10-03).
+ *
+ * The chip in the corner used to print the ACTIVE CAMERA RADIUS as if it were a
+ * scale bar — a fixed "10 km" next to a bar of an unrelated length, claiming a
+ * ground resolution the map did not have. It now measures the viewport the user
+ * is actually looking at: the real reported bounds across the real measured
+ * width give metres per pixel, and the bar is the largest round distance (1, 2,
+ * or 5 × a power of ten) that still fits the bar budget.
+ *
+ * Fail-closed: an unmeasured container, a degenerate or non-finite box, or a
+ * viewport so wide that even one metre overflows the budget all yield `null`,
+ * and the caller renders no scale at all rather than a made-up number.
+ */
+export function resolveMapScale(input: { bounds: MapViewport; widthPx: number }): MapScale | null {
+  const { bounds, widthPx } = input;
+  if (!bounds || !Number.isFinite(widthPx) || widthPx <= 0) return null;
+  const { north, south, east, west } = bounds;
+  if (![north, south, east, west].every((value) => Number.isFinite(value))) return null;
+  const lngSpan = Math.abs(east - west);
+  if (lngSpan <= 0) return null;
+  // Longitude degrees widen toward the poles; the mid-latitude of the real
+  // viewport is the honest conversion for it (latitude degrees are exact).
+  const midLatitude = (north + south) / 2;
+  const metersPerDegreeLng = 111_320 * Math.max(0.01, Math.cos((midLatitude * Math.PI) / 180));
+  const metersPerPixel = (lngSpan * metersPerDegreeLng) / widthPx;
+  if (!Number.isFinite(metersPerPixel) || metersPerPixel <= 0) return null;
+
+  let meters = 0;
+  for (let exponent = 0; exponent <= 7; exponent += 1) {
+    for (const mantissa of [1, 2, 5]) {
+      const candidate = mantissa * 10 ** exponent;
+      if (candidate / metersPerPixel <= MAP_SCALE_MAX_BAR_PX) meters = candidate;
+    }
+  }
+  if (meters <= 0) return null;
+  return {
+    metersPerPixel,
+    meters,
+    label: meters < 1000 ? `${meters} m` : `${meters / 1000} km`,
+    barPx: Math.max(1, Math.round(meters / metersPerPixel)),
+  };
+}
+
+/**
+ * Neutral, always-true coverage caption for a camera that is NOT framed by a
+ * radius (bug fix 2026-10-03).
+ *
+ * "Tempat Pilihan" and an explicit "Lokasi Saya" focus the camera on the local
+ * area's Place spread, so no radius value describes them any more. The retired
+ * 10 km copy claimed a radius the camera was not using; this says what is
+ * actually true, and it names no distance, no city, and no radius at all.
+ */
+export const AREA_COVERAGE_CAPTION = "Menampilkan tempat di area peta";
+
 export function matchesDistance(
   filter: DistanceFilter,
   viewerPosition: { lat: number; lng: number } | null,

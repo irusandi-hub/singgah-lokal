@@ -436,3 +436,148 @@ deleted tests — in `map-current-location`, `map-viewport-coverage`,
 `discovery-home-integration`, `home-location-search`, `home-map-first-ui`, and
 `home-map-gesture`, which previously locked "no `fitBounds` anywhere",
 "a fixed 10 km curated frame", and the old control offsets.
+
+## 17. CORRECTION — LOCAL AREA COVERAGE + TRUTHFUL OVERLAYS (2026-10-03)
+
+This section CORRECTS §16. Everything in §14/§15/§16 that is not named here
+still stands, including the curated membership rule, the viewport-as-coverage
+rule for markers and rows, the 0/1/many fit matrix, the chrome padding, the
+control ladder, the carousel frames, and "Lokasi Saya" centering the newest real
+fix at the CURRENT zoom.
+
+1. **Root cause.** The bounds dataset from §16 was the whole content-filtered
+   Place list. One focus ("Lokasi Saya" / "Tempat Pilihan") could therefore
+   frame West Java and Riyadh in a SINGLE fit: a world view in which the
+   viewer's own neighbourhood was a couple of pixels wide. There was also no
+   trusted local-area boundary anywhere in the product to frame instead.
+2. **The camera is now bounded by GEOGRAPHY, not by a radius**
+   (`resolveLocalAreaCoverage` in `lib/live/ui.ts`, pure and unit-tested):
+   - **Trusted boundary first** — the anchor Place (the nearest one to the real
+     fix) carries canonical ISO 3166-1 `country_code` + ISO 3166-2 `region_name`
+     values, validated server-side on every Place write against
+     `country-region-data` (`lib/geo/countries.ts`). EVERY Place of that
+     subdivision is framed, which is what "cover the local area as completely as
+     possible" means for the real data;
+   - **Adaptive fallback** — for an anchor without that geography, the area is
+     the contiguous cluster around the fix, ending at the first Place at least
+     `LOCAL_AREA_SEPARATION_RATIO` (3) times farther than the one before it. That
+     rule is SCALE-FREE (it describes the shape of the data, not a distance in
+     metres), so it is not a 10 km cap and not an arbitrary replacement radius;
+   - **Fail-closed** — no usable fix (geolocation denied, nothing searched) or no
+     Place with canonical coordinates yields an EMPTY dataset, so the camera
+     keeps its current view. There is no fallback to the whole database and no
+     invented coordinate anywhere.
+3. **"Lokasi Saya" itself is unchanged:** it still centers the newest real fix
+   at the CURRENT zoom and can never zoom out (§15 item 3), so it can never
+   frame anything global. What changed is that every fit it can trigger is
+   bounded to the local area.
+4. **The frame an explicit request produced now STAYS.** `cameraRequestNonce`
+   is bumped only by the three hand-driven camera actions (a distance tab,
+   "Tempat Pilihan", "Lokasi Saya") and is the only thing that releases the
+   manual-interaction latch, which is re-armed the moment such a request
+   applies. A fresh geolocation fix, a marker refresh, a discovery poll, or a
+   viewport report can no longer take the camera back — that was the last
+   "the frame jumps again a moment later" behaviour, and it needed no timer.
+5. **Coverage caption.** A radius may be named only while a radius preset owns
+   the frame. "Tempat Pilihan" and "Lokasi Saya" frame the local area, so the
+   retired fixed "10 km" wording (which claimed a radius the camera was not
+   using) is replaced by `AREA_COVERAGE_CAPTION` — "Menampilkan tempat di area
+   peta". The distance tabs keep their radius caption, because per §16 they
+   still own the camera in those modes.
+6. **The corner bar is a REAL scale bar now** (`resolveMapScale` + the new
+   `onScaleChange` callback). It used to print the active camera radius as if
+   it were the map's scale; it now states a round distance measured from the
+   map's own viewport bounds and measured width, drawn at that distance's exact
+   pixel length, and draws nothing at all when nothing is measurable.
+7. **Results panel compacted.** The map window moved one clamp band lower
+   (36vh / 240 / 440 / 38vh on ≥sm) and the panel, its handle, its header
+   block, and both carousel frames gave up the padding they did not need. The
+   title, the count, the "Ke hasil" link, the category labels, both strips, and
+   the `-mt-5` tuck are unchanged — nothing was cut or made scrollable.
+8. **Explicitly NOT changed:** curated MEMBERSHIP still reads only the canonical
+   `places.is_curated` ids; the Discovery contract, ranking, and eligibility are
+   untouched; the search mechanism, its ±0.05° box, and the Riyadh result set
+   are byte-for-byte the pre-existing ones; the distance tabs keep their ordered
+   radius presets; no backend, database, RLS, Place-status, copy, logo, or route
+   changed; no Place coordinate is invented, defaulted, or rounded.
+9. **Known environment limitation (not a product defect):** the managed preview
+   serves this Next.js app without hydrating in any headless browser available
+   in the sandbox (verified identical on the unmodified baseline), so no real
+   mobile screenshot of a live Leaflet map could be captured. The framing rule
+   itself is covered executably instead — `tests/map-local-area-coverage.test.ts`
+   runs the real resolver against the real migration 0040 Riyadh coordinates and
+   the West Java fixtures.
+
+Regression coverage: the new `tests/map-local-area-coverage.test.ts` (the ten
+acceptance rules of this correction) plus amended — never deleted — assertions in
+`map-auto-fit-camera`, `map-current-location`, `map-viewport-coverage`,
+`discovery-home-integration`, `home-map-first-ui`, and `home-search-clarity`,
+which previously locked "no `fitBounds` anywhere", the fixed 10 km curated
+frame, the old control offsets, the old map window, and the radius-as-scale
+readout.
+
+## 18. CORRECTION — "LOKASI SAYA" REFITS THE LOCAL AREA; SELECTED-PLACES FIT (2026-10-03)
+
+This section corrects the §17 items it names. Everything else in §14–§17 still
+stands: the curated membership rule, the viewport-as-coverage rule for markers
+and rows, the 0/1/many fit matrix, the chrome padding, the control ladder, the
+carousel frames, the local-area resolver, the real scale bar, and the neutral
+area caption.
+
+1. **§17 item 3 is SUPERSEDED: "Lokasi Saya" now REFITS, it does not only
+   recentre.** The explicit "My Location" press frames the eligible local Place
+   distribution around the user's own coordinate. The previous behaviour (a
+   `setView`/`flyTo` at the preserved zoom) is exactly what left the map at a
+   broad, inappropriate level with distant Places on screen, so it is gone:
+   there is no "preserve the current zoom" rule on this path any more.
+2. **It reuses ONE mechanism.** The same `fitCamera`, the same
+   `resolveCameraFitPadding` chrome/control padding, the same instant apply
+   (`animate: false`) and the same one-shot pin pulse as the curated refocus.
+   No second camera system was added; the new `locateFitPlaces` prop only
+   separates the TRIGGER and the FALLBACK, so neither path can fire for the
+   other's reason.
+3. **The explicit case matrix**, all inside the locate effect:
+   - many local Places → `fitBounds` over them, padded, zoomed out as far as
+     that distribution requires;
+   - one local Place → the frame is that Place plus the user's coordinate
+     (`VIEWER_FIT_POINT_ID`, geometry only, never a Place row), focused at a
+     sensible level; `LOCATE_FIT_MAX_ZOOM` is a ZOOM LEVEL, never a radius, and
+     can only widen the frame, so no candidate can be dropped by it;
+   - no local Place → `setView` on the USER'S OWN coordinate at the close
+     floor and stop: never a distant Place, never the whole dataset, never an
+     invented point;
+   - no fix at all (denied/timeout) → the request stays PENDING and no camera
+     move happens; there is no global fit in any branch.
+4. **Still no radius and still no loop.** No fixed 10 km boundary exists on this
+   path, the fit is keyed on `locateNonce` alone, and the frame is LATCHED, so
+   marker refreshes, viewport reports, discovery polls, and a later geolocation
+   fix cannot take it back. Manual pan/zoom survives until the user asks again.
+5. **"Tempat Pilihan" now fits the eligible SELECTED Places only.** The camera
+   pool is `visiblePlaces`, which in that mode already resolves canonical
+   `places.is_curated` membership. The ordinary non-curated remainder remains a
+   MARKER-layer rule (§15 item 2, still in `mapPlaces`) and must not steer the
+   camera. Curated eligibility, the curated list, and the row counts are
+   unchanged.
+6. **The eased "Lokasi Saya" transition is retired** (`LOCATE_TRANSITION_MS`,
+   `prefersReducedMotion`). A frame that can span a whole neighbourhood must not
+   be animated: every camera apply in this component is now instant, and the
+   bounded pin pulse is the feedback. `prefers-reduced-motion` therefore holds
+   unconditionally.
+7. **Panel compacted further** (`pt-2 pb-1`, handle `mb-1.5`, header `mb-2`,
+   frames `py-1.5`, strips `pb-1`) on top of the §17 map-window change. The map
+   window stays at 36vh/240/440 deliberately: the floating control ladder
+   (190 / 240 / 290 px) plus the coverage box needs ~420 px of map height, so
+   shrinking it further would put the zoom controls ON the overlay.
+8. **Explicitly NOT changed:** search (mechanism, ±0.05° box, Riyadh results,
+   camera), the distance tabs and their ordered radius presets, the overlay
+   text (`AREA_COVERAGE_CAPTION` = "Menampilkan tempat di area peta") and the
+   measured scale bar, curated membership, the Discovery contract, Place data,
+   database, RLS, branding, and routes.
+
+Regression coverage: `tests/map-local-area-coverage.test.ts` gained the
+executable "My Location" matrix (refit, all candidates, single Place, no Place,
+denied geolocation, apply-once/latch) and the Selected-Places fit pool; the
+assertions in `map-current-location`, `map-viewport-coverage`,
+`map-auto-fit-camera`, and `home-map-first-ui` that locked the OLD locate
+behaviour (zoom-preserving recentre, one bounded flyTo, radius-at-the-time) were
+amended, never deleted.

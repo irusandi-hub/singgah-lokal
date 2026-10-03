@@ -9,6 +9,7 @@ import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
 import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
+  AREA_COVERAGE_CAPTION,
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
   CURATED_RESULTS_ANCHOR_ID,
@@ -26,11 +27,13 @@ import {
   liveDurationLabel,
   narrowToViewport,
   resolveActiveCenter,
+  resolveLocalAreaCoverage,
   resolveResultsAnchorId,
   stopNestedCardAction,
   toggleLiveFilter,
   type DistanceFilter,
   type LiveDiscoveryItem,
+  type MapScale,
   type MapViewport,
 } from "@/lib/live/ui";
 
@@ -106,6 +109,23 @@ export default function HomeDiscovery({
   // No marker refresh, discovery poll, or viewport report carries a nonce, so
   // the camera can never be recentered in a loop.
   const [fitNonce, setFitNonce] = useState(0);
+  // EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): bumped ONLY by the
+  // three actions a person takes to move the camera by hand — a distance tab,
+  // "Tempat Pilihan", "Lokasi Saya". It releases the map's interaction latch,
+  // so the frame those actions produce STAYS put: no marker refresh, discovery
+  // poll, viewport report, or later geolocation fix can take it back.
+  const [cameraRequestNonce, setCameraRequestNonce] = useState(0);
+  // WHICH RULE currently owns the camera frame (bug fix, 2026-10-03), used by
+  // the coverage caption. "radius" = a distance tab preset really does frame
+  // that radius (the caption may name it); "area" = the frame comes from the
+  // viewer's LOCAL AREA, so no radius value describes it and the caption must
+  // not claim one. Never a guess: it is set by the same handlers that move the
+  // camera, never inferred afterwards.
+  const [cameraCoverage, setCameraCoverage] = useState<"radius" | "area">("radius");
+  // REAL map scale (bug fix, 2026-10-03): reported by the map from its own
+  // viewport, so the corner bar always states the scale of what is on screen.
+  // null until the first measurement — then no scale is drawn at all.
+  const [mapScale, setMapScale] = useState<MapScale | null>(null);
   // Which Place card currently shows the "not Live" notice (pressed state of
   // the permanent LIVE indicator). Live state itself is never invented — the
   // canonical liveByPlaceId feed is the only source.
@@ -159,6 +179,14 @@ export default function HomeDiscovery({
     if (isSameViewport(lastViewportRef.current, viewport)) return;
     lastViewportRef.current = viewport;
     setMapViewport(viewport);
+  }, []);
+
+  // REAL map scale (bug fix, 2026-10-03): the map measures its own viewport
+  // and reports the round distance its bar stands for, so the corner chip can
+  // never print a camera radius as if it were the map's scale. `null` (nothing
+  // measurable yet) simply draws no scale.
+  const handleScaleChange = useCallback((scale: MapScale | null) => {
+    setMapScale(scale);
   }, []);
   const router = useRouter();
 
@@ -437,6 +465,11 @@ export default function HomeDiscovery({
     // Coverage goes back to the REAL Leaflet bounds; the synthetic bridge box
     // existed only for a city that no longer owns the viewport.
     resetViewportLatch();
+    // The frame this press produces is the viewer's LOCAL AREA, not a radius:
+    // the caption must stop claiming one, and the map must stop letting a
+    // later radius preset take the camera back.
+    setCameraCoverage("area");
+    setCameraRequestNonce((nonce) => nonce + 1);
     setLocateNonce((nonce) => nonce + 1);
     requestViewerPosition();
   }, [requestViewerPosition, resetViewportLatch]);
@@ -607,32 +640,78 @@ export default function HomeDiscovery({
     return narrowToViewport(curatedCoverageSource, coverageViewport);
   }, [curatedOnly, curatedCoverageSource, coverageViewport]);
 
-  // CAMERA BOUNDS DATASET — "Tempat Pilihan" AUTO-FIT (product decision,
-  // 2026-10-03).
+  // CAMERA BOUNDS DATASET — LOCAL-AREA AUTO-FIT (product decision,
+  // 2026-10-03; corrected twice the same day).
   //
   // This is the MAP DATASET with the VIEWPORT GATE REMOVED, and that single
-  // difference is the whole fix. The markers are narrowed by the viewport (the
-  // 2026-10-01 coverage decision, unchanged), so fitting the camera to THEM
-  // would be circular: the camera would always frame exactly what it already
-  // framed, and an outlying Place could never pull the view. Reading the SAME
-  // canonical content filter one step earlier — curated membership + the
-  // ordinary remainder, both before the viewport gate — lets the camera cover
-  // the whole spread of the relevant Places at once.
+  // difference is what lets the camera cover the whole local spread: the
+  // markers are narrowed by the viewport (the 2026-10-01 coverage decision,
+  // unchanged), so fitting the camera to THEM would be circular.
+  //
+  // ROOT CAUSE FIXED HERE: that un-narrowed dataset was the ENTIRE
+  // content-filtered Place list, so one focus could fit West Java and Riyadh
+  // into a single frame — a world view in which the user's own neighbourhood
+  // was a couple of pixels wide. It is now bounded to the viewer's LOCAL AREA
+  // (the same active center the coverage and the distance labels use):
+  //   · the anchor Place's own canonical ISO country + subdivision when it has
+  //     one (trusted geographic data, already validated on every Place write),
+  //     so EVERY Place of the viewer's own area is covered;
+  //   · otherwise a documented, data-derived separation — no fixed 10 km cap,
+  //     no arbitrary replacement radius, and never the whole database;
+  //   · with no usable center (geolocation denied and nothing searched) the
+  //     set is EMPTY, so the camera keeps its current view instead of framing
+  //     every Place on earth.
+  //
+  // SELECTED PLACES ("Tempat Pilihan", correction 2026-10-03 #2): in that
+  // mode the candidates are the SELECTED Places themselves — exactly what
+  // `visiblePlaces` already resolves from the canonical `places.is_curated`
+  // ids. The ordinary non-curated remainder is a MARKER-layer decision (§15
+  // item 2, still untouched in `mapPlaces`); it must not steer the CAMERA,
+  // whose job there is to frame the selected distribution. Eligibility,
+  // membership, the curated LIST, and the row counts are unchanged.
   //
   // It is display geometry only: membership still comes solely from the
   // canonical curated ids, no Place is added to or removed from any row by
   // this value, and it is never used as a filter. Coordinates are canonical
   // only — a Place without them is simply absent (no invented position).
   const cameraFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    const source = curatedOnly ? [...visiblePlaces, ...curatedCoverageSource] : visiblePlaces;
+    const source = visiblePlaces;
     const seen = new Set<string>();
-    return source.flatMap((place) => {
+    const candidates = source.flatMap((place) => {
       if (seen.has(place.id)) return [];
       seen.add(place.id);
       if (place.latitude === null || place.longitude === null) return [];
-      return [{ id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude }];
+      return [
+        {
+          id: place.id,
+          name: place.name,
+          latitude: place.latitude,
+          longitude: place.longitude,
+          // Canonical geography, read for the local-area decision only — it
+          // never changes membership, eligibility, or any row.
+          countryCode: place.countryCode,
+          regionName: place.regionName,
+        },
+      ];
     });
-  }, [visiblePlaces, curatedCoverageSource, curatedOnly]);
+    // The local-area origin is read from the SAME two state values the active
+    // center resolves from (searched city first, then the real fix), so the
+    // memo depends on stable state identities rather than on a derived object.
+    return resolveLocalAreaCoverage({
+    origin: searchCenter ?? viewerPosition,
+    places: candidates,
+  }).places.map(({ id, name, latitude, longitude }) => ({ id, name, latitude, longitude }));
+  }, [visiblePlaces, searchCenter, viewerPosition]);
+
+  // "LOKASI SAYA" BOUNDS DATASET — the SAME local-area set, handed to the map
+  // under its own prop and its own trigger (correction 2026-10-03).
+  //
+  // It is one value computed once, not a second resolution rule: the locate
+  // press and the curated choice both frame the viewer's local area, they
+  // simply fire from two different explicit actions. The origin is the REAL
+  // fix (not the searched city): pressing "Lokasi Saya" clears the search first,
+  // so `searchCenter` is already null when this recomputes.
+  const locateFitPlaces = cameraFitPlaces;
 
   // CAMERA BOUNDS DATASET — LOCATION SEARCH AUTO-FIT (product decision,
   // 2026-10-03). The relevant Places for a searched region are the canonical
@@ -726,6 +805,12 @@ export default function HomeDiscovery({
     mode: activeSearch.mode,
     placeName: searchPlaceName,
   });
+  // COVERAGE CAPTION (bug fix, 2026-10-03): a radius may only be named while a
+  // radius preset actually owns the frame. "Tempat Pilihan" and "Lokasi Saya"
+  // frame the viewer's LOCAL AREA, so the old fixed "10 km" wording claimed a
+  // radius the camera was not using; those modes now state what is true, with
+  // no distance and no radius at all.
+  const coverageCaption = cameraCoverage === "radius" ? radiusCaption : AREA_COVERAGE_CAPTION;
   // Results-count origin fragment (bug fix 2026-10-03). It resolves from the
   // SAME active center as the map caption above it, so the results panel can
   // no longer say "di sekitar Anda" about a count that actually came from a
@@ -1014,6 +1099,16 @@ export default function HomeDiscovery({
                viewport report can ever recenter the camera in a loop. */
             fitPlaces={cameraFitPlaces}
             fitNonce={fitNonce}
+            /* "LOKASI SAYA" BOUNDS (correction, 2026-10-03): the explicit
+               "My Location" press frames the viewer's LOCAL AREA — the same
+               eligible Places, bounded upstream by their canonical country +
+               subdivision (with the documented proximity fallback), plus the
+               user's own coordinate inside the map component. No 10 km radius,
+               no whole-dataset fit, and a separate prop so the curated
+               refocus and the locate refocus can never fire for each other's
+               reason. An empty local area focuses the user's coordinate alone;
+               no fix at all means no camera move. */
+            locateFitPlaces={locateFitPlaces}
             /* The Places relevant to the SEARCHED region (canonical, no
                viewport gate). A new search answer frames their spread instead
                of only the geocoder's city point; an empty set keeps that
@@ -1027,6 +1122,14 @@ export default function HomeDiscovery({
             pulsePinOnPresetChange={curatedOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
             onViewportChange={handleViewportChange}
+            onScaleChange={handleScaleChange}
+            /* EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): the three
+               hand-driven camera actions bump this nonce, which releases the
+               map's interaction latch so the frame THEY produce stays. Nothing
+               else carries a nonce, so no marker refresh, discovery poll,
+               viewport report, or fresh geolocation fix can take the camera
+               back afterwards. */
+            cameraRequestNonce={cameraRequestNonce}
           />
         </div>
 
@@ -1187,6 +1290,8 @@ export default function HomeDiscovery({
                 // state change carries a nonce, so the camera can never be
                 // taken back by a later marker or viewport update.
                 setFitNonce((nonce) => nonce + 1);
+                setCameraCoverage("area");
+                setCameraRequestNonce((nonce) => nonce + 1);
               }}
               aria-pressed={curatedOnly}
               className={`whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
@@ -1203,6 +1308,11 @@ export default function HomeDiscovery({
                 onClick={() => {
                   setDistanceFilter(filter);
                   setCuratedOnly(false);
+                  // A distance tab really does frame this radius, so the
+                  // caption may name it again — and the tab is an explicit
+                  // camera request, which releases the latch.
+                  setCameraCoverage("radius");
+                  setCameraRequestNonce((nonce) => nonce + 1);
                 }}
                 aria-pressed={distanceFilter === filter && !curatedOnly}
                 className={`whitespace-nowrap rounded-[16px] px-1 py-1.5 text-center text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
@@ -1222,8 +1332,16 @@ export default function HomeDiscovery({
               supported size (360 / 390 / 430 / 1280) while the map stays the
               dominant field. Sized in vh + clamp: never the old flat 64vh,
               and never so tall that Result is pushed out of sight. The
-              container keeps a valid, non-degenerate Leaflet size. */}
-          <div aria-hidden className="h-[42vh] min-h-[260px] max-h-[520px] sm:h-[44vh]" />
+              container keeps a valid, non-degenerate Leaflet size.
+              COMPACTED (correction, 2026-10-03): 42vh / min 260 / max 520 /
+              44vh left a wide empty band between the filter row and the first
+              Place card, so the results panel started far below the content the
+              user is looking for. This is one clamp band lower (36vh, min 240,
+              max 440, 38vh on ≥sm): the map stays the dominant field and still
+              clears the whole floating control ladder (190 / 240 / 290 px), but
+              the panel now starts where the content does. Nothing was cut —
+              only the empty space above it. */}
+          <div aria-hidden className="h-[36vh] min-h-[240px] max-h-[440px] sm:h-[38vh]" />
         </div>
 
         {/* Viewport-aware map empty state (PO, 2026-09-30): shown when the
@@ -1260,25 +1378,37 @@ export default function HomeDiscovery({
         )}
 
         {/* MOCKUP §8: coverage box, bottom-left of the map — white, rounded,
-            compact, with a target icon and the ACTIVE camera radius in the
-            copy (truthful label, never an invented state). The caption names
-            the origin that is really measuring — the searched city or the
-            user's own location — so it can never contradict the results. */}
+            compact, with a target icon. The caption states what the camera is
+            ACTUALLY doing: while a distance tab preset owns the frame it names
+            that radius and the origin it is measured from (the searched city or
+            the user's own location), and in the LOCAL-AREA modes ("Tempat
+            Pilihan", "Lokasi Saya") it names no radius at all — the retired
+            fixed "10 km" wording claimed a radius the camera was not using. */}
         <div className="pointer-events-none absolute bottom-9 left-4 z-[1100] flex max-w-[62%] items-center gap-2 rounded-xl bg-white px-3 py-2 shadow-md ring-1 ring-black/10">
           <span aria-hidden className="shrink-0 text-sm leading-none text-brand-ink">⌖</span>
-          <p className="text-[11px] font-semibold leading-4 text-brand-ink">{radiusCaption}</p>
+          <p className="text-[11px] font-semibold leading-4 text-brand-ink">{coverageCaption}</p>
         </div>
 
-        {/* MOCKUP §9: scale, bottom-right of the map — the label follows the
-            ACTIVE camera radius (same truthful rule as the coverage box) and
-            the bar is the mockup's scale line. It sits above the OSM
+        {/* MOCKUP §9: scale, bottom-right of the map — a REAL scale bar (bug
+            fix, 2026-10-03). It used to print the active camera RADIUS as if
+            it were the map's scale, so a fixed "10 km" sat above a bar of an
+            unrelated length. The map now measures its own viewport and reports
+            the round distance the bar really stands for, drawn at its exact
+            pixel length. Nothing measurable yet (unmeasured container) draws no
+            scale rather than a made-up number. It sits above the OSM
             attribution so the two never collide. */}
-        <div className="pointer-events-none absolute bottom-9 right-4 z-[1100] flex flex-col items-end gap-1">
-          <span className="rounded bg-white/80 px-1 text-[11px] font-bold leading-4 text-brand-ink">
-            {activeRadiusLabel}
-          </span>
-          <span aria-hidden className="block h-0.5 w-14 border-x-2 border-b-2 border-brand-ink/70" />
-        </div>
+        {mapScale && (
+          <div className="pointer-events-none absolute bottom-9 right-4 z-[1100] flex flex-col items-end gap-1">
+            <span className="rounded bg-white/80 px-1 text-[11px] font-bold leading-4 text-brand-ink">
+              {mapScale.label}
+            </span>
+            <span
+              aria-hidden
+              className="block h-0.5 border-x-2 border-b-2 border-brand-ink/70"
+              style={{ width: mapScale.barPx }}
+            />
+          </div>
+        )}
 
       </section>
 
@@ -1365,17 +1495,22 @@ export default function HomeDiscovery({
             flow — the map keeps its full height and clipping boundary, and
             nothing ever covers the map surface (locked by
             tests/map-stacking.test.ts). The count line doubles as the
-            mockup's "{n} tempat pilihan di sekitar Anda" subtitle. */}
+            mockup's "{n} tempat pilihan di sekitar Anda" subtitle.
+            COMPACTED (correction, 2026-10-03): the handle, the header block,
+            and both carousel frames each gave up ~8–10 px of vertical padding
+            they did not need, so the panel now sizes to its content. The title,
+            the count, the "Ke hasil" link, the category labels, and both strips
+            are UNCHANGED — nothing was hidden, truncated, or made scrollable. */}
         <section
-          className="relative z-10 -mt-5 rounded-t-[24px] bg-brand-cream pb-2 pt-3 shadow-[0_-6px_18px_rgb(0_0_0/0.06)]"
+          className="relative z-10 -mt-5 rounded-t-[24px] bg-brand-cream pb-1 pt-2 shadow-[0_-6px_18px_rgb(0_0_0/0.06)]"
           aria-labelledby="place-results-heading"
         >
           {/* Panel handle — small centered bar, mockup §10 (visual only). */}
           <span
             aria-hidden
-            className="mx-auto mb-2.5 block h-1.5 w-12 rounded-full bg-black/15"
+            className="mx-auto mb-1.5 block h-1.5 w-12 rounded-full bg-black/15"
           />
-          <div className="mb-3 flex items-end justify-between gap-3 px-1">
+          <div className="mb-2 flex items-end justify-between gap-3 px-1">
             <div className="min-w-0">
               <h2 id="place-results-heading" className="text-lg font-bold leading-tight">
                 {searchQuery.trim()
@@ -1436,10 +1571,10 @@ export default function HomeDiscovery({
                   the strip itself keeps `overflow-x-auto` + `snap-x`, so the
                   cards stay horizontally scrollable and snap exactly as
                   before. Cards, spacing, order, and handlers are untouched. */}
-              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-2.5">
+              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-1.5">
               <div
                 id={CURATED_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2"
+                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-1"
               >
                 {curatedListed.map((place) => (
                   <div
@@ -1482,10 +1617,10 @@ export default function HomeDiscovery({
                   size and several are visible side by side. */}
               {/* Same framed band as Baris 1 — one consistent Place-card
                   container across the whole result panel. */}
-              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-2.5">
+              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-1.5">
               <div
                 id={DISCOVERY_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-2"
+                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-1"
               >
                 {discoveryRowPlaces.map((place) => (
                   <div
