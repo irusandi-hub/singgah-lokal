@@ -50,6 +50,19 @@ const REGIONS_BY_COUNTRY = new Map<string, string[]>(
 );
 
 /**
+ * The SAME dataset, keyed by the exact subdivision NAME to its ISO 3166-2
+ * subdivision code ("SA" + "01" -> "SA-01"). Same trusted source, same
+ * verbatim spelling rule as `REGIONS_BY_COUNTRY`; this map only exposes the
+ * identity the dataset already carries.
+ */
+const REGION_CODES_BY_COUNTRY = new Map<string, Map<string, string>>(
+  DATA.map((country) => [
+    country.countryShortCode,
+    new Map(country.regions.map((region) => [region.name, region.shortCode])),
+  ]),
+);
+
+/**
  * The subdivisions of one country, alphabetically. An unknown or empty
  * country code yields an empty list rather than a throw: a select with no
  * options is the correct read-only answer for "no country chosen yet".
@@ -79,4 +92,44 @@ export function isValidPlaceCountry(countryCode: unknown): countryCode is string
 export function isValidPlaceRegion(countryCode: string, regionName: unknown): regionName is string {
   if (typeof regionName !== "string") return false;
   return placeRegionsFor(countryCode).includes(regionName.trim());
+}
+
+/**
+ * The canonical identity of one Place's subdivision — "SA-01" — or `null`
+ * when the pair is not a subdivision of the country, per the trusted dataset.
+ *
+ * WHY A SEPARATE FUNCTION, AND WHY IT IS STRICT (audit 2026-10-03):
+ *
+ * `isValidPlaceRegion` answers "is this a subdivision of that country?", which
+ * is the right question for a WRITE. It is the wrong question for a READ that
+ * needs to decide whether two Places name the SAME place on earth, because an
+ * older row can carry a value that was never validated: `places.region_name`
+ * is free text in the database, so "Riyadh" (a CITY, not a subdivision) is
+ * storable even though the dataset spells the Riyadh Region "Ar Riyad"
+ * (SA-01). Treating such a value as a trusted boundary is what made the Home
+ * camera split one real city in two.
+ *
+ * The lookup is an EXACT match against the dataset's own spelling, so:
+ *   · it invents no alias table and no fuzzy/normalised comparison —
+ *     "Riyadh" is NOT silently accepted as "Ar Riyad";
+ *   · an unknown country, a blank region, or a non-subdivision name all return
+ *     `null`, and the caller then falls back to the coordinate/proximity rule
+ *     it already had, instead of grouping Places by a string it cannot verify;
+ *   · two Places that ARE the same subdivision always produce the same key,
+ *     because it is derived from the ISO code rather than from display text.
+ *
+ * Fail-closed by design: `null` means "this row makes no geographic claim the
+ * product can trust", never "assume the nearest-looking name".
+ */
+export function canonicalPlaceSubdivisionKey(
+  countryCode: unknown,
+  regionName: unknown,
+): string | null {
+  if (typeof countryCode !== "string") return null;
+  const byName = REGION_CODES_BY_COUNTRY.get(countryCode.trim().toUpperCase());
+  if (!byName) return null;
+  if (typeof regionName !== "string") return null;
+  const subdivision = byName.get(regionName.trim());
+  if (!subdivision) return null;
+  return `${countryCode.trim().toUpperCase()}-${subdivision}`;
 }
