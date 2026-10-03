@@ -363,7 +363,7 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
   // and names a searched city when one is active.
   assert.match(
     code,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}`/,
+    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/,
   );
   assert.doesNotMatch(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
 });
@@ -449,10 +449,10 @@ test("P0: the curated MAP shows curated + ordinary Places in coverage, the curat
   // bounded by the 10 km coverage around the REAL fix.
   // RE-ORDERED (product decision, 2026-10-03): the non-curated remainder is
   // named ONCE as `curatedCoverageSource` (the un-narrowed candidate set) and
-  // the marker coverage narrows that, so the slice starts there. It ends at
-  // the CAMERA dataset, which is a separate rule (the viewer's local area,
-  // 2026-10-03) and legitimately reads the real fix.
-  const coverage = code.slice(code.indexOf("const curatedCoverageSource"), code.indexOf("const cameraFitPlaces"));
+  // the marker coverage narrows that, so the slice starts there. It ends at the
+  // SELECTED local-area dataset, which is a separate rule and legitimately
+  // reads the active center.
+  const coverage = code.slice(code.indexOf("const curatedCoverageSource"), code.indexOf("const selectedLocalArea"));
   assert.match(coverage, /if \(!curatedOnly\) return \[\];/);
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
   // SUPERSEDED (product decision, 2026-10-01): the 10 km coverage radius and
@@ -489,7 +489,7 @@ test("P0: ordinary coverage Places never leak into the curated list or its count
   // separate statements: the coverage Places exist ONLY inside mapPlaces.
   const curatedListSlice = code.slice(code.indexOf("const curatedListed"), code.indexOf("const curatedCoveragePlaces"));
   assert.doesNotMatch(curatedListSlice, /curatedCoveragePlaces|CURATED_MAP_COVERAGE_RADIUS_M/);
-  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`/);
+  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`/);
   // The coverage memo is referenced by exactly ONE consumer — the map dataset.
   const uses = code.match(/curatedCoveragePlaces/g) ?? [];
   assert.equal(uses.length, 3, "declaration + the curated dataset union + its dependency list only");

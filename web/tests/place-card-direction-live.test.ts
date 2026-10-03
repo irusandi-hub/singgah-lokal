@@ -129,8 +129,10 @@ test("Existing Place navigation and map behavior stay untouched", () => {
   assert.match(mapCode, /router\.push\(`\/live\/\$\{live\.sessionId\}`\)/);
   assert.match(mapCode, /maxBoundsViscosity: 1\.0/);
   assert.match(mapCode, /worldCopyJump: false/);
-  // Marker stacking order unchanged (scope lock: no interaction changes).
-  assert.match(mapCode, /zIndexOffset: live \? 0 : 500/);
+  // Marker stacking ladder (bug fix 2026-10-03): SELECTED (curated) pins now
+  // sit ABOVE ordinary pins instead of sharing their latitude-based order.
+  // Artwork, colour, coordinates, and interaction are untouched.
+  assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
   // Color treatment: Place pins/labels keep the deep brand green; LIVE
   // keeps its red priority. The Current Location marker is BLUE (MOCKUP
   // 2026-10-01 §6 — visual only, geolocation/camera untouched), so blue

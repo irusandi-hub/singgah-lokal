@@ -84,18 +84,18 @@ test("AC 1: curated coverage is derived from the Place spread, and the camera ha
   assert.ok(bounds.north - bounds.south > 0.15, "the spread is far larger than 10 km");
 
   // The component feeds the camera the SELECTED candidates WITHOUT the
-  // viewport gate. Since the 2026-10-03 correction #2, the ordinary
-  // non-curated remainder is a MARKER-layer decision only (it is still in
-  // `mapPlaces`, §15 item 2) and must not steer the camera: in the curated
-  // mode the camera frames the eligible SELECTED distribution.
+  // viewport gate. The curated focus is the SELECTED distribution plus nearby
+  // CAMERA CONTEXT (bug fix 2026-10-03): `selectedLocalArea` resolves the
+  // selected set, and the curated pool then adds the ordinary Places of that
+  // SAME local area as frame context only — they never enter a result row.
   assert.match(
     pageCode,
-    /const cameraFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*const source = visiblePlaces;/,
+    /const selectedLocalArea = useMemo\(\s*\(\) =>\s*resolveLocalAreaCoverage\(\{/,
   );
-  // ...and, since the 2026-10-03 correction, bounded to the viewer's LOCAL
-  // AREA so one fit can never frame two continents (see
-  // tests/map-local-area-coverage.test.ts).
-  assert.match(pageCode, /resolveLocalAreaCoverage\(\{\s*\n\s*origin: searchCenter \?\? viewerPosition,/);
+  assert.match(pageCode, /const selectedFitPlaces = useMemo\(\(\) => toHomeMapPlaces\(selectedLocalArea\.places\)/);
+  // ...bounded to the viewer's LOCAL AREA so one fit can never frame two
+  // continents (see tests/map-local-area-coverage.test.ts).
+  assert.match(pageCode, /origin: searchCenter \?\? viewerPosition,/);
   // ...and the camera's fit is a fitBounds, not a radius frame.
   assert.match(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
   assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current\)/);
@@ -119,14 +119,20 @@ test("AC 1: curated MEMBERSHIP is untouched — the fit is geometry, never a mem
     pageCode,
     /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
   );
-  // The fit dataset is derived from that membership plus the non-curated
-  // remainder: it never re-selects, never sorts, and never re-orders a row.
+  // The fit dataset is derived from that membership plus nearby non-curated
+  // CONTEXT (bug fix 2026-10-03): it never re-selects, never sorts, and never
+  // re-orders a row. Coordinate fail-closed and dedupe now live in the shared
+  // `toCameraCandidates` projection, so both pools inherit them.
   const fitDataset = pageCode.slice(
     pageCode.indexOf("const cameraFitPlaces"),
     pageCode.indexOf("const searchFitPlaces"),
   );
-  assert.match(fitDataset, /if \(seen\.has\(place\.id\)\) return \[\];/);
-  assert.match(fitDataset, /if \(place\.latitude === null \|\| place\.longitude === null\) return \[\];/);
+  assert.match(fitDataset, /if \(seen\.has\(place\.id\)\) return false;/);
+  assert.match(pageCode, /if \(place\.latitude === null \|\| place\.longitude === null\) return null;/);
+  assert.match(pageCode, /function toCameraCandidates\(source: readonly Place\[\]\)/);
+  // Context never touches membership: the curated id set is the ONLY source of
+  // curated selection, and the context pool is the ordinary remainder.
+  assert.match(fitDataset, /places: toCameraCandidates\(curatedCoverageSource\),/);
   // The local-area resolver is a pure function in lib/live/ui.ts: the fit
   // dataset itself still neither sorts, re-selects, nor measures anything.
   assert.doesNotMatch(fitDataset, /\.sort\(|curatedIdSet\.size|is_curated|distanceMeters/);
@@ -495,5 +501,5 @@ test("AC 10: no product boundary was crossed by the auto-fit change", () => {
   // distance tabs, and the coverage caption names the real origin whenever a
   // radius preset really owns the frame.
   assert.match(pageCode, /const activeRadiusMeters = curatedOnly\n\s*\? CURATED_CAMERA_RADIUS_M\n\s*: CAMERA_PRESET_RADIUS_M\[distanceFilter\];/);
-  assert.match(pageCode, /const coverageCaption = describeCoverageCaption\(\{/);
+  assert.match(pageCode, /const coverageScope = describeCoverageScope\(\{/);
 });

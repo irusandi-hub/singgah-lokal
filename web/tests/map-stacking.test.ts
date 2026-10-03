@@ -149,15 +149,15 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   const pageCode = stripComments(homeDiscovery);
   const mapMount = pageCode.indexOf("<HomeMap\n");
   assert.ok(mapMount > 0, "HomeMap must be rendered by HomeDiscovery");
-  // The in-map Place bottom sheet was removed (PO 2026-09-25) and the
-  // duplicate filter chip was removed (2026-10-03): the map stage keeps only
-  // the empty-state card, the coverage box and the scale above it.
+  // The in-map Place bottom sheet was removed (PO 2026-09-25), the duplicate
+  // filter chip was removed (2026-10-03), and the floating COVERAGE BOX was
+  // consolidated into the results panel (2026-10-03): the map stage now keeps
+  // only the empty-state card and the scale above it.
   const emptyCard = pageCode.indexOf("bottom-24 z-[1100]");
-  const coverageBox = pageCode.indexOf("bottom-9 left-4 z-[1100]");
   const scale = pageCode.indexOf("bottom-9 right-4 z-[1100]");
+  assert.equal(pageCode.includes("bottom-9 left-4 z-[1100]"), false, "the floating coverage box is consolidated away");
   for (const [name, index] of [
     ["empty-state card", emptyCard],
-    ["coverage box", coverageBox],
     ["scale", scale],
   ] as const) {
     assert.ok(index > mapMount, `${name} must come after the map in DOM order`);

@@ -338,7 +338,7 @@ test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right are truthful
   // The caption is DYNAMIC (bug fix 2026-10-03): it names the origin that is
   // really measuring — the searched city or the user's own location — instead
   // of a hardcoded "dari lokasi Anda" that contradicted Riyadh results.
-  assert.match(code, /const coverageCaption = describeCoverageCaption\(\{/);
+  assert.match(code, /const coverageScope = describeCoverageScope\(\{/);
   assert.match(code, /mode: activeSearch\.mode,/);
   assert.match(code, /placeName: searchPlaceName,/);
   // CORRECTED (2026-10-03): a radius may only be NAMED while a radius preset
@@ -354,9 +354,15 @@ test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right are truthful
   assert.match(code, /coverage: cameraCoverage,/);
   assert.match(code, /hasCenter: hasActiveCenter,/);
   assert.doesNotMatch(code, /cameraCoverage === "radius" \? radiusCaption/);
-  assert.match(code, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{coverageCaption\}<\/p>/);
+  // The standalone floating coverage box is GONE (bug fix, 2026-10-03): its
+  // information now lives on the ONE consolidated line in the results panel
+  // header, so the map's bottom-left is free and the origin is stated once.
+  assert.doesNotMatch(code, /bottom-9 left-4 z-\[1100\]/);
+  assert.doesNotMatch(code, /\{coverageCaption\}/);
+  assert.match(code, /\$\{nearOrigin\} · \$\{coverageScope\}/);
   assert.doesNotMatch(code, /dari lokasi Anda/);
-  assert.match(code, /absolute bottom-9 left-4 z-\[1100\] flex max-w-\[62%\] items-center gap-2 rounded-xl bg-white/);
+  // The scale chip is untouched and still bottom-right (map chrome, not Home
+  // result context).
   // Scale: bottom-right with the bar — but a REAL scale bar now (bug fix
   // 2026-10-03): the label is the measured viewport scale and the bar is drawn
   // at that distance's exact pixel length, never a camera radius.
@@ -399,7 +405,7 @@ test("MOCKUP §11: result header keeps title + real-count subtitle + Ke hasil", 
   // di sekitar Anda" shape) — never a fabricated number. The origin fragment
   // is `nearOrigin`, which preserves that device wording verbatim and names a
   // searched city when one is active (bug fix 2026-10-03).
-  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}`/);
+  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/);
   // "Ke hasil" is the honest label for a SCROLL (bug fix 2026-10-01): there is
   // no all-results page in the MVP, so the link must not claim to show every
   // Place. The old label "Lihat semua" and the old self-referencing target

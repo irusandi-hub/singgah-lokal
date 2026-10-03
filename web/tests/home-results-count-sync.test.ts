@@ -55,13 +55,13 @@ const discoveryCode = stripComments(homeDiscovery);
 
 test("D: the caption and the count resolve their origin from the SAME function", () => {
   // If these ever diverged, the screen would contradict itself again.
-  assert.match(discoveryCode, /const coverageCaption = describeCoverageCaption\(\{/);
+  assert.match(discoveryCode, /const coverageScope = describeCoverageScope\(\{/);
   assert.match(discoveryCode, /const nearOrigin = describeNearOrigin\(\{\s*\n\s*mode: activeSearch\.mode,\s*\n\s*placeName: searchPlaceName,\s*\n\s*hasCenter: hasActiveCenter,/);
   // Both read the identical inputs: the active mode and the resolved name —
   // and both now also read whether an origin EXISTS, so the count can no
   // longer say "di sekitar Anda" when there is no location at all.
   assert.match(discoveryCode, /const hasActiveCenter = activeCenter !== null;/);
-  assert.match(discoveryCode, /describeCoverageCaption\(\{\s*\n\s*radiusLabel: activeRadiusLabel,\s*\n\s*mode: activeSearch\.mode,\s*\n\s*placeName: searchPlaceName,\s*\n\s*coverage: cameraCoverage,\s*\n\s*hasCenter: hasActiveCenter,/);
+  assert.match(discoveryCode, /describeCoverageScope\(\{\s*\n\s*radiusLabel: activeRadiusLabel,\s*\n\s*coverage: cameraCoverage,\s*\n\s*hasCenter: hasActiveCenter,/);
   // No hardcoded user-origined copy may remain in either element.
   assert.doesNotMatch(discoveryCode, /tempat di sekitar Anda`/);
   assert.doesNotMatch(discoveryCode, /tempat pilihan di sekitar Anda`/);
@@ -107,7 +107,7 @@ test("SCENARIO city search: the count and the rendered cards come from one array
   // those, or the header would disagree with the visible cards.
   assert.match(
     discoveryCode,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\}`/,
+    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/,
   );
   // Baris 1 renders exactly curatedListed, and the single row everywhere else
   // renders exactly discoveryRowPlaces.

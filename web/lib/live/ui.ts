@@ -757,14 +757,15 @@ export function describeRadiusOrigin(input: {
  * missing. `resolveActiveCenter` answers `center: null` when geolocation was
  * denied and nothing was searched — and in that state the radius preset has no
  * anchor at all, so the camera never applied it and simply stayed on the
- * neutral world overview. The caption went on naming "dari lokasi Anda"
- * anyway: a world-scale frame described as "1 km dari lokasi Anda".
+ * neutral world overview. A caption that went on naming "dari lokasi Anda"
+ * would describe a world-scale frame as a local one.
  *
- * There is nothing to fall back to and nothing may be invented (no default
- * city, no fabricated fix), so the caption states the one thing that is true
- * at ANY zoom — the approved AREA_COVERAGE_CAPTION, which names no distance
- * and no origin. The user is told what the map is showing, never a radius the
- * camera did not apply.
+ * RETIRED as a rendered element on 2026-10-03: it lived in a floating box of
+ * its own, beside a results panel that already stated the origin and the
+ * count. The two are now ONE consolidated line in the results panel — see
+ * `describeCoverageScope`, which carries the same two conditions but only the
+ * scope fragment, so the origin is stated exactly once. The function is kept
+ * as the documented sentence contract for the neutral wording.
  */
 export function describeCoverageCaption(input: {
   radiusLabel: string;
@@ -779,6 +780,33 @@ export function describeCoverageCaption(input: {
     mode: input.mode,
     placeName: input.placeName,
   });
+}
+
+/**
+ * THE SCOPE FRAGMENT — what the camera frame covers (bug fix, 2026-10-03).
+ *
+ * The map used to carry this in a floating box of its own, while the results
+ * panel carried the origin and the count directly below it, so one screen
+ * stated the same geographic fact twice in two different shapes. The two are
+ * now ONE consolidated line: the count and the origin stay in the results
+ * panel (Master/MOCKUP §11 copy, verbatim) and only the SCOPE is added here.
+ *
+ * It deliberately carries NO origin and NO count, so the consolidated line can
+ * never repeat the place name the count already names, never print a second
+ * count, and never contradict it. `AREA_SCOPE_LABEL` is the same approved
+ * "area peta" wording as AREA_COVERAGE_CAPTION, reduced to the fragment the
+ * line needs; a radius is named only while a preset owns the frame AND an
+ * origin exists — the same two conditions as `describeCoverageCaption`.
+ */
+export const AREA_SCOPE_LABEL = "di area peta";
+
+export function describeCoverageScope(input: {
+  radiusLabel: string;
+  coverage: "radius" | "area";
+  hasCenter: boolean;
+}): string {
+  if (input.coverage !== "radius" || !input.hasCenter) return AREA_SCOPE_LABEL;
+  return `dalam radius ${input.radiusLabel}`;
 }
 
 /**

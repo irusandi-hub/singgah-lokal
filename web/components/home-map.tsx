@@ -1307,7 +1307,22 @@ export default function HomeMap({
             iconSize: [0, 0],
             html: placePin,
           }),
-          zIndexOffset: live ? 0 : 500,
+          // SELECTED MARKERS ON TOP (bug fix, 2026-10-03). Leaflet stacks
+          // markers inside one pane by a latitude-derived z-index plus this
+          // offset, so a selected ("Tempat Pilihan") pin used to sink UNDER an
+          // ordinary pin whenever the ordinary pin sat slightly further north —
+          // the selected Place was the least visible thing on a map whose whole
+          // point is the selection. The offsets below are a fixed LADDER, not a
+          // comparison of the data:
+          //   1000 LIVE chip · 900 selected (curated) · 500 ordinary · 0 the
+          //   ordinary pin that belongs to a Live Place.
+          // It is applied per marker at construction, so Leaflet re-applies it
+          // on every pan, zoom, viewport report, marker rebuild, and re-render:
+          // the order cannot drift and no effect, listener, or camera move is
+          // involved (no update loop is even possible). Artwork, colour, shape,
+          // size, coordinates, click/keyboard behaviour, and the dedicated
+          // `singgah-user-pane` user disc are all untouched.
+          zIndexOffset: isCurated ? 900 : live ? 0 : 500,
           keyboard: true,
         })
           .addTo(layer)

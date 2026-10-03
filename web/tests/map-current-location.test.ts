@@ -651,12 +651,18 @@ test("LIVE treatment: same teardrop language, unmistakably live-red, still compa
   assert.match(globals, /prefers-reduced-motion/);
   // Accessibility: every marker keeps a correct aria-label; LIVE keeps its
   // top z-priority over Place pins and the /live/[sessionId] flow.
+  //
+  // MARKER LADDER (bug fix, 2026-10-03): a SELECTED ("Tempat Pilihan") Place
+  // pin now sits between the LIVE chip and the ordinary pin, so the selection
+  // is never buried under an ordinary marker. LIVE keeps the very top.
   assert.match(mapCode, /aria-label="Live sekarang di \$\{escapeHtml\(place\.name\)\} — lihat proses produksi"/);
   assert.match(mapCode, /zIndexOffset: 1000/);
   assert.match(mapCode, /router\.push\(`\/live\/\$\{live\.sessionId\}`\)/);
   const liveOffset = mapCode.indexOf("zIndexOffset: 1000");
-  const placeOffset = mapCode.indexOf("zIndexOffset: live ? 0 : 500");
+  const placeOffset = mapCode.indexOf("zIndexOffset: isCurated ? 900 : live ? 0 : 500");
   assert.ok(liveOffset >= 0 && placeOffset > liveOffset);
+  // The whole ladder is one expression over the canonical per-Place flags.
+  assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
 });
 
 test("Every marker carries an accessible aria-label", () => {

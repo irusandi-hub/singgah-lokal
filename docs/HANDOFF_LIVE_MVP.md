@@ -699,3 +699,83 @@ this app without hydrating in any headless browser available in the sandbox
 was therefore established from the code, from the deployed bundle, and from the
 canonical dataset — not from observation — and every rule is covered
 executably instead.
+
+## 20. CORRECTION — CURATED FRAME CONTEXT, ONE INFORMATION AREA, MARKER LADDER (2026-10-03)
+
+This section corrects the three items it names. Everything in §14–§19 still
+stands: curated MEMBERSHIP from canonical `places.is_curated` only, the
+viewport-as-coverage rule for markers and rows, the 0/1/many fit matrix, the
+local-area resolver, the explicit-request camera latch, the chrome padding, the
+control ladder, the carousel frames, the measured scale bar, and "Lokasi Saya"
+clearing the search and refitting.
+
+1. **ROOT CAUSE — the over-tight curated frame.** Since §18 item 5 the curated
+   camera pool was `visiblePlaces`, which in that mode IS the curated set, so
+   the fit framed exactly the pins that were already on screen. One curated
+   Place therefore collapsed to a single-point frame with no surrounding
+   context, which reads as a broken zoom rather than as "here is your
+   selection". §13's local-area bounding was NOT the cause and is unchanged.
+2. **THE FIX.** `cameraFitPlaces` in curated mode is now the selected local area
+   PLUS camera CONTEXT: the ordinary, coordinate-valid Places of that SAME
+   local area, resolved by re-running `resolveLocalAreaCoverage` ANCHORED ON
+   THE SELECTED ANCHOR PLACE'S OWN COORDINATE. Anchoring on the selection —
+   never on the device fix — is what keeps the frame local (a distant Place or
+   a viewer on another continent cannot expand it) and is why "Tempat Pilihan"
+   is no longer framed by the device alone. The context is CAMERA geometry
+   only: it never enters the curated list, the curated count, curated
+   membership, Discovery, or any row, so §14 item 3 and the OVERLAP rule are
+   untouched. Fail-closed: an empty local area, or a selected anchor without
+   real coordinates, frames the selection alone or nothing at all. The pool
+   still reads no viewport state and is still keyed on `fitNonce` alone.
+   `locateFitPlaces` is unchanged in meaning (§18): it is the selected local
+   area, now named `selectedFitPlaces`.
+3. **ROOT CAUSE — two information panels.** A floating coverage box over the
+   map and the results panel header each stated the same geographic fact in a
+   different shape, permanently covering the bottom-left of the map.
+4. **THE CONSOLIDATION.** The floating box is removed. ONE compact line in the
+   results panel header now carries everything: the per-layer count (unchanged
+   arrays, Master/MOCKUP §11 wording verbatim), the origin, and the SCOPE
+   fragment — `dalam radius 1 km` while a distance preset owns the frame and an
+   origin exists, otherwise the approved `di area peta`. The scope fragment
+   carries no origin and no count, so the place name is stated once and the
+   number can never be printed twice. The measured scale bar is untouched: it is
+   map chrome, not Home result context, and stays bottom-right. "Ke hasil", both
+   strips, the carousel, the filters, and the empty/LIVE/error states are all
+   unchanged.
+5. **ROOT CAUSE — selected markers buried.** Leaflet orders Place pins inside
+   one pane by a latitude-derived z-index plus a shared `zIndexOffset: 500`, so
+   a selected pin could sit UNDER an ordinary one that sat slightly further
+   north — the selection was the least visible thing on a map whose whole point
+   is the selection.
+6. **THE LADDER.** `zIndexOffset: isCurated ? 900 : live ? 0 : 500`, with the
+   LIVE chip still at 1000 and the Current Location disc still in its own pane
+   at 640. The flag is the existing per-Place `isCurated`, read once; artwork,
+   colour, size, coordinates, tooltip, click, and keyboard behaviour are
+   untouched. The offset is applied at marker construction, so Leaflet re-applies
+   it on every pan, zoom, viewport report, poll, and rebuild — no effect,
+   listener, `bringToFront`, or camera move is involved, and a recenter loop is
+   not even possible. No clustering was invented; overlapping pins stay
+   reachable through the existing click and keyboard-focus path.
+7. **Explicitly NOT changed:** curated eligibility, ranking, membership, and
+   every result count; the Discovery contract; the distance tabs and their
+   ordered presets; the search mechanism and its ±0.05° box; LIVE; marker
+   coordinates, artwork, and navigation; Place data, database, RLS, branding,
+   and routes.
+8. **Verification:** the new `tests/home-map-consolidated-frame.test.ts`
+   (15 tests: one curated Place with context, multiple curated Places, distant
+    exclusion, search center vs device, manual pan/zoom, no camera loop,
+    consolidated line in every mode, no duplicate/contradictory information,
+    panel footprint, marker ladder, order after refresh, interactions and the
+    user marker, and no LIVE/search/navigation regression) plus amended — never
+    deleted — assertions in `map-auto-fit-camera`, `map-local-area-coverage`,
+    `map-current-location`, `map-viewport-coverage`, `map-stacking`,
+    `discovery-home-integration`, `home-map-first-ui`, `home-search-clarity`,
+    `home-results-count-sync`, and `place-card-direction-live`. Each amended
+    assertion is annotated in place with the behaviour change that required it.
+   Verified on this branch: map/Home/discovery suites 322 pass / 0 fail; full
+   suite in four batches 316 / 313 / 151 (1 pre-existing failure) / 109, the
+   failure being `place-management.test.ts` → "Only IDR and USD are valid
+   currencies", pre-existing and unrelated (`discovery-aggregate` and
+   `discovery-dev-dataset` remain excluded: PGlite is OOM-killed in this
+   1-CPU/2 GB sandbox); `eslint .` 0 errors / 10 warnings (baseline); `tsc -b
+   --noEmit` clean; `next build` exit 0.
