@@ -217,9 +217,9 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // centered handle that visually merges with the map above it.
   assert.match(
     code,
-    /<section\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-1\.5 pt-2\.5 shadow-\[0_-6px_18px_rgb\(0_0_0\/0\.06\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
+    /<section\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-1 pt-2 shadow-\[0_-6px_18px_rgb\(0_0_0\/0\.06\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
   );
-  assert.match(code, /mx-auto mb-2 block h-1\.5 w-12 rounded-full bg-black\/15/);
+  assert.match(code, /mx-auto mb-1\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
@@ -437,12 +437,12 @@ test("BUG FIX: both result strips carry UNIQUE anchor ids and the link targets t
 
 test("MOCKUP §12/§19: every result row is a horizontal strip of FIXED-WIDTH card tracks", () => {
   // Baris 1 (curated) — same snap-strip at 360px AND 1280px. The bottom
-  // padding is one step tighter after the 2026-10-03 compaction; the snap,
-  // scroll, and gap pattern are unchanged.
-  assert.match(code, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1\.5/);
+  // padding is tighter after the 2026-10-03 compaction; the snap, scroll, and
+  // gap pattern are unchanged.
+  assert.match(code, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/);
   // Baris 2 (Discovery) — the same horizontal pattern (no grid comeback).
   const discoveryRow = code.slice(code.indexOf("{discoveryRowPlaces.length > 0 ? ("));
-  assert.match(discoveryRow, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1\.5/);
+  assert.match(discoveryRow, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/);
   assert.doesNotMatch(discoveryRow, /grid gap-3 sm:grid-cols-2/);
   // Presentation only: the curated dataset, its order, and the cards are
   // unchanged, and the row still renders nothing when nothing is curated.

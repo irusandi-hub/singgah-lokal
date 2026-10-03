@@ -83,11 +83,14 @@ test("AC 1: curated coverage is derived from the Place spread, and the camera ha
   assert.ok(bounds);
   assert.ok(bounds.north - bounds.south > 0.15, "the spread is far larger than 10 km");
 
-  // The component feeds the camera the SAME curated candidates WITHOUT the
-  // viewport gate...
+  // The component feeds the camera the SELECTED candidates WITHOUT the
+  // viewport gate. Since the 2026-10-03 correction #2, the ordinary
+  // non-curated remainder is a MARKER-layer decision only (it is still in
+  // `mapPlaces`, §15 item 2) and must not steer the camera: in the curated
+  // mode the camera frames the eligible SELECTED distribution.
   assert.match(
     pageCode,
-    /const cameraFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoverageSource\] : visiblePlaces;/,
+    /const cameraFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*const source = visiblePlaces;/,
   );
   // ...and, since the 2026-10-03 correction, bounded to the viewer's LOCAL
   // AREA so one fit can never frame two continents (see
@@ -226,20 +229,26 @@ test("AC 4: only a NONCE can re-frame the camera — no viewport or marker input
   // The fit runs ONCE per trigger and then returns — no fall-through into the
   // radius path that would re-frame the map a second time.
   assert.match(fitEffect, /return;\s*\}\s*const anchor = cameraCenter \?\? viewerPosition;/);
-  // The deps of both camera effects carry the NONCES, never the Place arrays:
+  // The deps of the camera effects carry the NONCES, never the Place arrays:
   // a discovery re-poll or a marker rebuild cannot re-trigger them.
   assert.match(mapCode, /}, \[ready, searchNonce, searchCenter, fitCamera\]\);/);
+  assert.match(mapCode, /}, \[locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera\]\);/);
   assert.match(mapCode, /cameraCenter, fitNonce, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange/);
+  // The locate dataset is mirrored into its own ref the same way, and that
+  // mirror is declared BEFORE the locate effect, so a press always reads the
+  // CURRENT local-area set (never one from a previous fix or a previous city).
+  assert.match(mapCode, /const locateFitPlacesRef = useRef<HomeMapPlace\[\]>\(locateFitPlaces\);/);
   // The marker rebuild effect still never touches the camera.
   const markerEffect = mapCode.slice(
     mapCode.indexOf("const markerPositions: [number, number][] = [];"),
     mapCode.indexOf("}, [ready, markerKey, places, liveByPlaceId, router]);"),
   );
   assert.doesNotMatch(markerEffect, /fitCamera|fitBounds|setView|flyTo/);
-  // Exactly one animated camera move in the whole component, so nothing can
-  // ease back and forth.
-  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1);
-  assert.equal((mapCode.match(/duration:/g) ?? []).length, 1);
+  // NO animated camera move anywhere in the component, so nothing can ease
+  // back and forth (since the 2026-10-03 correction the locate refocus is
+  // instant too).
+  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 0);
+  assert.equal((mapCode.match(/duration:/g) ?? []).length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -437,9 +446,9 @@ test("AC 8: the search info panel spans the screen and is fully opaque", () => {
 // ---------------------------------------------------------------------------
 
 test("AC 9: both Place strips sit in a visible, tidily clipped frame and still scroll sideways", () => {
-  const frames = (pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-2"/g) ?? []);
+  const frames = (pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []);
   assert.equal(frames.length, 2, "Baris 1 and Baris 2 both get the frame");
-  const strips = (pageCode.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1\.5/g) ?? []);
+  const strips = (pageCode.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/g) ?? []);
   assert.equal(strips.length, 2, "both strips keep their scroll + snap pattern");
   // The cards, their fixed tracks, and their order are untouched.
   assert.equal(
@@ -470,15 +479,18 @@ test("AC 10: no product boundary was crossed by the auto-fit change", () => {
   assert.equal(/supabase|from\("places"\)|is_curated|publication_status|admin/i.test(mapCode), false);
   // The distance tabs keep their ordered radius presets.
   assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
-  // "Lokasi Saya" still centers the newest real fix at the CURRENT zoom — it
-  // never zooms OUT, so it can never widen the visible area, and it never
-  // derives a zoom from a radius.
+  // "Lokasi Saya" frames the viewer's LOCAL AREA around the newest real fix
+  // (correction, 2026-10-03) — never a radius, never a global fit, and never
+  // a bare `setView` at the previous zoom.
   const locate = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
   );
-  assert.match(locate, /const targetZoom = Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
-  assert.doesNotMatch(locate, /fitBounds|radiusZoom/);
+  assert.match(locate, /const applied = await fitCamera\(map, candidates, LOCATE_FIT_MAX_ZOOM\);/);
+  assert.match(locate, /locateFitPlacesRef\.current/);
+  assert.match(locate, /id: VIEWER_FIT_POINT_ID,/);
+  assert.doesNotMatch(locate, /radiusZoom/);
+  assert.doesNotMatch(locate, /CAMERA_PRESET_RADIUS_M|CURATED_CAMERA_RADIUS_M|10_000/);
   // The curated display radius is still a truthful DISPLAY value for the
   // distance tabs, and the coverage caption names the real origin whenever a
   // radius preset really owns the frame.

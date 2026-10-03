@@ -214,19 +214,17 @@ test("Locate failure matrix: existing fix recentres, no fix never invents one", 
   const writes = pageCode.match(/setViewerPosition\(/g) ?? [];
   assert.equal(writes.length, 1, "viewerPosition is written only by the fresh-fix success callback");
   assert.match(pageCode, /lat: position\.coords\.latitude/);
-  // The locate recenter centers on the newest REAL fix and PRESERVES the
-  // current close zoom (product decision, 2026-10-01: no forced zoom-out, no
-  // wide radius), eased in with ONE short transition and the pin pulse as the
-  // visual feedback.
+  // The locate action centers on the newest REAL fix (SUPERSEDED 2026-10-03:
+  // it now frames the viewer's LOCAL AREA around that fix, still no radius),
+  // applied instantly with the pin pulse as the visual feedback.
   const mapCode = stripComments(homeMap);
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
   );
-  assert.match(locateEffect, /const center: \[number, number\] = \[viewerPosition\.lat, viewerPosition\.lng\]/);
-  assert.match(locateEffect, /const targetZoom = Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
+  assert.match(locateEffect, /const applied = await fitCamera\(map, candidates, LOCATE_FIT_MAX_ZOOM\);/);
+  assert.match(locateEffect, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\], Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
   assert.doesNotMatch(locateEffect, /radiusZoom/);
-  assert.doesNotMatch(locateEffect, /fitBounds/);
 });
 
 test("Every distance tab is a deterministic camera preset through ONE mechanism", () => {
@@ -252,25 +250,35 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   assert.equal(focusUserCalls.length, 1, "null-preset anchor fallback only");
 });
 
-test("Lokasi Saya centers the real fix on the CURRENT zoom — it never widens the frame", () => {
+test("Lokasi Saya frames the viewer's LOCAL AREA around the real fix (no radius)", () => {
   const mapCode = stripComments(homeMap);
-  // It centers on the newest REAL fix and keeps the close zoom the viewer is
-  // already on (Math.max of the CURRENT zoom: it can raise a farther zoom to
-  // the close floor, but it can never zoom OUT), instead of deriving a zoom
-  // from a fixed wide radius (product decision, 2026-10-01).
+  // CORRECTION 2026-10-03: the press frames the eligible local Places PLUS the
+  // user's own coordinate. It is explicitly NOT a `setView` at the current
+  // zoom any more, and NOT a radius frame: it must widen only as far as the
+  // local distribution actually requires.
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
   );
   assert.match(locateEffect, /locatePendingRef\.current = false;/);
-  assert.match(locateEffect, /const center: \[number, number\] = \[viewerPosition\.lat, viewerPosition\.lng\]/);
-  assert.match(locateEffect, /const targetZoom = Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
-  // No radius-derived zoom, no marker fitBounds, no mode/filter mutation, and
-  // NO fallback coordinate in the locate path.
+  // The user's own coordinate joins the local Places (geometry only), so the
+  // frame stays oriented around the viewer.
+  assert.match(locateEffect, /id: VIEWER_FIT_POINT_ID,/);
+  assert.match(locateEffect, /latitude: viewerPosition\.lat,\s*\n\s*longitude: viewerPosition\.lng,/);
+  // No radius-derived zoom, no mode/filter mutation, and no fallback
+  // coordinate anywhere in the locate path.
   assert.doesNotMatch(locateEffect, /radiusZoom/);
-  assert.doesNotMatch(locateEffect, /fitBounds/);
   assert.doesNotMatch(locateEffect, /setCuratedOnly|setDistanceFilter|curatedOnly\s*=/);
   assert.doesNotMatch(locateEffect, /cameraRadiusMeters/);
+  assert.match(mapCode, /const VIEWER_FIT_POINT_ID = "__viewer_position__";/);
+  // The floor is a CLOSE zoom, used only for the no-Place fallback, and the
+  // fit's own ceiling is a zoom level (never a radius) that can only widen.
+  const floor = Number(/const LOCATE_MIN_ZOOM = (\d+)/.exec(homeMap)?.[1] ?? "0");
+  assert.ok(floor >= 14, `locate must focus close (got zoom ${floor})`);
+  const ceiling = Number(/const LOCATE_FIT_MAX_ZOOM = (\d+)/.exec(homeMap)?.[1] ?? "0");
+  assert.ok(ceiling >= 14 && ceiling <= 18, `the fit ceiling must stay a sane zoom level (got ${ceiling})`);
+  assert.match(mapCode, /typeof maxZoom === "number" \? \{ maxZoom \} : \{\}/);
+  assert.match(mapCode, /map\.setView\(\[position\.lat, position\.lng\], Math\.max\(map\.getZoom\(\), \d+\)/);
   // CORRECTION (2026-10-03): the frame this press produces is LATCHED, so the
   // fresh geolocation fix that lands right after it can no longer re-frame the
   // map to a radius preset the user never chose — which is what used to make
@@ -280,9 +288,6 @@ test("Lokasi Saya centers the real fix on the CURRENT zoom — it never widens t
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
   // The floor is a CLOSE zoom, never a wide one, and it is the same value the
   // zoom-preserving fallback focus uses.
-  const floor = Number(/const LOCATE_MIN_ZOOM = (\d+)/.exec(homeMap)?.[1] ?? "0");
-  assert.ok(floor >= 14, `locate must focus close (got zoom ${floor})`);
-  assert.match(mapCode, /map\.setView\(\[position\.lat, position\.lng\], Math\.max\(map\.getZoom\(\), \d+\)/);
   // The preset anchor is the ONLY place the selected preset radius reaches the
   // camera — the 1/5/10 km tabs AND the 10 km curated preset are untouched.
   const anchorEffect = mapCode.slice(
@@ -297,37 +302,39 @@ test("Lokasi Saya centers the real fix on the CURRENT zoom — it never widens t
   assert.equal(focusUserCalls.length, 1, "null-preset anchor fallback only");
 });
 
-test("Lokasi Saya camera transition is SHORT and smooth, and respects reduced motion", () => {
+test("Lokasi Saya applies INSTANTLY — no animated flight, and the pulse is the feedback", () => {
   const mapCode = stripComments(homeMap);
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
   );
-  // ONE transition, and it is NOT the old instant jump: the camera eases to
-  // the 10 km frame instead of teleporting...
-  assert.match(locateEffect, /map\.flyTo\(center, targetZoom, \{/);
-  assert.match(locateEffect, /duration: LOCATE_TRANSITION_MS \/ 1000/);
-  assert.match(locateEffect, /easeLinearity: 0\.4/);
-  // ...and the duration is BOUNDED so it can never become a long fly-through
-  // or feel like loading. Executable: the real value must sit between a
-  // clearly-perceptible 150 ms and a hard 600 ms ceiling.
-  const declared = Number(/const LOCATE_TRANSITION_MS = (\d+)/.exec(homeMap)?.[1] ?? "0");
-  assert.ok(declared >= 150, `locate transition must be perceptible (got ${declared} ms)`);
-  assert.ok(declared <= 600, `locate transition must stay short (got ${declared} ms)`);
+  // CORRECTION 2026-10-03: the 350 ms flyTo is RETIRED. A frame that can now
+  // span a whole neighbourhood must not be animated — a long eased flight over
+  // a changing Place distribution is exactly the "camera keeps moving" feeling
+  // this task removes. Every camera apply in this component is instant, and
+  // the one-shot pin pulse is the feedback.
+  assert.doesNotMatch(locateEffect, /flyTo|duration|easeLinearity/);
+  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 0, "no animated camera move anywhere");
+  assert.equal(/duration:/.test(mapCode), false, "no camera duration anywhere");
+  // The pulse still starts BEFORE the camera applies, and stays pending when
+  // the pin element does not exist yet (unchanged behaviour).
+  const pulseIndex = locateEffect.indexOf("triggerLocatePulse();");
+  const fitIndex = locateEffect.indexOf("await fitCamera(");
+  assert.ok(pulseIndex > 0 && fitIndex > 0);
+  assert.ok(pulseIndex < fitIndex, "the pulse runs before the frame applies");
   const pulseWindow = Number(/const LOCATE_PULSE_MS = (\d+)/.exec(homeMap)?.[1] ?? "0");
-  assert.ok(pulseWindow >= declared, "the pin pulse must outlast the camera transition");
-  // Reduced motion wins: the SAME action then applies instantly (no
-  // transition at all) — it is never skipped, only unanimated.
-  assert.match(mapCode, /function prefersReducedMotion\(\): boolean \{[\s\S]*prefers-reduced-motion: reduce/);
-  assert.match(locateEffect, /if \(prefersReducedMotion\(\)\) \{\n\s*map\.setView\(center, targetZoom, \{ animate: false \}\);\n\s*return;\n\s*\}/);
-  // The transition exists ONLY on the locate path: choosing a tab keeps the
-  // instant preset apply.
+  assert.ok(pulseWindow >= 150 && pulseWindow <= 2000, `the pulse must stay a short bounded burst (got ${pulseWindow} ms)`);
+  // Reduced-motion support is gone WITH the transition it existed for; the
+  // camera simply never animates any more, which satisfies it unconditionally.
+  assert.doesNotMatch(mapCode, /prefersReducedMotion/);
+  assert.doesNotMatch(mapCode, /LOCATE_TRANSITION_MS/);
+  // The transition-free apply exists ONLY on the locate path; choosing a tab
+  // keeps its own instant preset apply.
   const anchorEffect = mapCode.slice(
     mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
     mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);"),
   );
   assert.doesNotMatch(anchorEffect, /flyTo|duration/);
-  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1, "exactly one animated move — the locate recenter");
 });
 
 test("The curated and 10 km tab camera coverages stay exactly 10,000 m; no coverage constant survives", () => {
@@ -656,27 +663,26 @@ test("Every marker carries an accessible aria-label", () => {
 
 // --- Instant camera + one-shot pin focus feedback (PO, 2026-09-30) ---
 
-test("Preset camera moves stay INSTANT; only the locate recenter animates (and briefly)", () => {
+test("Every camera move is INSTANT — presets, fits, and the locate refocus alike", () => {
   const mapCode = stripComments(homeMap);
   const pageCode = stripComments(homePage);
   // Choosing a tab stays an instant setView on the real fix — Leaflet skips
   // its animated-zoom path entirely for these options (synchronous
-  // _resetView, no requestAnimFrame, no easing curve). The null-preset focus
-  // uses position.lat and is locked in the locate pulse test below.
+  // _resetView, no requestAnimFrame, no easing curve).
   const setViews = mapCode.match(/map\.setView\(\[anchor\.lat, anchor\.lng\],[\s\S]*?\{ animate: false \}\)/g) ?? [];
   assert.equal(setViews.length, 1, "the preset anchor applies instantly");
-  // The ONLY animated move is the locate recenter, and it is bounded (the
-  // locate-transition test proves the real duration value).
-  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1, "exactly one animated move — the locate recenter");
-  assert.equal((mapCode.match(/duration:/g) ?? []).length, 1, "exactly one bounded duration — the locate transition");
+  // SUPERSEDED (correction, 2026-10-03): "Lokasi Saya" no longer animates
+  // either — it frames the local Place distribution, and a flight across a
+  // whole neighbourhood is exactly the drifting-camera behaviour being removed.
+  // So the component now contains NO animated camera move at all.
+  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 0, "no animated camera move");
+  assert.equal((mapCode.match(/duration:/g) ?? []).length, 0, "no camera duration");
   assert.equal(pageCode.includes("flyTo"), false, "no flyTo in Home discovery");
   assert.equal(pageCode.includes("duration"), false, "no duration in Home discovery");
   assert.equal(pageCode.includes("easeLinearity"), false, "no easing in Home discovery");
-  // No animated fit and no fallback camera anywhere in either file.
-  // SUPERSEDED (product decision, 2026-10-03): an INSTANT `fitBounds` now
-  // exists for the curated tab and a location search — the auto-fit camera.
-  // It is deliberately `animate: false`, so the "instant camera" rule above
-  // still holds in full: the only animated move is the locate recenter.
+  // No animated fit and no fallback camera anywhere in either file: the
+  // auto-fit for the curated tab, the locate refocus, and the search are all
+  // deliberately `animate: false`.
   const animatedFits = mapCode.match(/fitBounds\([\s\S]{0,240}?animate: true/g) ?? [];
   assert.equal(animatedFits.length, 0, "the auto-fit is never animated");
   assert.equal(pageCode.includes("fitBounds"), false);
@@ -718,17 +724,16 @@ test("Tempat Pilihan transition: instant 10 km preset camera + one-shot pin focu
 
 test("Lokasi Saya pulses the pin BEFORE the camera moves and survives a late marker", () => {
   const mapCode = stripComments(homeMap);
-  // The pulse is triggered BEFORE the camera transition, so it is already
-  // running while the map settles (not only after it).
+  // The pulse is triggered BEFORE the frame applies, so it is already running
+  // while the map settles (not only after it). Since 2026-10-03 the apply is
+  // the local-area fit instead of an eased flight; the ordering is unchanged.
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
-    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
   );
   const pulseAt = locateEffect.indexOf("triggerLocatePulse();");
-  const moveAt = locateEffect.indexOf("map.flyTo(");
-  assert.ok(pulseAt > 0 && moveAt > pulseAt, "the pulse starts before the camera transition");
-  // The reduced-motion branch keeps the same pulse (it is never skipped).
-  assert.match(locateEffect, /if \(prefersReducedMotion\(\)\) \{/);
+  const moveAt = locateEffect.indexOf("await fitCamera(");
+  assert.ok(pulseAt > 0 && moveAt > pulseAt, "the pulse starts before the camera applies");
   // PENDING PULSE (PO, 2026-09-30): the feedback window is recorded BEFORE the
   // pin element is looked up, so a locate request that lands before the
   // asynchronous marker exists still pulses it once it is created.

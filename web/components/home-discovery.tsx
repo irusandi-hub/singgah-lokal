@@ -641,7 +641,7 @@ export default function HomeDiscovery({
   }, [curatedOnly, curatedCoverageSource, coverageViewport]);
 
   // CAMERA BOUNDS DATASET — LOCAL-AREA AUTO-FIT (product decision,
-  // 2026-10-03; corrected the same day).
+  // 2026-10-03; corrected twice the same day).
   //
   // This is the MAP DATASET with the VIEWPORT GATE REMOVED, and that single
   // difference is what lets the camera cover the whole local spread: the
@@ -662,12 +662,20 @@ export default function HomeDiscovery({
   //     set is EMPTY, so the camera keeps its current view instead of framing
   //     every Place on earth.
   //
+  // SELECTED PLACES ("Tempat Pilihan", correction 2026-10-03 #2): in that
+  // mode the candidates are the SELECTED Places themselves — exactly what
+  // `visiblePlaces` already resolves from the canonical `places.is_curated`
+  // ids. The ordinary non-curated remainder is a MARKER-layer decision (§15
+  // item 2, still untouched in `mapPlaces`); it must not steer the CAMERA,
+  // whose job there is to frame the selected distribution. Eligibility,
+  // membership, the curated LIST, and the row counts are unchanged.
+  //
   // It is display geometry only: membership still comes solely from the
   // canonical curated ids, no Place is added to or removed from any row by
   // this value, and it is never used as a filter. Coordinates are canonical
   // only — a Place without them is simply absent (no invented position).
   const cameraFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    const source = curatedOnly ? [...visiblePlaces, ...curatedCoverageSource] : visiblePlaces;
+    const source = visiblePlaces;
     const seen = new Set<string>();
     const candidates = source.flatMap((place) => {
       if (seen.has(place.id)) return [];
@@ -693,7 +701,17 @@ export default function HomeDiscovery({
     origin: searchCenter ?? viewerPosition,
     places: candidates,
   }).places.map(({ id, name, latitude, longitude }) => ({ id, name, latitude, longitude }));
-  }, [visiblePlaces, curatedCoverageSource, curatedOnly, searchCenter, viewerPosition]);
+  }, [visiblePlaces, searchCenter, viewerPosition]);
+
+  // "LOKASI SAYA" BOUNDS DATASET — the SAME local-area set, handed to the map
+  // under its own prop and its own trigger (correction 2026-10-03).
+  //
+  // It is one value computed once, not a second resolution rule: the locate
+  // press and the curated choice both frame the viewer's local area, they
+  // simply fire from two different explicit actions. The origin is the REAL
+  // fix (not the searched city): pressing "Lokasi Saya" clears the search first,
+  // so `searchCenter` is already null when this recomputes.
+  const locateFitPlaces = cameraFitPlaces;
 
   // CAMERA BOUNDS DATASET — LOCATION SEARCH AUTO-FIT (product decision,
   // 2026-10-03). The relevant Places for a searched region are the canonical
@@ -1081,6 +1099,16 @@ export default function HomeDiscovery({
                viewport report can ever recenter the camera in a loop. */
             fitPlaces={cameraFitPlaces}
             fitNonce={fitNonce}
+            /* "LOKASI SAYA" BOUNDS (correction, 2026-10-03): the explicit
+               "My Location" press frames the viewer's LOCAL AREA — the same
+               eligible Places, bounded upstream by their canonical country +
+               subdivision (with the documented proximity fallback), plus the
+               user's own coordinate inside the map component. No 10 km radius,
+               no whole-dataset fit, and a separate prop so the curated
+               refocus and the locate refocus can never fire for each other's
+               reason. An empty local area focuses the user's coordinate alone;
+               no fix at all means no camera move. */
+            locateFitPlaces={locateFitPlaces}
             /* The Places relevant to the SEARCHED region (canonical, no
                viewport gate). A new search answer frames their spread instead
                of only the geocoder's city point; an empty set keeps that
@@ -1474,15 +1502,15 @@ export default function HomeDiscovery({
             the count, the "Ke hasil" link, the category labels, and both strips
             are UNCHANGED — nothing was hidden, truncated, or made scrollable. */}
         <section
-          className="relative z-10 -mt-5 rounded-t-[24px] bg-brand-cream pb-1.5 pt-2.5 shadow-[0_-6px_18px_rgb(0_0_0/0.06)]"
+          className="relative z-10 -mt-5 rounded-t-[24px] bg-brand-cream pb-1 pt-2 shadow-[0_-6px_18px_rgb(0_0_0/0.06)]"
           aria-labelledby="place-results-heading"
         >
           {/* Panel handle — small centered bar, mockup §10 (visual only). */}
           <span
             aria-hidden
-            className="mx-auto mb-2 block h-1.5 w-12 rounded-full bg-black/15"
+            className="mx-auto mb-1.5 block h-1.5 w-12 rounded-full bg-black/15"
           />
-          <div className="mb-2.5 flex items-end justify-between gap-3 px-1">
+          <div className="mb-2 flex items-end justify-between gap-3 px-1">
             <div className="min-w-0">
               <h2 id="place-results-heading" className="text-lg font-bold leading-tight">
                 {searchQuery.trim()
@@ -1543,10 +1571,10 @@ export default function HomeDiscovery({
                   the strip itself keeps `overflow-x-auto` + `snap-x`, so the
                   cards stay horizontally scrollable and snap exactly as
                   before. Cards, spacing, order, and handlers are untouched. */}
-              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-2">
+              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-1.5">
               <div
                 id={CURATED_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-1.5"
+                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-1"
               >
                 {curatedListed.map((place) => (
                   <div
@@ -1589,10 +1617,10 @@ export default function HomeDiscovery({
                   size and several are visible side by side. */}
               {/* Same framed band as Baris 1 — one consistent Place-card
                   container across the whole result panel. */}
-              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-2">
+              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-1.5">
               <div
                 id={DISCOVERY_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-1.5"
+                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-1"
               >
                 {discoveryRowPlaces.map((place) => (
                   <div

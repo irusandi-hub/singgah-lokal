@@ -7,6 +7,8 @@ import {
   CURATED_CAMERA_RADIUS_M,
   LOCAL_AREA_SEPARATION_RATIO,
   MAP_SCALE_MAX_BAR_PX,
+  boundsOfPoints,
+  collectGeoPoints,
   distanceMeters,
   resolveLocalAreaCoverage,
   resolveMapScale,
@@ -270,13 +272,20 @@ test("AC 3: a Place 25 km away is framed, a Place 400 km away is not", () => {
 // ---------------------------------------------------------------------------
 
 test("AC 4: the bounds dataset is still un-narrowed by the viewport", () => {
-  // The local-area resolver reads the CONTENT filter (curated membership + the
-  // ordinary remainder) one step before the viewport gate, so a Place outside
-  // the current frame is still inside the area.
-  assert.match(
-    pageCode,
-    /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoverageSource\] : visiblePlaces;/,
+  // The local-area resolver reads the CONTENT filter one step before the
+  // viewport gate, so a Place outside the current frame is still inside the
+  // area. Since the 2026-10-03 correction #2 the curated camera pool is the
+  // SELECTED Places only (`visiblePlaces` already resolves curated membership);
+  // the ordinary remainder stays a marker-layer decision.
+  assert.match(pageCode, /const source = visiblePlaces;/);
+  const fitPool = pageCode.slice(
+    pageCode.indexOf("const cameraFitPlaces"),
+    pageCode.indexOf("const searchFitPlaces"),
   );
+  // The ordinary remainder is still a MARKER-layer decision (`mapPlaces`, §15
+  // item 2) — it must not appear in the CAMERA pool.
+  assert.doesNotMatch(fitPool, /const source = curatedOnly \?|curatedCoverageSource/);
+  assert.match(pageCode, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
   const fitDataset = pageCode.slice(
     pageCode.indexOf("const cameraFitPlaces"),
     pageCode.indexOf("const searchFitPlaces"),
@@ -369,6 +378,161 @@ test("AC 7: a searched city still frames its own Places through the untouched pa
 });
 
 // ---------------------------------------------------------------------------
+// 7b. "My Location" REALLY refits — the whole 0/1/many/denied matrix.
+//
+// This block exists because the first version of the local-area work left
+// "Lokasi Saya" as a bare recentre at the previous zoom. The requested
+// behaviour is that the press FRAMES the eligible local distribution, so the
+// component is asserted for each case explicitly, and the fit bounds are
+// computed here with the SAME helpers the camera uses.
+// ---------------------------------------------------------------------------
+
+/** The exact bounds `fitCamera` would build for a candidate list. */
+function fitBoundsOf(candidates: Row[]): MapViewport | null {
+  const points = collectGeoPoints(
+    candidates.map((place) => ({ latitude: place.latitude, longitude: place.longitude })),
+  );
+  return boundsOfPoints(points);
+}
+
+test("AC 1: \"My Location\" refits the local distribution instead of recentring at the previous zoom", () => {
+  const locateEffect = mapCode.slice(
+    mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
+  );
+  // It is NOT a bare setView at the current zoom: the frame comes from the
+  // local-area candidates through the shared fit mechanism.
+  assert.match(locateEffect, /await fitCamera\(map, candidates, LOCATE_FIT_MAX_ZOOM\)/);
+  assert.doesNotMatch(locateEffect, /Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\),\s*\{ animate: false \}\);\s*return;/);
+  // It reuses the ONE fit mechanism — no second camera system was added.
+  assert.equal((mapCode.match(/const fitCamera = useCallback/g) ?? []).length, 1);
+  // The page hands it the local-area dataset under its own prop and trigger.
+  assert.match(pageCode, /locateFitPlaces=\{locateFitPlaces\}/);
+  assert.match(pageCode, /const locateFitPlaces = cameraFitPlaces;/);
+  assert.match(mapCode, /locateFitPlaces = \[\],/);
+});
+
+test("AC 2: all eligible local candidates contribute, including ones outside the viewport", () => {
+  // A 25 km spread inside one trusted subdivision: every candidate is in the
+  // bounds, none of them is filtered by what happens to be on screen.
+  const spread: Row[] = [
+    { id: "near", latitude: -6.9115, longitude: 107.6098, countryCode: "ID", regionName: "Jawa Barat" },
+    { id: "far", latitude: -6.66, longitude: 107.9, countryCode: "ID", regionName: "Jawa Barat" },
+    { id: "distant", latitude: 24.7136, longitude: 46.6753, countryCode: "SA", regionName: "Ash Sharqiyah" },
+  ];
+  const coverage = resolveLocalAreaCoverage({ origin: BANDUNG, places: spread });
+  assert.deepEqual(coverage.places.map((place) => place.id), ["near", "far"]);
+  const bounds = fitBoundsOf(coverage.places);
+  assert.ok(bounds);
+  // The frame is the WHOLE local distribution — it zooms out far enough.
+  assert.ok(bounds.north - bounds.south > 0.2, "the fit covers the 25 km spread");
+  assert.equal(coverage.places.includes(spread[2]), false, "the Riyadh Place never enters the local bounds");
+});
+
+test("AC 3: ONE local Place + the user is focused sensibly, with no radius", () => {
+  const single = resolveLocalAreaCoverage({
+    origin: BANDUNG,
+    places: [
+      { id: "only", latitude: -6.9115, longitude: 107.6098, countryCode: "ID", regionName: "Jawa Barat" },
+    ],
+  });
+  assert.deepEqual(single.places.map((place) => place.id), ["only"]);
+  // The camera adds the user's own coordinate, so the frame is the pair — a
+  // real neighbourhood frame, never a street-level jump and never a 10 km cap.
+  const bounds = fitBoundsOf([
+    ...single.places,
+    { id: "__viewer_position__", latitude: BANDUNG.lat, longitude: BANDUNG.lng, countryCode: null, regionName: null },
+  ]);
+  assert.ok(bounds);
+  assert.ok(bounds.north - bounds.south > 0.002 && bounds.north - bounds.south < 0.1);
+  // The fit's ceiling is a ZOOM LEVEL that can only widen the frame.
+  assert.match(mapCode, /const LOCATE_FIT_MAX_ZOOM = (\d+);/);
+  assert.match(mapCode, /\.\.\.\(typeof maxZoom === "number" \? \{ maxZoom \} : \{\}\),/);
+});
+
+test("AC 3: NO local Place focuses the user's coordinate alone — never a distant Place", () => {
+  const locateEffect = mapCode.slice(
+    mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
+  );
+  // The component-level rule is what matters: with NO eligible local Place the
+  // fit candidate list is EMPTY (the user's own point is not faked into a
+  // Place), so the fit refuses to move and the fallback focuses the user.
+  assert.match(locateEffect, /localPlaces\.length > 0/);
+  assert.match(locateEffect, /: \[\];/);
+  assert.match(locateEffect, /map\.setView\(\[viewerPosition\.lat, viewerPosition\.lng\]/);
+  // ...and with no fix at all there is NO camera move whatsoever.
+  // Executable proof of the empty case: no candidate, no bounds, no move.
+  assert.equal(boundsOfPoints(collectGeoPoints([])), null);
+});
+
+test("AC 3: denied geolocation performs NO fit at all", () => {
+  const locateEffect = mapCode.slice(
+    mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
+  );
+  // The request stays PENDING and resolves on the first real fix; the dataset
+  // is empty without one, so a global fit is impossible by construction.
+  assert.match(locateEffect, /locatePendingRef\.current = true;/);
+  assert.match(locateEffect, /locatePendingRef\.current = false;/);
+  assert.equal(resolveLocalAreaCoverage({ origin: null, places: WORLD }).places.length, 0);
+  assert.equal(resolveLocalAreaCoverage({ origin: { lat: Number.NaN, lng: 1 }, places: WORLD }).places.length, 0);
+  assert.match(pageCode, /\(\) => undefined,\s*\{\s*timeout: 8000\s*\}/);
+});
+
+test("AC 3: the frame is applied once and then left alone", () => {
+  // Unsolicited geolocation updates, marker refreshes, and viewport reports
+  // cannot re-fit: the locate fit is keyed on the nonce alone and latched.
+  const locateEffect = mapCode.slice(
+    mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
+    mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse, fitCamera]);"),
+  );
+  assert.match(
+    mapCode,
+    /if \(!locateNonce \|\| lastLocateNonceRef\.current === locateNonce\) return;/,
+    "the locate fit is keyed on the nonce alone, so it can never re-run on its own",
+  );
+  assert.match(locateEffect, /userInteractedRef\.current = true;/);
+  assert.match(mapCode, /if \(userInteractedRef\.current && lastRadiusRef\.current === cameraRadiusMeters\) return;/);
+  // Manual pan/zoom survives until an explicit request releases the latch.
+  assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
+  assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
+  // And only the three hand-driven actions can produce that request.
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+});
+
+test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the whole layer", () => {
+  const fitPool = pageCode.slice(
+    pageCode.indexOf("const cameraFitPlaces"),
+    pageCode.indexOf("const searchFitPlaces"),
+  );
+  // The camera pool is the SELECTED places `visiblePlaces` resolves from the
+  // canonical curated ids — the ordinary remainder is a marker-layer rule.
+  assert.match(fitPool, /const source = visiblePlaces;/);
+  assert.doesNotMatch(fitPool, /curatedCoverageSource/);
+  assert.match(
+    pageCode,
+    /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
+  );
+  // Eligible-but-not-curated Places can therefore never steer that camera,
+  // while the curated MAP still shows both layers.
+  assert.match(pageCode, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
+  // Two selected Places ~25 km apart: the fit must span both, which no 10 km
+  // circle could ever contain.
+  const selected: Row[] = [
+    { id: "sel-a", latitude: -6.9115, longitude: 107.6098, countryCode: "ID", regionName: "Jawa Barat" },
+    { id: "sel-b", latitude: -6.66, longitude: 107.9, countryCode: "ID", regionName: "Jawa Barat" },
+  ];
+  const bounds = fitBoundsOf(resolveLocalAreaCoverage({ origin: BANDUNG, places: selected }).places);
+  assert.ok(bounds && bounds.north - bounds.south > 0.2);
+  // The curated list, its membership, and the counts are untouched.
+  assert.match(
+    pageCode,
+    /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/,
+  );
+});
+
+// ---------------------------------------------------------------------------
 // 8. The results panel is more compact without cutting content.
 // ---------------------------------------------------------------------------
 
@@ -379,10 +543,10 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // ...and the panel's own padding went with it.
   assert.match(
     pageCode,
-    /<section\s*\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-1\.5 pt-2\.5/,
+    /<section\s*\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-1 pt-2/,
   );
-  assert.match(pageCode, /mx-auto mb-2 block h-1\.5 w-12 rounded-full bg-black\/15/);
-  assert.match(pageCode, /mb-2\.5 flex items-end justify-between gap-3 px-1/);
+  assert.match(pageCode, /mx-auto mb-1\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
+  assert.match(pageCode, /mb-2 flex items-end justify-between gap-3 px-1/);
   // NOTHING important was cut: the title, the count, the "Ke hasil" link, the
   // category labels, both strips, and both carousel frames are all still there.
   assert.match(pageCode, /id="place-results-heading"/);
@@ -390,9 +554,9 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   assert.match(pageCode, /Ke hasil <span aria-hidden>›<\/span>/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*\n\s*<\/p>/);
   assert.match(pageCode, />\s*Discovery Place\s*\n\s*<\/p>/);
-  assert.equal((pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-2"/g) ?? []).length, 2);
+  assert.equal((pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []).length, 2);
   assert.equal(
-    (pageCode.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1\.5/g) ?? []).length,
+    (pageCode.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/g) ?? []).length,
     2,
   );
   assert.equal(
