@@ -1489,12 +1489,20 @@ export default function HomeDiscovery({
           /* COMPACT overlay (bug fix 2026-10-03). The copy is unchanged — an
              empty state must stay an honest empty state — but the card no
              longer spans the map: the wrapper is a centered flex line, the
-             card itself is content-sized (w-fit) and capped at 20 rem, so it
-             covers the smallest possible area and WRAPS instead of growing
+             card itself is content-sized (w-fit) and capped at 20 rem, soit covers the smallest possible area and WRAPS instead of growing
              when the sentence is long or the screen is narrow. Padding, text
-             size and shadow are reduced, and it stays clear of the coverage
-             box (bottom-9) and the Leaflet controls. */
-          <div className="pointer-events-none absolute inset-x-0 bottom-24 z-[1100] flex justify-center px-4">
+             size and shadow are reduced, and it stays clear of the Leaflet
+             controls.
+
+             RAISED to `bottom-32` (2026-10-04): the floating results card now
+             owns the map's bottom-left corner, and its height is not fixed —
+             a long search query wraps the panel title to a second line and
+             grows the card by roughly one more row. At `bottom-24` those two
+             cards could touch when a search returned nothing (empty state up,
+             floating results card down, both centered and overlapping
+             horizontally). `bottom-32` clears a two-line title with room to
+             spare, and the 460px map floor leaves ample space above it. */
+          <div className="pointer-events-none absolute inset-x-0 bottom-32 z-[1100] flex justify-center px-4">
             <div className="w-fit max-w-[min(20rem,100%)] rounded-xl bg-white/95 px-3 py-1.5 text-center shadow-md ring-1 ring-brand-ink/10">
               <p className="text-[11px] font-semibold leading-4 text-brand-ink">
                 {curatedOnly

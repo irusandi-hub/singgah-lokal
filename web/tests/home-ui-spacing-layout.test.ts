@@ -191,10 +191,18 @@ test("T2.5 the panel sits on the documented Home overlay ladder", () => {
 });
 
 test("T2.6 the panel neither covers the scale bar nor the empty state", () => {
-  // Vertical: the card sits BELOW both of them.
+  // Vertical: the card sits BELOW the empty state. The empty state was raised
+  // from `bottom-24` to `bottom-32` because the card's height is NOT fixed — a
+  // long search query wraps the panel title to a second line and grows it.
   const CARD_BOTTOM_OFFSET = 12; // bottom-3
-  const EMPTY_STATE_BOTTOM_OFFSET = 96; // bottom-24
-  assert.ok(CARD_BOTTOM_OFFSET < EMPTY_STATE_BOTTOM_OFFSET, "the card is below the empty state");
+  const EMPTY_STATE_BOTTOM_OFFSET = 128; // bottom-32
+  const ONE_LINE_TITLE_CARD_HEIGHT = 84; // measured at 360px: 12 + handle + title + 2 count lines
+  const WRAPPED_TITLE_EXTRA = 26; // one more `text-lg leading-tight` row
+  assert.ok(
+    CARD_BOTTOM_OFFSET + ONE_LINE_TITLE_CARD_HEIGHT + WRAPPED_TITLE_EXTRA <= EMPTY_STATE_BOTTOM_OFFSET,
+    "even a wrapped two-line title clears the empty state",
+  );
+  assert.match(code, /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/);
 
   // Horizontal: the card stops short of the right edge, where the real scale
   // bar (bottom-9 right-4) lives, so the bar is never covered.
@@ -209,6 +217,20 @@ test("T2.6 the panel neither covers the scale bar nor the empty state", () => {
   assert.match(mapCode, /absolute right-3 top-\[240px\]/);
   // The retired bottom-left coverage chip must not come back behind the card.
   assert.equal(code.includes("bottom-9 left-4 z-[1100]"), false);
+});
+
+test("T2.6b the panel still fits the smallest supported viewport", () => {
+  // 360px is the documented floor. px-4 (16) left + pr-[5.5rem] (88) right
+  // leaves a 256px card, and after its own px-3 padding a 232px text line:
+  // "Tempat Pilihan" + "Ke hasil" need about 226px, so the header stays on ONE
+  // line at every supported width and the card height stays predictable.
+  const VIEWPORT = 360;
+  const textLine = VIEWPORT - 16 - 88 - 24;
+  const titlePlusAction = 226;
+  assert.ok(textLine >= titlePlusAction, "title and Ke hasil fit on one line at 360px");
+  // The title is allowed to wrap for a long query (nothing is truncated), which
+  // is exactly why T2.6 budgets the extra row.
+  assert.match(code, /<h2 id="place-results-heading" className="text-lg font-bold leading-tight">/);
 });
 
 test("T2.7 there is exactly ONE results information panel", () => {

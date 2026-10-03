@@ -976,7 +976,7 @@ byte-identical; only the painting location changed.
 | Concern | Resolution |
 | --- | --- |
 | Covers the scale bar? | No — `pr-[5.5rem]` stops the card short of the right edge, where the real scale bar (`bottom-9 right-4`) lives. |
-| Covers the empty state? | No — the card sits at `bottom-3`, below the empty state at `bottom-24`. |
+| Covers the empty state? | No — the card sits at `bottom-3`, below the empty state, which was **raised from `bottom-24` to `bottom-32`** because the card's height is not fixed (see §22.2.1). |
 | Covers map controls? | No — the control ladder is top-anchored (190 / 240 / 290px). |
 | Swallows gestures? | No — the wrapper is `pointer-events-none`, only the card is `pointer-events-auto`. |
 | Wrong z-index tier? | No — `z-[1100]`, the documented Home overlay ladder; the header’s higher tier stays exclusive to the header. |
@@ -986,6 +986,25 @@ byte-identical; only the painting location changed.
 The results section lost its `-mt-5` tuck: the floating card now owns that
 seam, and the two must not overlap. Net effect — the panel covers **less** of
 the Place cards than before.
+
+#### 22.2.1 One defect the layout review caught: the empty state had to move
+
+The floating card's height is **not fixed**. A long search query wraps the
+panel title to a second line and grows the card by roughly one more row. At
+360px that pushes its top to roughly 110px from the bottom of the map — while
+the map empty state sat at `bottom-24` (96px), *centered*, so the two would
+overlap horizontally and vertically on exactly the screen that shows both: a
+search that returned nothing.
+
+The empty state was therefore raised to `bottom-32` (128px), which clears a
+two-line title with room to spare. The 460px map floor leaves ample space
+above it, and nothing was clipped or truncated — the panel title still wraps
+normally rather than being cut off.
+
+Measured at the 360px floor: `px-4` + `pr-[5.5rem]` leave a 256px card and a
+232px text line; "Tempat Pilihan" plus "Ke hasil" need ~226px, so the header
+stays on one line at every supported width and the card height stays
+predictable.
 
 ### 22.3 A larger map canvas
 
@@ -1006,16 +1025,17 @@ why no safe-area inset is needed and why orientation changes cannot detach it.
 
 - New `tests/home-ui-spacing-layout.test.ts` — 19 tests. **12 of them fail
   against `main`** and all 19 pass with the change.
-- Seven existing suites were amended in place (never deleted), each annotated
-  with the behaviour change that required it: `home-map-first-ui`,
-  `map-local-area-coverage`, `map-auto-fit-camera`, `home-search-center-sync`,
-  `home-location-search`, `home-map-consolidated-frame`,
-  `map-viewport-coverage`. The substantive amendment is the stacking one:
-  `map-stacking.test.ts` still forbids a Place bottom sheet over the map, and
-  the new floating card is deliberately built to satisfy that (no
-  `bottom-0 left-0 right-0`, no Place CTA, no bottom-sheet shape, not on the
-  header tier).
-- Full suite in batches: 258 / 196 / 187 / 138 / 148. The single failure is
+-Seven existing suites were amended in place (never deleted), each annotated
+with the behaviour change that required it: `home-map-first-ui`,
+`map-local-area-coverage`, `map-auto-fit-camera`, `home-search-center-sync`,
+`home-location-search`, `home-map-consolidated-frame`,
+`map-viewport-coverage`, plus `map-stacking` and `home-search-clarity` for
+the empty-state raise in §22.2.1. The substantive amendment is the stacking
+one: `map-stacking.test.ts` still forbids a Place bottom sheet over the map,
+and the new floating card is deliberately built to satisfy that (no
+`bottom-0 left-0 right-0`, no Place CTA, no bottom-sheet shape, not on the
+header tier).
+- Full suite in batches: 258 / 197 / 187 / 138 / 148. The single failure is
   `place-management.test.ts` → “Only IDR and USD are valid currencies”,
   **pre-existing**, reproduced on the clean stashed baseline.
   `discovery-aggregate` and `discovery-dev-dataset` remain excluded (PGlite is

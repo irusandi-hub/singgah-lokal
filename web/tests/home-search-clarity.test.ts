@@ -140,12 +140,12 @@ test("R-B: the empty state is content-sized, not a full-width panel", () => {
   // Centered flex line, and a card that hugs its own content and caps out.
   assert.match(
     discoveryCode,
-    /absolute inset-x-0 bottom-24 z-\[1100\] flex justify-center px-4/,
+    /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/,
     "overlay must be a centered line, not a full-width panel",
   );
   assert.match(discoveryCode, /w-fit max-w-\[min\(20rem,100%\)\]/);
   // Reduced padding and text scale versus the old panel.
-  assert.doesNotMatch(discoveryCode, /absolute inset-x-6 bottom-24/);
+  assert.doesNotMatch(discoveryCode, /absolute inset-x-6 bottom-32/);
   assert.match(discoveryCode, /rounded-xl bg-white\/95 px-3 py-1\.5/);
   assert.match(discoveryCode, /text-\[11px\] font-semibold leading-4/);
   assert.match(discoveryCode, /text-\[10px\] leading-3\.5/);
@@ -168,12 +168,18 @@ test("R-B: the empty state is still an honest, readable empty state", () => {
 test("R-B: the overlay stays clear of the coverage box and the Leaflet controls", () => {
   // Still strictly above the Leaflet z-index ceiling, and above the coverage
   // box (bottom-9) so the two never stack on top of each other.
-  assert.match(discoveryCode, /bottom-24 z-\[1100\]/);
+  //
+  // 2026-10-04: raised from bottom-24 to bottom-32. The floating RESULTS card
+  // now occupies the map's bottom-left corner and its height is not fixed — a
+  // long search query wraps the panel title to a second line. At bottom-24 the
+  // empty state and that card could touch on a no-results search, since both
+  // are centered and overlap horizontally. bottom-32 clears a two-line title.
+  assert.match(discoveryCode, /bottom-32 z-\[1100\]/);
   // The redundant floating coverage box is gone: its information is now on the
   // consolidated panel line, so nothing floats over the map's bottom-left.
   assert.doesNotMatch(discoveryCode, /bottom-9 left-4 z-\[1100\]/);
   // Click-through: the overlay can never swallow a pan or a pinch.
-  assert.match(discoveryCode, /pointer-events-none absolute inset-x-0 bottom-24/);
+  assert.match(discoveryCode, /pointer-events-none absolute inset-x-0 bottom-32/);
 });
 
 // ---------------------------------------------------------------------------
