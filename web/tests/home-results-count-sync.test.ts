@@ -55,10 +55,13 @@ const discoveryCode = stripComments(homeDiscovery);
 
 test("D: the caption and the count resolve their origin from the SAME function", () => {
   // If these ever diverged, the screen would contradict itself again.
-  assert.match(discoveryCode, /const radiusCaption = describeRadiusOrigin\(\{/);
-  assert.match(discoveryCode, /const nearOrigin = describeNearOrigin\(\{ mode: activeSearch\.mode, placeName: searchPlaceName \}\);/);
-  // Both read the identical inputs: the active mode and the resolved name.
-  assert.match(discoveryCode, /describeRadiusOrigin\(\{\s*\n\s*radiusLabel: activeRadiusLabel,\s*\n\s*mode: activeSearch\.mode,\s*\n\s*placeName: searchPlaceName,/);
+  assert.match(discoveryCode, /const coverageCaption = describeCoverageCaption\(\{/);
+  assert.match(discoveryCode, /const nearOrigin = describeNearOrigin\(\{\s*\n\s*mode: activeSearch\.mode,\s*\n\s*placeName: searchPlaceName,\s*\n\s*hasCenter: hasActiveCenter,/);
+  // Both read the identical inputs: the active mode and the resolved name —
+  // and both now also read whether an origin EXISTS, so the count can no
+  // longer say "di sekitar Anda" when there is no location at all.
+  assert.match(discoveryCode, /const hasActiveCenter = activeCenter !== null;/);
+  assert.match(discoveryCode, /describeCoverageCaption\(\{\s*\n\s*radiusLabel: activeRadiusLabel,\s*\n\s*mode: activeSearch\.mode,\s*\n\s*placeName: searchPlaceName,\s*\n\s*coverage: cameraCoverage,\s*\n\s*hasCenter: hasActiveCenter,/);
   // No hardcoded user-origined copy may remain in either element.
   assert.doesNotMatch(discoveryCode, /tempat di sekitar Anda`/);
   assert.doesNotMatch(discoveryCode, /tempat pilihan di sekitar Anda`/);

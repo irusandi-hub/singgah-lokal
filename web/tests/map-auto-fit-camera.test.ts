@@ -495,6 +495,5 @@ test("AC 10: no product boundary was crossed by the auto-fit change", () => {
   // distance tabs, and the coverage caption names the real origin whenever a
   // radius preset really owns the frame.
   assert.match(pageCode, /const activeRadiusMeters = curatedOnly\n\s*\? CURATED_CAMERA_RADIUS_M\n\s*: CAMERA_PRESET_RADIUS_M\[distanceFilter\];/);
-  assert.match(pageCode, /const radiusCaption = describeRadiusOrigin\(\{/);
-  assert.match(pageCode, /const coverageCaption = cameraCoverage === "radius" \? radiusCaption : AREA_COVERAGE_CAPTION;/);
+  assert.match(pageCode, /const coverageCaption = describeCoverageCaption\(\{/);
 });

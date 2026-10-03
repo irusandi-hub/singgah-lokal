@@ -108,19 +108,22 @@ test("MOCKUP §8: map height is responsive and always leaves the Result panel in
   // The visible map window sits UNDER the floating chrome inside the stage,
   // sized in vh and clamped on both ends. The old flat 64vh is not used.
   //
-  // COMPACTED (correction, 2026-10-03): one clamp band lower than the previous
-  // 42vh / 260 / 520 / 44vh, which left a wide empty band between the filter
-  // row and the first Place card. Still responsive, still clamped, still a
-  // valid non-degenerate Leaflet box.
-  assert.match(code, /h-\[36vh\] min-h-\[240px\] max-h-\[440px\] sm:h-\[38vh\]/);
+  // MOBILE MAP BUDGET (fix, 2026-10-03): the FLOOR is now sized from the
+  // floating control ladder instead of the panel. At the previous 240px
+  // minimum the section ended ABOVE the bottom of the zoom control, so the
+  // "+/-" stack was clipped by the section's own overflow-hidden on an
+  // ordinary phone. Still responsive, still clamped, still a valid
+  // non-degenerate Leaflet box.
+  assert.match(code, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
   // The spacer is purely presentational — it reserves the visible map window
   // and carries no data or behaviour.
-  assert.match(code, /<div aria-hidden className="h-\[36vh\]/);
+  assert.match(code, /<div aria-hidden className="h-\[42vh\]/);
   // The floating control ladder (Re-center 190px / "Lokasi Saya" 240px /
-  // +/- 290px) still fits inside the SHORTEST supported map, so nothing the
-  // correction changed can make the controls sit on the coverage box.
-  const chrome = 36 + 43 + 10 + 30;
-  assert.ok(chrome + 240 >= 350, "the control ladder still fits the shortest map");
+  // +/- 290px) plus the coverage box at bottom-9 MUST fit inside the shortest
+  // supported map — this is the arithmetic the old 240px floor violated.
+  const ladderBottom = 290 + 64; // +/- stack offset + Leaflet's own control height
+  const coverageTop = 36 + 40; // bottom-9 offset + the box's own height
+  assert.ok(440 >= Math.max(ladderBottom, coverageTop), "the control ladder and the coverage box fit the shortest map");
 });
 
 test("MOCKUP §2: search is a floating ~20px-radius white bar with a sliders icon", () => {
@@ -335,14 +338,22 @@ test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right are truthful
   // The caption is DYNAMIC (bug fix 2026-10-03): it names the origin that is
   // really measuring — the searched city or the user's own location — instead
   // of a hardcoded "dari lokasi Anda" that contradicted Riyadh results.
-  assert.match(code, /const radiusCaption = describeRadiusOrigin\(\{/);
+  assert.match(code, /const coverageCaption = describeCoverageCaption\(\{/);
   assert.match(code, /mode: activeSearch\.mode,/);
   assert.match(code, /placeName: searchPlaceName,/);
   // CORRECTED (2026-10-03): a radius may only be NAMED while a radius preset
   // owns the frame. "Tempat Pilihan" and "Lokasi Saya" frame the viewer's local
   // area, so the retired fixed "10 km" wording claimed a radius the camera was
   // not using; those modes now render the neutral, always-true caption.
-  assert.match(code, /const coverageCaption = cameraCoverage === "radius" \? radiusCaption : AREA_COVERAGE_CAPTION;/);
+  //
+  // SECOND HALF (fix, 2026-10-03): the same rule now covers the ORIGIN. With
+  // geolocation denied and nothing searched there is no center at all, the
+  // preset has no anchor, and the camera never applied it — yet the caption
+  // went on claiming "dari lokasi Anda" about the neutral world frame. Both
+  // halves are resolved by the ONE helper that owns them.
+  assert.match(code, /coverage: cameraCoverage,/);
+  assert.match(code, /hasCenter: hasActiveCenter,/);
+  assert.doesNotMatch(code, /cameraCoverage === "radius" \? radiusCaption/);
   assert.match(code, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{coverageCaption\}<\/p>/);
   assert.doesNotMatch(code, /dari lokasi Anda/);
   assert.match(code, /absolute bottom-9 left-4 z-\[1100\] flex max-w-\[62%\] items-center gap-2 rounded-xl bg-white/);

@@ -124,7 +124,11 @@ test("R-A: the hardcoded caption can never return", () => {
   // caption while a distance preset owns the frame and the neutral area
   // caption in the local-area modes ("Tempat Pilihan", "Lokasi Saya").
   assert.match(discoveryCode, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{coverageCaption\}<\/p>/);
-  assert.match(discoveryCode, /const coverageCaption = cameraCoverage === "radius" \? radiusCaption : AREA_COVERAGE_CAPTION;/);
+  assert.match(discoveryCode, /const coverageCaption = describeCoverageCaption\(\{/);
+  // And the ORIGIN half: with no center there is nothing to measure a radius
+  // from, so the caption resolves to the always-true area caption instead of
+  // claiming "dari lokasi Anda" about a frame the preset never framed.
+  assert.match(discoveryCode, /hasCenter: hasActiveCenter,/);
 });
 
 // ---------------------------------------------------------------------------

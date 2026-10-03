@@ -501,9 +501,11 @@ test("Zoom controls stay available and user zoom/pan latches are re-armed per pr
   const mapCode = stripComments(homeMap);
   // +/- controls remain a real Leaflet zoom control...
   assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/);
-  // ...and interactions are re-armed on a new preset choice so a new tab can
-  // refocus after the user dragged on the previous one.
-  assert.match(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
+  // ...and interactions are re-armed on an EXPLICIT preset choice (a distance
+  // tab, "Tempat Pilihan", or "Lokasi Saya" all bump the request nonce), so a
+  // new tab can refocus after the user dragged on the previous one. A bare
+  // change of the radius value may no longer re-arm it.
+  assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false/);
   assert.match(mapCode, /lastRadiusRef\.current = cameraRadiusMeters/);
 });
 
@@ -511,8 +513,14 @@ test("A new preset refocuses deterministically; manual pan/zoom wins between cho
   const mapCode = stripComments(homeMap);
   // The refocus is driven by the preset change, not a one-shot latch...
   assert.match(mapCode, /const radiusChanged = lastRadiusRef\.current !== cameraRadiusMeters/);
-  // ...re-arms the interaction latch for the new tab...
-  assert.match(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
+  // ...and is released ONLY by an explicit camera request (the three
+  // hand-driven actions). It used to be re-armed by the radius VALUE changing,
+  // so leaving "Tempat Pilihan" through the LIVE toggle silently snapped the
+  // camera back to a distance frame. The deterministic refocus itself is
+  // unchanged: every distance-tab press bumps `cameraRequestNonce`.
+  assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false/);
+  assert.match(mapCode, /if \(userInteractedRef\.current\) return;/);
+  assert.doesNotMatch(mapCode, /if \(radiusChanged\) userInteractedRef\.current = false/);
   // ...and still centers on the REAL geolocation fix with preset-derived
   // zoom, applied instantly (setView).
   assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\]/);
