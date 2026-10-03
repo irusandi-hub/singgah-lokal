@@ -205,11 +205,40 @@ test("LOC-06: the locate handler resets the city search and releases the viewpor
   assert.match(handler, /requestViewerPosition\(\);/);
 });
 
-test("LOC-08: the \"Area pencarian\" status is gated on the searched city, so it disappears on reset", () => {
-  // The status branch can only render while a city center exists.
-  assert.match(discoveryCode, /\) : searchCenter \? \(/);
-  // And it describes the ACTIVE center it is reporting on.
-  assert.match(discoveryCode, /Area pencarian: \{searchCenter\.lat\.toFixed\(4\)\}/);
+test("LOC-08: the search status banner never renders a coordinate readout", () => {
+  // REVISED 2026-10-04. This used to assert that an "Area pencarian: <lat>,
+  // <lng>" status was gated on the searched city. The Home UI no longer
+  // renders search coordinates AT ALL — that readout was removed as a product
+  // decision, together with the vertical space it permanently reserved.
+  //
+  // What must still hold, and is asserted here instead:
+  //   1. no raw coordinate can reach the Home UI from this banner;
+  //   2. the banner exists ONLY while a search is running or failed, so a
+  //      resolved search leaves no empty strip and no reserved gap behind;
+  //   3. the geographic state itself is untouched — `searchCenter` still
+  //      exists and is still what the camera, the ±0.05° box, and the
+  //      coverage origin read.
+  assert.doesNotMatch(discoveryCode, /Area pencarian/);
+  assert.doesNotMatch(discoveryCode, /searchCenter\.lat\.toFixed/);
+  assert.doesNotMatch(discoveryCode, /searchCenter\.lng\.toFixed/);
+  // Asserted as a plain substring, not a regex: this is a source-shape check
+  // and the `||` in the gate is exactly the kind of thing a regex literal
+  // silently mangles.
+  assert.equal(
+    discoveryCode.includes("{(searchPending || searchError) && ("),
+    true,
+    "the banner is gated on a search actually running or having failed",
+  );
+  assert.equal(
+    discoveryCode.includes("{searchQuery.trim() && (") && discoveryCode.includes("Area pencarian"),
+    false,
+    "the old query-gated coordinate banner is gone entirely",
+  );
+  // The resolved center is still resolved, stored, and consumed downstream.
+  assert.match(discoveryCode, /const \[searchCenter, setSearchCenter\] = useState<\{ lat: number; lng: number \} \| null>\(null\);/);
+  assert.match(discoveryCode, /north: searchCenter\.lat \+ 0\.05/);
+  assert.match(discoveryCode, /south: searchCenter\.lat - 0\.05/);
+  assert.match(discoveryCode, /origin: searchCenter \?\? viewerPosition/);
 });
 
 test("LOC-16: a fresh Home starts in device mode with no city state", () => {

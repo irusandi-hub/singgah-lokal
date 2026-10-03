@@ -314,14 +314,18 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
 test("12.4 the panel footprint shrank without losing a control", () => {
   // One information area instead of two: the floating box is gone and the
   // header block keeps exactly ONE line of context.
-  const headerStart = pageCode.indexOf('aria-labelledby="place-results-heading"');
+  //
+  // 2026-10-04: the header block now lives in the FLOATING card on the map,
+  // so the slice is anchored on the card's own id rather than on the results
+  // section's `aria-labelledby` (which now follows it in the DOM).
+  const headerStart = pageCode.indexOf('<h2 id="place-results-heading"');
   const header = pageCode.slice(headerStart, pageCode.indexOf("Ke hasil", headerStart));
   assert.equal((header.match(/<p /g) ?? []).length, 1, "one consolidated information line");
   assert.match(header, /\{nearOrigin\} · \$\{coverageScope\}/);
   // The panel and its chrome keep the approved visual identity.
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.match(pageCode, /mx-auto mb-1\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
-  assert.match(pageCode, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-h-\[46vh\]|h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
+  assert.match(pageCode, /mx-auto mb-1 block h-1\.5 w-12 rounded-full bg-black\/15/);
+  assert.match(pageCode, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
   // Nothing essential became scrollable or hidden.
   assert.doesNotMatch(header, /line-clamp|max-h-\[|overflow-hidden/);
 });

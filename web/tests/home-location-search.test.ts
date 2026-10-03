@@ -262,10 +262,22 @@ test("the map frames the searched region's Place spread once per new server answ
 test("the search status line reports server state without becoming a second search path", () => {
   assert.match(homeDiscovery, /aria-live="polite"/);
   assert.match(homeDiscovery, /role="status"/);
-  // It renders only for a non-empty query, so the empty input stays clean.
-  assert.match(homeDiscovery, /\{searchQuery\.trim\(\) && \(/);
-  // The readout is the server's canonical answer, formatted — never invented.
-  assert.match(homeDiscovery, /\{searchCenter\.lat\.toFixed\(4\)\}, \{searchCenter\.lng\.toFixed\(4\)\}/);
+  // 2026-10-04: the banner is gated on a search actually running or having
+  // failed, not on a non-empty query — so a RESOLVED search leaves no strip
+  // and no reserved gap behind it. The status line therefore reports only the
+  // two states a user can act on.
+  assert.equal(
+    homeDiscovery.includes("{(searchPending || searchError) && ("),
+    true,
+    "banner is gated on an in-flight or failed search",
+  );
+  assert.match(homeDiscovery, /Mencari lokasi…/);
+  assert.match(homeDiscovery, /\{searchError\}/);
+  // The coordinate readout this line used to print is gone from the Home UI,
+  // so no raw coordinate can be rendered here. The center itself is still
+  // resolved and still consumed by the camera and the search box.
+  assert.doesNotMatch(homeDiscovery, /\{searchCenter\.lat\.toFixed\(4\)\}, \{searchCenter\.lng\.toFixed\(4\)\}/);
+  assert.match(homeDiscovery, /cameraCenter=\{activeCenter\}/);
   // No state is persisted, and no credentials/tokens are touched.
   assert.doesNotMatch(homeDiscovery, /localStorage|sessionStorage/);
 });

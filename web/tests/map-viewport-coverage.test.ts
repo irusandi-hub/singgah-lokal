@@ -358,12 +358,24 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   assert.match(homeMap, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
   // The informational overlays never block a gesture either. The duplicate
   // map-area filter chip (2026-10-03) and the floating coverage box
-  // (consolidated into the results panel, 2026-10-03) are both gone, so two
-  // click-through overlays remain: the empty state and the scale.
+  // (consolidated into the results panel, 2026-10-03) are both gone, so three
+  // click-through overlays remain: the empty state, the scale, and — since
+  // 2026-10-04 — the WRAPPER of the floating results card.
+  //
+  // The count is 3, not 4, because the floating card's WRAPPER is
+  // click-through and only the card itself opts back in with
+  // `pointer-events-auto`. That is the point: the strip of map beside and
+  // below the card must still pan and zoom, otherwise a floating panel would
+  // have quietly become a dead zone on the map.
   assert.equal(
     (pageCode.match(/pointer-events-none absolute/g) ?? []).length,
-    2,
-    "empty state and scale are both click-through",
+    3,
+    "empty state, scale, and the floating results wrapper are all click-through",
+  );
+  assert.match(
+    pageCode,
+    /pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\][^"]*">\s*<div className="pointer-events-auto/,
+    "the floating results wrapper is click-through while the card itself is not",
   );
   // Real Leaflet zoom control, with accessible names, plus the two locate
   // controls that share ONE handler.

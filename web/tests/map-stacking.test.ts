@@ -82,7 +82,7 @@ test("React map overlays sit above Leaflet's documented z-index ceiling (1000)",
   // box instead of a full-width panel that covered a large part of the map.
   assert.match(
     pageCode,
-    /absolute inset-x-0 bottom-24 z-\[1100\] flex justify-center px-4/,
+    /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/,
     "empty-state card must ride above the Leaflet control ceiling",
   );
   assert.match(pageCode, /w-fit max-w-\[min\(20rem,100%\)\] rounded-xl bg-white\/95 px-3 py-1\.5/);
@@ -153,12 +153,18 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   // filter chip was removed (2026-10-03), and the floating COVERAGE BOX was
   // consolidated into the results panel (2026-10-03): the map stage now keeps
   // only the empty-state card and the scale above it.
-  const emptyCard = pageCode.indexOf("bottom-24 z-[1100]");
+  //
+  // 2026-10-04 adds a third: the RESULTS panel itself now floats on the map's
+  // bottom edge instead of sitting under it. Like the other two it is a sibling
+  // rendered AFTER the map, so the DOM-order fallback still holds for it too.
+  const emptyCard = pageCode.indexOf("bottom-32 z-[1100]");
   const scale = pageCode.indexOf("bottom-9 right-4 z-[1100]");
+  const floatingResults = pageCode.indexOf("absolute inset-x-0 bottom-3 z-[1100]");
   assert.equal(pageCode.includes("bottom-9 left-4 z-[1100]"), false, "the floating coverage box is consolidated away");
   for (const [name, index] of [
     ["empty-state card", emptyCard],
     ["scale", scale],
+    ["floating results panel", floatingResults],
   ] as const) {
     assert.ok(index > mapMount, `${name} must come after the map in DOM order`);
   }
