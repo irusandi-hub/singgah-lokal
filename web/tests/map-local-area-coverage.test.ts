@@ -569,18 +569,21 @@ test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the 
 // ---------------------------------------------------------------------------
 
 test("AC 8: the panel and the map window above it are more compact", () => {
-  // MOBILE MAP BUDGET (fix, 2026-10-03): the map window's FLOOR is now sized
-  // from the floating control ladder, because at 240px the section ended above
-  // the bottom of the zoom control and clipped it on an ordinary phone.
-  assert.match(pageCode, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
+  // MOBILE MAP BUDGET (fix, 2026-10-03; re-sized 2026-10-04): the map
+  // window's FLOOR is sized from the floating control ladder, because at 240px
+  // the section ended above the bottom of the zoom control and clipped it on an
+  // ordinary phone. 2026-10-04 grew the CANVAS (42vh -> 56vh, 440 -> 460 floor)
+  // using the vertical space the coordinate strip and the in-flow results panel
+  // gave back. The camera rules are untouched — only the container grew.
+  assert.match(pageCode, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
   assert.doesNotMatch(pageCode, /min-h-\[240px\]|sm:h-\[38vh\]/);
   // ...and the panel's own padding went with it.
   assert.match(
     pageCode,
-    /<section\s*\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-1 pt-2/,
+    /<section\s*\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1/,
   );
-  assert.match(pageCode, /mx-auto mb-1\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
-  assert.match(pageCode, /mb-2 flex items-end justify-between gap-3 px-1/);
+  assert.match(pageCode, /mx-auto mb-1 block h-1\.5 w-12 rounded-full bg-black\/15/);
+  assert.match(pageCode, /flex items-end justify-between gap-3/);
   // NOTHING important was cut: the title, the count, the "Ke hasil" link, the
   // category labels, both strips, and both carousel frames are all still there.
   assert.match(pageCode, /id="place-results-heading"/);
@@ -597,9 +600,13 @@ test("AC 8: the panel and the map window above it are more compact", () => {
     (pageCode.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []).length,
     2,
   );
-  // The results panel still tucks under the map by the same small margin, so it
-  // never covers more of the Place cards than before.
-  assert.match(pageCode, /relative z-10 -mt-5 rounded-t-\[24px\]/);
+  // 2026-10-04: the results panel NO LONGER tucks under the map. Its info block
+  // floats on the map's own bottom edge, so the panel starts exactly where the
+  // map ends and the two can never overlap. It therefore covers strictly LESS
+  // of the Place cards than before, which is the property this assertion used
+  // to protect.
+  assert.doesNotMatch(pageCode, /relative z-10 -mt-5 rounded-t-\[24px\]/);
+  assert.match(pageCode, /relative z-10 rounded-t-\[24px\]/);
 });
 
 // ---------------------------------------------------------------------------
@@ -925,8 +932,8 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 290px;/);
   assert.match(mapCode, /absolute right-3 top-\[190px\]/);
   assert.match(mapCode, /absolute right-3 top-\[240px\]/);
-  assert.match(pageCode, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
-  const floor = 440;
+  assert.match(pageCode, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
+  const floor = 460;
   assert.ok(floor >= ZOOM_TOP + LEAFLET_ZOOM_HEIGHT, "the zoom control must not be clipped");
   assert.ok(floor >= COVERAGE_BOTTOM_OFFSET + COVERAGE_HEIGHT, "the coverage box must fit");
   assert.ok(RE_CENTER_TOP < LOCATE_TOP, "the control ladder keeps its order");

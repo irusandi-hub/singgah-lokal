@@ -114,10 +114,10 @@ test("MOCKUP §8: map height is responsive and always leaves the Result panel in
   // "+/-" stack was clipped by the section's own overflow-hidden on an
   // ordinary phone. Still responsive, still clamped, still a valid
   // non-degenerate Leaflet box.
-  assert.match(code, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
+  assert.match(code, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
   // The spacer is purely presentational — it reserves the visible map window
   // and carries no data or behaviour.
-  assert.match(code, /<div aria-hidden className="h-\[42vh\]/);
+  assert.match(code, /<div aria-hidden className="h-\[56vh\]/);
   // The floating control ladder (Re-center 190px / "Lokasi Saya" 240px /
   // +/- 290px) plus the coverage box at bottom-9 MUST fit inside the shortest
   // supported map — this is the arithmetic the old 240px floor violated.
@@ -216,13 +216,20 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
     code,
     /group flex h-full w-full flex-col overflow-hidden rounded-\[16px\] border border-black\/10 bg-white shadow-sm transition hover:shadow-md/,
   );
-  // MOCKUP §10: the results are a cream panel with rounded top corners and a
-  // centered handle that visually merges with the map above it.
+  // MOCKUP §10, REVISED 2026-10-04: the results keep the cream panel and its
+  // rounded top corners, but the `-mt-5` tuck that pulled it under the map is
+  // GONE. The title/count/"Ke hasil" block now floats on the map itself (see
+  // the "floats over the map" assertions), so the section must not also reach
+  // up into the map frame — the two would overlap. The section is still the
+  // results surface and still carries the accessible name; only the seam moved.
   assert.match(
     code,
-    /<section\n\s*className="relative z-10 -mt-5 rounded-t-\[24px\] bg-brand-cream pb-1 pt-2 shadow-\[0_-6px_18px_rgb\(0_0_0\/0\.06\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
+    /<section\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1 shadow-\[0_-6px_18px_rgb\(0_0_0\/0\.06\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
   );
-  assert.match(code, /mx-auto mb-1\.5 block h-1\.5 w-12 rounded-full bg-black\/15/);
+  assert.doesNotMatch(code, /relative z-10 -mt-5 rounded-t-\[24px\]/);
+  // The handle travels with the floating panel, so it keeps its shape but no
+  // longer carries the old `mb-1.5` in-flow spacing.
+  assert.match(code, /mx-auto mb-1 block h-1\.5 w-12 rounded-full bg-black\/15/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {

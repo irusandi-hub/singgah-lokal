@@ -427,7 +427,7 @@ test("AC 7: the +/- stack is below both locate buttons, and the zoom control is 
 
 test("AC 8: the search info panel spans the screen and is fully opaque", () => {
   const panel = pageCode.slice(
-    pageCode.indexOf("{searchQuery.trim() && ("),
+    pageCode.indexOf("{(searchPending || searchError) && ("),
     pageCode.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
   );
   // It escapes BOTH the horizontal padding and the max-width cap of the
@@ -437,14 +437,20 @@ test("AC 8: the search info panel spans the screen and is fully opaque", () => {
   // Opaque background in every state — the map can never show through.
   assert.doesNotMatch(panel, /bg-white\/\d+/);
   assert.match(panel, /bg-white text-black\/55/);
-  assert.match(panel, /bg-white text-brand-ink/);
   assert.match(panel, /bg-\[#fcebe7\] text-live/);
   // The existing content, data, and semantics are preserved verbatim.
   assert.match(panel, /role="status"/);
   assert.match(panel, /aria-live="polite"/);
   assert.match(panel, /Mencari lokasi…/);
   assert.match(panel, /\{searchError\}/);
-  assert.match(panel, /Area pencarian: \{searchCenter\.lat\.toFixed\(4\)\}, \{searchCenter\.lng\.toFixed\(4\)\}/);
+  // 2026-10-04: the resolved-center branch is GONE. The Home UI no longer
+  // prints raw coordinates, and the banner only exists while a search is
+  // running or failed — so a resolved search leaves no strip and no gap. The
+  // `bg-white text-brand-ink` background that only that branch used is
+  // therefore gone with it; loading and error keep their own opaque surfaces.
+  assert.doesNotMatch(panel, /Area pencarian/);
+  assert.doesNotMatch(panel, /searchCenter\.(lat|lng)\.toFixed/);
+  assert.doesNotMatch(panel, /bg-white text-brand-ink/);
 });
 
 // ---------------------------------------------------------------------------

@@ -1280,20 +1280,35 @@ export default function HomeDiscovery({
                 </svg>
               </span>
             </div>
-            {/* LOCATION SEARCH status (PO 2026-10-02): ONE source of truth for
-                the geocoder flow — searching, resolved center, or failure.
-                It only REPORTS server state; it never runs a second search,
-                never edits the input, and never decides which Places are
-                listed. aria-live="polite" so the outcome is announced without
-                interrupting typing. Rendered only for a non-empty query, so
-                the empty input stays clean. The coordinate readout is the
-                server's canonical answer, formatted — never a rounded or
-                invented value. */}
-            {searchQuery.trim() && (
+            {/* LOCATION SEARCH status (PO 2026-10-02; coordinate readout
+                REMOVED 2026-10-04): ONE source of truth for the geocoder
+                flow. It only REPORTS server state; it never runs a second
+                search, never edits the input, and never decides which Places
+                are listed. aria-live="polite" so the outcome is announced
+                without interrupting typing.
+
+                THE RESOLVED-CENTER BRANCH IS GONE. `region`/latitude/longitude
+                is deliberately NOT surfaced in the Home UI any more: the Home
+                screen is a discovery surface, not a survey instrument, and the
+                raw readout was a permanent opaque strip that ate vertical
+                space the map needs. NOTHING geographic was removed with it —
+                `searchCenter` itself, the geocoding call, the ±0.05° search
+                box, the camera center, the coverage origin, and every
+                geographic calculation all still read the same state, exactly
+                as before. Only the human-facing rendering of two numbers is
+                gone.
+
+                The banner is now gated on `searchPending || searchError`
+                rather than on a non-empty query, so it exists ONLY while a
+                search is actually running or actually failed. That is what
+                guarantees no empty strip and no reserved gap is left where the
+                old coordinate panel used to sit: a resolved search renders
+                nothing at all. */}
+            {(searchPending || searchError) && (
               /* SEARCH INFO PANEL — FULL WIDTH, SOLID (product decision,
                  2026-10-03). Two real defects are fixed here, presentation
-                 only, with no change to the text, the data, the coordinates
-                 readout, or the ARIA status semantics:
+                 only, with no change to the text, the data, or the ARIA
+                 status semantics:
                  1. WIDTH — the panel used to sit inside the padded, capped
                     content column, so it stopped short of both screen edges and
                     read as a small floating card. The outer wrapper cancels
@@ -1311,18 +1326,13 @@ export default function HomeDiscovery({
                     error state), with a
                     soft shadow instead of rounded corners, because an
                     edge-to-edge bar with rounded ends would look like a bug.
-                 The copy inside is unchanged: pending / error / resolved center
-                 with the server's canonical coordinate readout. */
+                 The copy inside is unchanged: pending / error only. */
               <div className="-mx-4 relative left-[calc(50%_-_50vw)] w-[100vw]">
               <p
                 role="status"
                 aria-live="polite"
                 className={`mt-2 flex w-full items-center gap-2 px-4 py-2 text-xs shadow-[0_2px_10px_rgb(0_0_0/0.10)] sm:px-6 ${
-                  searchPending
-                    ? "bg-white text-black/55"
-                    : searchError
-                      ? "bg-[#fcebe7] text-live"
-                      : "bg-white text-brand-ink"
+                  searchPending ? "bg-white text-black/55" : "bg-[#fcebe7] text-live"
                 }`}
               >
                 {searchPending ? (
@@ -1334,13 +1344,6 @@ export default function HomeDiscovery({
                   <>
                     <span aria-hidden className="h-3.5 w-3.5 rounded-full bg-live/60" />
                     <span>{searchError}</span>
-                  </>
-                ) : searchCenter ? (
-                  <>
-                    <span aria-hidden className="h-3.5 w-3.5 rounded-full bg-brand-primary" />
-                    <span>
-                      Area pencarian: {searchCenter.lat.toFixed(4)}, {searchCenter.lng.toFixed(4)}
-                    </span>
                   </>
                 ) : null}
               </p>
@@ -1453,8 +1456,23 @@ export default function HomeDiscovery({
               (360 / 390 / 430 / 1280), and 42vh / 46vh keeps the map the
               dominant field on taller screens. Nothing was cut, hidden, or
               redesigned: same sections, same chrome, same cards — the map
-              simply gets the height its own controls need. */}
-          <div aria-hidden className="h-[42vh] min-h-[440px] max-h-[560px] sm:h-[46vh]" />
+              simply gets the height its own controls need.
+
+              MAP WINDOW RE-SIZED (product decision, 2026-10-04): the band is
+              now `56vh` (`62vh` from `sm:`), floor 460px, ceiling 680px — up
+              from 42vh/46vh, 440px, 560px. The reclaimed height comes from the
+              two layout changes around it, NOT from the camera:
+                · the coordinate strip no longer reserves a row, and
+                · the results info block floats ON the map instead of sitting
+                  under it in the flow.This is CANVAS ONLY. The geographic rules are untouched —
+              the distance-tab presets, the curated camera radius, the
+              local-area resolver, the ±0.05° search box, and every
+              fit-padding and zoom constant are exactly as before, so nothing is
+              zoomed out or widened to make the map look bigger; the same frame
+              simply has more pixels to live in. The 460px floor still clears
+              the whole floating control ladder (190 / 240 / 290 + 64px) and now
+              also carries the floating results card at every supported size. */}
+          <div aria-hidden className="h-[56vh] min-h-[460px] max-h-[680px] sm:h-[62vh]" />
         </div>
 
         {/* Viewport-aware map empty state (PO, 2026-09-30): shown when the
@@ -1522,6 +1540,87 @@ export default function HomeDiscovery({
             />
           </div>
         )}
+
+        {/* RESULTS INFO — FLOATING OVER THE MAP (product decision,
+            2026-10-04).
+
+            WHAT CHANGED: only WHERE this block is painted. The result title,
+            the count, the origin/coverage context, and the "Ke hasil" action
+            are the same strings, the same numbers, and the same anchor as
+            before; it still scrolls to the same strips and still renders as
+            plain text when there is nothing to scroll to.
+
+            WHY: it used to sit in the page flow directly UNDER the map, so it
+            cost the map a full strip of height and pushed the cards down. It
+            now rides ON the map's own bottom edge, so the map keeps that
+            height and the panel no longer claims a second, separate band.
+
+            THE GEOMETRY, AND WHY IT COLLIDES WITH NOTHING:
+            · `bottom-3` — below the map's own bottom overlays: the scale bar
+              (bottom-9, right) and the empty-state card (bottom-24), so both
+              stay fully readable above it.
+            · `pr-[5.5rem]` — the card stops short of the right edge so the
+              REAL scale bar, which is genuinely useful map chrome, is never
+              covered by it.
+            · `z-[1100]` — the documented overlay ladder, above Leaflet's
+              ceiling (1000), same as every other floating Home element. It is
+              deliberately NOT on the header's higher tier and NOT a
+              viewport-fixed element: it lives inside the `relative isolate
+              overflow-hidden` map stage, so it is clipped with the map, moves
+              with it, and cannot fight the top navigation or create a second
+              scroll layer.
+            · `bg-white/95` + `backdrop-blur-sm` — visually distinct from the
+              tiles while the map stays visible around it, rather than an
+              opaque bar that would read as "the map stops here".
+            · `pointer-events-none` on the wrapper, re-enabled on the card, so
+              the sliver of map beside the card still pans and zooms. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-[1100] mx-auto w-full max-w-6xl px-4 pr-[5.5rem]">
+          <div className="pointer-events-auto rounded-2xl bg-white/95 px-3 py-2 shadow-[0_6px_20px_rgb(0_0_0/0.14)] ring-1 ring-black/5 backdrop-blur-sm">
+            {/* Panel handle — small centered bar, mockup §10 (visual only). */}
+            <span aria-hidden className="mx-auto mb-1 block h-1.5 w-12 rounded-full bg-black/15" />
+            <div className="flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <h2 id="place-results-heading" className="text-lg font-bold leading-tight">
+                  {searchQuery.trim()
+                    ? `Hasil untuk “${searchQuery.trim()}”`
+                    : curatedOnly
+                      ? "Tempat Pilihan"
+                      : "Discovery Place"}
+                </h2>
+                <p className="mt-1 text-[11px] font-semibold text-black/50">
+                  {/* Count semantics (PO, 2026-09-30): each layer counts ONLY
+                      its own rows — the Tempat Pilihan header counts the
+                      curated selection (Baris 1), never the Discovery Place row
+                      beneath it; normal modes keep the Discovery Place count.
+                      The numbers are the exact arrays each row renders from, so
+                      the count can never disagree with the cards on screen; the
+                      ORIGIN fragment follows the active search center (bug fix
+                      2026-10-03) instead of always claiming "di sekitar Anda". */}
+                  {curatedOnly
+                    ? `${curatedListed.length} tempat pilihan ${nearOrigin} · ${coverageScope}`
+                    : `${discoveryRowPlaces.length} tempat ${nearOrigin} · ${coverageScope}`}
+                </p>
+              </div>
+              {/* "Ke hasil" (bug fix 2026-10-01) — non-inventive affordance:
+                  there is NO separate all-results page in the MVP (only
+                  /places/[id] exists), so this only SCROLLS to the first
+                  visible strip and never claims to open every Place. The label
+                  says exactly that. With no results at all there is no strip to
+                  scroll to, so the same label renders as plain text (no dead
+                  anchor). */}
+              {resultsAnchorId ? (
+                <a
+                  href={`#${resultsAnchorId}`}
+                  className="inline-flex shrink-0 items-center gap-0.5 text-xs font-bold text-brand-ink/80 transition hover:text-brand-ink"
+                >
+                  Ke hasil <span aria-hidden>›</span>
+                </a>
+              ) : (
+                <span className="shrink-0 text-xs font-bold text-black/35">Ke hasil</span>
+              )}
+            </div>
+          </div>
+        </div>
 
       </section>
 
@@ -1615,55 +1714,20 @@ export default function HomeDiscovery({
             the count, the "Ke hasil" link, the category labels, and both strips
             are UNCHANGED — nothing was hidden, truncated, or made scrollable. */}
         <section
-          className="relative z-10 -mt-5 rounded-t-[24px] bg-brand-cream pb-1 pt-2 shadow-[0_-6px_18px_rgb(0_0_0/0.06)]"
+          className="relative z-10 rounded-t-[24px] bg-brand-cream pb-1 pt-1 shadow-[0_-6px_18px_rgb(0_0_0/0.06)]"
           aria-labelledby="place-results-heading"
         >
-          {/* Panel handle — small centered bar, mockup §10 (visual only). */}
-          <span
-            aria-hidden
-            className="mx-auto mb-1.5 block h-1.5 w-12 rounded-full bg-black/15"
-          />
-          <div className="mb-2 flex items-end justify-between gap-3 px-1">
-            <div className="min-w-0">
-              <h2 id="place-results-heading" className="text-lg font-bold leading-tight">
-                {searchQuery.trim()
-                  ? `Hasil untuk “${searchQuery.trim()}”`
-                  : curatedOnly
-                    ? "Tempat Pilihan"
-                    : "Discovery Place"}
-              </h2>
-              <p className="mt-1 text-[11px] font-semibold text-black/50">
-                {/* Count semantics (PO, 2026-09-30): each layer counts ONLY
-                    its own rows — the Tempat Pilihan header counts the
-                    curated selection (Baris 1), never the Discovery Place row
-                    beneath it; normal modes keep the Discovery Place count.
-                    The numbers are the exact arrays each row renders from, so
-                    the count can never disagree with the cards on screen; the
-                    ORIGIN fragment follows the active search center (bug fix
-                    2026-10-03) instead of always claiming "di sekitar Anda". */}
-                {curatedOnly
-                  ? `${curatedListed.length} tempat pilihan ${nearOrigin} · ${coverageScope}`
-                  : `${discoveryRowPlaces.length} tempat ${nearOrigin} · ${coverageScope}`}
-              </p>
-            </div>
-            {/* "Ke hasil" (bug fix 2026-10-01) — non-inventive affordance:
-                there is NO separate all-results page in the MVP (only
-                /places/[id] exists), so this only SCROLLS to the first
-                visible strip and never claims to open every Place. The label
-                says exactly that. With no results at all there is no strip to
-                scroll to, so the same label renders as plain text (no dead
-                anchor). */}
-            {resultsAnchorId ? (
-              <a
-                href={`#${resultsAnchorId}`}
-                className="inline-flex shrink-0 items-center gap-0.5 text-xs font-bold text-brand-ink/80 transition hover:text-brand-ink"
-              >
-                Ke hasil <span aria-hidden>›</span>
-              </a>
-            ) : (
-              <span className="shrink-0 text-xs font-bold text-black/35">Ke hasil</span>
-            )}
-          </div>
+          {/* The result TITLE / COUNT / "Ke hasil" block now FLOATS over the
+              map (product decision, 2026-10-04) — see the floating panel
+              inside the map stage above. It is still this section's accessible
+              name (`aria-labelledby` resolves by id across the tree), and the
+              "Ke hasil" anchor still scrolls to the strips rendered below, so
+              nothing about the panel's content or navigation changed — only
+              where the block is painted.
+
+              This section therefore holds ONLY the Place-card strips, and the
+              `-mt-5` tuck that pulled it under the map frame is gone: the
+              floating card now owns that seam, and the two must not overlap. */}
 
           {/* Baris 1 (curated layer only): the Admin-promoted selection.
               Renders nothing when no Place is curated — the curated layer

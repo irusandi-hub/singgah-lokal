@@ -939,3 +939,93 @@ tasks — but worth a decision.
   effectively free for the Home map.
 - No migration applied, no production data touched, no `is_curated`,
   publication, or dummy value changed anywhere.
+
+---
+
+## 22. HOME UI SPACING & LAYOUT (2026-10-04)
+
+Three approved Home-UI changes, presentation only. Branch
+`fix/home-ui-spacing-layout` off `main` (`6bb9c63`). **No** Place eligibility,
+curated membership, search logic, filter logic, API, database, camera, or
+geographic rule was touched — the previous §21 camera/eligibility work is not
+continued or modified here.
+
+### 22.1 The search coordinate strip is gone
+
+The Home UI printed `Area pencarian: <lat>, <lng>` in a permanent opaque
+full-bleed bar under the search field.
+
+- The resolved-center branch is deleted; no raw coordinate is rendered
+  anywhere in the Home UI now.
+- The banner is gated on `searchPending || searchError` instead of on a
+  non-empty query, so it exists **only** while a search is running or has
+  failed. That is what guarantees no empty strip and **no reserved gap** is
+  left behind: a resolved search renders nothing at all. Loading and error
+  keep their own opaque surfaces and their `role="status"` /
+  `aria-live="polite"` semantics.
+- **No geographic state was removed.** `searchCenter`, the geocoding call, the
+  ±0.05° search box, `resolveActiveCenter`, the camera center prop and the
+  coverage origin all still read exactly the same state.
+
+### 22.2 The results panel floats on the map
+
+The title / count / context / “Ke hasil” block moved out of the page flow and
+now rides the map’s own bottom edge. Content, numbers, and the anchor are
+byte-identical; only the painting location changed.
+
+| Concern | Resolution |
+| --- | --- |
+| Covers the scale bar? | No — `pr-[5.5rem]` stops the card short of the right edge, where the real scale bar (`bottom-9 right-4`) lives. |
+| Covers the empty state? | No — the card sits at `bottom-3`, below the empty state at `bottom-24`. |
+| Covers map controls? | No — the control ladder is top-anchored (190 / 240 / 290px). |
+| Swallows gestures? | No — the wrapper is `pointer-events-none`, only the card is `pointer-events-auto`. |
+| Wrong z-index tier? | No — `z-[1100]`, the documented Home overlay ladder; the header’s higher tier stays exclusive to the header. |
+| Second scroll layer? | No — it lives inside the `relative isolate overflow-hidden` map stage, so it is clipped with the map and moves with it. |
+| Duplicate panel? | No — exactly one `<h2 id="place-results-heading">`; the results section keeps `aria-labelledby`, which still resolves across the tree. |
+
+The results section lost its `-mt-5` tuck: the floating card now owns that
+seam, and the two must not overlap. Net effect — the panel covers **less** of
+the Place cards than before.
+
+### 22.3 A larger map canvas
+
+The map window spacer moved from `42vh / 46vh, 440px floor, 560px ceiling` to
+`56vh / 62vh, 460px floor, 680px ceiling`. **Canvas only.** The camera
+presets, the curated camera radius, the local-area resolver, and every
+fit-padding and zoom constant are unchanged, so nothing was zoomed out or
+widened to make the map look bigger — the same frame simply has more pixels.
+The 460px floor still clears the whole floating control ladder plus the new
+floating card.
+
+There is **no fixed bottom navigation** in this app: `site-nav.tsx` is
+`absolute`/`sticky` at `top-0`. The floating panel therefore floats over the
+map’s in-flow bottom edge rather than a viewport-fixed bottom inset, which is
+why no safe-area inset is needed and why orientation changes cannot detach it.
+
+### 22.4 Verification
+
+- New `tests/home-ui-spacing-layout.test.ts` — 19 tests. **12 of them fail
+  against `main`** and all 19 pass with the change.
+- Seven existing suites were amended in place (never deleted), each annotated
+  with the behaviour change that required it: `home-map-first-ui`,
+  `map-local-area-coverage`, `map-auto-fit-camera`, `home-search-center-sync`,
+  `home-location-search`, `home-map-consolidated-frame`,
+  `map-viewport-coverage`. The substantive amendment is the stacking one:
+  `map-stacking.test.ts` still forbids a Place bottom sheet over the map, and
+  the new floating card is deliberately built to satisfy that (no
+  `bottom-0 left-0 right-0`, no Place CTA, no bottom-sheet shape, not on the
+  header tier).
+- Full suite in batches: 258 / 196 / 187 / 138 / 148. The single failure is
+  `place-management.test.ts` → “Only IDR and USD are valid currencies”,
+  **pre-existing**, reproduced on the clean stashed baseline.
+  `discovery-aggregate` and `discovery-dev-dataset` remain excluded (PGlite is
+  OOM-killed in this 1-CPU/2 GB sandbox).
+- `eslint .` 0 errors / 10 warnings (baseline) · `tsc -b --noEmit` 0 ·
+  `next build` 0 (29/29).
+
+### 22.5 Not done
+
+- The 50 Saudi `region_name` values that `isValidPlaceRegion` rejects, and the
+  curation decisions, remain exactly as reported in §21.6 — still open, still
+  not actioned.
+- `isDummy` on the public `/api/places` payload is still untouched (§21.7).
