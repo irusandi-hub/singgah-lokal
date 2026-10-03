@@ -120,7 +120,11 @@ test("R-A: the resolved place name comes from the server answer and is cleared w
 test("R-A: the hardcoded caption can never return", () => {
   // The bug in one assertion: a fixed "dari lokasi Anda" in the JSX.
   assert.doesNotMatch(discoveryCode, /dari lokasi Anda/);
-  assert.match(discoveryCode, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{radiusCaption\}<\/p>/);
+  // The caption element renders the RESOLVED value, which is the radius
+  // caption while a distance preset owns the frame and the neutral area
+  // caption in the local-area modes ("Tempat Pilihan", "Lokasi Saya").
+  assert.match(discoveryCode, /<p className="text-\[11px\] font-semibold leading-4 text-brand-ink">\{coverageCaption\}<\/p>/);
+  assert.match(discoveryCode, /const coverageCaption = cameraCoverage === "radius" \? radiusCaption : AREA_COVERAGE_CAPTION;/);
 });
 
 // ---------------------------------------------------------------------------

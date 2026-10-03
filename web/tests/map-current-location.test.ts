@@ -271,6 +271,13 @@ test("Lokasi Saya centers the real fix on the CURRENT zoom — it never widens t
   assert.doesNotMatch(locateEffect, /fitBounds/);
   assert.doesNotMatch(locateEffect, /setCuratedOnly|setDistanceFilter|curatedOnly\s*=/);
   assert.doesNotMatch(locateEffect, /cameraRadiusMeters/);
+  // CORRECTION (2026-10-03): the frame this press produces is LATCHED, so the
+  // fresh geolocation fix that lands right after it can no longer re-frame the
+  // map to a radius preset the user never chose — which is what used to make
+  // "Lokasi Saya" appear to jump a moment after the press. Only a new explicit
+  // request (a tab, "Tempat Pilihan", or another press) releases it.
+  assert.match(locateEffect, /userInteractedRef\.current = true;/);
+  assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
   // The floor is a CLOSE zoom, never a wide one, and it is the same value the
   // zoom-preserving fallback focus uses.
   const floor = Number(/const LOCATE_MIN_ZOOM = (\d+)/.exec(homeMap)?.[1] ?? "0");
@@ -280,7 +287,7 @@ test("Lokasi Saya centers the real fix on the CURRENT zoom — it never widens t
   // camera — the 1/5/10 km tabs AND the 10 km curated preset are untouched.
   const anchorEffect = mapCode.slice(
     mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
-    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);"),
   );
   assert.match(anchorEffect, /radiusZoom\(map, anchor, cameraRadiusMeters\)/);
   assert.match(anchorEffect, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
@@ -317,7 +324,7 @@ test("Lokasi Saya camera transition is SHORT and smooth, and respects reduced mo
   // instant preset apply.
   const anchorEffect = mapCode.slice(
     mapCode.indexOf("const radiusChanged = lastRadiusRef.current !== cameraRadiusMeters"),
-    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);"),
+    mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);"),
   );
   assert.doesNotMatch(anchorEffect, /flyTo|duration/);
   assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 1, "exactly one animated move — the locate recenter");

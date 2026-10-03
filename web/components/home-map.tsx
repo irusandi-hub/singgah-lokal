@@ -10,7 +10,9 @@ import {
   collectGeoPoints,
   isSameViewport,
   resolveCameraFitPadding,
+  resolveMapScale,
   shouldReportViewportStatus,
+  type MapScale,
   type MapViewport,
 } from "@/lib/live/ui";
 
@@ -65,6 +67,26 @@ import {
  *     · the fit reserves the floating chrome (header, search, filter) and the
  *       map controls, so the framed Places are never hidden underneath them;
  *     · the distance tabs keep their ordered radius presets (unchanged).
+ * - LOCAL AREA + EXPLICIT REQUEST LATCH (product decision, 2026-10-03 —
+ *   correction of the 2026-10-03 auto-fit): the bounds datasets are bounded to
+ *   the viewer's LOCAL AREA, and the frame an explicit request produces STAYS.
+ *   · LOCAL AREA: the fit dataset is resolved against the REAL fix by
+ *     `resolveLocalAreaCoverage` — the anchor Place's own canonical ISO
+ *     country + subdivision when it has one, otherwise an adaptive
+ *     data-derived separation. There is no fixed 10 km cap, no arbitrary
+ *     replacement radius, and no fallback to the whole dataset: a "Lokasi
+ *     Saya" or "Tempat Pilihan" focus can never frame West Java and Riyadh in
+ *     one fit again.
+ *   · LATCH: every explicit user request (a distance tab, "Tempat Pilihan",
+ *     "Lokasi Saya", a new search answer) records the camera it produced.
+ *     Marker refreshes, discovery polls, viewport reports, and the next
+ *     geolocation fix are then BLOCKED from taking it back — which is what
+ *     removed the last "the frame jumps again a moment later" behaviour
+ *     without a single timer or debounce.
+ * - MAP SCALE (bug fix, 2026-10-03): the corner bar reports the REAL scale of
+ *   the visible viewport (measured from this map's own bounds and width), never
+ *   a camera radius. `onScaleChange` fires with exactly that measurement, or
+ *   `null` when nothing is measurable yet.
  * - One container = one Leaflet instance: the container is claimed
  *   synchronously before the async import resolves (Strict Mode double-mount
  *   and fast route transitions cannot initialize twice), and teardown fully
@@ -117,6 +139,12 @@ type HomeMapProps = {
    * Pilihan", and the "Lokasi Saya" recenter, all 10 km at the widest). The
    * radius only ever changes the frame, never the marker set: it is decided
    * upstream and never filters Places.
+   *
+   * SUPERSEDED FOR THE CURATED LAYER AND FOR THE SCALE READOUT (2026-10-03):
+   * an explicit "Tempat Pilihan" choice is framed by `fitCamera` over the
+   * viewer's LOCAL AREA, and this value no longer describes that frame. It
+   * remains the camera preset the three distance tabs still own, and it is
+   * never rendered as a map scale.
    */
   cameraRadiusMeters?: number | null;
   /**
@@ -193,6 +221,29 @@ type HomeMapProps = {
    * the marker dataset, or the camera.
    */
   onViewportChange?: (viewport: MapViewport) => void;
+  /**
+   * EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): bumped by the
+   * caller whenever the USER asks the camera to move — choosing a distance
+   * tab, choosing "Tempat Pilihan", or pressing "Lokasi Saya".
+   *
+   * It is the release of the manual-interaction latch. Every automatic camera
+   * move (a radius preset re-applied after a fresh geolocation fix, a marker
+   * refresh, a viewport report) is blocked while the latch is held, so the
+   * frame the user asked for is the frame that stays. Only a new explicit
+   * request can take the camera back, and nothing else can — that is what makes
+   * a "recenter loop" impossible without any debounce or timer.
+   */
+  cameraRequestNonce?: number;
+  /**
+   * The REAL scale of the visible viewport (bug fix, 2026-10-03): the round
+   * distance the drawn bar represents plus its exact pixel length, measured
+   * from this map's own bounds and size. Reported on readiness, on every
+   * FINISHED move/zoom, and on resize — exactly when `onViewportChange` fires
+   * — and deduped, so a settled viewport never re-renders the scale chip.
+   * `null` = nothing measurable yet (unmeasured container), and the caller
+   * then shows no scale at all rather than an invented number.
+   */
+  onScaleChange?: (scale: MapScale | null) => void;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -286,6 +337,8 @@ export default function HomeMap({
   pulsePinOnPresetChange = false,
   onViewportHasPlaces,
   onViewportChange,
+  cameraRequestNonce = 0,
+  onScaleChange,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -329,6 +382,16 @@ export default function HomeMap({
   // same bounds twice (no re-render storms).
   const onViewportChangeRef = useRef<((viewport: MapViewport) => void) | null>(null);
   const lastViewportRef = useRef<MapViewport | null>(null);
+  // REAL scale reporting (bug fix 2026-10-03): same ref pattern as the
+  // viewport, plus the last reported bar so a settled viewport never re-renders
+  // the scale chip. The value itself is measured from the map, never guessed.
+  const onScaleChangeRef = useRef<((scale: MapScale | null) => void) | null>(null);
+  const lastScaleRef = useRef<string | null>(null);
+  // EXPLICIT CAMERA REQUEST latch (product decision, 2026-10-03): the last
+  // request nonce this map has already honoured. A newer one releases the
+  // manual-interaction latch so the user's own choice applies; an equal one
+  // changes nothing, so no automatic refresh can re-arm the camera.
+  const lastRequestNonceRef = useRef(cameraRequestNonce);
   // Last measured Leaflet size — the container-resize guard (a change that
   // does not actually change the measured size must not re-report).
   const measuredSizeRef = useRef<{ x: number; y: number } | null>(null);
@@ -357,6 +420,10 @@ export default function HomeMap({
   useEffect(() => {
     onViewportChangeRef.current = onViewportChange ?? null;
   }, [onViewportChange]);
+
+  useEffect(() => {
+    onScaleChangeRef.current = onScaleChange ?? null;
+  }, [onScaleChange]);
 
   useEffect(() => {
     fitPlacesRef.current = fitPlaces;
@@ -411,8 +478,7 @@ export default function HomeMap({
   // viewport must never re-render the Home rows.
   const reportViewportBounds = useCallback(() => {
     const map = mapRef.current;
-    const report = onViewportChangeRef.current;
-    if (!map || !report) return;
+    if (!map) return;
     const bounds = map.getBounds();
     const viewport: MapViewport = {
       north: bounds.getNorth(),
@@ -420,6 +486,18 @@ export default function HomeMap({
       east: bounds.getEast(),
       west: bounds.getWest(),
     };
+    // REAL SCALE (bug fix, 2026-10-03): measured from this viewport and the
+    // REAL container width, and reported on the same events as the bounds —
+    // the corner chip therefore shows the scale of the map the user is looking
+    // at, not a camera radius that has nothing to do with it.
+    const scale = resolveMapScale({ bounds: viewport, widthPx: map.getSize().x });
+    const scaleKey = scale ? `${scale.label}@${scale.barPx}` : "";
+    if (scaleKey !== lastScaleRef.current) {
+      lastScaleRef.current = scaleKey;
+      onScaleChangeRef.current?.(scale);
+    }
+    const report = onViewportChangeRef.current;
+    if (!report) return;
     if (isSameViewport(lastViewportRef.current, viewport)) return;
     lastViewportRef.current = viewport;
     report(viewport);
@@ -799,6 +877,14 @@ export default function HomeMap({
   const cameraCenterKey = cameraCenter ? `${cameraCenter.lat},${cameraCenter.lng}` : "";
   useEffect(() => {
     const map = mapRef.current;
+    // EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): a NEW request
+    // number releases the manual-interaction latch, so the frame the user just
+    // asked for applies even when they panned a moment ago. It is recorded
+    // FIRST, before every early return, so a request can never be "replayed"
+    // later by an unrelated readiness or fix change.
+    const requestChanged = cameraRequestNonce !== lastRequestNonceRef.current;
+    lastRequestNonceRef.current = cameraRequestNonce;
+    if (requestChanged) userInteractedRef.current = false;
     // AUTO-FIT REFOCUS (product decision, 2026-10-03) — checked FIRST and
     // BEFORE the anchor guard, because a fit carries its OWN canonical
     // coordinates and must therefore still work when geolocation was denied
@@ -811,9 +897,10 @@ export default function HomeMap({
       // the SAME choice (that would be the recenter loop).
       lastFitNonceRef.current = fitNonce;
       lastRadiusRef.current = cameraRadiusMeters;
-      // An explicit choice re-arms the manual-interaction latch exactly like a
-      // new radius preset does: the fit IS the refocus the user asked for.
-      userInteractedRef.current = false;
+      // The camera is now exactly where the user's choice put it, so it is
+      // LATCHED again: the radius preset must not take it back when the next
+      // geolocation fix arrives. Only a new explicit request releases it.
+      userInteractedRef.current = true;
       void (async () => {
         const applied = await fitCamera(map, fitPlacesRef.current);
         // The instant-camera rule (PO 2026-09-30) is unchanged: the transition
@@ -861,7 +948,7 @@ export default function HomeMap({
     return () => {
       cancelled = true;
     };
-  }, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);
+  }, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);
 
   // Render/update the user marker from the real geolocation fix. Camera
   // decisions live in the anchor effect above.
@@ -944,6 +1031,13 @@ export default function HomeMap({
     locatePendingRef.current = true;
     if (!ready || !map || !viewerPosition) return;
     locatePendingRef.current = false;
+    // LATCHED (product decision, 2026-10-03): the camera is now exactly where
+    // this explicit request put it. A fresh geolocation fix that lands right
+    // after the press must NOT re-frame the map to a radius preset the user
+    // did not ask for — that was the "Lokasi Saya jumps to another frame"
+    // behaviour. Only a new explicit request (a tab, "Tempat Pilihan", or
+    // another "Lokasi Saya") releases the latch again.
+    userInteractedRef.current = true;
     let cancelled = false;
     (async () => {
       if (cancelled || mapRef.current !== map) return;
@@ -985,7 +1079,9 @@ export default function HomeMap({
     const map = mapRef.current;
     if (!ready || !map || !searchCenter || !searchNonce) return;
     let cancelled = false;
-    userInteractedRef.current = false;
+    // Same latch as every other explicit request: the searched frame STAYS, and
+    // a later geolocation fix cannot yank the map back to the device radius.
+    userInteractedRef.current = true;
     (async () => {
       const applied = await fitCamera(map, searchFitPlacesRef.current);
       if (cancelled || applied) return;

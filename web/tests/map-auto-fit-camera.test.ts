@@ -89,6 +89,10 @@ test("AC 1: curated coverage is derived from the Place spread, and the camera ha
     pageCode,
     /const cameraFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoverageSource\] : visiblePlaces;/,
   );
+  // ...and, since the 2026-10-03 correction, bounded to the viewer's LOCAL
+  // AREA so one fit can never frame two continents (see
+  // tests/map-local-area-coverage.test.ts).
+  assert.match(pageCode, /resolveLocalAreaCoverage\(\{\s*\n\s*origin: searchCenter \?\? viewerPosition,/);
   // ...and the camera's fit is a fitBounds, not a radius frame.
   assert.match(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
   assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current\)/);
@@ -120,6 +124,8 @@ test("AC 1: curated MEMBERSHIP is untouched — the fit is geometry, never a mem
   );
   assert.match(fitDataset, /if \(seen\.has\(place\.id\)\) return \[\];/);
   assert.match(fitDataset, /if \(place\.latitude === null \|\| place\.longitude === null\) return \[\];/);
+  // The local-area resolver is a pure function in lib/live/ui.ts: the fit
+  // dataset itself still neither sorts, re-selects, nor measures anything.
   assert.doesNotMatch(fitDataset, /\.sort\(|curatedIdSet\.size|is_curated|distanceMeters/);
   // No list row reads the fit dataset.
   assert.equal(/\bfitNonce\b|\bcameraFitPlaces\b|\bsearchFitPlaces\b/.test(pageCode.slice(pageCode.indexOf("const listedPlaces"), pageCode.indexOf("return ("))), false);
@@ -223,7 +229,7 @@ test("AC 4: only a NONCE can re-frame the camera — no viewport or marker input
   // The deps of both camera effects carry the NONCES, never the Place arrays:
   // a discovery re-poll or a marker rebuild cannot re-trigger them.
   assert.match(mapCode, /}, \[ready, searchNonce, searchCenter, fitCamera\]\);/);
-  assert.match(mapCode, /cameraCenter, fitNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange/);
+  assert.match(mapCode, /cameraCenter, fitNonce, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange/);
   // The marker rebuild effect still never touches the camera.
   const markerEffect = mapCode.slice(
     mapCode.indexOf("const markerPositions: [number, number][] = [];"),
@@ -246,10 +252,22 @@ test("AC 5: a real pan/zoom latches the camera; only a tab choice or a new searc
   // ...a programmatic move is excluded from that latch, so the fit's OWN
   // moveend events can never look like a user gesture.
   assert.match(mapCode, /programmaticMoveRef\.current = true/);
-  // Both explicit triggers re-arm the latch — and nothing else does.
-  assert.match(mapCode, /if \(fitChanged\)[\s\S]{0,400}userInteractedRef\.current = false;/);
-  assert.match(mapCode, /userInteractedRef\.current = false;\s*\(async \(\) => \{\s*const applied = await fitCamera\(map, searchFitPlacesRef\.current\)/);
-  // The curated tab is the ONLY state change that bumps the fit nonce.
+  // RE-ARMED ONLY BY AN EXPLICIT REQUEST (correction, 2026-10-03): the frame a
+  // fit or a search produced is LATCHED right after, so the next geolocation
+  // fix can no longer re-frame the map to a radius preset the user never
+  // chose. The ONLY thing that releases that latch is a NEW explicit request.
+  const fitBranch = mapCode.slice(
+    mapCode.indexOf("if (fitChanged) {"),
+    mapCode.indexOf("const anchor = cameraCenter ?? viewerPosition;"),
+  );
+  assert.match(fitBranch, /userInteractedRef\.current = true;/);
+  assert.match(
+    mapCode,
+    /userInteractedRef\.current = true;\s*\(async \(\) => \{\s*const applied = await fitCamera\(map, searchFitPlacesRef\.current\)/,
+  );
+  assert.match(mapCode, /const requestChanged = cameraRequestNonce !== lastRequestNonceRef\.current;/);
+  assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
+  // The curated tab is the ONLY state change that bumps the FIT nonce.
   assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
   const curatedHandler = pageCode.slice(
     pageCode.indexOf("const next = activateCuratedFilter();"),
@@ -263,6 +281,9 @@ test("AC 5: a real pan/zoom latches the camera; only a tab choice or a new searc
     pageCode.indexOf("setDistanceFilter(filter);") + 160,
   );
   assert.doesNotMatch(tabHandler, /setFitNonce/);
+  // It DOES carry an explicit camera request, which is what releases the latch
+  // the previous frame left behind.
+  assert.match(tabHandler, /setCameraRequestNonce/);
 });
 
 // ---------------------------------------------------------------------------
@@ -416,9 +437,9 @@ test("AC 8: the search info panel spans the screen and is fully opaque", () => {
 // ---------------------------------------------------------------------------
 
 test("AC 9: both Place strips sit in a visible, tidily clipped frame and still scroll sideways", () => {
-  const frames = (pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-2\.5/g) ?? []);
+  const frames = (pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-2"/g) ?? []);
   assert.equal(frames.length, 2, "Baris 1 and Baris 2 both get the frame");
-  const strips = (pageCode.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-2/g) ?? []);
+  const strips = (pageCode.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1\.5/g) ?? []);
   assert.equal(strips.length, 2, "both strips keep their scroll + snap pattern");
   // The cards, their fixed tracks, and their order are untouched.
   assert.equal(
@@ -449,15 +470,19 @@ test("AC 10: no product boundary was crossed by the auto-fit change", () => {
   assert.equal(/supabase|from\("places"\)|is_curated|publication_status|admin/i.test(mapCode), false);
   // The distance tabs keep their ordered radius presets.
   assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
-  // "Lokasi Saya" still preserves the current close zoom, never widening it.
+  // "Lokasi Saya" still centers the newest real fix at the CURRENT zoom — it
+  // never zooms OUT, so it can never widen the visible area, and it never
+  // derives a zoom from a radius.
   const locate = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
     mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
   );
   assert.match(locate, /const targetZoom = Math\.max\(map\.getZoom\(\), LOCATE_MIN_ZOOM\)/);
   assert.doesNotMatch(locate, /fitBounds|radiusZoom/);
-  // The curated display radius is still a truthful DISPLAY value, and the
-  // coverage caption still names the real origin.
+  // The curated display radius is still a truthful DISPLAY value for the
+  // distance tabs, and the coverage caption names the real origin whenever a
+  // radius preset really owns the frame.
   assert.match(pageCode, /const activeRadiusMeters = curatedOnly\n\s*\? CURATED_CAMERA_RADIUS_M\n\s*: CAMERA_PRESET_RADIUS_M\[distanceFilter\];/);
   assert.match(pageCode, /const radiusCaption = describeRadiusOrigin\(\{/);
+  assert.match(pageCode, /const coverageCaption = cameraCoverage === "radius" \? radiusCaption : AREA_COVERAGE_CAPTION;/);
 });

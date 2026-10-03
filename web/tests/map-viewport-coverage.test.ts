@@ -195,8 +195,10 @@ test("5. Tempat Pilihan comes only from canonical is_curated and follows the vie
   // RE-ORDERED (product decision, 2026-10-03): the non-curated remainder is
   // now named ONCE in `curatedCoverageSource` (the un-narrowed candidate set)
   // and the marker set narrows that — so the coverage rule is provably still
-  // the non-curated remainder, never Discovery and never a radius.
-  const coverage = pageCode.slice(pageCode.indexOf("const curatedCoverageSource"), pageCode.indexOf("const mapPlaces"));
+  // the non-curated remainder, never Discovery and never a radius. The slice
+  // ends before the CAMERA dataset, which is a separate rule (the viewer's
+  // local area, correction 2026-10-03) and legitimately reads the real fix.
+  const coverage = pageCode.slice(pageCode.indexOf("const curatedCoverageSource"), pageCode.indexOf("const cameraFitPlaces"));
   assert.match(coverage, /searchFiltered\.filter\(\(place\) => !curatedIdSet\.has\(place\.id\)\)/);
   assert.match(coverage, /return narrowToViewport\(curatedCoverageSource, coverageViewport\);/);
   assert.doesNotMatch(coverage, /distanceMeters|viewerPosition/);
