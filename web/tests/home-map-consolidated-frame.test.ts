@@ -201,10 +201,10 @@ test("11.5 the curated pool is CAMERA geometry only — results stay curated-onl
   // candidates are framed, never the membership itself.
   assert.match(pool, /curatedIdSet\.has\(place\.id\)/);
   assert.match(pool, /resolveContextualCuratedCoverage\(/);
-  // Since 2026-10-05 both place-set tabs share one context-framed camera value
-  // (curated -> `curatedFitPlaces`, "Semua Tempat" -> `allPlacesFitPlaces`); the
-  // curated dataset itself is untouched.
-  assert.match(pageCode, /const contextFitPlaces = curatedOnly \? curatedFitPlaces : allPlacesFitPlaces;/);
+  // "Tempat Pilihan" is the ONE context-framed tab again: the second dataset that
+  // shared this value existed only for the "Semua Tempat" tab and was removed
+  // with it on 2026-10-04. The curated dataset itself is untouched.
+  assert.match(pageCode, /const contextFitPlaces = curatedFitPlaces;/);
   assert.match(pageCode, /if \(contextFramedTab\) return contextFitPlaces;/);
   // The curated LIST and its count are untouched: they still read canonical
   // membership only, and the viewport gate still narrows them.
@@ -237,10 +237,10 @@ test("11.7 manual pan/zoom survives and no refresh or poll can re-frame", () => 
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
   // Only hand-driven actions bump the request nonce, and only a place-set tab
-  // choice bumps the fit nonce (the curated tab, plus the additional
-  // "Semua Tempat" tab from 2026-10-05).
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 4);
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
+  // choice bumps the fit nonce (the curated tab — the additional
+  // "Semua Tempat" tab was removed on 2026-10-04).
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
   // The camera reads NO viewport state, so camera and viewport filtering stay
   // independent (no circular update).
   const fitBlock = pool_(pageCode);
@@ -320,9 +320,11 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
   assert.doesNotMatch(pageCode, /bottom-9 left-4 z-\[1100\]/);
   // Its position glyph must not come back either.
   assert.doesNotMatch(pageCode, /⌖/);
-  // The measured scale bar is map chrome, not Home result context, and stays.
-  assert.match(pageCode, /absolute bottom-9 right-4 z-\[1100\]/);
-  assert.match(pageCode, /\{mapScale\.label\}/);
+  // APPROVED MOCKUP (2026-10-04): the bottom-right distance scale is removed too
+  // — its text, its bar, and the space it reserved — and nothing replaces it.
+  assert.doesNotMatch(pageCode, /absolute bottom-9 right-4 z-\[1100\]/);
+  assert.doesNotMatch(pageCode, /mapScale/);
+  assert.doesNotMatch(pageCode, /barPx/);
   // "Ke hasil" (access to the results), both strips, and the title are intact.
   assert.match(pageCode, /Ke hasil/);
   assert.match(pageCode, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);

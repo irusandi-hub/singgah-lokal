@@ -118,15 +118,15 @@ test("MOCKUP §8: map height is responsive and always leaves the Result panel in
   // The spacer is purely presentational — it reserves the visible map window
   // and carries no data or behaviour.
   assert.match(code, /<div aria-hidden className="h-\[56vh\]/);
-  // The floating control ladder (Re-center 190px / "Lokasi Saya" 240px /
-  // +/- 290px) plus the coverage box at bottom-9 MUST fit inside the shortest
-  // supported map — this is the arithmetic the old 240px floor violated.
+  // The floating control ladder (compass 190px / "Lokasi Saya" 240px /
+  // +/- 290px) MUST fit inside the shortest supported map — this is the
+  // arithmetic the old 240px floor violated. The bottom-right scale chip left
+  // the ladder with the indicator on 2026-10-04.
   const ladderBottom = 290 + 64; // +/- stack offset + Leaflet's own control height
-  const coverageTop = 36 + 40; // bottom-9 offset + the box's own height
-  assert.ok(440 >= Math.max(ladderBottom, coverageTop), "the control ladder and the coverage box fit the shortest map");
+  assert.ok(440 >= ladderBottom, "the control ladder fits the shortest map");
 });
 
-test("MOCKUP §2: search is a floating ~20px-radius white bar with a sliders icon", () => {
+test("MOCKUP §2: search is a floating ~20px-radius white bar with NOTHING on its right", () => {
   assert.match(
     code,
     /flex items-center gap-2\.5 rounded-\[20px\] border border-black\/10 bg-white px-3\.5 py-2\.5 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]/,
@@ -134,15 +134,40 @@ test("MOCKUP §2: search is a floating ~20px-radius white bar with a sliders ico
   // Copy, label, and control function are untouched by the polish.
   assert.match(code, /aria-label="Cari tempat, cerita, produksi"/);
   assert.match(code, /placeholder="Cari tempat, cerita, produksi\.\.\."/);
-  // MOCKUP §2: the right-hand icon is the SLIDERS/control glyph (mockup
-  // chrome), not the retired gear. It stays DECORATIVE only — aria-hidden,
-  // never a button, no search-settings feature is invented.
+  // APPROVED MOCKUP (2026-10-04): the right end of the search field is now
+  // EMPTY. The decorative sliders/control graphic is REMOVED and replaced by
+  // nothing — not a gear, not another icon, not a button — and no
+  // search-settings feature is invented in its place.
   assert.doesNotMatch(code, /⚙/);
-  assert.match(code, /<svg viewBox="0 0 24 24" width="18" height="18"/);
-  const icon = code.slice(code.indexOf('<svg viewBox="0 0 24 24"'), code.indexOf("</svg>"));
-  assert.doesNotMatch(icon, /onClick|<button/, "the sliders icon must never become a control");
+  assert.doesNotMatch(code, /M4 7h10M18 7h2/);
+  assert.doesNotMatch(code, /viewBox="0 0 24 24" width="18" height="18"/);
   // The search glyph on the left stays.
   assert.match(code, /shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</);
+  // A long query can never widen the bar on a narrow phone.
+  assert.match(code, /className="w-full min-w-0 bg-transparent text-sm outline-none/);
+});
+
+test("MOCKUP §2: the search field is dimensionally stable, empty and filled", () => {
+  // The only right-hand control is the clear "×", and it is a FIXED 18×18px
+  // box — exactly the footprint the removed graphic occupied — so the bar's
+  // width, height, padding, radius and position cannot differ between the
+  // empty and the filled state. Nothing else is conditional inside the bar.
+  assert.match(
+    code,
+    /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/45 transition hover:bg-black\/10"/,
+  );
+  const bar = code.slice(
+    code.indexOf("rounded-[20px] border border-black/10 bg-white"),
+    code.indexOf("Mencari lokasi"),
+  );
+  assert.equal((bar.match(/<button/g) ?? []).length, 1, "one control inside the bar, and it is the clear button");
+  assert.equal((bar.match(/<svg/g) ?? []).length, 0, "no icon is rendered inside the bar");
+  // The clear affordance itself is unchanged, and it is still submit-only:
+  // typing never searches, the ONE search still runs on Enter.
+  assert.match(code, /onClick=\{handleSearchClear\}/);
+  assert.match(code, /aria-label="Hapus pencarian"/);
+  assert.match(code, /onKeyDown=\{handleSearchKeyDown\}/);
+  assert.equal(/onChange=\{\(event\) => handleSearchSubmit/.test(code), false, "no search-on-keystroke");
 });
 
 test("MOCKUP §3: filter stays a single row with the locked five controls in order", () => {
@@ -163,17 +188,17 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
   // bg-brand-ink (near-black) when selected. It is now brand green.
   assert.doesNotMatch(code, /bg-brand-ink text-white/);
   const greenSelected = code.match(/bg-brand-primary text-white/g) ?? [];
-  // Three call sites (2026-10-05): the curated button, the additional
-  // "Semua Tempat" tab, and the shared distance-tab branch.
-  assert.equal(greenSelected.length, 3);
+  // Two call sites, back to the pre-2026-10-05 pair: the curated button and the
+  // shared distance-tab branch. The additional "Semua Tempat" tab was removed
+  // on 2026-10-04.
+  assert.equal(greenSelected.length, 2);
   assert.match(code, /curatedOnly\n\s*\? "bg-brand-primary text-white"/);
-  assert.match(code, /allPlacesOnly\n\s*\? "bg-brand-primary text-white"/);
+  assert.doesNotMatch(code, /allPlacesOnly/);
   // The radius preset is selected only when NO place-set layer owns the map,
-  // so choosing "Tempat Pilihan" or "Semua Tempat" deselects it exactly as
-  // choosing the curated tab always did.
+  // so choosing "Tempat Pilihan" deselects it exactly as it always did.
   assert.match(
     code,
-    /distanceFilter === filter && !curatedOnly && !allPlacesOnly\n\s*\? "bg-brand-primary text-white"/,
+    /distanceFilter === filter && !curatedOnly\n\s*\? "bg-brand-primary text-white"/,
   );
   // The unselected distance tabs keep their white surface (mockup).
   assert.match(code, /: "border border-black\/10 bg-white text-black\/65"/);
@@ -373,16 +398,13 @@ test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right are truthful
   assert.doesNotMatch(code, /\{coverageCaption\}/);
   assert.match(code, /\$\{nearOrigin\} · \$\{coverageScope\}/);
   assert.doesNotMatch(code, /dari lokasi Anda/);
-  // The scale chip is untouched and still bottom-right (map chrome, not Home
-  // result context).
-  // Scale: bottom-right with the bar — but a REAL scale bar now (bug fix
-  // 2026-10-03): the label is the measured viewport scale and the bar is drawn
-  // at that distance's exact pixel length, never a camera radius.
-  assert.match(code, /absolute bottom-9 right-4 z-\[1100\] flex flex-col items-end gap-1/);
-  assert.match(code, /border-x-2 border-b-2 border-brand-ink\/70/);
-  assert.match(code, /\{mapScale\.label\}/);
-  assert.match(code, /style=\{\{ width: mapScale\.barPx \}\}/);
-  assert.doesNotMatch(code, /\{activeRadiusLabel\}/);
+  // APPROVED MOCKUP (2026-10-04): there is NO scale chip any more. The
+  // bottom-right distance scale — its text and its bar — was removed together
+  // with the space it reserved, and nothing replaced it.
+  assert.doesNotMatch(code, /absolute bottom-9 right-4 z-\[1100\]/);
+  assert.doesNotMatch(code, /border-x-2 border-b-2 border-brand-ink\/70/);
+  assert.doesNotMatch(code, /mapScale/);
+  assert.doesNotMatch(code, /barPx/);
   // The radius label still exists as a DERIVED value for the distance tabs
   // (it never was invented state) — it is simply no longer drawn as a scale.
   assert.match(

@@ -5,18 +5,13 @@ import { useRouter } from "next/navigation";
 import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
-  DEFAULT_LABEL_ANCHOR,
   FIT_SINGLE_PLACE_ZOOM,
   boundsOfPoints,
   collectGeoPoints,
   isSameViewport,
-  resolveAllPlacesLabelLayout,
   resolveCameraFitPadding,
-  resolveMapScale,
   selectAlwaysLabelledPlaceIds,
   shouldReportViewportStatus,
-  type LabelAnchor,
-  type MapScale,
   type MapViewport,
 } from "@/lib/live/ui";
 
@@ -95,10 +90,10 @@ import {
  *   camera system. Empty local area → focus the user's own coordinate; denied
  *   geolocation → no camera move at all; manual pan/zoom survives until the
  *   next explicit request.
- * - MAP SCALE (bug fix, 2026-10-03): the corner bar reports the REAL scale of
- *   the visible viewport (measured from this map's own bounds and width), never
- *   a camera radius. `onScaleChange` fires with exactly that measurement, or
- *   `null` when nothing is measurable yet.
+ * - MAP SCALE: the corner scale bar and its `onScaleChange` measurement were
+ *   REMOVED on 2026-10-04 with the indicator itself (the approved Home/Map
+ *   mockup shows no distance scale). Nothing else reads it: zoom, attribution,
+ *   camera, and coverage never depended on the scale.
  * - One container = one Leaflet instance: the container is claimed
  *   synchronously before the async import resolves (Strict Mode double-mount
  *   and fast route transitions cannot initialize twice), and teardown fully
@@ -237,21 +232,6 @@ type HomeMapProps = {
    */
   pulsePinOnPresetChange?: boolean;
   /**
-   * "SEMUA TEMPAT" LABEL RULE (product decision, 2026-10-05): when true, EVERY
-   * rendered pin keeps its name chip painted.
-   *
-   * The default (false) is the unchanged curated/dense behaviour — the
-   * deterministic on-demand budget (`selectAlwaysLabelledPlaceIds`) holds chips
-   * back until hover or keyboard focus. The all-Places tab opts OUT of that
-   * budget because its whole promise is that every eligible name is readable;
-   * hiding one by density, ranking, or priority would break that promise. It is
-   * a LABEL-PAINT rule only: no Place is added or removed, every pin keeps its
-   * marker, click target, keyboard target, tooltip, and z-order, and the label
-   * LAYOUT (`resolveAllPlacesLabelLayout`) then moves chips apart around pins
-   * and reserved map controls.
-   */
-  labelEveryPlaceName?: boolean;
-  /**
    * Viewport-aware empty state (PO, 2026-09-30): the map reports whether at
    * least one Place marker currently sits inside the REAL Leaflet viewport —
    * evaluated once when the map is ready and re-evaluated on every FINISHED
@@ -282,16 +262,6 @@ type HomeMapProps = {
    * a "recenter loop" impossible without any debounce or timer.
    */
   cameraRequestNonce?: number;
-  /**
-   * The REAL scale of the visible viewport (bug fix, 2026-10-03): the round
-   * distance the drawn bar represents plus its exact pixel length, measured
-   * from this map's own bounds and size. Reported on readiness, on every
-   * FINISHED move/zoom, and on resize — exactly when `onViewportChange` fires
-   * — and deduped, so a settled viewport never re-renders the scale chip.
-   * `null` = nothing measurable yet (unmeasured container), and the caller
-   * then shows no scale at all rather than an invented number.
-   */
-  onScaleChange?: (scale: MapScale | null) => void;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -413,28 +383,17 @@ const LOCATE_AREA_RADIUS_M = 350;
 const PIN_LABEL_ON_DEMAND_ATTRIBUTE = "data-label-state";
 
 /**
- * LABEL PLACEMENT (2026-10-05, "Semua Tempat"). The `below` entry is the
- * placement every pin has used since names were added, byte for byte, so the
- * ordinary frame is untouched; the other three are the anchors the layout may
- * choose to move a chip to when the default one would collide with another name
- * or with reserved map chrome. Presentation only — the chip keeps its class, its
- * truncation, its full text, and its accessible name.
+ * PIN LABEL PLACEMENT — the ONE anchor every chip has used since Place names
+ * were added: the compact chip centred UNDER its pin. Presentation only — the
+ * chip keeps its class, its truncation, its full text, and its accessible name.
+ *
+ * The alternative anchors ("right" / "left" / "above" collision placement)
+ * were introduced for the "Semua Tempat" tab and were REMOVED with it on
+ * 2026-10-04: that tab no longer exists, so the anchor picker had no caller
+ * and every remaining frame renders this single placement.
  */
-function labelAnchorStyle(anchor: LabelAnchor): string {
-  if (anchor === "right") return "position:absolute;left:100%;top:50%;transform:translate(2px,-50%);";
-  if (anchor === "left") return "position:absolute;right:100%;top:50%;transform:translate(-2px,-50%);";
-  if (anchor === "above") return "position:absolute;left:50%;bottom:100%;transform:translate(-50%,-1px);";
-  return "position:absolute;left:50%;top:100%;transform:translate(-50%,1px);";
-}
-
-/**
- * Leaflet's own bounds as the plain `MapViewport` the layout helpers read, so
- * the frame is taken from the map's real measurement rather than recomputed
- * from the Places (which would be a second, subtly different projection).
- */
-function toViewportBounds(bounds: { getNorth(): number; getSouth(): number; getEast(): number; getWest(): number }): MapViewport {
-  return { north: bounds.getNorth(), south: bounds.getSouth(), east: bounds.getEast(), west: bounds.getWest() };
-}
+const PIN_LABEL_ANCHOR_STYLE =
+  "position:absolute;left:50%;top:100%;transform:translate(-50%,1px);";
 
 function escapeHtml(value: string): string {
   return value
@@ -460,11 +419,9 @@ export default function HomeMap({
   searchFitPlaces = [],
   locateFitPlaces = [],
   pulsePinOnPresetChange = false,
-  labelEveryPlaceName = false,
   onViewportHasPlaces,
   onViewportChange,
   cameraRequestNonce = 0,
-  onScaleChange,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -508,11 +465,6 @@ export default function HomeMap({
   // same bounds twice (no re-render storms).
   const onViewportChangeRef = useRef<((viewport: MapViewport) => void) | null>(null);
   const lastViewportRef = useRef<MapViewport | null>(null);
-  // REAL scale reporting (bug fix 2026-10-03): same ref pattern as the
-  // viewport, plus the last reported bar so a settled viewport never re-renders
-  // the scale chip. The value itself is measured from the map, never guessed.
-  const onScaleChangeRef = useRef<((scale: MapScale | null) => void) | null>(null);
-  const lastScaleRef = useRef<string | null>(null);
   // EXPLICIT CAMERA REQUEST latch (product decision, 2026-10-03): the last
   // request nonce this map has already honoured. A newer one releases the
   // manual-interaction latch so the user's own choice applies; an equal one
@@ -553,10 +505,6 @@ export default function HomeMap({
   }, [onViewportChange]);
 
   useEffect(() => {
-    onScaleChangeRef.current = onScaleChange ?? null;
-  }, [onScaleChange]);
-
-  useEffect(() => {
     fitPlacesRef.current = fitPlaces;
   }, [fitPlaces]);
 
@@ -584,8 +532,8 @@ export default function HomeMap({
           (place) =>
             `${place.id}:${place.isCurated === true ? "c" : "-"}:${liveByPlaceId.get(place.id)?.sessionId ?? ""}`,
         )
-        .join("|") + `|labels:${labelEveryPlaceName ? "all" : "budget"}`,
-    [places, liveByPlaceId, labelEveryPlaceName],
+        .join("|"),
+    [places, liveByPlaceId],
   );
 
   // Viewport-aware empty state (PO, 2026-09-30): ONE shared re-evaluation
@@ -627,16 +575,6 @@ export default function HomeMap({
       east: bounds.getEast(),
       west: bounds.getWest(),
     };
-    // REAL SCALE (bug fix, 2026-10-03): measured from this viewport and the
-    // REAL container width, and reported on the same events as the bounds —
-    // the corner chip therefore shows the scale of the map the user is looking
-    // at, not a camera radius that has nothing to do with it.
-    const scale = resolveMapScale({ bounds: viewport, widthPx: map.getSize().x });
-    const scaleKey = scale ? `${scale.label}@${scale.barPx}` : "";
-    if (scaleKey !== lastScaleRef.current) {
-      lastScaleRef.current = scaleKey;
-      onScaleChangeRef.current?.(scale);
-    }
     const report = onViewportChangeRef.current;
     if (!report) return;
     if (isSameViewport(lastViewportRef.current, viewport)) return;
@@ -1370,33 +1308,13 @@ export default function HomeMap({
       // their paint state changes, and CSS reveals them again on the existing
       // hover/keyboard-focus state. Priority follows the marker ladder above:
       // curated first, then Live, then canonical order.
-      const alwaysLabelledPlaceIds = labelEveryPlaceName
-        ? // "SEMUA TEMPAT" (2026-10-05): EVERY rendered pin keeps its name
-          // painted. No budget, no ranking, no priority — a Place can never lose
-          // its label in this tab. The set is still the canonical marker set, so
-          // this paints labels, it never adds or removes a Place.
-          new Set(currentPlaces.map((place) => place.id))
-        : selectAlwaysLabelledPlaceIds(
-            currentPlaces.map((place) => ({
-              id: place.id,
-              isCurated: place.isCurated === true,
-              isLive: liveByPlaceId.has(place.id),
-            })),
-          );
-      // LABEL LAYOUT (2026-10-05, "Semua Tempat" only): with every name painted
-      // the remaining problem is overlap, so one deterministic pass places each
-      // chip around its pin and away from the reserved map chrome. It reads the
-      // frame and the size this map has ALREADY measured for its own scale bar
-      // and viewport report — no extra layout read, no `getBoundingClientRect`,
-      // no reflow — and it runs once per marker rebuild, so panning and zooming
-      // cost nothing. The curated frame never computes it at all.
-      const labelLayout = labelEveryPlaceName
-        ? resolveAllPlacesLabelLayout({
-            places: currentPlaces,
-            frame: map.getBounds() ? toViewportBounds(map.getBounds()) : null,
-            size: map.getSize(),
-          })
-        : null;
+      const alwaysLabelledPlaceIds = selectAlwaysLabelledPlaceIds(
+        currentPlaces.map((place) => ({
+          id: place.id,
+          isCurated: place.isCurated === true,
+          isLive: liveByPlaceId.has(place.id),
+        })),
+      );
       if (currentPlaces.length === 0) {
         evaluateViewportStatus();
         return;
@@ -1449,11 +1367,6 @@ export default function HomeMap({
         // tooltip, the click target, and the marker order are identical in
         // both states, so nothing becomes unreachable.
         const labelState = alwaysLabelledPlaceIds.has(place.id) ? "always" : "on-demand";
-        // "SEMUA TEMPAT" label placement: the SAME chip — same class, same
-        // truncation, same full text, same accessible name — moved to the
-        // anchor the layout chose. Every other mode renders the default
-        // below-the-pin placement it has always used.
-        const labelAnchor = labelLayout?.anchors.get(place.id) ?? DEFAULT_LABEL_ANCHOR;
         const accent = isCurated
           ? `<span style="transform:rotate(45deg);color:#fff;font-size:13px;line-height:1;">✦</span>`
           : "";
@@ -1463,7 +1376,7 @@ export default function HomeMap({
               ${accent}
             </div>
             <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:5px;height:5px;border-radius:9999px;background:${pinColor};box-shadow:0 0 0 2px rgb(255 255 255 / 0.9);"></div>
-            <span class="singgah-pin-label" ${PIN_LABEL_ON_DEMAND_ATTRIBUTE}="${labelState}" style="${labelAnchorStyle(labelAnchor)}">${escapeHtml(place.name)}</span>
+            <span class="singgah-pin-label" ${PIN_LABEL_ON_DEMAND_ATTRIBUTE}="${labelState}" style="${PIN_LABEL_ANCHOR_STYLE}">${escapeHtml(place.name)}</span>
           </div>`;
         const marker = L.marker(position, {
           icon: L.divIcon({
@@ -1538,15 +1451,26 @@ export default function HomeMap({
           on top in any drag/zoom state.
 
           MOCKUP §5/§9 (2026-10-01; re-ordered by the product decision of
-          2026-10-03): the right-side control stack reads as ONE white rounded
-          column, ordered from the floating chrome downwards — the React
-          Re-center arrow, then the labeled "Lokasi Saya" control, then
-          Leaflet's own +/- zoom control BELOW them (position "topright",
-          restyled white in globals.css). The Re-center arrow is a SECOND
-          entry point into the EXISTING locate flow (the same onRequestLocate
-          handler the "Lokasi Saya" control uses): no new camera logic, no
-          geolocation change. The dot on the labeled control is decorative
-          (aria-hidden) — the accessible name stays on the button.
+          2026-10-03; NAVIGATION ARROW → COMPASS, 2026-10-04): the right-side
+          control stack reads as ONE white rounded column, ordered from the
+          floating chrome downwards — the COMPASS, then the labeled "Lokasi
+          Saya" control, then Leaflet's own +/- zoom control BELOW them
+          (position "topright", restyled white in globals.css). The dot on the
+          labeled control is decorative (aria-hidden) — the accessible name
+          stays on the button.
+
+          THE COMPASS replaces the old Re-center navigation arrow in the SAME
+          box (same offset, same 44px size, same surface, ring and shadow), as
+          the approved mockup requires. It states orientation and NOTHING else:
+          this Leaflet build (1.9.x core, no rotation plugin) cannot rotate the
+          map at all — there is no `setBearing`/bearing state to read and no
+          rotation to undo — so the map is ALWAYS north-up and the compass
+          always points north. That is why it is a plain `role="img"` with an
+          accessible name instead of a button: wiring a click to "restore
+          north-up" would advertise a rotation capability this map does not
+          have, i.e. invented behaviour. Re-centering is still ONE press away on
+          the labeled "Lokasi Saya" control below it, with its geolocation
+          behaviour untouched.
 
           POSITION (product decision, 2026-10-03): the map is the full-bleed
           background of Home, so the whole ladder is pushed DOWN to clear the
@@ -1558,15 +1482,24 @@ export default function HomeMap({
           the coverage box / scale at the bottom-right, or with the map surface
           — at every supported width (360 / 390 / 430 / 1280). Same controls,
           same handlers, same sizes: only the offsets changed. */}
-      <button
-        type="button"
-        onClick={onRequestLocate}
-        className="absolute right-3 top-[190px] z-[1100] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
-        aria-label="Pusatkan peta ke lokasi saya"
+      {/* COMPASS — orientation indicator (approved mockup, 2026-10-04).
+          Replaces the old Re-center arrow in the SAME position, with the SAME
+          44px box, white surface, radius, ring and shadow, so the control
+          column keeps its exact geometry. NOT interactive: this map cannot
+          rotate, so a click could not restore north-up and must not pretend
+          to. The needle's red half points at true north; the accessible name
+          states the same fact for a screen reader. */}
+      <div
+        role="img"
+        aria-label="Arah peta: utara ke atas"
+        className="absolute right-3 top-[190px] z-[1100] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black/10"
       >
-        {/* Navigation arrow (MOCKUP §5 "Re-center") — visual only. */}
-        <span aria-hidden className="inline-block -rotate-45 text-base font-bold">➤</span>
-      </button>
+        <svg aria-hidden viewBox="0 0 24 24" width="22" height="22" fill="none">
+          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M12 4.2 15.1 13.2H8.9L12 4.2Z" fill="#dc2626" />
+          <path d="M12 19.8 8.9 10.8h6.2L12 19.8Z" fill="currentColor" opacity="0.35" />
+        </svg>
+      </div>
       <button
         type="button"
         onClick={onRequestLocate}

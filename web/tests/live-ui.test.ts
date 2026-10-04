@@ -104,14 +104,11 @@ test("Home wires both filter buttons to the exclusive transitions, not to raw se
   assert.match(homeSource, /const next = toggleLiveFilter\(liveOnly, curatedOnly\);\s*setLiveOnly\(next\.liveOnly\);\s*setCuratedOnly\(next\.curatedOnly\);/);
   assert.match(homeSource, /const next = activateCuratedFilter\(\);\s*setCuratedOnly\(next\.curatedOnly\);\s*setLiveOnly\(next\.liveOnly\);/);
   // LIVE and Tempat Pilihan keep their own aria-pressed binding, and the
-  // distance tabs stay deselected while EITHER place-set layer is active
-  // ("Semua Tempat", 2026-10-05, is the second place-set layer).
+  // distance tabs stay deselected while the curated place-set layer is active.
+  // (The second place-set layer, "Semua Tempat", was removed on 2026-10-04.)
   assert.match(homeSource, /aria-pressed=\{liveOnly\}/);
   assert.match(homeSource, /aria-pressed=\{curatedOnly\}/);
-  assert.match(
-    homeSource,
-    /aria-pressed=\{distanceFilter === filter && !curatedOnly && !allPlacesOnly\}/,
-  );
+  assert.match(homeSource, /aria-pressed=\{distanceFilter === filter && !curatedOnly\}/);
 });
 
 test("Haversine distance is sane and formatted for the Indonesian UI", () => {

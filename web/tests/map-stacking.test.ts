@@ -152,18 +152,18 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   // The in-map Place bottom sheet was removed (PO 2026-09-25), the duplicate
   // filter chip was removed (2026-10-03), and the floating COVERAGE BOX was
   // consolidated into the results panel (2026-10-03): the map stage now keeps
-  // only the empty-state card and the scale above it.
+  // only the empty-state card above the floating results panel. The bottom-right
+  // distance scale left the stage too, with its indicator, on 2026-10-04.
   //
-  // 2026-10-04 adds a third: the RESULTS panel itself now floats on the map's
-  // bottom edge instead of sitting under it. Like the other two it is a sibling
-  // rendered AFTER the map, so the DOM-order fallback still holds for it too.
+  // The RESULTS panel floats on the map's bottom edge instead of sitting under
+  // it (2026-10-04). Like the empty state it is a sibling rendered AFTER the
+  // map, so the DOM-order fallback still holds for it too.
   const emptyCard = pageCode.indexOf("bottom-32 z-[1100]");
-  const scale = pageCode.indexOf("bottom-9 right-4 z-[1100]");
   const floatingResults = pageCode.indexOf("absolute inset-x-0 bottom-3 z-[1100]");
   assert.equal(pageCode.includes("bottom-9 left-4 z-[1100]"), false, "the floating coverage box is consolidated away");
+  assert.equal(pageCode.indexOf("bottom-9 right-4 z-[1100]"), -1, "the distance scale is removed, not moved");
   for (const [name, index] of [
     ["empty-state card", emptyCard],
-    ["scale", scale],
     ["floating results panel", floatingResults],
   ] as const) {
     assert.ok(index > mapMount, `${name} must come after the map in DOM order`);

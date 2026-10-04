@@ -9,14 +9,12 @@ import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
 import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
-  ALL_PLACES_FILTER_LABEL,
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
   CURATED_RESULTS_ANCHOR_ID,
   DISCOVERY_RESULTS_ANCHOR_ID,
   DISTANCE_FILTERS,
   acceptSearchResponse,
-  activateAllPlacesFilter,
   activateCuratedFilter,
   buildDirectionsUrl,
   clearCitySearch,
@@ -25,19 +23,16 @@ import {
   describeNearOrigin,
   formatDistance,
   isSameViewport,
-  leavePlaceSetTabs,
   liveDurationLabel,
   narrowToViewport,
   resolveActiveCenter,
   resolveContextualCuratedCoverage,
-  resolveContextualPlaceCoverage,
   resolveLocalAreaCoverage,
   resolveResultsAnchorId,
   stopNestedCardAction,
   toggleLiveFilter,
   type DistanceFilter,
   type LiveDiscoveryItem,
-  type MapScale,
   type MapViewport,
 } from "@/lib/live/ui";
 
@@ -125,12 +120,9 @@ export default function HomeDiscovery({
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("1 km");
   const [curatedOnly, setCuratedOnly] = useState(false);
   const [liveOnly, setLiveOnly] = useState(false);
-  // "SEMUA TEMPAT" (2026-10-05): an ADDITIONAL tab, never a replacement for
-  // "Tempat Pilihan". It is a third content mode with its own dataset — every
-  // eligible Place instead of the curated subset — and it is mutually exclusive
-  // with LIVE and the curated layer, so the curated tab's selection, camera,
-  // and markers can never be touched by it (`leavePlaceSetTabs`).
-  const [allPlacesOnly, setAllPlacesOnly] = useState(false);
+  // The "Semua Tempat" tab and its `allPlacesOnly` mode were REMOVED on
+  // 2026-10-04 (approved mockup): the Home content modes are LIVE,
+  // "Tempat Pilihan", and the three distance presets, exactly as before.
   const [searchQuery, setSearchQuery] = useState("");
   // LOCATION SEARCH state: the typed text (searchQuery above), the pending
   // flag, the server-parsed center, and a nonce that bumps once the server
@@ -181,10 +173,6 @@ export default function HomeDiscovery({
   // not claim one. Never a guess: it is set by the same handlers that move the
   // camera, never inferred afterwards.
   const [cameraCoverage, setCameraCoverage] = useState<"radius" | "area">("radius");
-  // REAL map scale (bug fix, 2026-10-03): reported by the map from its own
-  // viewport, so the corner bar always states the scale of what is on screen.
-  // null until the first measurement — then no scale is drawn at all.
-  const [mapScale, setMapScale] = useState<MapScale | null>(null);
   // Which Place card currently shows the "not Live" notice (pressed state of
   // the permanent LIVE indicator). Live state itself is never invented — the
   // canonical liveByPlaceId feed is the only source.
@@ -240,13 +228,6 @@ export default function HomeDiscovery({
     setMapViewport(viewport);
   }, []);
 
-  // REAL map scale (bug fix, 2026-10-03): the map measures its own viewport
-  // and reports the round distance its bar stands for, so the corner chip can
-  // never print a camera radius as if it were the map's scale. `null` (nothing
-  // measurable yet) simply draws no scale.
-  const handleScaleChange = useCallback((scale: MapScale | null) => {
-    setMapScale(scale);
-  }, []);
   const router = useRouter();
 
   // Stage 3: server-built Discovery view model (engine output) + the
@@ -553,23 +534,6 @@ export default function HomeDiscovery({
   );
 
   const visiblePlaces = useMemo(() => {
-    // "SEMUA TEMPAT" (2026-10-05) is the WHOLE eligible set, not the curated
-    // subset. It is read from the SAME approved data source as every other Home
-    // layer — the canonical published/eligible Places the server wrapper already
-    // passed in (`initialPlaces`, built by the canonical repository) — so it can
-    // never expose an unpublished, deleted, restricted, or otherwise ineligible
-    // Place: the client neither fetches nor filters eligibility, it only reads
-    // what the server considered publishable. The only narrowing applied here is
-    // the ONE search query every layer shares, which is what scopes a search to
-    // the active tab.
-    //
-    // It is deliberately independent of `curatedIdSet`: a curated Place is never
-    // treated differently in this tab, and a non-curated Place is never excluded.
-    // Fail-closed: with no eligible Place the tab renders the existing empty
-    // state rather than borrowing the curated selection.
-    if (allPlacesOnly) {
-      return searchFiltered;
-    }
     // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26), backed
     // by the canonical is_curated flag (PO Stage 3, migration 0035): published
     // + curated only. The flag arrives through the server view model — the
@@ -587,7 +551,7 @@ export default function HomeDiscovery({
     let result = searchFiltered;
     if (liveOnly) result = result.filter((place) => liveByPlaceId.has(place.id));
     return result;
-  }, [searchFiltered, liveOnly, curatedOnly, allPlacesOnly, curatedIdSet, liveByPlaceId]);
+  }, [searchFiltered, liveOnly, curatedOnly, curatedIdSet, liveByPlaceId]);
 
   // LOCATION SEARCH VIEWPORT (PO 2026-10-02): when the server geocoder
   // answered, that canonical coordinate pair becomes the coverage source
@@ -796,42 +760,14 @@ export default function HomeDiscovery({
     return toHomeMapPlaces(coverage.places).map((place) => ({ ...place, isCurated: true }));
   }, [places, curatedIdSet, searchCenter, viewerPosition, searchViewport]);
 
-  // "SEMUA TEMPAT" CAMERA DATASET — the eligible Places IN THE ACTIVE CONTEXT
-  // (2026-10-05). This tab must make every eligible name reachable, so the
-  // camera frames the eligible Places of where the viewer actually is, using
-  // the SAME contextual rule as the curated tab
-  // (`resolveContextualPlaceCoverage`, which `resolveContextualCuratedCoverage`
-  // itself delegates to):
-  //  · a city search is active -> the eligible Places inside that searched
-  //    region's own coverage box (the SAME box the rows already use before
-  //    Leaflet reports its real bounds), so a new answer genuinely re-frames
-  //    the camera;
-  //  · otherwise the eligible Places of the viewer's LOCAL AREA, anchored on
-  //    the searched city first and the real fix second;
-  //  · with no usable origin the pool is EMPTY and the camera keeps its frame.
-  //
-  // WHY NOT THE WHOLE WORLD: fitting every eligible Place at once spans West Java
-  // and the Kingdom of Saudi Arabia on the canonical dataset — the exact world
-  // frame that made the curated tab useless (see `curatedFitPlaces` above), and
-  // it would push every name so far apart that none of them could be read. The
-  // MEMBERSHIP is still the whole eligible set: this value only decides what the
-  // camera frames, exactly like every other camera dataset here, and it never
-  // filters a row, a marker, a count, or Discovery.
-  const allPlacesFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    const coverage = resolveContextualPlaceCoverage({
-      places: toCameraCandidates(visiblePlaces),
-      origin: searchCenter ?? viewerPosition,
-      searchViewport,
-    });
-    return toHomeMapPlaces(coverage.places);
-  }, [visiblePlaces, searchCenter, viewerPosition, searchViewport]);
-
-  // The two place-set tabs share ONE camera shape (they both frame the Places of
-  // the active context, so neither names a radius) and differ ONLY in which
-  // Places they frame. Keeping that distinction in one value is what stops the
-  // curated frame and the all-Places frame from drifting apart.
-  const contextFramedTab = curatedOnly || allPlacesOnly;
-  const contextFitPlaces = curatedOnly ? curatedFitPlaces : allPlacesFitPlaces;
+  // "Tempat Pilihan" is the ONE context-framed tab (2026-10-04): the second
+  // all-Places camera dataset that shared this shape was removed together with
+  // the "Semua Tempat" tab it existed for, so the contextual frame the curated
+  // tab has always used (`resolveContextualCuratedCoverage`, which still
+  // delegates to `resolveContextualPlaceCoverage`) is the only one left. A
+  // distance preset still frames its radius; nothing else changed.
+  const contextFramedTab = curatedOnly;
+  const contextFitPlaces = curatedFitPlaces;
 
   // CAMERA BOUNDS DATASET — the ONE pool every Home camera path reads
   // (`fitPlaces` / `searchFitPlaces` / `locateFitPlaces`, all handed to
@@ -1293,17 +1229,8 @@ export default function HomeDiscovery({
                EXISTING Current Location pin — no new marker, no map
                animation. */
             pulsePinOnPresetChange={curatedOnly}
-            /* "SEMUA TEMPAT" LABEL RULE (2026-10-05): in this tab EVERY
-               rendered pin keeps its name chip painted — the deterministic
-               on-demand budget above is a density declutter for the curated
-               frame only, and applying it here would hide exactly the names
-               this tab exists to show. Nothing else about the markers changes:
-               same pins, same click/keyboard targets, same tooltips, same
-               z-order ladder. */
-            labelEveryPlaceName={allPlacesOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
             onViewportChange={handleViewportChange}
-            onScaleChange={handleScaleChange}
             /* EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): the three
                hand-driven camera actions bump this nonce, which releases the
                map's interaction latch so the frame THEY produce stays. Nothing
@@ -1331,18 +1258,27 @@ export default function HomeDiscovery({
             (search bar, filter row) opt back in. Nothing about the map
             surface, its markers, or the layout changes. */}
         <div className="relative z-[1100] pointer-events-none mx-auto w-full max-w-6xl px-4">
-          {/* Search — MOCKUP §2: floating white bar, search icon LEFT and the
-              right control. The right side is CONDITIONAL (2026-10-04): while
-              the box is non-empty it is a real clear button (×, aria-labelled);
-              while the box is empty it is the decorative sliders/control icon
-              (aria-hidden, non-interactive) — no search-settings feature exists,
-              and none is invented. Typing never searches: the ONE search runs on
-              Enter/submit only (submit-only, 2026-10-04). */}
+          {/* Search — MOCKUP §2: floating white bar, search icon LEFT, and
+              NOTHING on the right end (approved mockup, 2026-10-04). The
+              decorative sliders/settings graphic that used to sit there is
+              REMOVED and is not replaced by any other icon, button, or
+              control: no search-settings feature exists and none is invented.
+
+              THE ONE CONDITIONAL CONTROL (unchanged): while the box is
+              non-empty a real clear "×" button appears. It is a FIXED 18×18px
+              box — exactly the footprint the removed graphic occupied — so the
+              bar's width, height, padding, radius, and position are identical
+              empty and filled, and typing or clearing never resizes or shifts
+              it or any control around it. `min-w-0` on the input is what keeps a
+              long query from forcing horizontal overflow on a narrow phone.
+
+              Typing never searches: the ONE search still runs on Enter/submit
+              only (submit-only, 2026-10-04). */}
           <div className="pointer-events-auto mt-[60px] sm:mt-[64px]">
             <div className="flex items-center gap-2.5 rounded-[20px] border border-black/10 bg-white px-3.5 py-2.5 shadow-[0_2px_10px_rgb(0_0_0/0.10)]">
               <span className="shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</span>
               <input
-                className="w-full bg-transparent text-sm outline-none placeholder:text-black/40"
+                className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-black/40"
                 placeholder="Cari tempat, cerita, produksi..."
                 value={searchQuery}
                 onChange={(event) => handleSearchChange(event.target.value)}
@@ -1353,21 +1289,12 @@ export default function HomeDiscovery({
                 <button
                   type="button"
                   onClick={handleSearchClear}
-                  className="shrink-0 rounded-full bg-black/5 p-1 text-black/45 transition hover:bg-black/10"
+                  className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-black/5 text-[15px] leading-none text-black/45 transition hover:bg-black/10"
                   aria-label="Hapus pencarian"
                 >
                   <span aria-hidden>×</span>
                 </button>
-              ) : (
-                <span aria-hidden className="shrink-0 leading-none text-black/45">
-                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0" />
-                    <circle cx="16" cy="7" r="2.2" />
-                    <circle cx="10" cy="12" r="2.2" />
-                    <circle cx="18" cy="17" r="2.2" />
-                  </svg>
-                </span>
-              )}
+              ) : null}
             </div>
             {/* LOCATION SEARCH status (PO 2026-10-02; coordinate readout
                 REMOVED 2026-10-04): ONE source of truth for the geocoder
@@ -1452,7 +1379,14 @@ export default function HomeDiscovery({
               MOCKUP §3 selected state: the active control is BRAND GREEN
               (bg-brand-primary), the distance tabs keep their white surface,
               and LIVE keeps its red dot. Selection logic, handlers, and
-              semantics are completely unchanged — only the colors moved. */}
+              semantics are completely unchanged — only the colors moved.
+
+              THE ROW IS NOW COMPLETE AND FINAL (approved mockup, 2026-10-04):
+              the extra "Semua Tempat" row that used to sit below it is gone, and
+              no control replaces it. This row therefore still holds exactly
+              five controls in the same order, on the same `grid-cols-` split,
+              with the same 11px type, ~16px radii, brand-green selected state,
+              and no-scroller guarantee at 360px. */}
           <div className="pointer-events-auto mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5">
             <button
               onClick={() => {
@@ -1462,10 +1396,6 @@ export default function HomeDiscovery({
                 const next = toggleLiveFilter(liveOnly, curatedOnly);
                 setLiveOnly(next.liveOnly);
                 setCuratedOnly(next.curatedOnly);
-                // LIVE owns the map on its own, so it also leaves the
-                // "Semua Tempat" layer (2026-10-05) — the same exclusivity rule
-                // it has always had for the curated layer.
-                setAllPlacesOnly(false);
               }}
               aria-pressed={liveOnly}
               className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-sm transition sm:px-3.5 sm:text-xs ${
@@ -1484,10 +1414,6 @@ export default function HomeDiscovery({
                 const next = activateCuratedFilter();
                 setCuratedOnly(next.curatedOnly);
                 setLiveOnly(next.liveOnly);
-                // Entering the curated layer leaves the all-Places layer, so
-                // the two datasets can never be active at the same time
-                // (2026-10-05). Nothing else about this tab changes.
-                setAllPlacesOnly(false);
                 // Choosing the tab is the EXPLICIT refocus action the camera
                 // is allowed to act on (product decision, 2026-10-03): it fits
                 // the frame to the spread of the relevant Places. No other
@@ -1511,18 +1437,18 @@ export default function HomeDiscovery({
                 key={filter}
                 onClick={() => {
                   setDistanceFilter(filter);
-                  const next = leavePlaceSetTabs();
-                  setCuratedOnly(next.curatedOnly);
-                  setAllPlacesOnly(next.allPlacesOnly);
+                  // A radius preset owns the map on its own, so it leaves the
+                  // curated place-set tab — the rule it has always had.
+                  setCuratedOnly(false);
                   // A distance tab really does frame this radius, so the
                   // caption may name it again — and the tab is an explicit
                   // camera request, which releases the latch.
                   setCameraCoverage("radius");
                   setCameraRequestNonce((nonce) => nonce + 1);
                 }}
-                aria-pressed={distanceFilter === filter && !curatedOnly && !allPlacesOnly}
+                aria-pressed={distanceFilter === filter && !curatedOnly}
                 className={`whitespace-nowrap rounded-[16px] px-1 py-1.5 text-center text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
-                  distanceFilter === filter && !curatedOnly && !allPlacesOnly
+                  distanceFilter === filter && !curatedOnly
                     ? "bg-brand-primary text-white"
                     : "border border-black/10 bg-white text-black/65"
                 }`}
@@ -1530,55 +1456,6 @@ export default function HomeDiscovery({
                 {filter}
               </button>
             ))}
-          </div>
-
-          {/* "SEMUA TEMPAT" — THE ADDITIONAL TAB (product decision, 2026-10-05).
-
-              It is a NEW tab, not a redesign of the locked row above: that row
-              keeps its exact five controls, its `grid-cols-[auto_auto_1fr_1fr_1fr]`
-              split, its 11px type, its ~16px radii, its brand-green selected
-              state, and its no-scroller guarantee at 360px. A sixth control
-              could not join it without either wrapping, scrolling, or
-              shrinking the five that are already exactly at the limit there.
-
-              So the new tab gets its own row, in the same visual language
-              (white surface, ~16px radius, brand green when selected, same
-              type scale and shadow) and in the same floating chrome block, so it
-              reads as part of the same control family rather than as a new
-              surface. It carries the exact same handler contract as the curated
-              tab — an EXPLICIT camera request that fits the frame once — and the
-              ONE difference in behaviour is its dataset: every eligible Place
-              instead of the curated subset. Nothing about "Tempat Pilihan"
-              changes when this tab is pressed, and nothing about this tab
-              changes when the curated tab is pressed. */}
-          <div className="pointer-events-auto mt-2 flex justify-start">
-            <button
-              data-home-tab="all-places"
-              onClick={() => {
-                // Mutually exclusive with LIVE and the curated layer
-                // (`activateAllPlacesFilter`), so this tab can only ever produce
-                // ONE state whatever was active before.
-                const next = activateAllPlacesFilter();
-                setCuratedOnly(next.curatedOnly);
-                setLiveOnly(next.liveOnly);
-                setAllPlacesOnly(next.allPlacesOnly);
-                // Same explicit-refocus contract as "Tempat Pilihan": the
-                // camera fits the eligible Places of the active context once,
-                // and no marker refresh, viewport report, or poll can take that
-                // frame back afterwards.
-                setFitNonce((nonce) => nonce + 1);
-                setCameraCoverage("area");
-                setCameraRequestNonce((nonce) => nonce + 1);
-              }}
-              aria-pressed={allPlacesOnly}
-              className={`whitespace-nowrap rounded-[16px] px-2.5 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
-                allPlacesOnly
-                  ? "bg-brand-primary text-white"
-                  : "border border-brand-ink/20 bg-white text-brand-ink/70"
-              }`}
-            >
-              {ALL_PLACES_FILTER_LABEL}
-            </button>
           </div>
 
           {/* MAP AREA (MOCKUP §4/§8) — the visible map window under the floating
@@ -1591,20 +1468,18 @@ export default function HomeDiscovery({
               MOBILE MAP BUDGET (fix, 2026-10-03): the band is
               now sized from the floating control ladder, which is a FIXED
               amount of the stage's height and was simply being clipped:
-                · Re-center arrow        top 190px → ends 234px
+                · compass                top 190px → ends 234px
                 · "Lokasi Saya" control  top 240px → ends ~281px
                 · Leaflet +/- stack      top 290px → ends ~354px
-                · scale chip             bottom 36px → start ~366px
               At the previous min-height of 240px the section ended ABOVE the
               bottom of the zoom control, so on an ordinary phone the +/- stack
               was cut off by the section's own `overflow-hidden` — essential map
               context removed by the layout itself, and the map/results
               relationship made unclear. The floor is now 440px, which fits the
-              entire ladder plus the scale chip at every supported height
-              (360 / 390 / 430 / 1280), and 42vh / 46vh keeps the map the
-              dominant field on taller screens. Nothing was cut, hidden, or
-              redesigned: same sections, same chrome, same cards — the map
-              simply gets the height its own controls need.
+              entire ladder at every supported height (360 / 390 / 430 / 1280),
+              and 42vh / 46vh keeps the map the dominant field on taller
+              screens. (The bottom-right scale chip left this ladder with the
+              indicator on 2026-10-04; no offset here changed.)
 
               MAP WINDOW RE-SIZED (product decision, 2026-10-04): the band is
               now `56vh` (`62vh` from `sm:`), floor 460px, ceiling 680px — up
@@ -1676,26 +1551,13 @@ export default function HomeDiscovery({
             chrome describing the visible map, not Home result context, and it
             stays bottom-right where it never overlapped anything. */}
 
-        {/* MOCKUP §9: scale, bottom-right of the map — a REAL scale bar (bug
-            fix, 2026-10-03). It used to print the active camera RADIUS as if
-            it were the map's scale, so a fixed "10 km" sat above a bar of an
-            unrelated length. The map now measures its own viewport and reports
-            the round distance the bar really stands for, drawn at its exact
-            pixel length. Nothing measurable yet (unmeasured container) draws no
-            scale rather than a made-up number. It sits above the OSM
-            attribution so the two never collide. */}
-        {mapScale && (
-          <div className="pointer-events-none absolute bottom-9 right-4 z-[1100] flex flex-col items-end gap-1">
-            <span className="rounded bg-white/80 px-1 text-[11px] font-bold leading-4 text-brand-ink">
-              {mapScale.label}
-            </span>
-            <span
-              aria-hidden
-              className="block h-0.5 border-x-2 border-b-2 border-brand-ink/70"
-              style={{ width: mapScale.barPx }}
-            />
-          </div>
-        )}
+        {/* MAP DISTANCE SCALE: REMOVED (approved mockup, 2026-10-04). The measured
+            scale bar — its distance text and its rule — is gone together with
+            the space it reserved: nothing is rendered in its place and no other
+            distance indicator, measurement label, or decorative graphic replaces
+            it. The Leaflet +/- zoom control, the OSM attribution, and every
+            camera, coverage, and radius rule are untouched: the scale was
+            display-only chrome that no geographic rule ever read. */}
 
         {/* RESULTS INFO — FLOATING OVER THE MAP (product decision,
             2026-10-04).
@@ -1712,12 +1574,17 @@ export default function HomeDiscovery({
             height and the panel no longer claims a second, separate band.
 
             THE GEOMETRY, AND WHY IT COLLIDES WITH NOTHING:
-            · `bottom-3` — below the map's own bottom overlays: the scale bar
-              (bottom-9, right) and the empty-state card (bottom-24), so both
-              stay fully readable above it.
-            · `pr-[5.5rem]` — the card stops short of the right edge so the
-              REAL scale bar, which is genuinely useful map chrome, is never
-              covered by it.
+            · `bottom-3` — below the map's own bottom overlay, the empty-state
+              card (bottom-32), so that card stays fully readable above it.
+            · `max-w-6xl px-4`, `mx-auto` — THE SAME horizontal geometry as the
+              floating search bar, which lives in a `mx-auto w-full max-w-6xl
+              px-4` column directly above it. The panel's old reserved
+              right-hand strip for the scale bar is GONE, so the card's
+              left and right edges now line up exactly with the search field's at
+              every supported width (360 / 390 / 430 / 1280): it can be neither
+              narrower nor wider than the bar above it. The right-hand control
+              column sits far above this panel, so widening it never covers a
+              map control or a Place marker.
             · `z-[1100]` — the documented overlay ladder, above Leaflet's
               ceiling (1000), same as every other floating Home element. It is
               deliberately NOT on the header's higher tier and NOT a
@@ -1730,7 +1597,7 @@ export default function HomeDiscovery({
               opaque bar that would read as "the map stops here".
             · `pointer-events-none` on the wrapper, re-enabled on the card, so
               the sliver of map beside the card still pans and zooms. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-[1100] mx-auto w-full max-w-6xl px-4 pr-[5.5rem]">
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-[1100] mx-auto w-full max-w-6xl px-4">
           <div className="pointer-events-auto rounded-2xl bg-white/95 px-3 py-2 shadow-[0_6px_20px_rgb(0_0_0/0.14)] ring-1 ring-black/5 backdrop-blur-sm">
             {/* Panel handle — small centered bar, mockup §10 (visual only). */}
             <span aria-hidden className="mx-auto mb-1 block h-1.5 w-12 rounded-full bg-black/15" />

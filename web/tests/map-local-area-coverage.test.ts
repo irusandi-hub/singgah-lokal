@@ -6,7 +6,6 @@ import {
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
   LOCAL_AREA_SEPARATION_RATIO,
-  MAP_SCALE_MAX_BAR_PX,
   NO_ORIGIN_AREA_LABEL,
   boundsOfPoints,
   collectGeoPoints,
@@ -17,7 +16,6 @@ import {
   resolveActiveCenter,
   resolveCameraFitPadding,
   resolveLocalAreaCoverage,
-  resolveMapScale,
   type MapViewport,
 } from "../lib/live/ui";
 
@@ -341,11 +339,12 @@ test("AC 5: the frame an explicit request produced stays; nothing re-arms it", (
 // ---------------------------------------------------------------------------
 
 test("AC 6: only the hand-driven camera actions bump the request nonce", () => {
-  // Four since 2026-10-05: the three original hand-driven actions plus the
-  // additional "Semua Tempat" tab, which is a hand-driven refocus of exactly the
-  // same kind. The invariant this test exists for is unchanged: NOTHING
-  // automatic (marker feed, viewport report, poll, geolocation fix) may bump it.
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 4);
+  // THREE, back to the pre-2026-10-05 rule: "Tempat Pilihan", the distance
+  // tabs, and "Lokasi Saya". The additional "Semua Tempat" tab that briefly made
+  // it four was REMOVED on 2026-10-04, so the count returns to three — the
+  // invariant this test exists for is unchanged: NOTHING automatic (marker
+  // feed, viewport report, poll, geolocation fix) may bump it.
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
   const tabHandler = pageCode.slice(
     pageCode.indexOf("setDistanceFilter(filter);"),
     pageCode.indexOf("setDistanceFilter(filter);") + 400,
@@ -364,9 +363,10 @@ test("AC 6: only the hand-driven camera actions bump the request nonce", () => {
   // A real user gesture still latches the camera the same way.
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
   // Nothing automatic carries a request: no marker feed, viewport report, or
-  // discovery poll may re-frame the map. Only the two place-set tabs refocus
-  // ("Tempat Pilihan", plus "Semua Tempat" from 2026-10-05).
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
+  // discovery poll may re-frame the map. Only "Tempat Pilihan" refocuses with a
+  // fit nonce (the "Semua Tempat" tab that briefly shared it was removed on
+  // 2026-10-04).
+  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -521,9 +521,9 @@ test("AC 3: the frame is applied once and then left alone", () => {
   // Manual pan/zoom survives until an explicit request releases the latch.
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
-  // And only the hand-driven actions can produce that request (four since
-  // 2026-10-05: the three original ones plus the "Semua Tempat" tab).
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 4);
+  // And only the hand-driven actions can produce that request (three: the three
+  // original ones — the "Semua Tempat" tab was removed on 2026-10-04).
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
 });
 
 test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the whole layer", () => {
@@ -541,10 +541,10 @@ test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the 
   // it is resolved outside every result row, and it can never make a Place
   // curated, eligible, ranked, or counted.
   assert.match(fitPool, /curatedIdSet\.has\(place\.id\)/);
-  // Since 2026-10-05 the two place-set TABS share one context-framed camera
-  // value: the curated tab hands it `curatedFitPlaces`, the additional
-  // "Semua Tempat" tab hands it `allPlacesFitPlaces` (the whole eligible set).
-  assert.match(pageCode, /const contextFitPlaces = curatedOnly \? curatedFitPlaces : allPlacesFitPlaces;/);
+  // "Tempat Pilihan" is the ONE context-framed tab again: the second dataset
+  // that shared this value existed only for the "Semua Tempat" tab and was
+  // removed with it on 2026-10-04.
+  assert.match(pageCode, /const contextFitPlaces = curatedFitPlaces;/);
   assert.match(pageCode, /if \(contextFramedTab\) return contextFitPlaces;/);
   assert.match(
     pageCode,
@@ -648,57 +648,37 @@ test("AC 9: the caption names a radius only while a radius preset owns the frame
   assert.match(tabHandler, /setCameraCoverage\("radius"\)/);
 });
 
-test("AC 9: the scale bar is measured from the real viewport, never from a radius", () => {
-  // The chip is gone as a radius readout: the label is the measured scale and
-  // the bar is drawn at that distance's exact pixel length.
-  assert.doesNotMatch(pageCode, /\{activeRadiusLabel\}/);
-  assert.match(pageCode, /\{mapScale\.label\}/);
-  assert.match(pageCode, /style=\{\{ width: mapScale\.barPx \}\}/);
-  // Measured from THIS map's own bounds and width, reported on the same events
-  // as the viewport, and deduped so a settled viewport never re-renders.
-  assert.match(mapCode, /const scale = resolveMapScale\(\{ bounds: viewport, widthPx: map\.getSize\(\)\.x \}\);/);
-  assert.match(mapCode, /onScaleChangeRef\.current\?\.\(scale\);/);
-  assert.match(mapCode, /if \(scaleKey !== lastScaleRef\.current\)/);
-  assert.match(pageCode, /onScaleChange=\{handleScaleChange\}/);
+test("AC 9: the map distance scale is gone, and nothing replaced it", () => {
+  // The approved Home/Map mockup shows no distance scale. The indicator AND
+  // the space it reserved are removed: no distance text, no scale line, no
+  // measurement label, and no substitute graphic in its place.
+  assert.doesNotMatch(pageCode, /mapScale/);
+  assert.doesNotMatch(pageCode, /onScaleChange/);
+  // The measurement that fed it is gone from the map too, so the viewport
+  // report cannot carry a dead scale value any more.
+  assert.doesNotMatch(mapCode, /resolveMapScale|MapScale|lastScaleRef|onScaleChangeRef/);
+  // Nothing was left behind in the reserved strip at the bottom right.
+  assert.doesNotMatch(pageCode, /pr-\[5\.5rem\]/);
+  // And no other distance readout was invented anywhere on the map.
+  assert.doesNotMatch(pageCode, /barPx|metersPerPixel/);
 });
 
-test("AC 9: the scale resolver is a real, fail-closed measurement", () => {
-  const viewport: MapViewport = { north: 24.75, south: 24.68, east: 46.73, west: 46.63 };
-  const scale = resolveMapScale({ bounds: viewport, widthPx: 360 });
-  assert.ok(scale);
-  // ~10 km across a 360 px map, so the bar must state a round distance that
-  // really fits the viewport at that ground resolution.
-  assert.ok(scale.metersPerPixel > 20 && scale.metersPerPixel < 40);
-  assert.equal(scale.label, "1 km");
-  assert.ok(scale.barPx <= MAP_SCALE_MAX_BAR_PX);
-  assert.ok(Math.abs(scale.barPx - Math.round(scale.meters / scale.metersPerPixel)) <= 1);
-  // Zooming IN must shorten the resolution and lengthen the bar for the same
-  // label — a radius readout could not do that.
-  const zoomedIn = resolveMapScale({ bounds: { ...viewport, north: 24.72, south: 24.71, east: 46.69, west: 46.68 }, widthPx: 360 });
-  assert.ok(zoomedIn);
-  assert.ok(zoomedIn.metersPerPixel < scale.metersPerPixel);
-  // Fail-closed: an unmeasured container or a degenerate box yields NO scale,
-  // and the caller then draws none at all.
-  assert.equal(resolveMapScale({ bounds: viewport, widthPx: 0 }), null);
-  assert.equal(resolveMapScale({ bounds: viewport, widthPx: Number.NaN }), null);
-  assert.equal(resolveMapScale({ bounds: { north: 1, south: 1, east: 1, west: 1 }, widthPx: 360 }), null);
-  assert.equal(
-    resolveMapScale({ bounds: { north: Number.NaN, south: 0, east: 1, west: 0 }, widthPx: 360 }),
-    null,
-  );
-  // Every bar stays inside the budget, at every realistic viewport width.
-  for (const widthPx of [320, 360, 390, 430, 1280]) {
-    for (const span of [0.001, 0.05, 1, 20, 180, 360]) {
-      const drawn = resolveMapScale({
-        bounds: { north: 0 + span / 2, south: 0 - span / 2, east: span, west: 0 },
-        widthPx,
-      });
-      if (!drawn) continue;
-      assert.ok(drawn.barPx <= MAP_SCALE_MAX_BAR_PX, `bar ${drawn.barPx}px overflows the budget`);
-      assert.ok(drawn.barPx >= 1);
-      assert.match(drawn.label, /^(\d+ m|\d+ km)$/);
-    }
-  }
+test("AC 9: zoom controls, attribution, and map interaction are untouched", () => {
+  // The scale was display-only chrome. Everything that actually lets the user
+  // read or move the map must still be there, unchanged.
+  assert.match(mapCode, /L\.control\.zoom\(\{/);
+  assert.match(mapCode, /position: "topright"/);
+  assert.match(mapCode, /L\.tileLayer\(OSM_TILE_URL, \{[\s\S]*?attribution: OSM_ATTRIBUTION,[\s\S]*?\}\)\.addTo\(map\);/);
+  assert.match(mapCode, /OpenStreetMap<\/a> contributors/);
+  assert.match(mapCode, /attribution: OSM_ATTRIBUTION/);
+  // Camera framing is untouched: the fit rules, their radii, and their padding.
+  assert.match(pageCode, /const cameraFitPlaces = useMemo/);
+  assert.equal(CURATED_CAMERA_RADIUS_M, 10_000);
+  assert.equal(CAMERA_PRESET_RADIUS_M["10 km+"], 10_000);
+  assert.equal(CAMERA_PRESET_RADIUS_M["1 km"], 1_000);
+  // The viewport report is still the one coverage source for the Home rows.
+  assert.match(mapCode, /const viewport: MapViewport = \{/);
+  assert.match(pageCode, /const \[mapViewport, setMapViewport\] = useState<MapViewport \| null>\(null\);/);
 });
 
 // ---------------------------------------------------------------------------
@@ -840,9 +820,10 @@ test("10.4 a radius preset is centred on the ACTIVE center and applied once", ()
 });
 
 test("10.5 only an EXPLICIT request may move the camera", () => {
-  // Four hand-driven actions since 2026-10-05 (the three original ones plus the
-  // additional "Semua Tempat" tab), and nothing else, bump the request nonce.
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 4);
+  // Three hand-driven actions — "Tempat Pilihan", the distance tabs, and
+  // "Lokasi Saya" — and nothing else, bump the request nonce. The additional
+  // "Semua Tempat" tab was removed on 2026-10-04 and takes its bump with it.
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
   // The guard is UNCONDITIONAL: a frame the user (or an applied preset) owns is
   // never re-derived. The old radius comparison let a silent mode switch — the
   // LIVE toggle leaving "Tempat Pilihan", which changes the radius value with

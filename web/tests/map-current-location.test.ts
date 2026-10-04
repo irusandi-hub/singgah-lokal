@@ -790,18 +790,33 @@ test("Current Location marker is visually distinct from every Place pin", () => 
   assert.match(mapCode, /radius: accuracy/);
 });
 
-test("MOCKUP 2026-10-01 §5: right-side control stack — Re-center + Lokasi Saya reuse the ONE locate flow", () => {
+test("MOCKUP 2026-10-01 §5 (revised 2026-10-04): right-side control stack — COMPASS + Lokasi Saya", () => {
   const mapCode = stripComments(homeMap);
-  // The labeled "Lokasi Saya" control and the Re-center arrow are BOTH
-  // entries into the SAME existing onRequestLocate handler — no second
-  // geolocation system, no new camera logic, no filter mutation.
+  // The labeled "Lokasi Saya" control is now the ONLY entry into the locate
+  // flow: the Re-center navigation arrow was replaced by a non-interactive
+  // compass. Geolocation is therefore untouched — no second system, no new
+  // camera logic, no filter mutation — and there is exactly ONE locate button.
   const locateButtons = mapCode.match(/onClick=\{onRequestLocate\}/g) ?? [];
-  assert.equal(locateButtons.length, 2, "Re-center arrow + labeled Lokasi Saya, one shared handler");
-  assert.match(mapCode, /Pusatkan peta ke lokasi saya/);
+  assert.equal(locateButtons.length, 1, "the labeled Lokasi Saya control, one handler, one entry point");
+  assert.doesNotMatch(mapCode, /Pusatkan peta ke lokasi saya/);
   assert.match(mapCode, /Lokasi Saya\n/);
+  assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
+  // The COMPASS: same box (offset, 44px size, white surface, radius, ring,
+  // shadow) as the arrow it replaces, and an accurate north indicator — the
+  // red needle points at true north. It is deliberately NOT a button: this
+  // Leaflet build cannot rotate the map, so there is no rotation to restore and
+  // an invented click handler would advertise a capability that does not exist.
+  assert.match(
+    mapCode,
+    /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"\s*\n\s*className="absolute right-3 top-\[190px\] z-\[1100\] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black\/10"/,
+  );
+  assert.match(mapCode, /<path d="M12 4\.2 15\.1 13\.2H8\.9L12 4\.2Z" fill="#dc2626" \/>/);
+  assert.match(mapCode, /<circle cx="12" cy="12" r="9" stroke="currentColor"/);
+  // No location arrow or any other decorative glyph takes its place.
+  assert.doesNotMatch(mapCode, /➤/);
   // The blue dot on the labeled control is decorative.
   assert.match(mapCode, /bg-\[#2563eb\] ring-2 ring-white/);
-  // Both controls stay ABOVE the Leaflet control ceiling (z-[1100]).
+  // Both overlays stay ABOVE the Leaflet control ceiling (z-[1100]).
   assert.match(mapCode, /z-\[1100\]/);
   // The Leaflet +/- stack keeps its locked topright position.
   assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/);
