@@ -26,6 +26,7 @@ import {
   liveDurationLabel,
   narrowToViewport,
   resolveActiveCenter,
+  resolveContextualCuratedCoverage,
   resolveLocalAreaCoverage,
   resolveResultsAnchorId,
   stopNestedCardAction,
@@ -665,32 +666,6 @@ export default function HomeDiscovery({
     return narrowToViewport(curatedCoverageSource, coverageViewport);
   }, [curatedOnly, curatedCoverageSource, coverageViewport]);
 
-  // ALL-CURATED CAMERA DATASET (product decision, 2026-10-04): the "Tempat
-  // Pilihan" focus frames EVERY curated Place at once, at a comfortable
-  // density — whatever started it (the tab itself, "Lokasi Saya", or a
-  // search). It reads canonical curated membership (`places.is_curated`) over
-  // the FULL published set, so a search that narrowed the ROWS can never also
-  // hide a curated Place from the CAMERA. Coordinates only (no invented
-  // position); camera geometry only — membership, rows, counts, and Discovery
-  // are unchanged.
-  const curatedFitPlaces = useMemo<HomeMapPlace[]>(
-    () =>
-      places.flatMap((place) =>
-        curatedIdSet.has(place.id) && place.latitude !== null && place.longitude !== null
-          ? [
-              {
-                id: place.id,
-                name: place.name,
-                latitude: place.latitude,
-                longitude: place.longitude,
-                isCurated: true,
-              },
-            ]
-          : [],
-      ),
-    [places, curatedIdSet],
-  );
-
   // CAMERA BOUNDS DATASET — LOCAL-AREA AUTO-FIT (product decision,
   // 2026-10-03; corrected twice the same day).
   //
@@ -744,41 +719,76 @@ export default function HomeDiscovery({
   // viewport, never a fallback to the whole dataset.
   const selectedFitPlaces = useMemo(() => toHomeMapPlaces(selectedLocalArea.places), [selectedLocalArea]);
 
-  // CURATED CAMERA POOL — SELECTED PLACES + NEARBY CONTEXT (bug fix,
-  // 2026-10-03).
+  // CURATED CAMERA DATASET — THE SELECTION IN THE ACTIVE CONTEXT (2026-10-05;
+  // supersedes the 2026-10-04 "frame ALL curated Places" decision).
   //
-  // ROOT CAUSE of the over-tight frame: since §18 the curated camera pool was
-  // `visiblePlaces` alone, which in that mode is the curated set — so the fit
-  // framed exactly the pins that were already on screen and nothing around
-  // them. One curated Place produced a single-point frame at
-  // FIT_SINGLE_PLACE_ZOOM with no neighbourhood at all, which reads as a broken
-  // zoom rather than as "here is your selection".
+  // ROOT CAUSE: the curated focus framed EVERY curated Place in the whole
+  // published set at once. On the canonical dataset that set spans West Java
+  // and the Kingdom of Saudi Arabia — roughly 13 000 km — so a single
+  // `fitBounds` produced a WORLD frame in which the viewer's own neighbourhood
+  // was a couple of pixels wide. `CURATED_FIT_MAX_ZOOM` (13) could not rescue
+  // it: that ceiling can only WIDEN a frame that is too tight, never one that
+  // is already too wide. The curated tab was therefore useless exactly where
+  // it matters, and the marker layer then re-rendered every Place on two
+  // continents because the viewport had become the world.
   //
-  // The fix keeps every approved rule and only adds CONTEXT:
-  //   · the SELECTED local area stays the primary focus and is never dropped;
-  //   · the context is the ordinary, coordinate-valid Places of the SAME local
-  //     area — resolved by re-running `resolveLocalAreaCoverage` ANCHORED ON
-  //     THE SELECTED ANCHOR PLACE'S OWN COORDINATE, so the canonical ISO
-  //     country/subdivision rule (or the scale-free proximity rule) decides it
-  //     exactly as it does everywhere else;
-  //   · anchoring on the selected anchor — never on the device fix — is what
-  //     keeps the frame LOCAL: the context is drawn from the selection's own
-  //     subdivision, so a distant Place (or a user standing on another
-  //     continent) can never expand it to a regional or worldwide frame. It is
-  //     also why "Tempat Pilihan" is no longer framed by the device alone;
-  //   · context is CAMERA geometry only. It never enters the curated list, the
-  //     curated count, curated membership, Discovery, or any row — those keep
-  //     reading the canonical `places.is_curated` ids alone;
-  //   · fail-closed: an empty local area, or a selected anchor without real
-  //     coordinates, frames the SELECTED set alone (or nothing at all), and no
-  //     coordinate is ever invented or defaulted.
+  // THE FIX is contextual framing, resolved with the helpers this module
+  // already owns (`resolveContextualCuratedCoverage`): the camera frames the
+  // curated Places of the user's CURRENT CONTEXT, never the layer worldwide.
+  //   · a city search is active -> the curated Places inside that searched
+  //     region's own coverage box (the same box the rows already use before
+  //     Leaflet reports its real bounds), so a context change after a search
+  //     genuinely re-frames the camera;
+  //   · otherwise the curated Places of the viewer's LOCAL AREA, anchored on
+  //     the searched city first and the real fix second — trusted canonical
+  //     geography, or the scale-free separation rule when the anchor carries
+  //     no subdivision;
+  //   · with no usable origin the pool is EMPTY and the camera keeps the frame
+  //     it has. There is no world fallback and no invented coordinate
+  //     (AGENTS.md: never fabricate; §19: no origin -> no invented camera
+  //     move), so "geolocation denied and nothing searched" can never frame
+  //     distant Places again.
   //
-  // It still reads NO viewport state, so camera and viewport filtering remain
-  // independent, and it is still keyed on `fitNonce` alone, so marker refreshes,
+  // It reads canonical curated membership (`places.is_curated`) over the FULL
+  // published set, so a search that narrowed the ROWS cannot also decide which
+  // curated Places the CAMERA may consider. Coordinates only, camera geometry
+  // only: curated membership, the curated LIST, both rows, every count, and
+  // Discovery are unchanged, and the zoom ceiling and the single easing helper
+  // in `home-map.tsx` are untouched.
+  const curatedFitPlaces = useMemo<HomeMapPlace[]>(() => {
+    const curatedCandidates = toCameraCandidates(
+      places.filter((place) => curatedIdSet.has(place.id)),
+    );
+    const coverage = resolveContextualCuratedCoverage({
+      curatedPlaces: curatedCandidates,
+      // The SAME two stable state values every other camera dataset reads, so
+      // a stale geolocation update can never displace an active search.
+      origin: searchCenter ?? viewerPosition,
+      searchViewport,
+    });
+    return toHomeMapPlaces(coverage.places).map((place) => ({ ...place, isCurated: true }));
+  }, [places, curatedIdSet, searchCenter, viewerPosition, searchViewport]);
+
+  // CAMERA BOUNDS DATASET — the ONE pool every Home camera path reads
+  // (`fitPlaces` / `searchFitPlaces` / `locateFitPlaces`, all handed to
+  // `HomeMap` under their own prop and their own explicit trigger).
+  //
+  // It is display geometry only. Membership still comes solely from the
+  // canonical curated ids, no Place is added to or removed from any row by
+  // this value, and it is never used as a filter. It reads NO viewport state,
+  // so camera and viewport filtering stay independent, and it is keyed on
+  // `fitNonce` / `locateNonce` / `searchNonce` alone, so marker refreshes,
   // polls, and viewport reports cannot re-frame it.
+  //
+  // "Tempat Pilihan" (2026-10-05) frames the curated selection in the active
+  // context — see `curatedFitPlaces` above. Every other mode keeps the local
+  // area of the currently visible Places it has always had: canonical
+  // coordinates only, never the viewport, never a fallback to the whole
+  // dataset, and empty (so the camera does not move at all) when there is no
+  // usable origin.
   const cameraFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    // "Tempat Pilihan" frames EVERY curated Place at once (product decision,
-    // 2026-10-04) — see `curatedFitPlaces` above. Every other mode keeps the
+    // "Tempat Pilihan" frames the curated selection IN THE ACTIVE CONTEXT
+    // (2026-10-05) — see `curatedFitPlaces` above. Every other mode keeps the
     // local-area dataset it always had.
     if (curatedOnly) return curatedFitPlaces;
     return toHomeMapPlaces(selectedLocalArea.places);
@@ -803,8 +813,9 @@ export default function HomeDiscovery({
   // holds no Place with canonical coordinates, and the camera then keeps the
   // geocoding center instead.
   const searchFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    // "Tempat Pilihan": a search frames the SAME all-curated set, whatever
-    // started it (product decision, 2026-10-04).
+    // "Tempat Pilihan": a search frames the curated selection IN THAT
+    // SEARCHED REGION (2026-10-05) — `curatedFitPlaces` is already
+    // context-resolved, so a new answer genuinely re-frames the camera.
     if (curatedOnly) return curatedFitPlaces;
     if (!searchViewport) return [];
     return narrowToViewport(visiblePlaces, searchViewport).flatMap((place) =>
