@@ -1204,3 +1204,99 @@ therefore covered EXECUTABLY (deterministic budget, bounded, non-destructive,
 no layout measurement) — no claim is made that the chips are visually
 collision-free, only that the layout logic is deterministic and that every name
 remains reachable.
+
+---
+
+## 24. "SEMUA TEMPAT" TAB + CURRENCY RULES FIX (branch `feat/semu-semua-tolerant-tab-currency-rules`, 2026-10-05)
+
+### 24.1 SAR failure — root cause and correction (no product change)
+
+The reported SAR failure was a **stale test expectation, not an application
+defect**: `tests/place-management.test.ts` asserted the STORED currency
+vocabulary was exactly `["IDR", "USD"]`, while migration 0039 (applied) widened
+the database CHECK with `SAR` and `lib/places.ts` `PLACE_CURRENCIES` follows it
+(MASTER DEVELOPER AUTHORITY & DUMMY PLACE v1.0 §7 — a Place must be able to carry
+an honest currency for its own geography; the initial market stays Indonesia).
+The failure reproduced identically on the unmodified `c5b3038` baseline.
+
+Two vocabularies were conflated in one rule. They are now explicit:
+
+| Rule | Value | Where it is enforced |
+| --- | --- | --- |
+| STORED Place currency | `IDR`, `USD`, `SAR` | `PLACE_CURRENCIES` → the shared write parser → `places_currency_check` (0033 + 0039) |
+| APPLICATION currency | `IDR`, `USD` | `APPLICATION_CURRENCIES` / `isApplicationCurrency` → `assertApplicationCurrency` on both Producer write routes |
+
+Corrections:
+- `lib/place-management.ts` no longer re-spells its own list — it imports
+  `PLACE_CURRENCIES`. ROOT CAUSE of a real defect this hid: the Admin currency
+  select offered `SAR` (it renders `PLACE_CURRENCIES`) while the shared parser
+  refused it, so a stored `SAR` Place could be loaded and shown but never saved
+  again. One list, one rule.
+- Producer create/update routes refuse a currency outside the application
+  vocabulary with the existing `place_currency_invalid` (400). The Producer form
+  already offered only IDR/USD; this closes the raw request path.
+- Currency labels moved to `PLACE_CURRENCY_LABELS` (fixed strings, shared by the
+  Admin editor and the Producer form). **No `Intl` formatting exists or was
+  added**: a Place's currency renders identically in every locale.
+
+### 24.2 The additional "Semua Tempat" tab
+
+A NEW content mode next to "Tempat Pilihan", never a replacement for it.
+
+- **Where it lives:** its own row directly under the locked five-control filter
+  bar. A sixth control could not join that row without wrapping, scrolling, or
+  shrinking controls that are already exactly at the 360px limit. The locked row
+  (`grid-cols-[auto_auto_1fr_1fr_1fr]`, five controls, order, ~16px radii, brand
+  green, no scroller) is byte-for-byte unchanged; the new chip reuses the same
+  visual language.
+- **Dataset:** `searchFiltered` — every Place the canonical server wrapper
+  already published, narrowed only by the one shared search. No new fetch, query,
+  or eligibility logic: the client cannot surface an unpublished or ineligible
+  Place because it never computes eligibility. No duplicates (the existing
+  `seen` guard), no new category, curated membership never read.
+- **Camera:** `allPlacesFitPlaces` = the eligible Places of the ACTIVE CONTEXT
+  through `resolveContextualPlaceCoverage`, which `resolveContextualCuratedCoverage`
+  itself now delegates to (one contextual rule for both tabs). A searched region
+  wins, else the viewer's local area, else the camera keeps its frame. The whole
+  world is never fitted — the same defect PR #20 fixed for the curated tab.
+- **Labels:** `labelEveryPlaceName` paints EVERY rendered pin's name chip. The
+  deterministic on-demand budget (2026-10-05, PR #20) stays the curated default
+  and is untouched. The label rule is part of the marker signature, so switching
+  tabs re-paints immediately.
+- **Label layout:** `resolveAllPlacesLabelLayout` moves chips around their pin in
+  four tiers — fully inside the usable map area and collision-free; inside the
+  usable area; inside the map and clear of the opaque control column; default.
+  It reads only the frame and size the map already measures for its own scale
+  bar, runs once per marker rebuild, and measures no DOM. `crowded`/`relocated`
+  counters report what could not be fixed instead of hiding a name.
+- **Results panel, cards, markers, navigation, search:** unchanged. The panel
+  keeps the canonical Discovery row in this tab exactly as in every non-curated
+  mode; the map is the surface that carries every eligible name.
+
+### 24.3 Verification
+
+New `tests/place-currency-rules.test.ts` (21) and new
+`tests/home-all-places-tab.test.ts` (24). Amended — never deleted — assertions in
+`place-management`, `producer-terminology`, `live-ui`, `home-map-first-ui`,
+`home-search-clarity`, `map-auto-fit-camera`, `map-local-area-coverage`,
+`map-contextual-curated-framing`, `map-pin-label-density` and
+`home-map-consolidated-frame`, each annotated with why it changed (the second
+place-set tab, the shared context-framed camera value, or a window anchored on a
+comment that comment-stripping silently turned into "the rest of the file").
+
+Home/map/currency/Discovery batch 393/393; `tsc -b --noEmit` clean; `eslint .`
+0 errors / 10 warnings (baseline). Full suite in batches: 314/0, 325/0, 131/0,
+105 (1), 131/0.
+
+### 24.4 Known limitations (honest)
+
+- `discovery-aggregate`, `discovery-dev-dataset` and
+  `place-curated-admin-migration` die with SIGKILL under whole-batch memory
+  pressure in this 1-CPU/2 GB sandbox. Reproduced identically on the unmodified
+  `c5b3038` baseline; `place-curated-admin-migration` passes 4/4 alone and
+  passes in a matched-composition batch. Not a regression.
+- No claim of pixel-perfect, collision-free labels: the sandbox preview does not
+  hydrate the app in any available headless browser (same limitation as §23.7).
+  What IS covered executably: every Place keeps an anchor and a painted label,
+  density is answered by relocation, nothing is dropped, and the unavoidable
+  remainder is counted.

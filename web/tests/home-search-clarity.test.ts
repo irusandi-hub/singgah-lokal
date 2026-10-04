@@ -223,13 +223,22 @@ test("R-C: the single filter bar stays one row with no mobile wrapping", () => {
     discoveryCode,
     /pointer-events-auto mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/,
   );
-  // Every control in the bar (LIVE, Tempat Pilihan, and the three radius tabs)
-  // is nowrap, so the row can never wrap or clip on a narrow phone.
+  // Every control in the bar (LIVE, Tempat Pilihan, the three radius tabs, and
+  // the additional "Semua Tempat" tab that sits in its OWN row below them) is
+  // nowrap, so no control can ever wrap or clip on a narrow phone.
   const bar = discoveryCode.slice(
     discoveryCode.indexOf("pointer-events-auto mt-2.5 grid"),
     discoveryCode.indexOf("{/* MAP AREA"),
   );
   assert.ok(bar.length > 0, "the filter bar region must exist");
-  // Two literal controls plus the shared class inside the radius-tab mapper.
-  assert.equal((bar.match(/whitespace-nowrap/g) ?? []).length, 3);
+  // Three literal controls plus the shared class inside the radius-tab mapper.
+  // The count itself is what pins "every control is nowrap": a control added
+  // without it would fail here.
+  assert.equal((bar.match(/whitespace-nowrap/g) ?? []).length, 4);
+  // The locked five-control row is still exactly one grid row with its original
+  // five-column split; the new tab is an ADDITIONAL control, never a sixth
+  // column that would reflow, wrap, or scroll the locked row.
+  assert.match(bar, /grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
+  assert.match(bar, /data-home-tab="all-places"/);
+  assert.equal(bar.includes("overflow-x-auto"), false, "no horizontal scroller anywhere in the bar");
 });

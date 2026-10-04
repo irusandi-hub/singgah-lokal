@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Place } from "@/lib/places";
-import { PLACE_CATEGORIES } from "@/lib/places";
+import { APPLICATION_CURRENCIES, PLACE_CATEGORIES, PLACE_CURRENCY_LABELS } from "@/lib/places";
 import {
   PLACE_MEDIA_ACCEPTED_TYPES,
   PLACE_MEDIA_MAX_BYTES,
@@ -251,7 +251,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
         <label className="grid gap-1 text-sm font-semibold">Kategori<select value={form.category} onChange={(event) => update("category", event.target.value)}>{PLACE_CATEGORIES.map((category) => (<option key={category} value={category}>{category}</option>))}</select></label>
         <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Kegiatan</option></select></label>
       </div>
-      <label className="grid gap-1 text-sm font-semibold">Currency<select value={form.currency} onChange={(event) => update("currency", event.target.value)}><option value="IDR">IDR — Rupiah Indonesia</option><option value="USD">USD — Dolar Amerika Serikat</option></select></label>
+      <label className="grid gap-1 text-sm font-semibold">Currency<select value={form.currency} onChange={(event) => update("currency", event.target.value)}>{APPLICATION_CURRENCIES.map((currency) => (<option key={currency} value={currency}>{PLACE_CURRENCY_LABELS[currency]}</option>))}</select></label>
         </>
       )}
 

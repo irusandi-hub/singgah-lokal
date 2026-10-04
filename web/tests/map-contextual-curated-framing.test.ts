@@ -244,7 +244,7 @@ test("A4 current-location framing is preserved and stays local", () => {
 
   // "Lokasi Saya" reads the SAME dataset in curated mode, so the press frames
   // the local selection instead of a distant layer.
-  assert.match(pageCode, /const locateFitPlaces = curatedOnly \? curatedFitPlaces : selectedFitPlaces;/);
+  assert.match(pageCode, /const locateFitPlaces = contextFramedTab \? contextFitPlaces : selectedFitPlaces;/);
   // ...and it keeps its own trigger, its own latch, and its own close floor.
   assert.match(mapCode, /const applied = await fitCamera\(map, candidates, LOCATE_FIT_MAX_ZOOM\)/);
   assert.match(mapCode, /if \(!locateNonce \|\| lastLocateNonceRef\.current === locateNonce\) return;/);
@@ -318,7 +318,9 @@ test("A6b the camera dataset stays independent of the reported viewport", () => 
   // ...and no viewport report can re-frame it: the curated fit is keyed on the
   // explicit nonce alone.
   assert.match(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
+  // Two since 2026-10-05: the curated tab and the additional "Semua Tempat"
+  // tab. Nothing automatic may carry it.
+  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
 });
 
 // ---------------------------------------------------------------------------
@@ -367,10 +369,12 @@ test("A9 the curated pool is CAMERA geometry only — no state, no new control",
   assert.match(pageCode, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*<\/button>/);
   assert.match(pageCode, />\s*LIVE\s*<\/button>/);
-  // ...and the tab set itself is untouched.
+  // ...and the tab set itself only ever gains the ONE additional tab
+  // ("Semua Tempat", 2026-10-05): the original row keeps its five controls, its
+  // order, and both shared mode transitions untouched.
   assert.deepEqual(
     [...pageCode.matchAll(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g)].length,
-    3,
+    4,
   );
 });
 

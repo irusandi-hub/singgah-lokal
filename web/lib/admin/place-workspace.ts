@@ -97,7 +97,7 @@ export function adminPlaceErrorMessage(code: string): string {
     case "place_coordinates_invalid":
       return "Koordinat tidak valid.";
     case "place_currency_invalid":
-      return "Currency hanya menerima IDR atau USD.";
+      return "Currency hanya menerima IDR, USD, atau SAR.";
     case "place_timezone_unavailable":
       return "Timezone tidak dapat ditentukan dari koordinat. Periksa koneksi koordinat lalu simpan lagi.";
     case "place_timezone_unresolved":

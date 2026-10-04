@@ -199,7 +199,12 @@ test("5.1 the budget is computed ONCE per marker rebuild, never per frame", () =
   assert.match(mapCode, /\}, \[ready, markerKey\]\);/);
   // ...and it is inside that effect, not in a render path or an event handler.
   const markerEffect = mapCode.slice(mapCode.indexOf("const markerPositionsRef"), mapCode.indexOf("}, [ready, markerKey]);"));
-  assert.match(markerEffect, /const alwaysLabelledPlaceIds = selectAlwaysLabelledPlaceIds\(/);
+  // (2026-10-05: the declaration is now a ternary — the "Semua Tempat" tab
+  // paints EVERY name and skips the budget — but the budget call itself is still
+  // INSIDE this one marker-rebuild effect, so it is still computed once per
+  // rebuild and never per frame.)
+  assert.match(markerEffect, /const alwaysLabelledPlaceIds = labelEveryPlaceName\s*\?/);
+  assert.match(markerEffect, /selectAlwaysLabelledPlaceIds\(/);
 });
 
 test("5.2 no layout measurement is introduced anywhere in the map", () => {

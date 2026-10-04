@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Place } from "@/lib/places";
-import { PLACE_CATEGORIES, PLACE_CURRENCIES } from "@/lib/places";
+import { PLACE_CATEGORIES, PLACE_CURRENCIES, PLACE_CURRENCY_LABELS } from "@/lib/places";
 import PlaceGeoFields from "@/components/place-geo-fields";
 import PlaceLocationPicker from "@/components/place-location-picker";
 
@@ -29,10 +29,7 @@ import PlaceLocationPicker from "@/components/place-location-picker";
  */
 type Props = { place?: Place };
 
-const CURRENCY_LABEL: Record<string, string> = {
-  IDR: "IDR — Rupiah Indonesia",
-  USD: "USD — Dolar Amerika Serikat",
-};
+const CURRENCY_LABEL: Record<string, string> = PLACE_CURRENCY_LABELS;
 
 function emptyForm(): Record<string, string> {
   return {

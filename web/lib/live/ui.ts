@@ -59,6 +59,51 @@ export function activateCuratedFilter(): { liveOnly: boolean; curatedOnly: boole
   return { liveOnly: false, curatedOnly: true };
 }
 
+// ---------------------------------------------------------------------------
+// "SEMUA TEMPAT" — the ALL-PLACES tab (2026-10-05)
+// ---------------------------------------------------------------------------
+
+/**
+ * The master label of the new tab. It lives here, beside `LIVE_FILTER_LABEL`,
+ * so the control, its tests, and any future copy change can never drift into
+ * two different words for one tab.
+ */
+export const ALL_PLACES_FILTER_LABEL = "Semua Tempat";
+
+/**
+ * The content modes Home can be in. They are MUTUALLY EXCLUSIVE: at most one of
+ * them is ever active, which is what keeps every mode's dataset, camera, and
+ * counts independent of the others.
+ */
+export type HomeContentFilters = {
+  liveOnly: boolean;
+  curatedOnly: boolean;
+  allPlacesOnly: boolean;
+};
+
+/**
+ * "Semua Tempat" activation, built exactly like `activateCuratedFilter()`: it
+ * takes no argument on purpose, so activating the tab can only ever produce ONE
+ * state whatever was active before — LIVE off, the curated layer off, the
+ * all-Places layer on. Nothing about "Tempat Pilihan" is read or changed.
+ */
+export function activateAllPlacesFilter(): HomeContentFilters {
+  return { liveOnly: false, curatedOnly: false, allPlacesOnly: true };
+}
+
+/**
+ * Leaving the place-set tabs for LIVE or a distance preset.
+ *
+ * A radius preset and LIVE both own the map on their own, so choosing either
+ * leaves BOTH place-set tabs. It returns only the two tab flags so a caller can
+ * apply them without touching the flag it is deliberately changing (LIVE keeps
+ * its own toggle; a distance tab keeps its own preset) — and so the rule is
+ * unit-testable instead of living in a handler.
+ */
+export function leavePlaceSetTabs(): { curatedOnly: boolean; allPlacesOnly: boolean } {
+  return { curatedOnly: false, allPlacesOnly: false };
+}
+
 /**
  * Anchor ids of the two visible result strips (bug fix 2026-10-01). The
  * header affordance is a SCROLL to the first visible strip, never a route:
@@ -615,6 +660,44 @@ export type ContextualCuratedCoverage<T extends LocalAreaPlace> = {
 };
 
 /**
+ * The SAME contextual rule, named for what it actually does.
+ *
+ * It was written for the curated layer, but nothing in it is curated-specific:
+ * it takes a candidate list and answers "which of these belong to the viewer's
+ * CURRENT context". The curated tab (`resolveContextualCuratedCoverage`, kept
+ * unchanged for its callers) and the "Semua Tempat" tab both frame through this
+ * one implementation, so the two tabs can never disagree about what "the user's
+ * context" means — and the 2026-10-05 world-frame defect cannot be re-introduced
+ * for one of them only.
+ */
+export function resolveContextualPlaceCoverage<T extends ContextualCuratedPlace>(input: {
+  places: readonly T[];
+  origin: ActiveCenter | null;
+  searchViewport: MapViewport | null;
+}): ContextualCuratedCoverage<T> {
+  const candidates = input.places.flatMap((place) =>
+    Number.isFinite(place.latitude) && Number.isFinite(place.longitude) ? [place] : [],
+  );
+  if (candidates.length === 0) return { places: [], basis: "none", consideredCount: 0 };
+
+  // 1. The searched region: the Places INSIDE its own coverage box. A box that
+  // holds none must NOT widen into another region — it falls through to the
+  // local-area rule, which is anchored on the same searched city.
+  if (input.searchViewport) {
+    const searched = narrowToViewport(candidates, input.searchViewport);
+    if (searched.length > 0) {
+      return { places: searched, basis: "search", consideredCount: candidates.length };
+    }
+  }
+
+  // 2. The viewer's local area of the SELECTION (trusted canonical geography,
+  // or the scale-free separation rule when the anchor has none).
+  const area = resolveLocalAreaCoverage({ origin: input.origin, places: candidates });
+  if (area.places.length === 0) return { places: [], basis: "none", consideredCount: candidates.length };
+  return { places: area.places, basis: "area", consideredCount: candidates.length };
+}
+
+/**
  * THE CURATED CAMERA POOL, RESOLVED AGAINST THE ACTIVE CONTEXT.
  *
  * ROOT CAUSE this closes: the "Tempat Pilihan" focus used to frame EVERY
@@ -647,27 +730,11 @@ export function resolveContextualCuratedCoverage<T extends ContextualCuratedPlac
   origin: ActiveCenter | null;
   searchViewport: MapViewport | null;
 }): ContextualCuratedCoverage<T> {
-  const candidates = input.curatedPlaces.flatMap((place) =>
-    Number.isFinite(place.latitude) && Number.isFinite(place.longitude) ? [place] : [],
-  );
-  if (candidates.length === 0) return { places: [], basis: "none", consideredCount: 0 };
-
-  // 1. The searched region: the curated Places INSIDE its own coverage box.
-  // A box that holds no curated Place must NOT widen into another region — it
-  // falls through to the local-area rule, which is anchored on the same
-  // searched city.
-  if (input.searchViewport) {
-    const searched = narrowToViewport(candidates, input.searchViewport);
-    if (searched.length > 0) {
-      return { places: searched, basis: "search", consideredCount: candidates.length };
-    }
-  }
-
-  // 2. The viewer's local area of the SELECTION (trusted canonical geography,
-  // or the scale-free separation rule when the anchor has none).
-  const area = resolveLocalAreaCoverage({ origin: input.origin, places: candidates });
-  if (area.places.length === 0) return { places: [], basis: "none", consideredCount: candidates.length };
-  return { places: area.places, basis: "area", consideredCount: candidates.length };
+  return resolveContextualPlaceCoverage<T>({
+    places: input.curatedPlaces,
+    origin: input.origin,
+    searchViewport: input.searchViewport,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -741,6 +808,159 @@ export function selectAlwaysLabelledPlaceIds(
     }
   }
   return chosen;
+}
+
+// ---------------------------------------------------------------------------
+// "SEMUA TEMPAT" LABEL LAYOUT — every name painted, collisions reduced (2026-10-05)
+// ---------------------------------------------------------------------------
+
+/**
+ * The on-screen footprint of one name chip, in CSS pixels.
+ *
+ * `width` is the chip's own truncation limit (`.singgah-pin-label`), `height` is
+ * one 11px/1.2 line plus its padding, and `gap` is the breathing room a chip
+ * needs from a neighbour before it reads as two names on top of each other.
+ */
+export const ALL_PLACES_LABEL_PX = { width: 132, height: 18, gap: 4 } as const;
+
+/** Where a chip may sit relative to its pin, in the order they are tried. */
+export const LABEL_ANCHOR_ORDER = ["below", "right", "left", "above"] as const;
+
+export type LabelAnchor = (typeof LABEL_ANCHOR_ORDER)[number];
+
+/** The DEFAULT placement — the one the marker has always used. */
+export const DEFAULT_LABEL_ANCHOR: LabelAnchor = "below";
+
+export type AllPlacesLabelLayout = {
+  /** Every Place id gets an anchor: a Place is never left without a label. */
+  anchors: Map<string, LabelAnchor>;
+  /** How many chips were moved off the default anchor to avoid an overlap. */
+  relocated: number;
+  /**
+   * How many chips found NO free anchor and kept the default one anyway.
+   * This is the honest density signal: those names are still painted in full,
+   * they may still overlap, and nothing is ever dropped because of them.
+   */
+  crowded: number;
+};
+
+type LabelBox = { x0: number; y0: number; x1: number; y1: number };
+
+function labelBox(
+  anchor: LabelAnchor,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  gap: number,
+): LabelBox {
+  if (anchor === "right") return { x0: x + gap, y0: y - height / 2, x1: x + gap + width, y1: y + height / 2 };
+  if (anchor === "left") return { x0: x - gap - width, y0: y - height / 2, x1: x - gap, y1: y + height / 2 };
+  if (anchor === "above") return { x0: x - width / 2, y0: y - gap - height, x1: x + width / 2, y1: y - gap };
+  return { x0: x - width / 2, y0: y + gap, x1: x + width / 2, y1: y + gap + height };
+}
+
+function boxesOverlap(a: LabelBox, b: LabelBox): boolean {
+  return a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+}
+
+/**
+ * WHERE EVERY NAME GOES in a dense "Semua Tempat" frame.
+ *
+ * The requirement this implements is that EVERY eligible Place keeps its name
+ * painted, so there is no budget, no ranking, and no priority here — a Place
+ * can never lose its label. What this does instead is move labels apart:
+ *
+ *  · DETERMINISTIC and measurement-free. The anchors come from the frame and
+ *    the canonical coordinates alone (one linear projection), never from
+ *    `getBoundingClientRect` / `offsetWidth`, so there is no layout read, no
+ *    reflow, and no per-frame work; the same frame always yields the same
+ *    layout, in the same input order, so a name can never flicker between
+ *    marker rebuilds.
+ *  · Chrome-aware. A chip is never placed under the reserved header/search/filter
+ *    band, the right-hand control column, or the bottom coverage box — the same
+ *    padding the camera fit reserves (`CAMERA_FIT_PADDING`), so a name is not
+ *    hidden behind a control the map draws on top of it.
+ *  · HONEST about the limit. When every anchor around a pin is taken, the chip
+ *    keeps its default position and is still painted in full; the count is
+ *    reported as `crowded` instead of being hidden.
+ */
+export function resolveAllPlacesLabelLayout(input: {
+  places: readonly { id: string; latitude: number; longitude: number }[];
+  frame: MapViewport | null;
+  size: { x: number; y: number };
+  labelPx?: { width: number; height: number; gap: number };
+}): AllPlacesLabelLayout {
+  const { width, height, gap } = { ...ALL_PLACES_LABEL_PX, ...(input.labelPx ?? {}) };
+  const anchors = new Map<string, LabelAnchor>();
+  for (const place of input.places) anchors.set(place.id, DEFAULT_LABEL_ANCHOR);
+  const plain = { anchors, relocated: 0, crowded: 0 };
+
+  // No measured frame: every chip keeps the placement it has always had. This
+  // is the fail-closed path — no frame means no invented geometry.
+  const frame = input.frame;
+  const sizeX = Number.isFinite(input.size.x) ? input.size.x : 0;
+  const sizeY = Number.isFinite(input.size.y) ? input.size.y : 0;
+  if (!frame || sizeX <= 0 || sizeY <= 0) return plain;
+  const spanLng = frame.east - frame.west;
+  const spanLat = frame.north - frame.south;
+  if (!(spanLng > 0) || !(spanLat > 0)) return plain;
+
+  // The area a label may occupy: the frame minus the chrome the map reserves.
+  const padding = resolveCameraFitPadding({ x: sizeX, y: sizeY });
+  const usable = {
+    x0: padding.paddingTopLeft[0],
+    y0: padding.paddingTopLeft[1],
+    x1: sizeX - padding.paddingBottomRight[0],
+    y1: sizeY - padding.paddingBottomRight[1],
+  };
+
+  const boxWidth = width + gap;
+  const boxHeight = height + gap;
+  const insideUsable = (box: LabelBox) =>
+    box.x0 >= usable.x0 && box.y0 >= usable.y0 && box.x1 <= usable.x1 && box.y1 <= usable.y1;
+  // The right-hand control column is the one overlay a chip must never end up
+  // under: it is opaque, sits on top of the map, and the camera fit reserves
+  // exactly this strip (`CAMERA_FIT_PADDING.right`). The top chrome band and the
+  // bottom coverage box are treated as a strong preference (tiers 0/1) rather
+  // than a wall, because a Place sitting directly under them must still be
+  // labelled — a name is never dropped to keep a chip tidy.
+  const insideMap = (box: LabelBox) => box.x0 >= 0 && box.y0 >= 0 && box.x1 <= sizeX && box.y1 <= sizeY;
+  const clearOfControls = (box: LabelBox) => box.x1 <= usable.x1;
+  const free = (box: LabelBox) => placed.every((other) => !boxesOverlap(box, other));
+
+  const placed: LabelBox[] = [];
+  let relocated = 0;
+  let crowded = 0;
+  for (const place of input.places) {
+    if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
+    const x = ((place.longitude - frame.west) / spanLng) * sizeX;
+    const y = ((frame.north - place.latitude) / spanLat) * sizeY;
+    // Four tiers, best first. The FIRST anchor of the best tier wins, so the
+    // result is deterministic for a given frame and input order.
+    const tiers: Array<(box: LabelBox) => boolean> = [
+      (box) => insideUsable(box) && free(box),
+      insideUsable,
+      (box) => insideMap(box) && clearOfControls(box),
+      () => true,
+    ];
+    let chosen: LabelAnchor = DEFAULT_LABEL_ANCHOR;
+    let chosenTier = tiers.length;
+    for (const anchor of LABEL_ANCHOR_ORDER) {
+      const box = labelBox(anchor, x, y, boxWidth, boxHeight, gap);
+      const tier = tiers.findIndex((accepts) => accepts(box));
+      if (tier < chosenTier) {
+        chosenTier = tier;
+        chosen = anchor;
+      }
+      if (tier === 0) break;
+    }
+    if (chosenTier === tiers.length - 1) crowded += 1;
+    if (chosen !== DEFAULT_LABEL_ANCHOR) relocated += 1;
+    anchors.set(place.id, chosen);
+    placed.push(labelBox(chosen, x, y, boxWidth, boxHeight, gap));
+  }
+  return { anchors, relocated, crowded };
 }
 
 // ---------------------------------------------------------------------------

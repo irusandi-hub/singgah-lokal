@@ -9,12 +9,14 @@ import VisitedLink from "@/components/visited-link";
 import type { Place } from "@/lib/places";
 import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
+  ALL_PLACES_FILTER_LABEL,
   CAMERA_PRESET_RADIUS_M,
   CURATED_CAMERA_RADIUS_M,
   CURATED_RESULTS_ANCHOR_ID,
   DISCOVERY_RESULTS_ANCHOR_ID,
   DISTANCE_FILTERS,
   acceptSearchResponse,
+  activateAllPlacesFilter,
   activateCuratedFilter,
   buildDirectionsUrl,
   clearCitySearch,
@@ -23,10 +25,12 @@ import {
   describeNearOrigin,
   formatDistance,
   isSameViewport,
+  leavePlaceSetTabs,
   liveDurationLabel,
   narrowToViewport,
   resolveActiveCenter,
   resolveContextualCuratedCoverage,
+  resolveContextualPlaceCoverage,
   resolveLocalAreaCoverage,
   resolveResultsAnchorId,
   stopNestedCardAction,
@@ -121,6 +125,12 @@ export default function HomeDiscovery({
   const [distanceFilter, setDistanceFilter] = useState<DistanceFilter>("1 km");
   const [curatedOnly, setCuratedOnly] = useState(false);
   const [liveOnly, setLiveOnly] = useState(false);
+  // "SEMUA TEMPAT" (2026-10-05): an ADDITIONAL tab, never a replacement for
+  // "Tempat Pilihan". It is a third content mode with its own dataset — every
+  // eligible Place instead of the curated subset — and it is mutually exclusive
+  // with LIVE and the curated layer, so the curated tab's selection, camera,
+  // and markers can never be touched by it (`leavePlaceSetTabs`).
+  const [allPlacesOnly, setAllPlacesOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // LOCATION SEARCH state: the typed text (searchQuery above), the pending
   // flag, the server-parsed center, and a nonce that bumps once the server
@@ -543,6 +553,23 @@ export default function HomeDiscovery({
   );
 
   const visiblePlaces = useMemo(() => {
+    // "SEMUA TEMPAT" (2026-10-05) is the WHOLE eligible set, not the curated
+    // subset. It is read from the SAME approved data source as every other Home
+    // layer — the canonical published/eligible Places the server wrapper already
+    // passed in (`initialPlaces`, built by the canonical repository) — so it can
+    // never expose an unpublished, deleted, restricted, or otherwise ineligible
+    // Place: the client neither fetches nor filters eligibility, it only reads
+    // what the server considered publishable. The only narrowing applied here is
+    // the ONE search query every layer shares, which is what scopes a search to
+    // the active tab.
+    //
+    // It is deliberately independent of `curatedIdSet`: a curated Place is never
+    // treated differently in this tab, and a non-curated Place is never excluded.
+    // Fail-closed: with no eligible Place the tab renders the existing empty
+    // state rather than borrowing the curated selection.
+    if (allPlacesOnly) {
+      return searchFiltered;
+    }
     // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26), backed
     // by the canonical is_curated flag (PO Stage 3, migration 0035): published
     // + curated only. The flag arrives through the server view model — the
@@ -560,7 +587,7 @@ export default function HomeDiscovery({
     let result = searchFiltered;
     if (liveOnly) result = result.filter((place) => liveByPlaceId.has(place.id));
     return result;
-  }, [searchFiltered, liveOnly, curatedOnly, curatedIdSet, liveByPlaceId]);
+  }, [searchFiltered, liveOnly, curatedOnly, allPlacesOnly, curatedIdSet, liveByPlaceId]);
 
   // LOCATION SEARCH VIEWPORT (PO 2026-10-02): when the server geocoder
   // answered, that canonical coordinate pair becomes the coverage source
@@ -769,6 +796,43 @@ export default function HomeDiscovery({
     return toHomeMapPlaces(coverage.places).map((place) => ({ ...place, isCurated: true }));
   }, [places, curatedIdSet, searchCenter, viewerPosition, searchViewport]);
 
+  // "SEMUA TEMPAT" CAMERA DATASET — the eligible Places IN THE ACTIVE CONTEXT
+  // (2026-10-05). This tab must make every eligible name reachable, so the
+  // camera frames the eligible Places of where the viewer actually is, using
+  // the SAME contextual rule as the curated tab
+  // (`resolveContextualPlaceCoverage`, which `resolveContextualCuratedCoverage`
+  // itself delegates to):
+  //  · a city search is active -> the eligible Places inside that searched
+  //    region's own coverage box (the SAME box the rows already use before
+  //    Leaflet reports its real bounds), so a new answer genuinely re-frames
+  //    the camera;
+  //  · otherwise the eligible Places of the viewer's LOCAL AREA, anchored on
+  //    the searched city first and the real fix second;
+  //  · with no usable origin the pool is EMPTY and the camera keeps its frame.
+  //
+  // WHY NOT THE WHOLE WORLD: fitting every eligible Place at once spans West Java
+  // and the Kingdom of Saudi Arabia on the canonical dataset — the exact world
+  // frame that made the curated tab useless (see `curatedFitPlaces` above), and
+  // it would push every name so far apart that none of them could be read. The
+  // MEMBERSHIP is still the whole eligible set: this value only decides what the
+  // camera frames, exactly like every other camera dataset here, and it never
+  // filters a row, a marker, a count, or Discovery.
+  const allPlacesFitPlaces = useMemo<HomeMapPlace[]>(() => {
+    const coverage = resolveContextualPlaceCoverage({
+      places: toCameraCandidates(visiblePlaces),
+      origin: searchCenter ?? viewerPosition,
+      searchViewport,
+    });
+    return toHomeMapPlaces(coverage.places);
+  }, [visiblePlaces, searchCenter, viewerPosition, searchViewport]);
+
+  // The two place-set tabs share ONE camera shape (they both frame the Places of
+  // the active context, so neither names a radius) and differ ONLY in which
+  // Places they frame. Keeping that distinction in one value is what stops the
+  // curated frame and the all-Places frame from drifting apart.
+  const contextFramedTab = curatedOnly || allPlacesOnly;
+  const contextFitPlaces = curatedOnly ? curatedFitPlaces : allPlacesFitPlaces;
+
   // CAMERA BOUNDS DATASET — the ONE pool every Home camera path reads
   // (`fitPlaces` / `searchFitPlaces` / `locateFitPlaces`, all handed to
   // `HomeMap` under their own prop and their own explicit trigger).
@@ -787,12 +851,13 @@ export default function HomeDiscovery({
   // dataset, and empty (so the camera does not move at all) when there is no
   // usable origin.
   const cameraFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    // "Tempat Pilihan" frames the curated selection IN THE ACTIVE CONTEXT
-    // (2026-10-05) — see `curatedFitPlaces` above. Every other mode keeps the
-    // local-area dataset it always had.
-    if (curatedOnly) return curatedFitPlaces;
+    // Both place-set tabs frame the Places of the ACTIVE CONTEXT (2026-10-05) —
+    // the curated selection for "Tempat Pilihan", the whole eligible set for
+    // "Semua Tempat". Every other mode keeps the local-area dataset it always
+    // had.
+    if (contextFramedTab) return contextFitPlaces;
     return toHomeMapPlaces(selectedLocalArea.places);
-  }, [curatedOnly, curatedFitPlaces, selectedLocalArea]);
+  }, [contextFramedTab, contextFitPlaces, selectedLocalArea]);
 
   // "LOKASI SAYA" BOUNDS DATASET — the SAME local-area set, handed to the map
   // under its own prop and its own trigger (correction 2026-10-03).
@@ -802,7 +867,7 @@ export default function HomeDiscovery({
   // simply fire from two different explicit actions. The origin is the REAL
   // fix (not the searched city): pressing "Lokasi Saya" clears the search first,
   // so `searchCenter` is already null when this recomputes.
-  const locateFitPlaces = curatedOnly ? curatedFitPlaces : selectedFitPlaces;
+  const locateFitPlaces = contextFramedTab ? contextFitPlaces : selectedFitPlaces;
 
   // CAMERA BOUNDS DATASET — LOCATION SEARCH AUTO-FIT (product decision,
   // 2026-10-03). The relevant Places for a searched region are the canonical
@@ -813,17 +878,17 @@ export default function HomeDiscovery({
   // holds no Place with canonical coordinates, and the camera then keeps the
   // geocoding center instead.
   const searchFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    // "Tempat Pilihan": a search frames the curated selection IN THAT
-    // SEARCHED REGION (2026-10-05) — `curatedFitPlaces` is already
-    // context-resolved, so a new answer genuinely re-frames the camera.
-    if (curatedOnly) return curatedFitPlaces;
+    // Both place-set tabs: a search frames that tab's Places IN THE SEARCHED
+    // REGION (2026-10-05) — the contextual datasets above are already
+    // search-resolved, so a new answer genuinely re-frames the camera.
+    if (contextFramedTab) return contextFitPlaces;
     if (!searchViewport) return [];
     return narrowToViewport(visiblePlaces, searchViewport).flatMap((place) =>
       place.latitude === null || place.longitude === null
         ? []
         : [{ id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude }],
     );
-  }, [curatedOnly, curatedFitPlaces, visiblePlaces, searchViewport]);
+  }, [contextFramedTab, contextFitPlaces, visiblePlaces, searchViewport]);
 
   const mapPlaces = useMemo<HomeMapPlace[]>(() => {
     // Curated Places first (they are the point of the layer), then the
@@ -1228,6 +1293,14 @@ export default function HomeDiscovery({
                EXISTING Current Location pin — no new marker, no map
                animation. */
             pulsePinOnPresetChange={curatedOnly}
+            /* "SEMUA TEMPAT" LABEL RULE (2026-10-05): in this tab EVERY
+               rendered pin keeps its name chip painted — the deterministic
+               on-demand budget above is a density declutter for the curated
+               frame only, and applying it here would hide exactly the names
+               this tab exists to show. Nothing else about the markers changes:
+               same pins, same click/keyboard targets, same tooltips, same
+               z-order ladder. */
+            labelEveryPlaceName={allPlacesOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
             onViewportChange={handleViewportChange}
             onScaleChange={handleScaleChange}
@@ -1389,6 +1462,10 @@ export default function HomeDiscovery({
                 const next = toggleLiveFilter(liveOnly, curatedOnly);
                 setLiveOnly(next.liveOnly);
                 setCuratedOnly(next.curatedOnly);
+                // LIVE owns the map on its own, so it also leaves the
+                // "Semua Tempat" layer (2026-10-05) — the same exclusivity rule
+                // it has always had for the curated layer.
+                setAllPlacesOnly(false);
               }}
               aria-pressed={liveOnly}
               className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-sm transition sm:px-3.5 sm:text-xs ${
@@ -1407,6 +1484,10 @@ export default function HomeDiscovery({
                 const next = activateCuratedFilter();
                 setCuratedOnly(next.curatedOnly);
                 setLiveOnly(next.liveOnly);
+                // Entering the curated layer leaves the all-Places layer, so
+                // the two datasets can never be active at the same time
+                // (2026-10-05). Nothing else about this tab changes.
+                setAllPlacesOnly(false);
                 // Choosing the tab is the EXPLICIT refocus action the camera
                 // is allowed to act on (product decision, 2026-10-03): it fits
                 // the frame to the spread of the relevant Places. No other
@@ -1430,16 +1511,18 @@ export default function HomeDiscovery({
                 key={filter}
                 onClick={() => {
                   setDistanceFilter(filter);
-                  setCuratedOnly(false);
+                  const next = leavePlaceSetTabs();
+                  setCuratedOnly(next.curatedOnly);
+                  setAllPlacesOnly(next.allPlacesOnly);
                   // A distance tab really does frame this radius, so the
                   // caption may name it again — and the tab is an explicit
                   // camera request, which releases the latch.
                   setCameraCoverage("radius");
                   setCameraRequestNonce((nonce) => nonce + 1);
                 }}
-                aria-pressed={distanceFilter === filter && !curatedOnly}
+                aria-pressed={distanceFilter === filter && !curatedOnly && !allPlacesOnly}
                 className={`whitespace-nowrap rounded-[16px] px-1 py-1.5 text-center text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
-                  distanceFilter === filter && !curatedOnly
+                  distanceFilter === filter && !curatedOnly && !allPlacesOnly
                     ? "bg-brand-primary text-white"
                     : "border border-black/10 bg-white text-black/65"
                 }`}
@@ -1447,6 +1530,55 @@ export default function HomeDiscovery({
                 {filter}
               </button>
             ))}
+          </div>
+
+          {/* "SEMUA TEMPAT" — THE ADDITIONAL TAB (product decision, 2026-10-05).
+
+              It is a NEW tab, not a redesign of the locked row above: that row
+              keeps its exact five controls, its `grid-cols-[auto_auto_1fr_1fr_1fr]`
+              split, its 11px type, its ~16px radii, its brand-green selected
+              state, and its no-scroller guarantee at 360px. A sixth control
+              could not join it without either wrapping, scrolling, or
+              shrinking the five that are already exactly at the limit there.
+
+              So the new tab gets its own row, in the same visual language
+              (white surface, ~16px radius, brand green when selected, same
+              type scale and shadow) and in the same floating chrome block, so it
+              reads as part of the same control family rather than as a new
+              surface. It carries the exact same handler contract as the curated
+              tab — an EXPLICIT camera request that fits the frame once — and the
+              ONE difference in behaviour is its dataset: every eligible Place
+              instead of the curated subset. Nothing about "Tempat Pilihan"
+              changes when this tab is pressed, and nothing about this tab
+              changes when the curated tab is pressed. */}
+          <div className="pointer-events-auto mt-2 flex justify-start">
+            <button
+              data-home-tab="all-places"
+              onClick={() => {
+                // Mutually exclusive with LIVE and the curated layer
+                // (`activateAllPlacesFilter`), so this tab can only ever produce
+                // ONE state whatever was active before.
+                const next = activateAllPlacesFilter();
+                setCuratedOnly(next.curatedOnly);
+                setLiveOnly(next.liveOnly);
+                setAllPlacesOnly(next.allPlacesOnly);
+                // Same explicit-refocus contract as "Tempat Pilihan": the
+                // camera fits the eligible Places of the active context once,
+                // and no marker refresh, viewport report, or poll can take that
+                // frame back afterwards.
+                setFitNonce((nonce) => nonce + 1);
+                setCameraCoverage("area");
+                setCameraRequestNonce((nonce) => nonce + 1);
+              }}
+              aria-pressed={allPlacesOnly}
+              className={`whitespace-nowrap rounded-[16px] px-2.5 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
+                allPlacesOnly
+                  ? "bg-brand-primary text-white"
+                  : "border border-brand-ink/20 bg-white text-brand-ink/70"
+              }`}
+            >
+              {ALL_PLACES_FILTER_LABEL}
+            </button>
           </div>
 
           {/* MAP AREA (MOCKUP §4/§8) — the visible map window under the floating

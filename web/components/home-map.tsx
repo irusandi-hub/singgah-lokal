@@ -5,14 +5,17 @@ import { useRouter } from "next/navigation";
 import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
+  DEFAULT_LABEL_ANCHOR,
   FIT_SINGLE_PLACE_ZOOM,
   boundsOfPoints,
   collectGeoPoints,
   isSameViewport,
+  resolveAllPlacesLabelLayout,
   resolveCameraFitPadding,
   resolveMapScale,
   selectAlwaysLabelledPlaceIds,
   shouldReportViewportStatus,
+  type LabelAnchor,
   type MapScale,
   type MapViewport,
 } from "@/lib/live/ui";
@@ -234,6 +237,21 @@ type HomeMapProps = {
    */
   pulsePinOnPresetChange?: boolean;
   /**
+   * "SEMUA TEMPAT" LABEL RULE (product decision, 2026-10-05): when true, EVERY
+   * rendered pin keeps its name chip painted.
+   *
+   * The default (false) is the unchanged curated/dense behaviour — the
+   * deterministic on-demand budget (`selectAlwaysLabelledPlaceIds`) holds chips
+   * back until hover or keyboard focus. The all-Places tab opts OUT of that
+   * budget because its whole promise is that every eligible name is readable;
+   * hiding one by density, ranking, or priority would break that promise. It is
+   * a LABEL-PAINT rule only: no Place is added or removed, every pin keeps its
+   * marker, click target, keyboard target, tooltip, and z-order, and the label
+   * LAYOUT (`resolveAllPlacesLabelLayout`) then moves chips apart around pins
+   * and reserved map controls.
+   */
+  labelEveryPlaceName?: boolean;
+  /**
    * Viewport-aware empty state (PO, 2026-09-30): the map reports whether at
    * least one Place marker currently sits inside the REAL Leaflet viewport —
    * evaluated once when the map is ready and re-evaluated on every FINISHED
@@ -394,6 +412,30 @@ const LOCATE_AREA_RADIUS_M = 350;
  */
 const PIN_LABEL_ON_DEMAND_ATTRIBUTE = "data-label-state";
 
+/**
+ * LABEL PLACEMENT (2026-10-05, "Semua Tempat"). The `below` entry is the
+ * placement every pin has used since names were added, byte for byte, so the
+ * ordinary frame is untouched; the other three are the anchors the layout may
+ * choose to move a chip to when the default one would collide with another name
+ * or with reserved map chrome. Presentation only — the chip keeps its class, its
+ * truncation, its full text, and its accessible name.
+ */
+function labelAnchorStyle(anchor: LabelAnchor): string {
+  if (anchor === "right") return "position:absolute;left:100%;top:50%;transform:translate(2px,-50%);";
+  if (anchor === "left") return "position:absolute;right:100%;top:50%;transform:translate(-2px,-50%);";
+  if (anchor === "above") return "position:absolute;left:50%;bottom:100%;transform:translate(-50%,-1px);";
+  return "position:absolute;left:50%;top:100%;transform:translate(-50%,1px);";
+}
+
+/**
+ * Leaflet's own bounds as the plain `MapViewport` the layout helpers read, so
+ * the frame is taken from the map's real measurement rather than recomputed
+ * from the Places (which would be a second, subtly different projection).
+ */
+function toViewportBounds(bounds: { getNorth(): number; getSouth(): number; getEast(): number; getWest(): number }): MapViewport {
+  return { north: bounds.getNorth(), south: bounds.getSouth(), east: bounds.getEast(), west: bounds.getWest() };
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -418,6 +460,7 @@ export default function HomeMap({
   searchFitPlaces = [],
   locateFitPlaces = [],
   pulsePinOnPresetChange = false,
+  labelEveryPlaceName = false,
   onViewportHasPlaces,
   onViewportChange,
   cameraRequestNonce = 0,
@@ -528,6 +571,12 @@ export default function HomeMap({
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
   // discovery feed re-polls every 15 s).
+  //
+  // The LABEL RULE is part of that signature on purpose: switching between the
+  // curated frame and "Semua Tempat" changes no marker identity at all (the
+  // same Place can appear in both tabs), so without this the chips would keep
+  // the previous tab's paint state and "Semua Tempat" would open with names
+  // hidden. It is one extra token, so nothing else re-runs.
   const markerKey = useMemo(
     () =>
       places
@@ -535,8 +584,8 @@ export default function HomeMap({
           (place) =>
             `${place.id}:${place.isCurated === true ? "c" : "-"}:${liveByPlaceId.get(place.id)?.sessionId ?? ""}`,
         )
-        .join("|"),
-    [places, liveByPlaceId],
+        .join("|") + `|labels:${labelEveryPlaceName ? "all" : "budget"}`,
+    [places, liveByPlaceId, labelEveryPlaceName],
   );
 
   // Viewport-aware empty state (PO, 2026-09-30): ONE shared re-evaluation
@@ -1321,13 +1370,33 @@ export default function HomeMap({
       // their paint state changes, and CSS reveals them again on the existing
       // hover/keyboard-focus state. Priority follows the marker ladder above:
       // curated first, then Live, then canonical order.
-      const alwaysLabelledPlaceIds = selectAlwaysLabelledPlaceIds(
-        currentPlaces.map((place) => ({
-          id: place.id,
-          isCurated: place.isCurated === true,
-          isLive: liveByPlaceId.has(place.id),
-        })),
-      );
+      const alwaysLabelledPlaceIds = labelEveryPlaceName
+        ? // "SEMUA TEMPAT" (2026-10-05): EVERY rendered pin keeps its name
+          // painted. No budget, no ranking, no priority — a Place can never lose
+          // its label in this tab. The set is still the canonical marker set, so
+          // this paints labels, it never adds or removes a Place.
+          new Set(currentPlaces.map((place) => place.id))
+        : selectAlwaysLabelledPlaceIds(
+            currentPlaces.map((place) => ({
+              id: place.id,
+              isCurated: place.isCurated === true,
+              isLive: liveByPlaceId.has(place.id),
+            })),
+          );
+      // LABEL LAYOUT (2026-10-05, "Semua Tempat" only): with every name painted
+      // the remaining problem is overlap, so one deterministic pass places each
+      // chip around its pin and away from the reserved map chrome. It reads the
+      // frame and the size this map has ALREADY measured for its own scale bar
+      // and viewport report — no extra layout read, no `getBoundingClientRect`,
+      // no reflow — and it runs once per marker rebuild, so panning and zooming
+      // cost nothing. The curated frame never computes it at all.
+      const labelLayout = labelEveryPlaceName
+        ? resolveAllPlacesLabelLayout({
+            places: currentPlaces,
+            frame: map.getBounds() ? toViewportBounds(map.getBounds()) : null,
+            size: map.getSize(),
+          })
+        : null;
       if (currentPlaces.length === 0) {
         evaluateViewportStatus();
         return;
@@ -1380,6 +1449,11 @@ export default function HomeMap({
         // tooltip, the click target, and the marker order are identical in
         // both states, so nothing becomes unreachable.
         const labelState = alwaysLabelledPlaceIds.has(place.id) ? "always" : "on-demand";
+        // "SEMUA TEMPAT" label placement: the SAME chip — same class, same
+        // truncation, same full text, same accessible name — moved to the
+        // anchor the layout chose. Every other mode renders the default
+        // below-the-pin placement it has always used.
+        const labelAnchor = labelLayout?.anchors.get(place.id) ?? DEFAULT_LABEL_ANCHOR;
         const accent = isCurated
           ? `<span style="transform:rotate(45deg);color:#fff;font-size:13px;line-height:1;">✦</span>`
           : "";
@@ -1389,7 +1463,7 @@ export default function HomeMap({
               ${accent}
             </div>
             <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:5px;height:5px;border-radius:9999px;background:${pinColor};box-shadow:0 0 0 2px rgb(255 255 255 / 0.9);"></div>
-            <span class="singgah-pin-label" ${PIN_LABEL_ON_DEMAND_ATTRIBUTE}="${labelState}" style="position:absolute;left:50%;top:100%;transform:translate(-50%,1px);">${escapeHtml(place.name)}</span>
+            <span class="singgah-pin-label" ${PIN_LABEL_ON_DEMAND_ATTRIBUTE}="${labelState}" style="${labelAnchorStyle(labelAnchor)}">${escapeHtml(place.name)}</span>
           </div>`;
         const marker = L.marker(position, {
           icon: L.divIcon({

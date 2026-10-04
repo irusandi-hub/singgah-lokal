@@ -12,6 +12,7 @@ import {
   weekdayLabel,
 } from "../lib/status-labels";
 import { formatPlaceDate, timezoneLabel } from "../lib/display-format";
+import { PLACE_CURRENCY_LABELS } from "../lib/places";
 
 /**
  * PRODUCER UI LANGUAGE.
@@ -207,8 +208,14 @@ test("Database-standard and English leftovers are gone from Producer copy", () =
   assert.doesNotMatch(placeForm, />Latitude</);
   assert.doesNotMatch(placeForm, />Longitude</);
   assert.doesNotMatch(placeForm, /\["currency", "Currency"\]/);
-  assert.match(placeForm, /IDR \u2014 Rupiah Indonesia/);
-  assert.match(placeForm, /USD \u2014 Dolar Amerika Serikat/);
+  // The two option labels are now rendered from the ONE canonical currency
+  // rule (`APPLICATION_CURRENCIES` + `PLACE_CURRENCY_LABELS`) instead of a
+  // second hand-written list, so the wording is asserted where it now lives —
+  // byte-identical to what the form showed before.
+  assert.match(placeForm, /APPLICATION_CURRENCIES\.map\(/);
+  assert.match(placeForm, /PLACE_CURRENCY_LABELS\[currency\]/);
+  assert.equal(PLACE_CURRENCY_LABELS.IDR, "IDR \u2014 Rupiah Indonesia");
+  assert.equal(PLACE_CURRENCY_LABELS.USD, "USD \u2014 Dolar Amerika Serikat");
   assert.equal(placeForm.includes("Zona waktu"), false);
   assert.equal(placeForm.includes("Mata uang"), false);
 

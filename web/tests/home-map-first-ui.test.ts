@@ -163,12 +163,17 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
   // bg-brand-ink (near-black) when selected. It is now brand green.
   assert.doesNotMatch(code, /bg-brand-ink text-white/);
   const greenSelected = code.match(/bg-brand-primary text-white/g) ?? [];
-  // Two call sites: the curated button and the shared distance-tab branch.
-  assert.equal(greenSelected.length, 2);
+  // Three call sites (2026-10-05): the curated button, the additional
+  // "Semua Tempat" tab, and the shared distance-tab branch.
+  assert.equal(greenSelected.length, 3);
   assert.match(code, /curatedOnly\n\s*\? "bg-brand-primary text-white"/);
+  assert.match(code, /allPlacesOnly\n\s*\? "bg-brand-primary text-white"/);
+  // The radius preset is selected only when NO place-set layer owns the map,
+  // so choosing "Tempat Pilihan" or "Semua Tempat" deselects it exactly as
+  // choosing the curated tab always did.
   assert.match(
     code,
-    /distanceFilter === filter && !curatedOnly\n\s*\? "bg-brand-primary text-white"/,
+    /distanceFilter === filter && !curatedOnly && !allPlacesOnly\n\s*\? "bg-brand-primary text-white"/,
   );
   // The unselected distance tabs keep their white surface (mockup).
   assert.match(code, /: "border border-black\/10 bg-white text-black\/65"/);

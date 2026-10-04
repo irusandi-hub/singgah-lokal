@@ -38,10 +38,21 @@ test("Only the three canonical Place categories are valid — retired ones are r
   }
 });
 
-test("Only IDR and USD are valid currencies", () => {
-  assert.deepEqual([...PLACE_CURRENCIES], ["IDR", "USD"]);
+test("the STORED currency vocabulary is the canonical one, and it still refuses junk", () => {
+  // CORRECTED ROOT CAUSE (2026-10-05). This assertion used to pin the stored
+  // vocabulary to `["IDR", "USD"]`. That expectation was STALE, not the code:
+  // migration 0039 deliberately widened the database CHECK with SAR (MASTER
+  // DEVELOPER AUTHORITY & DUMMY PLACE v1.0 §7 — a Place must be able to carry
+  // an honest currency for its own geography), and `PLACE_CURRENCIES` follows
+  // it. The stored vocabulary is therefore IDR, USD, SAR; the APPLICATION
+  // currency rule (IDR + USD only) is a separate, explicit rule covered by
+  // `place-currency-rules.test.ts` — conflating the two is what failed here.
+  assert.deepEqual([...PLACE_CURRENCIES], ["IDR", "USD", "SAR"]);
+  // The exact list the applied migrations enforce, and nothing else: no
+  // tolerance for near-misses, no locale-dependent normalisation, no coercion.
   assert.equal(parsePlaceMutation({ ...validInput, currency: "usd" }).currency, "USD");
-  for (const invalid of ["EUR", "SGD", "us", "IDRX"]) {
+  assert.equal(parsePlaceMutation({ ...validInput, currency: "IDR" }).currency, "IDR");
+  for (const invalid of ["EUR", "SGD", "JPY", "us", "IDRX", "ID"]) {
     assert.throws(
       () => parsePlaceMutation({ ...validInput, currency: invalid }),
       /place_currency_invalid/,
