@@ -125,6 +125,42 @@ test("a long query cannot widen the field or overflow a narrow phone", () => {
 
 // ---------------------------------------------------------------------------
 // 3. The floating results panel matches the search field exactly.
+test("the 'Cari' control is usable on touch and by keyboard", () => {
+  // 2026-10-04 (review): the pill is 26px tall, which reads fine on desktop but
+  // is a small thumb target, and it had NO visible keyboard focus. Both are
+  // fixed without touching layout, which is what the assertions below pin.
+  //
+  // The hit area is extended by an ABSOLUTELY positioned, out-of-flow child, so
+  // the bar's height, padding, radius and position are untouched by it.
+  assert.match(bar, /relative inline-flex h-\[26px\] shrink-0/);
+  assert.match(bar, /aria-hidden\s*\n?\s*className="pointer-events-auto absolute -inset-x-1 -bottom-2 top-0"/);
+  // DOWNWARD ONLY: the floating header is `absolute top-0` and already overlaps
+  // the pill's top edge, so growing the target upward would steal taps meant
+  // for the header controls. Asserted here so it cannot regress.
+  assert.doesNotMatch(bar, /absolute -inset-y-2/);
+  assert.doesNotMatch(bar, /absolute -top-2/);
+  // A keyboard user can see where they are. The ring is used rather than an
+  // outline because the browser's default outline resolved to WHITE on the
+  // white bar and was invisible in the real rendered page.
+  assert.match(bar, /focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black\/45/);
+  assert.match(bar, /ring-offset-2/);
+  // The pending state is a real disabled state, not only a visual one.
+  assert.match(bar, /disabled=\{searchPending\}/);
+  assert.match(bar, /disabled:opacity-60/);
+});
+
+test("the extended 'Cari' hit area cannot eat the bar's other controls", () => {
+  // The overlay must stay inside the bar: the clear "×" sits immediately to
+  // its left, so an oversized or full-width overlay would swallow the clear.
+  const overlay = bar.slice(bar.indexOf("absolute -inset-x-1 -bottom-2"));
+  assert.ok(overlay.indexOf("Hapus pencarian") === -1 || overlay.indexOf("Hapus pencarian") > 0);
+  // It is decorative only — no label, no role, and it cannot be tabbed to.
+  const spanStart = bar.lastIndexOf("<span", bar.indexOf("absolute -inset-x-1 -bottom-2"));
+  const overlayTag = bar.slice(spanStart, bar.indexOf("/>", spanStart) + 2);
+  assert.match(overlayTag, /^<span\s+aria-hidden/);
+  assert.doesNotMatch(overlayTag, /tabIndex|role=/);
+});
+
 // ---------------------------------------------------------------------------
 
 test("panel and search field share ONE horizontal geometry", () => {

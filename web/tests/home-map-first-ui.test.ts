@@ -160,7 +160,10 @@ test("MOCKUP §2: the search field is dimensionally stable, empty and filled", (
     code,
     /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/45 transition hover:bg-black\/10"/,
   );
-  assert.match(code, /className="inline-flex h-\[26px\] shrink-0 items-center justify-center rounded-full bg-brand-primary/);
+  // 2026-10-04: the pill gained `relative` because its touch target is extended
+  // by an absolutely positioned, out-of-flow child. The fixed h-[26px] and
+  // shrink-0 that make the bar dimensionally stable are unchanged.
+  assert.match(code, /className="relative inline-flex h-\[26px\] shrink-0 items-center justify-center rounded-full bg-brand-primary/);
   const bar = code.slice(
     code.indexOf("rounded-[20px] border border-black/10 bg-white"),
     code.indexOf("Mencari lokasi"),

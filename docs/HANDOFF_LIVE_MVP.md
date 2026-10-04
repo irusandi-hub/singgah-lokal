@@ -1463,3 +1463,62 @@ alone), 80/0, 123/0.
   so the new "Cari" button's rendered size and the wider coverage frame were
   NOT observed on a page. The executed guarantees are structural: one submit
   path, one in-flight guard, one coverage source, and fixed-size controls.
+
+## 27. PR #23 REVIEW — "CARI" BUTTON USABILITY, NOW VERIFIED IN A REAL BROWSER (same branch, 2026-10-04)
+
+§26's limitation above is RESOLVED: a Playwright Chromium is available in this
+sandbox and the managed preview on port 3000 serves the app, so the Home screen
+was rendered and measured rather than only read in source. Two things came out
+of that, and the "button is missing" report was NOT one of them.
+
+### 27.1 Why the button looked absent
+
+The button is on the branch and was never missing from it. It is absent from
+`main`/production, which is what was being viewed: the PR is unmerged, so the
+deployed production SHA is still `aed6b655`, and `main`'s copy of the component
+contains no `aria-label="Cari lokasi"` at all. On the branch, in the rendered
+page, the control measures 52×26 px, paints the brand green `rgb(14,107,79)`
+under white text, sits inside the white bar, is the hit target at its own centre
+(`elementFromPoint` returns the button), and stays inside the viewport with zero
+horizontal overflow at 320, 360, 390, 768, and 1280 px. The bar itself is 44px
+tall at every one of those widths.
+
+### 27.2 Two real defects the browser found, and fixed
+
+1. **The keyboard focus ring was invisible.** `focus-visible:outline-brand-ink`
+   resolved to a WHITE outline on a WHITE bar, confirmed by reading computed
+   style and the pixels around the pill. Replaced with
+   `focus-visible:ring-2 focus-visible:ring-black/45` + `ring-offset-2`; the
+   focused pill now paints a 45 %-black ring that is measurable in a screenshot.
+2. **The 26px pill was a small thumb target.** An absolutely positioned,
+   out-of-flow child extends the HIT area to 34px, and a real tap 6px BELOW the
+   visible pill now fires exactly one geocode. The extension is
+   **downward only, on purpose**: the floating header is `absolute top-0` and
+   already overlaps the pill's TOP edge (measured), so growing the target
+   upward would have swallowed taps meant for the header — verified, since a tap
+   in the upper overlap zone hits the header's own container, not the button.
+   Being out of flow, it changes nothing about the bar's height, padding, radius
+   or position, which is why the §25 dimensional-stability guarantee still
+   holds at 44px.
+
+### 27.3 Verified in the running page
+
+Enter submits once; "Cari" submits once through the same handler; Enter and a
+button press dispatched in the SAME TICK produce exactly ONE `/api/geocode`
+request; a tap on the disabled, pending button produces none; "×" clears the
+input and fires no request; Tab reaches "Cari" and shows the ring. Coverage:
+the row list goes 74 → 28 for "Riyadh" → back to 74 after "×", with the caption
+switching to the searched area and back to "Discovery Place".
+
+### 27.4 Remaining limitation
+
+- **Map MARKERS could not be observed in the page.** Leaflet never initialises
+  in this headless sandbox — no `.leaflet-container`, no panes, no tiles, at any
+  wait time and with no page error — so marker coverage was NOT visually
+  confirmed; only the result ROWS were (the counts above). This reproduces on
+  the unmodified branch state and is unrelated to this change. Markers and rows
+  reading the same `searchViewport` is asserted by the test suite, not by a
+  rendered frame.
+- `discovery-aggregate`, `discovery-dev-dataset` and
+  `place-curated-admin-migration` still SIGKILL in this 1-CPU/2 GB sandbox,
+  reproduced identically on an unmodified `main` worktree (not regressions).

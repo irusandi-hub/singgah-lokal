@@ -1396,9 +1396,25 @@ export default function HomeDiscovery({
                 type="button"
                 onClick={handleSearchSubmitClick}
                 disabled={searchPending}
-                className="inline-flex h-[26px] shrink-0 items-center justify-center rounded-full bg-brand-primary px-3 text-[11px] font-bold uppercase tracking-wide text-white transition hover:opacity-90 disabled:opacity-60"
+                className="relative inline-flex h-[26px] shrink-0 items-center justify-center rounded-full bg-brand-primary px-3 text-[11px] font-bold uppercase tracking-wide text-white ring-offset-2 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/45 disabled:opacity-60 disabled:hover:opacity-60"
                 aria-label="Cari lokasi"
               >
+                {/* The visible pill is 26px tall, which is comfortable on
+                    desktop but small for a thumb. This absolutely positioned,
+                    out-of-flow span extends the TOUCH/HIT area DOWNWARD into
+                    the bar's own bottom padding and the open map below it,
+                    which brings the target to ~34px without changing the
+                    bar's height, padding, radius, or position at all.
+
+                    DOWNWARD ONLY, deliberately: the floating header is
+                    `absolute top-0` and already overlaps the pill's top edge,
+                    so growing the target upward would swallow taps meant for
+                    the header controls. Growing it down can only ever land on
+                    the bar's own padding or the map surface. */}
+                <span
+                  aria-hidden
+                  className="pointer-events-auto absolute -inset-x-1 -bottom-2 top-0"
+                />
                 Cari
               </button>
             </div>

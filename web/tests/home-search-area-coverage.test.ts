@@ -427,7 +427,9 @@ test("12: the search field keeps its approved geometry and both controls", () =>
   );
   // "Cari" is a fixed-height, shrink-0 control, so adding it cannot change the
   // bar's height; the input is the only elastic part and it may shrink to zero.
-  assert.match(pageCode, /className="inline-flex h-\[26px\] shrink-0 items-center justify-center rounded-full bg-brand-primary/);
+  // 2026-10-04: `relative` was added so the touch target can be extended by an
+  // absolutely positioned, out-of-flow child — the fixed height is unchanged.
+  assert.match(pageCode, /className="relative inline-flex h-\[26px\] shrink-0 items-center justify-center rounded-full bg-brand-primary/);
   assert.match(pageCode, /className="w-full min-w-0 bg-transparent text-sm outline-none/);
   // The decorative settings graphic from before the last PR stays gone.
   assert.doesNotMatch(pageCode, /M4 7h10M18 7h2/);
