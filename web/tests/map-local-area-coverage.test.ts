@@ -382,8 +382,8 @@ test("AC 7: a searched city still frames its own Places through the untouched pa
   assert.match(pageCode, /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
   assert.match(mapCode, /const applied = await fitCamera\(map, searchFitPlacesRef\.current\);/);
   assert.match(mapCode, /if \(cancelled \|\| applied\) return;/);
-  // The search answer is untouched: same debounce, same route, same guards.
-  assert.match(pageCode, /setTimeout\(\(\) => \{\s*runSearch\(searchQuery\);/);
+  // The search answer is untouched: same route, same guards, now submitted-only.
+  assert.match(pageCode, /const handleSearchSubmit = useCallback\(async/);
   assert.match(pageCode, /fetch\(`\/api\/geocode\?q=\$\{encodeURIComponent\(trimmed\)\}`/);
   // The whole Riyadh dataset survives the local-area resolver intact, so a
   // viewer there gets the same complete result set as before.
@@ -585,20 +585,21 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   assert.match(pageCode, /mx-auto mb-1 block h-1\.5 w-12 rounded-full bg-black\/15/);
   assert.match(pageCode, /flex items-end justify-between gap-3/);
   // NOTHING important was cut: the title, the count, the "Ke hasil" link, the
-  // category labels, both strips, and both carousel frames are all still there.
+  // category labels, and both (now vertical) result lists are all still there.
   assert.match(pageCode, /id="place-results-heading"/);
   assert.match(pageCode, /\{curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`/);
   assert.match(pageCode, /Ke hasil <span aria-hidden>›<\/span>/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*\n\s*<\/p>/);
   assert.match(pageCode, />\s*Discovery Place\s*\n\s*<\/p>/);
-  assert.equal((pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []).length, 2);
+  // 2026-10-04: the carousel frames are gone — the rows are vertical lists now.
+  assert.equal((pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []).length, 0);
   assert.equal(
-    (pageCode.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/g) ?? []).length,
+    (pageCode.match(/-mx-4 flex flex-col gap-2\.5 px-4 pb-1"/g) ?? []).length,
     2,
   );
   assert.equal(
     (pageCode.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []).length,
-    2,
+    0,
   );
   // 2026-10-04: the results panel NO LONGER tucks under the map. Its info block
   // floats on the map's own bottom edge, so the panel starts exactly where the

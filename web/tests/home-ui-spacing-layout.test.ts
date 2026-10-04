@@ -315,21 +315,28 @@ test("T4.1 search, filters, and the marker ladder are unchanged", () => {
   assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright"/);
 });
 
-test("T4.2 the carousel bands and cards are untouched", () => {
+test("T4.2 the vertical list bands and cards are untouched", () => {
+  // 2026-10-04: the horizontal carousel frames were removed when both result
+  // rows became vertical lists — the dataset, order, and cards are unchanged.
   assert.equal(
     (code.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5/g) ?? []).length,
-    2,
-    "both carousel frames survive",
+    0,
+    "the old carousel frames are gone",
   );
   assert.equal(
-    (code.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1/g) ?? []).length,
+    (code.match(/-mx-4 flex flex-col gap-2\.5 px-4 pb-1/g) ?? []).length,
     2,
-    "both strips stay horizontally scrollable",
+    "both strips are vertical lists",
   );
   assert.equal(
     (code.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []).length,
+    0,
+    "no horizontal carousel tracks remain",
+  );
+  assert.equal(
+    (code.match(/className="w-full"/g) ?? []).length,
     2,
-    "card tracks unchanged",
+    "card wrappers are full-width list items",
   );
 });
 

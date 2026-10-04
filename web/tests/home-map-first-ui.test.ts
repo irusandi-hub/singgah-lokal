@@ -459,41 +459,37 @@ test("BUG FIX: both result strips carry UNIQUE anchor ids and the link targets t
   assert.doesNotMatch(code, /router\.push\("\/places/);
 });
 
-test("MOCKUP §12/§19: every result row is a horizontal strip of FIXED-WIDTH card tracks", () => {
-  // Baris 1 (curated) — same snap-strip at 360px AND 1280px. The bottom
-  // padding is tighter after the 2026-10-03 compaction; the snap, scroll, and
-  // gap pattern are unchanged.
-  assert.match(code, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/);
-  // Baris 2 (Discovery) — the same horizontal pattern (no grid comeback).
+test("MOCKUP §12/§19: every result row is a vertical list of full-width card items", () => {
+  // 2026-10-04: the rows are vertical lists at 360px AND 1280px — the same
+  // dataset, order, and cards as the old carousels; presentation only.
+  assert.match(code, /-mx-4 flex flex-col gap-2\.5 px-4 pb-1"/);
+  // Baris 2 (Discovery) — the same vertical pattern (no grid comeback).
   const discoveryRow = code.slice(code.indexOf("{discoveryRowPlaces.length > 0 ? ("));
-  assert.match(discoveryRow, /-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/);
+  assert.match(discoveryRow, /-mx-4 flex flex-col gap-2\.5 px-4 pb-1"/);
   assert.doesNotMatch(discoveryRow, /grid gap-3 sm:grid-cols-2/);
+  assert.match(discoveryRow, /flex flex-col gap-2\.5/);
   // Presentation only: the curated dataset, its order, and the cards are
   // unchanged, and the row still renders nothing when nothing is curated.
   assert.match(
     code,
     /\{curatedOnly && curatedListed\.length > 0 && \([\s\S]*?curatedListed\.map\(\(place\) => \(/,
   );
-  // MOCKUP §12/§19 GAP FIX: every card in BOTH rows sits in an explicit
-  // fixed-width, non-shrinking track. Before this fix the Discovery row
-  // rendered the `w-full` cards straight into the flex strip, so flex-shrink
-  // collapsed them into tall empty vertical stripes — the confirmed root cause
-  // of the "empty pattern" in the actual render. Wrapping both rows is the
-  // presentation-only fix; no data, order, eligibility, or query changes.
-  assert.match(code, /w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/);
+  // Every card in BOTH rows sits in an explicit full-width list item, never a
+  // direct flex child of the list (which is what collapsed cards before).
+  assert.match(code, /className="w-full"/);
   assert.match(
     code,
-    /\{discoveryRowPlaces\.map\(\(place\) => \(\s*<div\s*\n\s*key=\{place\.id\}\s*\n\s*className="w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start"\s*\n\s*>\s*\n\s*\{renderPlaceCard\(place, curatedIdSet\.has\(place\.id\)\)\}/,
+    /\{discoveryRowPlaces\.map\(\(place\) => \(\s*<div key=\{place\.id\} className="w-full">\s*\{renderPlaceCard\(place, curatedIdSet\.has\(place\.id\)\)\}/,
   );
-  // No `w-full` card may ever be a direct flex child of a strip again.
+  // No `w-full` card may ever be a direct flex child of a vertical list strip.
   assert.doesNotMatch(
     code,
     /\{discoveryRowPlaces\.map\(\(place\) =>\s*\n?\s*renderPlaceCard/,
     "Discovery cards must be wrapped in a sized track, never direct flex children",
   );
-  // Card width keeps several cards visible on the smallest viewport.
-  assert.equal((code.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []).length, 2);
-  // Only the card strips scroll horizontally; the filter row keeps its
+  // Card wrapper keeps the list item shape on the smallest viewport.
+  assert.equal((code.match(/className="w-full"/g) ?? []).length, 2);
+  // The card lists are vertical and the filter row keeps its
   // no-overflow guarantee.
   const filterRow = code.slice(
     code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),

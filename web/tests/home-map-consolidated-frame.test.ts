@@ -293,6 +293,7 @@ test("12.2 the line cannot duplicate a count or contradict itself", () => {
 test("12.3 the redundant floating panel is gone and result access is intact", () => {
   // The standalone coverage box is removed from the map stage.
   assert.doesNotMatch(pageCode, /bottom-9 left-4 z-\[1100\]/);
+  // Its position glyph must not come back either.
   assert.doesNotMatch(pageCode, /⌖/);
   // The measured scale bar is map chrome, not Home result context, and stays.
   assert.match(pageCode, /absolute bottom-9 right-4 z-\[1100\]/);
@@ -302,9 +303,9 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
   assert.match(pageCode, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
   assert.match(pageCode, /\{discoveryRowPlaces\.length > 0 \? \(/);
   assert.match(pageCode, /curatedOnly && curatedListed\.length > 0/);
-  // Filter behaviour, the carousel interaction, and the empty/error states are
+  // Filter behaviour, the vertical list interaction, and the empty/error states are
   // untouched by the consolidation.
-  assert.match(pageCode, /snap-x snap-mandatory/);
+  assert.match(pageCode, /flex flex-col gap-2\.5/);
   assert.match(pageCode, /Lokasi tidak ditemukan\. Cek ejaan atau pilih dari daftar\./);
   assert.match(pageCode, /mapEmptyStateVisible &&/);
   assert.match(pageCode, /Belum ada Tempat Terdaftar di sekitar area ini/);
@@ -328,6 +329,7 @@ test("12.4 the panel footprint shrank without losing a control", () => {
   assert.match(pageCode, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
   // Nothing essential became scrollable or hidden.
   assert.doesNotMatch(header, /line-clamp|max-h-\[|overflow-hidden/);
+  assert.doesNotMatch(header, /snap-x/);
 });
 
 // ---------------------------------------------------------------------------

@@ -130,6 +130,9 @@ test("R-A: the hardcoded caption can never return", () => {
   // from, so the caption resolves to the always-true area caption instead of
   // claiming "dari lokasi Anda" about a frame the preset never framed.
   assert.match(discoveryCode, /hasCenter: hasActiveCenter,/);
+  // 2026-10-04: the result strips are now vertical lists, not horizontal carousels.
+  assert.match(discoveryCode, /flex flex-col gap-2\.5/);
+  assert.doesNotMatch(discoveryCode, /snap-x snap-mandatory/);
 });
 
 // ---------------------------------------------------------------------------
