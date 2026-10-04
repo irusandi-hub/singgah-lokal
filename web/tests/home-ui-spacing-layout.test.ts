@@ -190,7 +190,7 @@ test("T2.5 the panel sits on the documented Home overlay ladder", () => {
   assert.equal(mapStage.includes(card.match(/pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\][^"]*/)![0]), true);
 });
 
-test("T2.6 the panel neither covers the scale bar nor the empty state", () => {
+test("T2.6 the panel neither covers a map control nor the empty state", () => {
   // Vertical: the card sits BELOW the empty state. The empty state was raised
   // from `bottom-24` to `bottom-32` because the card's height is NOT fixed — a
   // long search query wraps the panel title to a second line and grows it.
@@ -204,12 +204,22 @@ test("T2.6 the panel neither covers the scale bar nor the empty state", () => {
   );
   assert.match(code, /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/);
 
-  // Horizontal: the card stops short of the right edge, where the real scale
-  // bar (bottom-9 right-4) lives, so the bar is never covered.
-  assert.match(mapStage, /absolute bottom-9 right-4 z-\[1100\] flex flex-col items-end gap-1/);
+  // Horizontal (approved mockup, 2026-10-04): the bottom-right scale bar is
+  // gone, so the panel no longer reserves a strip for it. Its left and right
+  // edges now line up EXACTLY with the search bar above it — same column, same
+  // cap, same padding — at every supported width.
+  assert.doesNotMatch(mapStage, /absolute bottom-9 right-4 z-\[1100\]/);
+  assert.doesNotMatch(code, /mapScale/);
   const cardStart = mapStage.indexOf("RESULTS INFO — FLOATING OVER THE MAP");
   const card = mapStage.slice(cardStart);
-  assert.match(card, /pr-\[5\.5rem\]/, "right padding clears the scale bar");
+  assert.match(
+    card,
+    /absolute inset-x-0 bottom-3 z-\[1100\] mx-auto w-full max-w-6xl px-4/,
+    "the panel uses the SAME horizontal geometry as the search bar column",
+  );
+  assert.doesNotMatch(card.slice(0, 400), /pr-\[/, "no reserved right strip is left behind");
+  // The search bar itself is in that identical column.
+  assert.match(code, /relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4/);
   // The map control ladder is measured from the TOP of the stage and is far
   // above a bottom-anchored card, so no zoom/locate control is covered.
   assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 290px;/);
@@ -220,17 +230,23 @@ test("T2.6 the panel neither covers the scale bar nor the empty state", () => {
 });
 
 test("T2.6b the panel still fits the smallest supported viewport", () => {
-  // 360px is the documented floor. px-4 (16) left + pr-[5.5rem] (88) right
-  // leaves a 256px card, and after its own px-3 padding a 232px text line:
-  // "Tempat Pilihan" + "Ke hasil" need about 226px, so the header stays on ONE
-  // line at every supported width and the card height stays predictable.
+  // 360px is the documented floor. px-4 (16) on each side leaves a 328px card,
+  // and after its own px-3 padding a 304px text line: "Tempat Pilihan" +
+  // "Ke hasil" need about 226px, so the header stays on ONE line at every
+  // supported width and the card height stays predictable. (The card is wider
+  // than before 2026-10-04, when it reserved 88px for the scale bar — which is
+  // exactly the point of the change.)
   const VIEWPORT = 360;
-  const textLine = VIEWPORT - 16 - 88 - 24;
+  const textLine = VIEWPORT - 16 - 16 - 24;
   const titlePlusAction = 226;
   assert.ok(textLine >= titlePlusAction, "title and Ke hasil fit on one line at 360px");
   // The title is allowed to wrap for a long query (nothing is truncated), which
   // is exactly why T2.6 budgets the extra row.
   assert.match(code, /<h2 id="place-results-heading" className="text-lg font-bold leading-tight">/);
+  // Nothing overflows: the title column can shrink and truncate its own text,
+  // and the action never grows.
+  assert.match(code, /<div className="min-w-0">/);
+  assert.match(code, /className="inline-flex shrink-0 items-center gap-0\.5 text-xs font-bold/);
 });
 
 test("T2.7 there is exactly ONE results information panel", () => {

@@ -318,9 +318,9 @@ test("A6b the camera dataset stays independent of the reported viewport", () => 
   // ...and no viewport report can re-frame it: the curated fit is keyed on the
   // explicit nonce alone.
   assert.match(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
-  // Two since 2026-10-05: the curated tab and the additional "Semua Tempat"
-  // tab. Nothing automatic may carry it.
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
+  // ONE, the curated tab: the additional "Semua Tempat" tab was removed on
+  // 2026-10-04. Nothing automatic may carry it.
+  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -369,13 +369,15 @@ test("A9 the curated pool is CAMERA geometry only — no state, no new control",
   assert.match(pageCode, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*<\/button>/);
   assert.match(pageCode, />\s*LIVE\s*<\/button>/);
-  // ...and the tab set itself only ever gains the ONE additional tab
-  // ("Semua Tempat", 2026-10-05): the original row keeps its five controls, its
-  // order, and both shared mode transitions untouched.
+  // ...and the tab row is final: the "Semua Tempat" tab that briefly sat below
+  // it was REMOVED on 2026-10-04 and nothing replaced it, so the row keeps
+  // exactly its five controls, its order, and both shared mode transitions.
   assert.deepEqual(
     [...pageCode.matchAll(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g)].length,
-    4,
+    3,
   );
+  assert.doesNotMatch(pageCode, /data-home-tab="all-places"/);
+  assert.doesNotMatch(pageCode, /allPlacesOnly/);
 });
 
 test("A10 the local-area resolver still owns the geographic decision", () => {

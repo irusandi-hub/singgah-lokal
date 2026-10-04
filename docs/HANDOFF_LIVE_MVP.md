@@ -1300,3 +1300,71 @@ Home/map/currency/Discovery batch 393/393; `tsc -b --noEmit` clean; `eslint .`
   What IS covered executably: every Place keeps an anchor and a painted label,
   density is answered by relocation, nothing is dropped, and the unavoidable
   remainder is counted.
+
+## 25. APPROVED HOME/MAP MOCKUP — SIX UI CORRECTIONS (branch `feat/home-map-approved-ui-adjustments`, 2026-10-04)
+
+Applied on top of `1406ae4` (merge of PR #21). The approved Home/Map mockup is
+the visual specification; only the six corrections below were made. §24.1-§24.3
+(PR #21: the currency rules) is UNCHANGED — the SAR/APPLICATION rule split and
+every Producer/Admin currency path still stand. What was removed from §24.2 is
+only the "Semua Tempat" tab, and only because the approved mockup has no such
+tab and no other entry point for it is defined by the approved product flow.
+
+### 25.1 The six corrections
+
+| # | Correction | Where | Decision recorded |
+| --- | --- | --- | --- |
+| A | "Semua Tempat" tab removed | `home-discovery.tsx` | The whole MODE went with the tab: the `allPlacesOnly` flag, its activation helper, its second camera dataset (`allPlacesFitPlaces`), the "paint every name" pin-label rule (`labelEveryPlaceName`, `resolveAllPlacesLabelLayout`), and the removed row's button. The row is again the five controls LIVE · Tempat Pilihan · 1 km · 5 km · 10 km+ on its original `grid-cols-[auto_auto_1fr_1fr_1fr]` split, 11px type, ~16px radii, brand-green selection, no scroller at 360px. `contextFitPlaces` is `curatedFitPlaces` again and the camera-request count returns from 4 to 3. |
+| B | Navigation arrow → compass | `home-map.tsx` | Same box as the retired arrow (`right-3 top-[190px] h-11 w-11`, same white surface/radius/ring/shadow), drawn as a dial with a red north needle pointing up and a muted south half. Leaflet 1.9 core has NO rotation (no bearing state, no plugin), so the map is always north-up: the compass is `role="img"` with an accessible name and is deliberately NOT a button — a "restore north-up" click would advertise a capability that does not exist. Re-centering stays one press away on the labeled "Lokasi Saya" control (240px), whose handler, geometry, and geolocation path are unchanged. |
+| C | Search settings/filter graphic removed | `home-discovery.tsx` | The decorative aria-hidden sliders SVG is gone and replaced by NOTHING. The left `⌕` glyph, the placeholder, the accessible name, the submit-only Enter search, and the conditional clear `×` all remain. |
+| D | Search field dimensions stable | `home-discovery.tsx` | The only state-dependent element in the bar is the clear button, which now occupies a FIXED `h-[18px] w-[18px]` box — exactly the footprint the removed graphic had — so the bar's width, height, padding, radius, position, and alignment are identical empty and filled by construction. The input gained `min-w-0` so a long query cannot widen the row or overflow at 360px. Still submit-only: no search-on-keystroke. |
+| E | Map distance scale removed | both components | The indicator AND the space it reserved are gone: the distance text, the bar, the map's `onScaleChange` measurement, and the resolver `resolveMapScale`/`MapScale`/`MAP_SCALE_MAX_BAR_PX`. Nothing replaces it. The `+/-` zoom control, the OSM attribution, and every camera/coverage/radius rule are untouched — the scale was display-only chrome that no geographic rule ever read. |
+| F | Results panel matches the search field | `home-discovery.tsx` | The panel wrapper keeps its geometry and loses only the reserved right-hand strip that existed for the scale bar, so both are literally `mx-auto w-full max-w-6xl px-4`: left and right edges match the search field at 360 / 390 / 430 / 1280. Title, Place count, description, "Ke hasil", handle, surface, and every interaction are unchanged; the title column keeps `min-w-0` and the action `shrink-0`, so nothing overflows. |
+
+### 25.2 What was deliberately NOT changed
+
+Branding, header and "Masuk", tab order/handlers, LIVE · curated · distance
+logic, Place data and visibility, markers, labels, the current-location marker,
+camera framing and fit padding, "Lokasi Saya", the results panel's data, text and
+scroll target, the geocoding path, content cards, bottom navigation, and the
+§24.1 currency rules. No tab, button, icon, filter, label, or promo element was
+added anywhere.
+
+### 25.3 Tests
+
+New: `tests/map-north-compass.test.ts` (7) and
+`tests/home-search-panel-alignment.test.ts` (10).
+`tests/home-all-places-tab.test.ts` was REPLACED by `tests/home-tab-row.test.ts`
+(11) — same file, renamed and rewritten to pin the new contract (tab absent, no
+alternative entry point, the five remaining controls and their handlers intact,
+and the curated dataset / contextual coverage / pin-label budget / Place
+selection / navigation untouched). Nothing was deleted. Amended — never
+weakened — `home-map-first-ui`, `home-ui-spacing-layout`, `live-ui`,
+`home-search-clarity`, `home-search-submit-guard`, `home-map-consolidated-frame`,
+`map-auto-fit-camera`, `map-local-area-coverage`,
+`map-contextual-curated-framing`, `map-current-location`, `map-pin-label-density`,
+`map-stacking`, `map-viewport-coverage`; each changed assertion is annotated with
+why (removed tab, removed scale, fixed-size clear control, or the single locate
+control).
+
+Verification: home/map batch 258/258 and 167/167; `tsc -b --noEmit` clean;
+`eslint .` 0 errors / 10 warnings (baseline). Full suite in batches:
+379 pass / 0 fail plus `discovery-aggregate` and `discovery-dev-dataset`
+(SIGKILL, see 25.4), 119/0, 235/0, 113/0, 84/0, 92/0.
+
+### 25.4 Known limitations (honest)
+
+- `discovery-aggregate` still dies with SIGKILL under memory pressure in this
+  1-CPU/2 GB sandbox. VERIFIED again on THIS change set: the same SIGKILL was
+  reproduced on an unmodified `main` worktree, so it is an environment limit, not
+  a regression. `discovery-dev-dataset` SIGKILLed once and then passed 5/5 on a
+  plain retry on this branch — also environment flakiness.
+- **No visual/pixel verification was possible**: the managed preview serves
+  Next.js without hydrating in any headless browser available here (same
+  standing limitation as §23.7 / §24.4). Positioning, proportions, and responsive
+  behaviour at 360 / 390 / 430 / 1280 px were NOT observed on a rendered page.
+  What IS covered executably: the search bar's right end renders no icon at all,
+  the only state-dependent element in the bar has a fixed 18×18 box, the panel
+  and the search field carry byte-identical column geometry, the compass keeps
+  the retired arrow's exact box and exposes no interaction, and no scale
+  indicator or reserved strip survives.

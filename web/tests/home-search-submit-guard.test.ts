@@ -76,7 +76,7 @@ test("C3 an empty submit never geocodes — it only resets", async () => {
 test("C4 the clear control is the approved \"×\" button", () => {
   assert.match(
     pageCode,
-    /\{searchQuery \? \(\s*<button\s*type="button"\s*onClick=\{handleSearchClear\}[\s\S]*?aria-label="Hapus pencarian"\s*>\s*<span aria-hidden>×<\/span>\s*<\/button>\s*\) : \(/,
+    /\{searchQuery \? \(\s*<button\s*type="button"\s*onClick=\{handleSearchClear\}[\s\S]*?aria-label="Hapus pencarian"\s*>\s*<span aria-hidden>×<\/span>\s*<\/button>\s*\) : null\}/,
   );
   // Clearing is one handler, not an effect, and it drops the pending/error/center
   // together so the map and the rows fall back to the real viewport.
@@ -153,7 +153,9 @@ test("C8 markers are rebuilt only when the marker SET changes", () => {
 
 test("C9 viewport reports are deduped, so a settled map never re-renders the rows", () => {
   assert.match(mapCode, /if \(isSameViewport\(lastViewportRef\.current, viewport\)\) return;/);
-  assert.match(mapCode, /if \(scaleKey !== lastScaleRef\.current\) \{/);
+  // The scale measurement that used to ride on the same report was removed
+  // with the indicator on 2026-10-04, so no second dedup key is left behind.
+  assert.doesNotMatch(mapCode, /lastScaleRef|scaleKey/);
   assert.match(mapCode, /if \(shouldReportViewportStatus\(lastViewportHasPlacesRef\.current, hasPlaces\)\) \{/);
   // Bounds are reported on finished gestures, on readiness, and on a real
   // resize only — never per frame.
