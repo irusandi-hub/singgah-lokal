@@ -177,13 +177,12 @@ test("11.4 the SEARCH center drives the curated frame and the fix never override
 });
 
 test("11.5 the curated pool is CAMERA geometry only — results stay curated-only", () => {
-  const pool = pageCode.slice(pageCode.indexOf("const cameraFitPlaces"), pageCode.indexOf("const searchFitPlaces"));
-  // The context is drawn from the ordinary, un-narrowed candidate set...
-  assert.match(pool, /places: toCameraCandidates\(curatedCoverageSource\),/);
-  // ...and it is anchored on the SELECTED anchor Place's own coordinate, which
-  // is what keeps the frame local and independent of the device fix.
-  assert.match(pool, /const anchor = visiblePlaces\.find\(\(place\) => place\.id === selectedLocalArea\.anchorId\);/);
-  assert.match(pool, /origin: \{ lat: anchor\.latitude, lng: anchor\.longitude \},/);
+  const pool = pageCode.slice(pageCode.indexOf("const curatedFitPlaces"), pageCode.indexOf("const searchFitPlaces"));
+  // The pool is EVERY curated Place, read from the canonical curated ids over
+  // the full published set (product decision, 2026-10-04) — never a local-area
+  // subset, and never anchored on the device fix.
+  assert.match(pool, /curatedIdSet\.has\(place\.id\)/);
+  assert.match(pageCode, /if \(curatedOnly\) return curatedFitPlaces;/);
   // The curated LIST and its count are untouched: they still read canonical
   // membership only, and the viewport gate still narrows them.
   assert.match(
@@ -195,13 +194,11 @@ test("11.5 the curated pool is CAMERA geometry only — results stay curated-onl
   assert.doesNotMatch(pageCode, /setCameraFit|setContextPlaces|setCuratedContext/);
 });
 
-test("11.6 a selected anchor without coordinates falls back to the selection alone", () => {
-  // Coordinates are required everywhere in the pool — fail-closed, never a
-  // default position.
-  assert.match(pageCode, /if \(place\.latitude === null \|\| place\.longitude === null\) return null;/);
-  assert.match(pageCode, /if \(!anchor \|\| anchor\.latitude === null \|\| anchor\.longitude === null\) \{/);
-  assert.match(pool_(pageCode), /return toHomeMapPlaces\(selected\);/);
-  // And no origin at all still yields no frame, so the current view stays.
+test("11.6 a Place without coordinates never enters the curated frame", () => {
+  // Coordinates are required in the pool — fail-closed, never a default.
+  assert.match(pageCode, /place\.latitude !== null && place\.longitude !== null/);
+  // And no origin at all still yields no frame for the local-area datasets, so
+  // the current view stays.
   assert.deepEqual(curatedCameraPool({ origin: null, curated: CURATED, ordinary: ORDINARY }), []);
 });
 
@@ -388,7 +385,8 @@ test("13.3 artwork, coordinates, interactions and the user marker are untouched"
   // pin, and is never a selected Place marker.
   assert.match(mapCode, /const userPane = map\.createPane\(USER_PANE\);/);
   assert.match(mapCode, /userPane\.style\.zIndex = "640";/);
-  assert.equal((mapCode.match(/pane: USER_PANE/g) ?? []).length, 3);
+  // 2026-10-04: the surrounding-area disc adds one more USER_PANE layer.
+  assert.equal((mapCode.match(/pane: USER_PANE/g) ?? []).length, 4);
   // No clustering was invented.
   assert.doesNotMatch(mapCode, /markerCluster|clusterGroup|cluster/);
 });

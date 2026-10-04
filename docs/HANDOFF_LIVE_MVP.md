@@ -42,6 +42,28 @@ it is an environment limit, not a regression. Lint 0 errors / 7 warnings
   clean; `eslint .` 0 errors, 10 pre-existing warnings (none in
   `home-discovery.tsx`).
 
+### Home map polish (2026-10-04, second change set)
+- **Tempat Pilihan frames ALL curated Places.** In curated mode the camera fit
+  dataset is the full canonical curated set (`places.is_curated` over the full
+  published set), not a local-area subset, so the whole selection is on screen
+  at a comfortable density (zoom ceiling `CURATED_FIT_MAX_ZOOM = 13`) —
+  whether it was entered from the tab, "Lokasi Saya", or a search.
+- **Always-visible Place names.** Each Place pin carries its name as a compact
+  truncated chip (`.singgah-pin-label`, 11px/700) beneath the anchor; the
+  full-name hover/focus tooltip is unchanged.
+- **"Lokasi Saya" surrounding area.** The Current Location pin draws a soft
+  translucent disc (`.singgah-locate-area`, ~350 m, gently breathing) so the
+  press reads as "the area around me". Display only — never a coverage radius.
+- **Smooth view-distance transitions.** ONE helper `cameraAnimationOptions()`
+  (0.6 s, ease 0.25) owns the camera easing for every view change (preset tabs,
+  curated fit, locate, search); `prefers-reduced-motion` falls back to instant.
+- Camera authority, the manual-interaction latch, coverage, radius ordering, and
+  the server-only geocoding path are untouched.
+- Files: `web/components/home-map.tsx`, `web/components/home-discovery.tsx`,
+  `web/app/globals.css` + the home/map test files.
+- Verification: 364/364 across every home/map/globals suite; `tsc -b --noEmit`
+  clean; `eslint .` 0 errors, 10 pre-existing warnings (unchanged).
+
 ## 3. LIVE IMPLEMENTATION STATUS
 
 ### Completed

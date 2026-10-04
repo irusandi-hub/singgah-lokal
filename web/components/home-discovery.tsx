@@ -665,6 +665,32 @@ export default function HomeDiscovery({
     return narrowToViewport(curatedCoverageSource, coverageViewport);
   }, [curatedOnly, curatedCoverageSource, coverageViewport]);
 
+  // ALL-CURATED CAMERA DATASET (product decision, 2026-10-04): the "Tempat
+  // Pilihan" focus frames EVERY curated Place at once, at a comfortable
+  // density — whatever started it (the tab itself, "Lokasi Saya", or a
+  // search). It reads canonical curated membership (`places.is_curated`) over
+  // the FULL published set, so a search that narrowed the ROWS can never also
+  // hide a curated Place from the CAMERA. Coordinates only (no invented
+  // position); camera geometry only — membership, rows, counts, and Discovery
+  // are unchanged.
+  const curatedFitPlaces = useMemo<HomeMapPlace[]>(
+    () =>
+      places.flatMap((place) =>
+        curatedIdSet.has(place.id) && place.latitude !== null && place.longitude !== null
+          ? [
+              {
+                id: place.id,
+                name: place.name,
+                latitude: place.latitude,
+                longitude: place.longitude,
+                isCurated: true,
+              },
+            ]
+          : [],
+      ),
+    [places, curatedIdSet],
+  );
+
   // CAMERA BOUNDS DATASET — LOCAL-AREA AUTO-FIT (product decision,
   // 2026-10-03; corrected twice the same day).
   //
@@ -751,25 +777,12 @@ export default function HomeDiscovery({
   // independent, and it is still keyed on `fitNonce` alone, so marker refreshes,
   // polls, and viewport reports cannot re-frame it.
   const cameraFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    const selected = selectedLocalArea.places;
-    if (!curatedOnly || selected.length === 0) return toHomeMapPlaces(selected);
-    const anchor = visiblePlaces.find((place) => place.id === selectedLocalArea.anchorId);
-    if (!anchor || anchor.latitude === null || anchor.longitude === null) {
-      return toHomeMapPlaces(selected);
-    }
-    const context = resolveLocalAreaCoverage({
-      origin: { lat: anchor.latitude, lng: anchor.longitude },
-      places: toCameraCandidates(curatedCoverageSource),
-    }).places;
-    const seen = new Set<string>();
-    return toHomeMapPlaces(
-      [...selected, ...context].filter((place) => {
-        if (seen.has(place.id)) return false;
-        seen.add(place.id);
-        return true;
-      }),
-    );
-  }, [curatedOnly, selectedLocalArea, visiblePlaces, curatedCoverageSource]);
+    // "Tempat Pilihan" frames EVERY curated Place at once (product decision,
+    // 2026-10-04) — see `curatedFitPlaces` above. Every other mode keeps the
+    // local-area dataset it always had.
+    if (curatedOnly) return curatedFitPlaces;
+    return toHomeMapPlaces(selectedLocalArea.places);
+  }, [curatedOnly, curatedFitPlaces, selectedLocalArea]);
 
   // "LOKASI SAYA" BOUNDS DATASET — the SAME local-area set, handed to the map
   // under its own prop and its own trigger (correction 2026-10-03).
@@ -779,7 +792,7 @@ export default function HomeDiscovery({
   // simply fire from two different explicit actions. The origin is the REAL
   // fix (not the searched city): pressing "Lokasi Saya" clears the search first,
   // so `searchCenter` is already null when this recomputes.
-  const locateFitPlaces = selectedFitPlaces;
+  const locateFitPlaces = curatedOnly ? curatedFitPlaces : selectedFitPlaces;
 
   // CAMERA BOUNDS DATASET — LOCATION SEARCH AUTO-FIT (product decision,
   // 2026-10-03). The relevant Places for a searched region are the canonical
@@ -790,13 +803,16 @@ export default function HomeDiscovery({
   // holds no Place with canonical coordinates, and the camera then keeps the
   // geocoding center instead.
   const searchFitPlaces = useMemo<HomeMapPlace[]>(() => {
+    // "Tempat Pilihan": a search frames the SAME all-curated set, whatever
+    // started it (product decision, 2026-10-04).
+    if (curatedOnly) return curatedFitPlaces;
     if (!searchViewport) return [];
     return narrowToViewport(visiblePlaces, searchViewport).flatMap((place) =>
       place.latitude === null || place.longitude === null
         ? []
         : [{ id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude }],
     );
-  }, [visiblePlaces, searchViewport]);
+  }, [curatedOnly, curatedFitPlaces, visiblePlaces, searchViewport]);
 
   const mapPlaces = useMemo<HomeMapPlace[]>(() => {
     // Curated Places first (they are the point of the layer), then the

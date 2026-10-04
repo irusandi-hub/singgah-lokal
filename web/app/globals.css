@@ -119,15 +119,40 @@ select {
   margin-bottom: 22px;
 }
 
-/* Home map marker system (PO, 2026-09-29): ONE base Place pin — a compact
-   teardrop that anchors on the Place's canonical coordinate — with per-mode
-   treatments only (brown base → secondary-green "Tempat Pilihan" → red
-   LIVE). No emoji glyphs, no always-on name labels (names live in tooltips
-   on hover/focus so dense maps stay readable), no decorative extras. The
-   pin tip sits exactly on the coordinate; the hover/focus lift is pure
-   feedback for the tap target. */
+/* Home map marker system (PO, 2026-09-29; always-on name label 2026-10-04):
+   ONE base Place pin — a compact teardrop that anchors on the Place's
+   canonical coordinate — with per-mode treatments only (brown base →
+   secondary-green "Tempat Pilihan" → red LIVE). Each pin now carries its
+   Place name directly beneath the anchor as a compact, truncated chip, so a
+   Place is readable without hovering; the hover/focus tooltip still carries
+   the full name. No emoji glyphs, no decorative extras. The pin tip sits
+   exactly on the coordinate; the hover/focus lift is pure feedback for the
+   tap target. */
 .singgah-map-marker {
   transition: filter 0.15s ease;
+}
+
+/* Always-on Place name label (product decision, 2026-10-04): a compact,
+   high-contrast chip under the pin tip. Typography is tuned for legibility at
+   map scale — 11px/700, tight line-height, subtle letterspacing — and long
+   names truncate with an ellipsis instead of widening without bound. It is
+   non-interactive (pointer-events: none) so it never steals a map gesture. */
+.singgah-pin-label {
+  display: block;
+  max-width: 132px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.94);
+  color: var(--brand-ink);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+  pointer-events: none;
 }
 
 .singgah-map-marker:hover,
@@ -184,6 +209,30 @@ select {
 
 @media (prefers-reduced-motion: reduce) {
   .singgah-locate-pulse {
+    animation: none;
+  }
+}
+
+/* Current Location surrounding area (product decision, 2026-10-04): the soft
+   disc under the user pin breathes gently so "the area around me" reads as a
+   living zone. Display only — it is not a coverage radius and never filters a
+   Place. Disabled under reduced-motion. */
+@keyframes singgah-locate-area {
+  0%,
+  100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.singgah-locate-area {
+  animation: singgah-locate-area 2.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .singgah-locate-area {
     animation: none;
   }
 }

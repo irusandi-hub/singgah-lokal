@@ -234,7 +234,7 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   // REAL Current Location via radiusZoom — no unbounded camera path is left.
   assert.match(mapCode, /cameraRadiusMeters !== null/);
   assert.match(mapCode, /radiusZoom\(map, anchor, cameraRadiusMeters\)/);
-  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
+  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ \.\.\.cameraAnimationOptions\(\) \}\)/);
   // Home feeds every mode into that ONE camera prop: distance tabs through
   // the ordered preset mapping, curated through its 10 km value.
   assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
@@ -295,7 +295,7 @@ test("Lokasi Saya frames the viewer's LOCAL AREA around the real fix (no radius)
     mapCode.indexOf("}, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);"),
   );
   assert.match(anchorEffect, /radiusZoom\(map, anchor, cameraRadiusMeters\)/);
-  assert.match(anchorEffect, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
+  assert.match(anchorEffect, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ \.\.\.cameraAnimationOptions\(\) \}\)/);
   // The zoom-preserving focus remains ONLY on the null-preset anchor
   // fallback (one call site).
   const focusUserCalls = mapCode.match(/focusUser\(map, anchor\)/g) ?? [];
@@ -315,7 +315,7 @@ test("Lokasi Saya applies INSTANTLY — no animated flight, and the pulse is the
   // the one-shot pin pulse is the feedback.
   assert.doesNotMatch(locateEffect, /flyTo|duration|easeLinearity/);
   assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 0, "no animated camera move anywhere");
-  assert.equal(/duration:/.test(mapCode), false, "no camera duration anywhere");
+  assert.equal(/duration:/.test(mapCode), true, "the shared smooth-transition helper carries the ONE duration");
   // The pulse still starts BEFORE the camera applies, and stays pending when
   // the pin element does not exist yet (unchanged behaviour).
   const pulseIndex = locateEffect.indexOf("triggerLocatePulse();");
@@ -562,7 +562,7 @@ test("Curated mode centers the camera on Current Location with 10 km coverage", 
   // applies to every setViewerPosition call).
   assert.match(mapCode, /cameraRadiusMeters !== null/);
   assert.match(mapCode, /radiusZoom\(map, anchor, cameraRadiusMeters\)/);
-  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\)/);
+  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ \.\.\.cameraAnimationOptions\(\) \}\)/);
 });
 
 test("Curated MEMBERSHIP never comes from the camera radius or the coverage rule", () => {
@@ -619,16 +619,21 @@ test("ONE base Place marker: compact teardrop, no emoji, treatments not differen
   assert.match(mapCode, /router\.push\(`\/places\/\$\{place\.id\}`\)/);
 });
 
-test("Declutter: Place names appear only on hover/focus/selection, never as always-on labels", () => {
+test("Place names are always visible as a chip, with the full-name tooltip as well", () => {
   const mapCode = stripComments(homeMap);
-  // The name tooltip is bound unconditionally (hover/focus/selection ONLY —
-  // Leaflet does not render it persistently), with NO always-on name chip.
+  // ALWAYS-ON NAME LABEL (product decision, 2026-10-04): every Place pin
+  // carries its name directly beneath the anchor as a compact chip, so a Place
+  // is readable without hovering. Long names truncate with an ellipsis.
+  assert.match(mapCode, /class="singgah-pin-label"/);
+  assert.match(mapCode, /\$\{escapeHtml\(place\.name\)\}<\/span>/);
+  // The full-name tooltip is still bound on hover/focus/selection as a second,
+  // complete readout.
   assert.match(mapCode, /marker\.bindTooltip\(escapeHtml\(place\.name\)/);
-  assert.doesNotMatch(mapCode, /max-width:180px[^\n]*font-weight:700[^\n]*\$\{escapeHtml\(place\.name\)\}/);
-  // No curated-only label branch is left (decluttering covers every Place,
-  // curated or not).
-  assert.doesNotMatch(mapCode, /if \(isCurated\) \{\n\s*marker\.bindTooltip/);
-  // The LIVE pin has no name label either — its identity is the LIVE chip.
+  // The chip is styled in the global stylesheet with legible typography.
+  const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(globals, /\.singgah-pin-label \{/);
+  assert.match(globals, /text-overflow: ellipsis;/);
+  // The LIVE pin has no name label — its identity is the LIVE chip.
   assert.doesNotMatch(mapCode, /bindTooltip\(liveTitle/);
 });
 
@@ -677,29 +682,30 @@ test("Every marker carries an accessible aria-label", () => {
 
 // --- Instant camera + one-shot pin focus feedback (PO, 2026-09-30) ---
 
-test("Every camera move is INSTANT — presets, fits, and the locate refocus alike", () => {
+test("Every camera move shares the ONE smooth-transition helper (reduced-motion safe)", () => {
   const mapCode = stripComments(homeMap);
   const pageCode = stripComments(homePage);
-  // Choosing a tab stays an instant setView on the real fix — Leaflet skips
-  // its animated-zoom path entirely for these options (synchronous
-  // _resetView, no requestAnimFrame, no easing curve).
-  const setViews = mapCode.match(/map\.setView\(\[anchor\.lat, anchor\.lng\],[\s\S]*?\{ animate: false \}\)/g) ?? [];
-  assert.equal(setViews.length, 1, "the preset anchor applies instantly");
-  // SUPERSEDED (correction, 2026-10-03): "Lokasi Saya" no longer animates
-  // either — it frames the local Place distribution, and a flight across a
-  // whole neighbourhood is exactly the drifting-camera behaviour being removed.
-  // So the component now contains NO animated camera move at all.
-  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 0, "no animated camera move");
-  assert.equal((mapCode.match(/duration:/g) ?? []).length, 0, "no camera duration");
+  // SMOOTH VIEW-DISTANCE TRANSITION (product decision, 2026-10-04): switching
+  // between view distances eases the camera instead of snapping. ONE helper
+  // owns the timing so every apply shares the same curve; there is no
+  // per-path duration and no flyTo anywhere.
+  assert.match(mapCode, /function cameraAnimationOptions\(\)/);
+  assert.match(mapCode, /return \{ animate: true, duration: 0\.6, easeLinearity: 0\.25 \};/);
+  // prefers-reduced-motion falls back to the instant apply.
+  assert.match(mapCode, /prefers-reduced-motion: reduce/);
+  assert.match(mapCode, /if \(reduced\) return \{ animate: false \};/);
+  // Exactly ONE declared duration in the component (the helper) and no flyTo.
+  assert.equal((mapCode.match(/duration:/g) ?? []).length, 1, "one shared camera duration");
+  assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 0, "no flyTo anywhere");
   assert.equal(pageCode.includes("flyTo"), false, "no flyTo in Home discovery");
-  assert.equal(pageCode.includes("duration"), false, "no duration in Home discovery");
-  assert.equal(pageCode.includes("easeLinearity"), false, "no easing in Home discovery");
-  // No animated fit and no fallback camera anywhere in either file: the
-  // auto-fit for the curated tab, the locate refocus, and the search are all
-  // deliberately `animate: false`.
-  const animatedFits = mapCode.match(/fitBounds\([\s\S]{0,240}?animate: true/g) ?? [];
-  assert.equal(animatedFits.length, 0, "the auto-fit is never animated");
   assert.equal(pageCode.includes("fitBounds"), false);
+  // Every camera apply reads the helper — the preset anchor, the fit, the
+  // locate fallback, the search fallback, and the null-preset focus.
+  const uses = mapCode.match(/cameraAnimationOptions\(\)/g) ?? [];
+  assert.ok(uses.length >= 6, `every camera apply shares the helper (found ${uses.length})`);
+  assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ \.\.\.cameraAnimationOptions\(\) \}\)/);
+  // The auto-fit reads the same helper, so the fit is smooth too.
+  assert.match(mapCode, /\.\.\.cameraAnimationOptions\(\),\s*\n\s*\}\);/);
 });
 
 test("Tempat Pilihan transition: instant 10 km preset camera + one-shot pin focus pulse", () => {
@@ -730,8 +736,10 @@ test("Tempat Pilihan transition: instant 10 km preset camera + one-shot pin focu
   assert.match(globals, /@keyframes singgah-locate-pulse/);
   assert.match(globals, /\.singgah-locate-pulse \{\n  animation: singgah-locate-pulse 900ms ease-out 2;\n\}/);
   assert.doesNotMatch(globals, /singgah-locate-pulse[^\n]*infinite/);
-  assert.equal((globals.match(/@keyframes/g) ?? []).length, 2, "exactly the LIVE pulse + the locate pulse");
-  assert.equal((globals.match(/prefers-reduced-motion/g) ?? []).length, 2, "reduced-motion opt-out: the LIVE pulse + the locate pulse");
+  assert.equal((globals.match(/@keyframes/g) ?? []).length, 3, "the LIVE pulse + the locate pulse + the locate AREA");
+  assert.equal((globals.match(/prefers-reduced-motion/g) ?? []).length, 3, "reduced-motion opt-out: LIVE pulse + locate pulse + locate area");
+  // SURROUNDING AREA (2026-10-04): the Current Location pin carries a soft disc.
+  assert.match(globals, /\.singgah-locate-area \{/);
   assert.match(globals, /@keyframes singgah-live-pulse/);
   assert.match(globals, /\.singgah-live-pulse \{\n  animation: singgah-live-pulse 1\.8s ease-in-out infinite;\n\}/);
 });
@@ -766,7 +774,7 @@ test("Lokasi Saya pulses the pin BEFORE the camera moves and survives a late mar
   );
   assert.match(markerEffect, /if \(Date\.now\(\) < locatePulseUntilRef\.current\) triggerLocatePulse\(\);/);
   // The zoom-preserving fallback focus still ends with the same pulse.
-  assert.match(mapCode, /map\.setView\(\[position\.lat, position\.lng\], Math\.max\(map\.getZoom\(\), 15\), \{ animate: false \}\);\s*triggerLocatePulse\(\);/);
+  assert.match(mapCode, /map\.setView\(\[position\.lat, position\.lng\], Math\.max\(map\.getZoom\(\), 15\), \{\s*\.\.\.cameraAnimationOptions\(\),\s*\}\);\s*triggerLocatePulse\(\);/);
 });
 
 test("Current Location marker is visually distinct from every Place pin", () => {

@@ -347,6 +347,39 @@ const VIEWER_FIT_POINT_ID = "__viewer_position__";
  * no transition: the geocoder already told us exactly where to look.
  */
 const SEARCH_MIN_ZOOM = 13;
+/**
+ * SMOOTH VIEW-DISTANCE TRANSITION (product decision, 2026-10-04). Switching
+ * between view distances — the 1/5/10 km tabs, "Tempat Pilihan", "Lokasi
+ * Saya", and a new search answer — eases the camera instead of snapping, so
+ * the change reads as one calm movement rather than a jump. ONE helper so
+ * every camera apply shares the SAME duration and easing curve; there is no
+ * per-path timing. Accessibility: `prefers-reduced-motion` falls back to the
+ * instant apply, so nothing animates for users who asked for still motion.
+ */
+function cameraAnimationOptions(): { animate: boolean; duration?: number; easeLinearity?: number } {
+  const reduced =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  if (reduced) return { animate: false };
+  return { animate: true, duration: 0.6, easeLinearity: 0.25 };
+}
+/**
+ * COMFORTABLE DENSITY CAP for the "Tempat Pilihan" focus (product decision,
+ * 2026-10-04): all curated Places are framed together, and this ZOOM LEVEL
+ * stops a tightly clustered selection from becoming a street-level frame. It
+ * is a zoom ceiling, never a coverage radius: it can only widen the frame, so
+ * it can never push a curated Place out of view.
+ */
+const CURATED_FIT_MAX_ZOOM = 13;
+/**
+ * SURROUNDING-AREA radius for the Current Location pin (product decision,
+ * 2026-10-04): the user marker shows a soft, translucent disc around it, so
+ * "Lokasi Saya" reads as "the area around me" rather than a bare dot. It is
+ * a DISPLAY ring only — never a coverage radius, never a camera bound, and it
+ * never filters or admits a Place. The real device accuracy circle, when the
+ * browser reports one, is drawn independently on top of it.
+ */
+const LOCATE_AREA_RADIUS_M = 350;
 
 function escapeHtml(value: string): string {
   return value
@@ -587,7 +620,9 @@ export default function HomeMap({
   const focusUser = useCallback(
     (map: LeafletMap, position: { lat: number; lng: number }) => {
       programmaticMoveRef.current = true;
-      map.setView([position.lat, position.lng], Math.max(map.getZoom(), 15), { animate: false });
+      map.setView([position.lat, position.lng], Math.max(map.getZoom(), 15), {
+        ...cameraAnimationOptions(),
+      });
       triggerLocatePulse();
     },
     [triggerLocatePulse],
@@ -892,7 +927,9 @@ export default function HomeMap({
       if (!bounds) return false;
       programmaticMoveRef.current = true;
       if (points.length === 1) {
-        map.setView([points[0].lat, points[0].lng], FIT_SINGLE_PLACE_ZOOM, { animate: false });
+        const singleZoom =
+          typeof maxZoom === "number" ? Math.min(FIT_SINGLE_PLACE_ZOOM, maxZoom) : FIT_SINGLE_PLACE_ZOOM;
+        map.setView([points[0].lat, points[0].lng], singleZoom, { ...cameraAnimationOptions() });
         return true;
       }
       // Padding reserves the floating header/search/filter chrome, the
@@ -907,7 +944,7 @@ export default function HomeMap({
         paddingTopLeft: padding.paddingTopLeft,
         paddingBottomRight: padding.paddingBottomRight,
         ...(typeof maxZoom === "number" ? { maxZoom } : {}),
-        animate: false,
+        ...cameraAnimationOptions(),
       });
       return true;
     },
@@ -963,7 +1000,7 @@ export default function HomeMap({
       // geolocation fix arrives. Only a new explicit request releases it.
       userInteractedRef.current = true;
       void (async () => {
-        const applied = await fitCamera(map, fitPlacesRef.current);
+        const applied = await fitCamera(map, fitPlacesRef.current, CURATED_FIT_MAX_ZOOM);
         // The instant-camera rule (PO 2026-09-30) is unchanged: the transition
         // into the layer is confirmed by the one-shot Current Location pin
         // pulse, never by an animated camera move.
@@ -1006,7 +1043,7 @@ export default function HomeMap({
         const zoom = await radiusZoom(map, anchor, cameraRadiusMeters);
         if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
         programmaticMoveRef.current = true;
-        map.setView([anchor.lat, anchor.lng], Math.max(2, zoom), { animate: false });
+        map.setView([anchor.lat, anchor.lng], Math.max(2, zoom), { ...cameraAnimationOptions() });
         // THE FRAME STAYS (bug fix, 2026-10-03): the preset that was just
         // applied is now the camera's state, so a later geolocation fix, a
         // marker refresh, or a mode switch cannot re-derive it. Without this
@@ -1043,6 +1080,21 @@ export default function HomeMap({
       if (cancelled || mapRef.current !== map || !layer) return;
 
       layer.clearLayers();
+      // SURROUNDING AREA (product decision, 2026-10-04): a soft, translucent
+      // disc around the Current Location pin so "Lokasi Saya" reads as "the
+      // area around me" instead of a bare dot. Display only — it is never a
+      // coverage radius, never a camera bound, and it never admits a Place.
+      L.circle([viewerPosition.lat, viewerPosition.lng], {
+        pane: USER_PANE,
+        radius: LOCATE_AREA_RADIUS_M,
+        color: BRAND_PIN,
+        weight: 1,
+        opacity: 0.4,
+        fillColor: BRAND_PIN,
+        fillOpacity: 0.1,
+        interactive: false,
+        className: "singgah-locate-area",
+      }).addTo(layer);
       const accuracy = viewerPosition.accuracy ?? 0;
       if (Number.isFinite(accuracy) && accuracy > 0) {
         L.circle([viewerPosition.lat, viewerPosition.lng], {
@@ -1160,7 +1212,7 @@ export default function HomeMap({
       // never an invented point.
       programmaticMoveRef.current = true;
       map.setView([viewerPosition.lat, viewerPosition.lng], Math.max(map.getZoom(), LOCATE_MIN_ZOOM), {
-        animate: false,
+        ...cameraAnimationOptions(),
       });
     })();
     return () => {
@@ -1197,7 +1249,7 @@ export default function HomeMap({
       // never a world view, never a marker fit.
       programmaticMoveRef.current = true;
       map.setView([searchCenter.lat, searchCenter.lng], Math.max(map.getZoom(), SEARCH_MIN_ZOOM), {
-        animate: false,
+        ...cameraAnimationOptions(),
       });
     })();
     return () => {
@@ -1300,6 +1352,7 @@ export default function HomeMap({
               ${accent}
             </div>
             <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:5px;height:5px;border-radius:9999px;background:${pinColor};box-shadow:0 0 0 2px rgb(255 255 255 / 0.9);"></div>
+            <span class="singgah-pin-label" style="position:absolute;left:50%;top:100%;transform:translate(-50%,1px);">${escapeHtml(place.name)}</span>
           </div>`;
         const marker = L.marker(position, {
           icon: L.divIcon({
