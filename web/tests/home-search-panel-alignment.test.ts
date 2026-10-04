@@ -56,11 +56,15 @@ test("no settings/filter graphic is rendered inside the search field", () => {
   assert.match(bar, /aria-label="Cari tempat, cerita, produksi"/);
 });
 
-test("no replacement icon, button, or filter was invented in its place", () => {
-  // The bar's only control is the clear "×" that already existed.
-  assert.equal((bar.match(/<button/g) ?? []).length, 1);
+test("the only controls in the bar are the existing clear '×' and the real 'Cari' submit", () => {
+  // 2026-10-04: the "Cari" button is a REAL control that runs the one submit
+  // path — not a decorative icon standing in for the removed settings graphic.
+  // No decorative icon exists: the sliders SVG stays gone.
+  assert.equal((bar.match(/<button/g) ?? []).length, 2);
   assert.match(bar, /aria-label="Hapus pencarian"/);
-  // No new affordance appeared anywhere else on the search surface either.
+  assert.match(bar, /aria-label="Cari lokasi"/);
+  assert.match(bar, /onClick=\{handleSearchSubmitClick\}/);
+  // No filter/settings affordance appeared anywhere on the search surface.
   assert.doesNotMatch(pageCode, /aria-label="(Setelan|Filter|Pengaturan)/);
   assert.equal(/onClick=\{\(\) => set(ShowFilters|FiltersOpen)/.test(pageCode), false);
   // And the tab row — the one real filter surface — is unchanged in kind.
@@ -71,8 +75,10 @@ test("search stays submit-only: no search-on-keystroke", () => {
   assert.match(bar, /onKeyDown=\{handleSearchKeyDown\}/);
   assert.match(pageCode, /const handleSearchSubmit = useCallback\(async/);
   assert.doesNotMatch(bar, /onChange=\{\(event\) => handleSearchSubmit/);
-  // Typing only updates the local query state.
+  // Typing only updates the DRAFT query state; the rows read `submittedQuery`,
+  // which only this submit path sets.
   assert.match(bar, /onChange=\{\(event\) => handleSearchChange\(event\.target\.value\)\}/);
+  assert.match(pageCode, /const searchFiltered = useMemo\(\(\) => \{\s*const normalizedQuery = submittedQuery\.trim\(\)/);
 });
 
 // ---------------------------------------------------------------------------
@@ -81,10 +87,13 @@ test("search stays submit-only: no search-on-keystroke", () => {
 
 test("the bar's own box is a single, unconditional class list", () => {
   // Padding, radius, border, and shadow are on the flex row itself and are not
-  // part of any conditional, so they cannot differ between states.
+  // part of any conditional, so they cannot differ between states. (2026-10-04:
+  // the padding moved to `pl-3.5 pr-1.5` so the two controls sit inside the
+  // same approved surface rather than floating past it; radius, border, and
+  // shadow are unchanged.)
   assert.match(
     pageCode,
-    /<div className="flex items-center gap-2\.5 rounded-\[20px\] border border-black\/10 bg-white px-3\.5 py-2\.5 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]">/,
+    /<div className="flex items-center gap-2 rounded-\[20px\] border border-black\/10 bg-white pl-3\.5 pr-1\.5 py-2 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]">/,
   );
   // The row is the bar's only sized element: there is no second wrapper that
   // could change width with the query.

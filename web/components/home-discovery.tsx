@@ -21,10 +21,12 @@ import {
   distanceMeters,
   describeCoverageScope,
   describeNearOrigin,
+  fallbackSearchArea,
   formatDistance,
   isSameViewport,
   liveDurationLabel,
   narrowToViewport,
+  normalizeSearchArea,
   resolveActiveCenter,
   resolveContextualCuratedCoverage,
   resolveLocalAreaCoverage,
@@ -134,6 +136,19 @@ export default function HomeDiscovery({
   const [searchPending, setSearchPending] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchCenter, setSearchCenter] = useState<{ lat: number; lng: number } | null>(null);
+  // SUBMITTED PLACE-TEXT FILTER (2026-10-04). `searchQuery` below is the DRAFT
+  // the user is typing; this is the query that was actually submitted and is
+  // therefore the only text filter the Place rows may apply. Typing alone can
+  // no longer change what is listed, marked, or counted — only Enter or the
+  // "Cari" button commits a query, through the ONE submit path.
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  // THE SEARCHED AREA (2026-10-04): the canonical bounding box the geocoder
+  // published for the resolved place, in the same `{ north, south, east, west }`
+  // shape the viewport uses. It is what a search actually covers, so a city
+  // search spans the city instead of a few kilometres around its centre point.
+  // `null` means "no canonical area was published", in which case the narrower
+  // documented fallback below applies. It is never a radius we guessed.
+  const [searchArea, setSearchArea] = useState<MapViewport | null>(null);
   // The RESOLVED place name the geocoder returned for searchCenter. It is
   // server output, not the raw typed text, so the radius caption can name the
   // city the search actually resolved instead of guessing. Cleared together
@@ -312,6 +327,12 @@ export default function HomeDiscovery({
 
   const submittedSearchRef = useRef("");
   const searchEpochRef = useRef(0);
+  // The query whose geocode is IN FLIGHT right now. Enter, the "Cari" button,
+  // and a held-down Enter key all reach the same submit path, and a key press
+  // can be followed by the same tap in the same tick — so an identical submit
+  // while one is already running is ignored instead of firing a second
+  // request that could race its own answer.
+  const inFlightSearchRef = useRef<string | null>(null);
 
   // NOTE (2026-10-04): the debounced auto-search-on-keystroke was removed. The
   // search is SUBMIT-ONLY — typing never geocodes, and `handleSearchSubmit`
@@ -335,23 +356,37 @@ export default function HomeDiscovery({
         // resolved name together with the center.
         searchEpochRef.current += 1;
         submittedSearchRef.current = "";
+        inFlightSearchRef.current = null;
         const cleared = clearCitySearch();
         setSearchQuery(cleared.query);
+        setSubmittedQuery(cleared.query);
         setSearchPending(cleared.pending);
         setSearchError(cleared.error);
         setSearchCenter(cleared.center);
+        setSearchArea(null);
         setSearchPlaceName(cleared.placeName);
         return;
       }
+
+      // ONE submit, ONE request (2026-10-04): Enter, the "Cari" button, and a
+      // repeated Enter key press all arrive here, and an identical query that
+      // is already running is ignored rather than issued twice.
+      if (inFlightSearchRef.current === trimmed) return;
+      inFlightSearchRef.current = trimmed;
 
       // Every submit intent invalidates any response still in flight, so a
       // late answer for a previous query can never overwrite a newer one.
       searchEpochRef.current += 1;
       submittedSearchRef.current = trimmed;
       setSearchQuery(trimmed);
+      setSubmittedQuery(trimmed);
       setSearchPending(true);
       setSearchError(null);
       setSearchCenter(null);
+      // The previous area goes with the previous answer: rows and markers fall
+      // back to the real viewport while this one resolves, so no stale frame
+      // is ever shown under a new query.
+      setSearchArea(null);
 
       const requestEpoch = searchEpochRef.current;
       const isCurrent = () =>
@@ -372,12 +407,14 @@ export default function HomeDiscovery({
           setSearchPending(false);
           setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
           setSearchCenter(null);
+          setSearchArea(null);
           return;
         }
         if (!response.ok) {
           setSearchPending(false);
           setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
           setSearchCenter(null);
+          setSearchArea(null);
           return;
         }
         const result = (await response.json()) as {
@@ -385,6 +422,7 @@ export default function HomeDiscovery({
           longitude?: number;
           displayName?: string;
           name?: string;
+          bounds?: { north?: number; south?: number; east?: number; west?: number } | null;
         };
         if (submittedSearchRef.current !== trimmed) return;
         if (!isCurrent()) return;
@@ -394,10 +432,17 @@ export default function HomeDiscovery({
           setSearchPending(false);
           setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
           setSearchCenter(null);
+          setSearchArea(null);
           return;
         }
         setSearchPending(false);
         setSearchCenter({ lat: latitude, lng: longitude });
+        // THE SEARCHED AREA (2026-10-04): the provider's own bounding box, so
+        // markers and rows cover the resolved place instead of a fixed window
+        // around its centre point. A hit that publishes no usable box yields
+        // `null` and the documented fallback box is used instead — never a
+        // radius this app invented, and never a fabricated boundary.
+        setSearchArea(normalizeSearchArea(result.bounds));
         setSearchPlaceName(
           typeof result.displayName === "string" && result.displayName.trim()
             ? result.displayName.trim()
@@ -406,13 +451,22 @@ export default function HomeDiscovery({
               : null,
         );
         resetViewportLatch();
+        // The searched area now owns the frame, so the caption must stop
+        // claiming the distance preset that used to bound it: a search covers
+        // the resolved place, not "N km from its centre". A distance tab the
+        // user picks afterwards sets its own radius caption again.
+        setCameraCoverage("area");
       } catch {
         if (submittedSearchRef.current !== trimmed) return;
         if (!isCurrent()) return;
         setSearchPending(false);
         setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
         setSearchCenter(null);
+        setSearchArea(null);
       } finally {
+        // The query is only free again once THIS request settled, so an
+        // identical submit issued while it was in flight stays a no-op.
+        if (inFlightSearchRef.current === trimmed) inFlightSearchRef.current = null;
         setSearchNonce((nonce) => nonce + 1);
       }
     },
@@ -429,14 +483,37 @@ export default function HomeDiscovery({
     [handleSearchSubmit],
   );
 
+  // "CARI" (2026-10-04): the visible submit control INSIDE the search field.
+  // It is a plain button calling the ONE submit path above — the same function
+  // Enter calls — so the two can never drift apart, and the in-flight guard in
+  // that function absorbs an Enter followed immediately by a tap. It reads the
+  // CURRENT draft rather than the input's DOM value, so the submit is exactly
+  // what the user last typed.
+  const handleSearchSubmitClick = useCallback(() => {
+    handleSearchSubmit(searchQuery);
+  }, [handleSearchSubmit, searchQuery]);
+
+  // "X" — the existing clear affordance, now also the one control that drops
+  // BOTH halves of the query state: the draft the user is typing AND the
+  // submitted filter the rows are actually showing. It bumps the epoch, so a
+  // geocode still in flight for the old query can no longer apply its center
+  // or its area, and with both gone `coverageViewport` falls back to the REAL
+  // Leaflet bounds — normal viewport-driven browsing resumes.
+  //
+  // It deliberately does NOT release the viewport latch: the map did not move,
+  // so the last reported bounds ARE still the browsing context, and nulling
+  // them would leave the rows unnarrowed until the next pan or zoom.
   const handleSearchClear = useCallback(() => {
     searchEpochRef.current += 1;
     submittedSearchRef.current = "";
+    inFlightSearchRef.current = null;
     const cleared = clearCitySearch();
     setSearchQuery(cleared.query);
+    setSubmittedQuery(cleared.query);
     setSearchPending(cleared.pending);
     setSearchError(cleared.error);
     setSearchCenter(cleared.center);
+    setSearchArea(null);
     setSearchPlaceName(cleared.placeName);
   }, []);
 
@@ -473,11 +550,14 @@ export default function HomeDiscovery({
   const handleLocatePress = useCallback(() => {
     searchEpochRef.current += 1;
     submittedSearchRef.current = "";
+    inFlightSearchRef.current = null;
     const cleared = clearCitySearch();
     setSearchQuery(cleared.query);
+    setSubmittedQuery(cleared.query);
     setSearchPending(cleared.pending);
     setSearchError(cleared.error);
     setSearchCenter(cleared.center);
+    setSearchArea(null);
     setSearchPlaceName(cleared.placeName);
     // Coverage goes back to the REAL Leaflet bounds; the synthetic bridge box
     // existed only for a city that no longer owns the viewport.
@@ -509,8 +589,14 @@ export default function HomeDiscovery({
   // Search is extracted as its own step so EVERY layer (existing results,
   // the Tempat Pilihan row, and the Discovery rows) applies the exact same
   // query semantics — one search behavior, no second implementation.
+  //
+  // THE SUBMITTED QUERY IS THE ONLY TEXT FILTER (2026-10-04). `searchQuery` is
+  // the draft in the input; `submittedQuery` is what Enter or "Cari" committed.
+  // Typing therefore cannot change what is listed, marked, or counted — it only
+  // edits the box — which is what makes "type, then submit" the single, honest
+  // search interaction.
   const searchFiltered = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLocaleLowerCase("id-ID");
+    const normalizedQuery = submittedQuery.trim().toLocaleLowerCase("id-ID");
     if (!normalizedQuery) return places;
     return places.filter((place) => {
       const liveProcess = liveByPlaceId.get(place.id)?.processTitle ?? "";
@@ -526,7 +612,7 @@ export default function HomeDiscovery({
         .toLocaleLowerCase("id-ID");
       return haystack.includes(normalizedQuery);
     });
-  }, [places, searchQuery, liveByPlaceId]);
+  }, [places, submittedQuery, liveByPlaceId]);
 
   const searchFilteredIds = useMemo(
     () => new Set(searchFiltered.map((place) => place.id)),
@@ -553,30 +639,31 @@ export default function HomeDiscovery({
     return result;
   }, [searchFiltered, liveOnly, curatedOnly, curatedIdSet, liveByPlaceId]);
 
-  // LOCATION SEARCH VIEWPORT (PO 2026-10-02): when the server geocoder
-  // answered, that canonical coordinate pair becomes the coverage source
-  // until Leaflet reports its OWN bounds for the recentered camera. The box is
-  // a small ±0.05° window (~5.5 km) purely to keep the filter deterministic
-  // across that one gap; `narrowToViewport` accepts it because it is the same
-  // MapViewport shape. It never changes eligibility, membership, or ordering.
+  // THE SEARCHED AREA (2026-10-04). TWO SOURCES, ONE RULE.
   //
-  // The REAL viewport wins once it exists. The bridge box used to win
-  // FOREVER, which meant a searched city permanently overrode the user's
-  // manual panning — the map moved and the list refused to follow. Releasing
-  // the latch on every new answer keeps the Master rule intact (the visible
-  // Leaflet viewport is the one coverage source) with no flash of the
-  // pre-search area in between.
-  const searchViewport = useMemo(
-    () =>
-      searchCenter
-        ? {
-            north: searchCenter.lat + 0.05,
-            south: searchCenter.lat - 0.05,
-            east: searchCenter.lng + 0.05,
-            west: searchCenter.lng - 0.05,
-          }
-        : null,
-    [searchCenter],
+  // ROOT CAUSE this replaces: coverage for a searched city was a fixed ±0.05°
+  // window (~5.5 km) around the geocoder's CENTRE POINT. The search camera
+  // then framed only the Places inside that same window, Leaflet reported that
+  // small frame as the real viewport, and every eligible Place elsewhere in
+  // the city stayed out of the markers and the rows — searching "Riyadh"
+  // showed the handful of Places near one coordinate, not the city. There is
+  // no fixed window that is right for a district and right for a capital, so
+  // none is used as the model.
+  //
+  // NOW: the primary source is the CANONICAL BOUNDING BOX the geocoder
+  // published for the hit it resolved (`searchArea`) — provider data, not a
+  // guess, so a city covers its whole published extent. The old ±0.05° box
+  // survives ONLY as the documented last resort for an answer that carries no
+  // usable boundary (`fallbackSearchArea`), which keeps that single gap
+  // deterministic exactly as before.
+  //
+  // The REAL Leaflet viewport still wins once it exists, and it is released on
+  // every new answer (see `resetViewportLatch`), so the search area is never a
+  // permanent latch that would refuse to follow the user's own panning. It
+  // never changes eligibility, membership, or ordering.
+  const searchViewport = useMemo<MapViewport | null>(
+    () => (searchArea ? searchArea : searchCenter ? fallbackSearchArea(searchCenter) : null),
+    [searchArea, searchCenter],
   );
   const coverageViewport = mapViewport ?? searchViewport;
 
@@ -1261,21 +1348,27 @@ export default function HomeDiscovery({
           {/* Search — MOCKUP §2: floating white bar, search icon LEFT, and
               NOTHING on the right end (approved mockup, 2026-10-04). The
               decorative sliders/settings graphic that used to sit there is
-              REMOVED and is not replaced by any other icon, button, or
-              control: no search-settings feature exists and none is invented.
+              REMOVED and is not replaced by any decorative icon standing in for a
+              feature: what sits at the right end now is the REAL "Cari" submit
+              control, below.
 
-              THE ONE CONDITIONAL CONTROL (unchanged): while the box is
-              non-empty a real clear "×" button appears. It is a FIXED 18×18px
-              box — exactly the footprint the removed graphic occupied — so the
-              bar's width, height, padding, radius, and position are identical
-              empty and filled, and typing or clearing never resizes or shifts
-              it or any control around it. `min-w-0` on the input is what keeps a
-              long query from forcing horizontal overflow on a narrow phone.
+              ONE SUBMIT PATH: Enter and "Cari" both call `handleSearchSubmit`,
+              which is also what invalidates any in-flight answer. The button
+              reads the current draft (`searchQuery`), never the DOM value, and
+              an identical submit while a request is already running is ignored
+              inside that function — so Enter-then-tap cannot fire two geocodes.
 
-              Typing never searches: the ONE search still runs on Enter/submit
-              only (submit-only, 2026-10-04). */}
+              DIMENSIONS ARE STABLE: "Cari" is a FIXED-height, shrink-0 control
+              and the clear "×" keeps its fixed 18×18 box, so the bar's outer
+              width, height, padding, radius, and position are identical empty,
+              typed, pending, and submitted — the input is the only part that
+              changes size, and `min-w-0` keeps a long query from forcing
+              horizontal overflow on a narrow phone.
+
+              Typing never searches: it only edits the draft the ONE submit
+              path reads (submit-only, 2026-10-04). */}
           <div className="pointer-events-auto mt-[60px] sm:mt-[64px]">
-            <div className="flex items-center gap-2.5 rounded-[20px] border border-black/10 bg-white px-3.5 py-2.5 shadow-[0_2px_10px_rgb(0_0_0/0.10)]">
+            <div className="flex items-center gap-2 rounded-[20px] border border-black/10 bg-white pl-3.5 pr-1.5 py-2 shadow-[0_2px_10px_rgb(0_0_0/0.10)]">
               <span className="shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</span>
               <input
                 className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-black/40"
@@ -1295,6 +1388,19 @@ export default function HomeDiscovery({
                   <span aria-hidden>×</span>
                 </button>
               ) : null}
+              {/* "CARI" — the visible submit control inside the field. `type`
+                  is explicit so it can never submit a surrounding form, and
+                  while a geocode is in flight it is disabled so the button
+                  cannot be spammed; the in-flight guard is the real rule. */}
+              <button
+                type="button"
+                onClick={handleSearchSubmitClick}
+                disabled={searchPending}
+                className="inline-flex h-[26px] shrink-0 items-center justify-center rounded-full bg-brand-primary px-3 text-[11px] font-bold uppercase tracking-wide text-white transition hover:opacity-90 disabled:opacity-60"
+                aria-label="Cari lokasi"
+              >
+                Cari
+              </button>
             </div>
             {/* LOCATION SEARCH status (PO 2026-10-02; coordinate readout
                 REMOVED 2026-10-04): ONE source of truth for the geocoder

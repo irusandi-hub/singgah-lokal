@@ -22,7 +22,21 @@ export type GeocodeResult = {
   country?: string;
   state?: string;
   confidence: number;
+  /**
+   * The CANONICAL BOUNDING BOX the provider published for the chosen hit, in
+   * the same `{ north, south, east, west }` shape the map viewport uses, or
+   * `null` when the provider returned no usable area for it.
+   *
+   * This is the searched AREA, straight from the geocoder that resolved the
+   * name — it is never a radius this application guessed, and it is never
+   * fabricated. A city therefore covers its whole published extent instead of
+   * a few kilometres around its centre point.
+   */
+  bounds: GeocodeBounds | null;
 };
+
+/** A canonical geographic box: the shape every coverage filter already reads. */
+export type GeocodeBounds = { north: number; south: number; east: number; west: number };
 
 /**
  * Input validation happens on the server BEFORE any outbound request
@@ -75,7 +89,44 @@ type NominatimHit = {
   display_name?: unknown;
   address?: Record<string, unknown> | undefined;
   type?: unknown;
+  /**
+   * The provider's own administrative bounding box for the hit, as the string
+   * quad `[south, north, west, east]`. It is the canonical searched AREA and
+   * is validated by `parseGeocodeBounds`; an unusable one yields `null`, never
+   * a substitute.
+   */
+  boundingbox?: unknown;
 };
+
+/**
+ * Read the provider's canonical bounding box for a hit, or `null`.
+ *
+ * This is what makes a city search cover the city. The alternative — a small
+ * window around the centre coordinate — is a guess about how big a place is,
+ * and it silently excluded every Place on the far side of a large city; there
+ * is no fixed radius that is correct for both a district and Riyadh, so none is
+ * invented here.
+ *
+ * Fail-closed, like every other parse in this file: a missing quad, a
+ * non-numeric entry, a zero-area or inverted box, or a value outside the legal
+ * coordinate range all yield `null`, and the caller then keeps its documented
+ * narrower behaviour rather than inventing an area. A reversed pair is
+ * repaired rather than rejected — the provider's own ordering is data, not a
+ * semantic — but a genuinely empty box is not usable as an area.
+ */
+export function parseGeocodeBounds(boundingBox: unknown): GeocodeBounds | null {
+  if (!Array.isArray(boundingBox) || boundingBox.length !== 4) return null;
+  const values = boundingBox.map((value) =>
+    Number.parseFloat(typeof value === "string" ? value : ""),
+  );
+  if (!values.every((value) => Number.isFinite(value))) return null;
+  let [south, north, west, east] = values;
+  if (south > north) [south, north] = [north, south];
+  if (west > east) [west, east] = [east, west];
+  if (north <= south || east <= west) return null;
+  if (south < -90 || north > 90 || west < -180 || east > 180) return null;
+  return { north, south, east, west };
+}
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
@@ -141,5 +192,8 @@ export function parseGeocodeResponse(
     ...(country ? { country } : {}),
     ...(state ? { state } : {}),
     confidence: isSettlement(preferred.type) ? 0.95 : 0.8,
+    // The searched AREA, from the provider. The coordinate pair above is only
+    // the centre of it: it is what the camera falls back to when this is null.
+    bounds: parseGeocodeBounds(preferred.boundingbox),
   };
 }

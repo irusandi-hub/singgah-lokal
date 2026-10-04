@@ -236,8 +236,10 @@ test("LOC-08: the search status banner never renders a coordinate readout", () =
   );
   // The resolved center is still resolved, stored, and consumed downstream.
   assert.match(discoveryCode, /const \[searchCenter, setSearchCenter\] = useState<\{ lat: number; lng: number \} \| null>\(null\);/);
-  assert.match(discoveryCode, /north: searchCenter\.lat \+ 0\.05/);
-  assert.match(discoveryCode, /south: searchCenter\.lat - 0\.05/);
+  // It is the CAMERA anchor and the coverage origin; the searched AREA is now
+  // the geocoder's own bounding box, with the old fixed window only as the
+  // documented fallback (2026-10-04).
+  assert.match(discoveryCode, /fallbackSearchArea\(searchCenter\)/);
   assert.match(discoveryCode, /origin: searchCenter \?\? viewerPosition/);
 });
 

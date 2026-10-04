@@ -126,21 +126,25 @@ test("MOCKUP §8: map height is responsive and always leaves the Result panel in
   assert.ok(440 >= ladderBottom, "the control ladder fits the shortest map");
 });
 
-test("MOCKUP §2: search is a floating ~20px-radius white bar with NOTHING on its right", () => {
+test("MOCKUP §2: search is a floating ~20px-radius white bar with a real 'Cari' control", () => {
+  // (2026-10-04: the padding moved to `pl-3.5 pr-1.5` so the new "Cari" button
+  // sits INSIDE the same approved surface; radius, border and shadow are the
+  // same values as before.)
   assert.match(
     code,
-    /flex items-center gap-2\.5 rounded-\[20px\] border border-black\/10 bg-white px-3\.5 py-2\.5 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]/,
+    /flex items-center gap-2 rounded-\[20px\] border border-black\/10 bg-white pl-3\.5 pr-1\.5 py-2 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]/,
   );
   // Copy, label, and control function are untouched by the polish.
   assert.match(code, /aria-label="Cari tempat, cerita, produksi"/);
   assert.match(code, /placeholder="Cari tempat, cerita, produksi\.\.\."/);
-  // APPROVED MOCKUP (2026-10-04): the right end of the search field is now
-  // EMPTY. The decorative sliders/control graphic is REMOVED and replaced by
-  // nothing — not a gear, not another icon, not a button — and no
-  // search-settings feature is invented in its place.
+  // APPROVED MOCKUP (2026-10-04): the DECORATIVE sliders/control graphic is
+  // still removed and is still replaced by no icon and no settings feature.
+  // What sits at the right end now is a REAL submit control, not decoration.
   assert.doesNotMatch(code, /⚙/);
   assert.doesNotMatch(code, /M4 7h10M18 7h2/);
   assert.doesNotMatch(code, /viewBox="0 0 24 24" width="18" height="18"/);
+  assert.match(code, /aria-label="Cari lokasi"/);
+  assert.match(code, />\s*Cari\s*<\/button>/);
   // The search glyph on the left stays.
   assert.match(code, /shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</);
   // A long query can never widen the bar on a narrow phone.
@@ -148,25 +152,27 @@ test("MOCKUP §2: search is a floating ~20px-radius white bar with NOTHING on it
 });
 
 test("MOCKUP §2: the search field is dimensionally stable, empty and filled", () => {
-  // The only right-hand control is the clear "×", and it is a FIXED 18×18px
-  // box — exactly the footprint the removed graphic occupied — so the bar's
-  // width, height, padding, radius and position cannot differ between the
-  // empty and the filled state. Nothing else is conditional inside the bar.
+  // Both right-hand controls are FIXED boxes — the clear "×" at 18×18px and the
+  // "Cari" button at a fixed 26px height — so the bar's width, height, padding,
+  // radius and position cannot differ between the empty and the filled state.
+  // The input is the only elastic part, and it may shrink to zero width.
   assert.match(
     code,
     /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/45 transition hover:bg-black\/10"/,
   );
+  assert.match(code, /className="inline-flex h-\[26px\] shrink-0 items-center justify-center rounded-full bg-brand-primary/);
   const bar = code.slice(
     code.indexOf("rounded-[20px] border border-black/10 bg-white"),
     code.indexOf("Mencari lokasi"),
   );
-  assert.equal((bar.match(/<button/g) ?? []).length, 1, "one control inside the bar, and it is the clear button");
-  assert.equal((bar.match(/<svg/g) ?? []).length, 0, "no icon is rendered inside the bar");
-  // The clear affordance itself is unchanged, and it is still submit-only:
-  // typing never searches, the ONE search still runs on Enter.
+  assert.equal((bar.match(/<button/g) ?? []).length, 2, "the clear button and the Cari button, nothing else");
+  assert.equal((bar.match(/<svg/g) ?? []).length, 0, "no decorative icon is rendered inside the bar");
+  // The clear affordance itself is unchanged, and search is still submit-only:
+  // typing never searches, Enter and "Cari" share the ONE submit path.
   assert.match(code, /onClick=\{handleSearchClear\}/);
   assert.match(code, /aria-label="Hapus pencarian"/);
   assert.match(code, /onKeyDown=\{handleSearchKeyDown\}/);
+  assert.match(code, /onClick=\{handleSearchSubmitClick\}/);
   assert.equal(/onChange=\{\(event\) => handleSearchSubmit/.test(code), false, "no search-on-keystroke");
 });
 
