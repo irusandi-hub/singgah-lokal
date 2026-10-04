@@ -418,7 +418,7 @@ test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right are truthful
   // (it never was invented state) — it is simply no longer drawn as a scale.
   assert.match(
     code,
-    /const activeRadiusMeters = curatedOnly\n\s*\? CURATED_CAMERA_RADIUS_M\n\s*: CAMERA_PRESET_RADIUS_M\[distanceFilter\];/,
+    /const activeRadiusMeters = CAMERA_PRESET_RADIUS_M\[distanceFilter\];/,
   );
 });
 
@@ -570,7 +570,7 @@ test("polish leaves the functional camera / coverage / marker wiring untouched",
   // treatment still flows through mapPlaces.
   assert.match(
     code,
-    /cameraRadiusMeters=\{\s*curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]\s*\}/,
+    /cameraRadiusMeters=\{\s*CAMERA_PRESET_RADIUS_M\[distanceFilter\]\s*\}/,
   );
   assert.match(code, /pulsePinOnPresetChange=\{curatedOnly\}/);
   assert.match(

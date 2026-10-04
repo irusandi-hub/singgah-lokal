@@ -203,7 +203,7 @@ test("map behavior is untouched: dataset, camera presets, curated camera", () =>
   const mapDataset = code.slice(code.indexOf("const mapPlaces"));
   assert.match(mapDataset, /: visiblePlaces;/);
   // ONE camera preset path, curated camera intact (locked Task 1 semantics).
-  assert.match(code, /cameraRadiusMeters=\{\s*curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]\s*\}/);
+  assert.match(code, /cameraRadiusMeters=\{\s*CAMERA_PRESET_RADIUS_M\[distanceFilter\]\s*\}/);
   // The curated marker treatment is per Place (canonical is_curated), not a
   // mode-level prop — the curated map shows both kinds at once.
   assert.doesNotMatch(code, /curatedMarkers/);

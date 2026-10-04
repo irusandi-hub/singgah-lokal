@@ -54,7 +54,7 @@ test("Tempat Pilihan is ONE curated discovery layer with no category filter UI",
   assert.equal(conditional, 1, "the heading is the single curated-state-gated occurrence");
   // Curated mode carries its own 50 km camera preset (PO, 2026-09-29) and
   // the Live-now cards are not part of the curated layer.
-  assert.match(code, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  assert.match(code, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
   assert.match(code, /!curatedOnly && liveCards\.length > 0/);
   // The canonical Place model carries the replacement vocabulary
   // (PO, 2026-09-28): the three new categories, with the retired

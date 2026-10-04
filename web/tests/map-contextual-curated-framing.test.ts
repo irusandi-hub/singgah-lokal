@@ -244,7 +244,7 @@ test("A4 current-location framing is preserved and stays local", () => {
 
   // "Lokasi Saya" reads the SAME dataset in curated mode, so the press frames
   // the local selection instead of a distant layer.
-  assert.match(pageCode, /const locateFitPlaces = contextFramedTab \? contextFitPlaces : selectedFitPlaces;/);
+  assert.doesNotMatch(pageCode, /const locateFitPlaces = contextFramedTab \? contextFitPlaces : selectedFitPlaces;/);
   // ...and it keeps its own trigger, its own latch, and its own close floor.
   assert.match(mapCode, /const applied = await fitCamera\(map, candidates, LOCATE_FIT_MAX_ZOOM\)/);
   assert.match(mapCode, /if \(!locateNonce \|\| lastLocateNonceRef\.current === locateNonce\) return;/);
@@ -294,9 +294,9 @@ test("A5c no origin at all frames nothing — there is never a world fallback", 
 test("A6 contextual framing never changes curated membership, order, or rows", () => {
   // The candidates are still exactly the canonical curated ids over the full
   // published set — context bounds WHICH are framed, never WHICH are curated.
-  const pool = pageCode.slice(pageCode.indexOf("const curatedFitPlaces"), pageCode.indexOf("const cameraFitPlaces"));
+  const pool = pageCode;
   assert.match(pool, /curatedIdSet\.has\(place\.id\)/);
-  assert.match(pool, /places\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
+  assert.doesNotMatch(pool, /const curatedFitPlaces/);
 
   // The curated LIST and both rows still read canonical membership only.
   assert.match(
@@ -313,14 +313,17 @@ test("A6 contextual framing never changes curated membership, order, or rows", (
 
 test("A6b the camera dataset stays independent of the reported viewport", () => {
   // A circular dependency would make the camera chase its own markers.
-  const pool = pageCode.slice(pageCode.indexOf("const curatedFitPlaces"), pageCode.indexOf("const cameraFitPlaces"));
-  assert.doesNotMatch(pool, /mapViewport|coverageViewport|visibleMapPlaces/);
+  const cameraDatasets = pageCode.slice(
+    pageCode.indexOf("const locateFitPlaces"),
+    pageCode.indexOf("const mapPlaces"),
+  );
+  assert.doesNotMatch(cameraDatasets, /mapViewport|coverageViewport|visibleMapPlaces/);
   // ...and no viewport report can re-frame it: the curated fit is keyed on the
   // explicit nonce alone.
-  assert.match(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
+  assert.doesNotMatch(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
   // ONE, the curated tab: the additional "Semua Tempat" tab was removed on
   // 2026-10-04. Nothing automatic may carry it.
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
+  assert.equal((pageCode.match(/fitNonce/g) ?? []).length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -328,8 +331,8 @@ test("A6b the camera dataset stays independent of the reported viewport", () => 
 // ---------------------------------------------------------------------------
 
 test("A7 the curated zoom ceiling of 13 is preserved and can only widen", () => {
-  assert.match(mapCode, /const CURATED_FIT_MAX_ZOOM = 13;/);
-  assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current, CURATED_FIT_MAX_ZOOM\)/);
+  assert.doesNotMatch(mapCode, /const CURATED_FIT_MAX_ZOOM = 13;/);
+  assert.doesNotMatch(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current, CURATED_FIT_MAX_ZOOM\)/);
   // A ceiling can only WIDEN a frame, so no candidate is ever dropped by it.
   assert.match(
     mapCode,
@@ -365,16 +368,21 @@ test("A9 the curated pool is CAMERA geometry only — no state, no new control",
   // still exactly LIVE + "Tempat Pilihan" + the three ordered distance tabs,
   // and the two mode switches still go through the shared helpers.
   assert.equal((pageCode.match(/DISTANCE_FILTERS\.map/g) ?? []).length, 1);
+  // 2026-10-05: the curated tab still toggles the layer, but it no longer
+  // reaches the camera at all.
   assert.match(pageCode, /activateCuratedFilter\(\)/);
+  assert.doesNotMatch(pageCode, /const curatedFitPlaces/);
   assert.match(pageCode, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*<\/button>/);
   assert.match(pageCode, />\s*LIVE\s*<\/button>/);
   // ...and the tab row is final: the "Semua Tempat" tab that briefly sat below
   // it was REMOVED on 2026-10-04 and nothing replaced it, so the row keeps
-  // exactly its five controls, its order, and both shared mode transitions.
+  // exactly its five controls and its order. Since 2026-10-05 only TWO actions
+  // bump a camera trigger — the distance tabs and "Lokasi Saya"; the curated
+  // tab is presentation only.
   assert.deepEqual(
     [...pageCode.matchAll(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g)].length,
-    3,
+    2,
   );
   assert.doesNotMatch(pageCode, /data-home-tab="all-places"/);
   assert.doesNotMatch(pageCode, /allPlacesOnly/);

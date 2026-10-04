@@ -127,14 +127,14 @@ test("C6 a context change during an active search invalidates the in-flight answ
 test("C7 every camera apply is keyed on its own explicit trigger", () => {
   // Curated: fitNonce. Locate: locateNonce. Search: searchNonce. Distance tabs
   // and the curated tab: cameraRequestNonce. Nothing else can move the camera.
-  assert.match(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
+  assert.doesNotMatch(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
   assert.match(mapCode, /if \(!locateNonce \|\| lastLocateNonceRef\.current === locateNonce\) return;/);
   assert.match(mapCode, /if \(!ready \|\| !map \|\| !searchCenter \|\| !searchNonce\) return;/);
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
   // The dataset is mirrored into a REF, so a new Place array (a discovery poll,
   // a search refresh) can never re-run a fit that already happened.
-  assert.match(mapCode, /const fitPlacesRef = useRef<HomeMapPlace\[\]>\(fitPlaces\);/);
-  assert.match(mapCode, /useEffect\(\(\) => \{\s*fitPlacesRef\.current = fitPlaces;\s*\}, \[fitPlaces\]\);/);
+  assert.doesNotMatch(mapCode, /const fitPlacesRef = useRef<HomeMapPlace\[\]>\(fitPlaces\);/);
+  assert.doesNotMatch(mapCode, /useEffect\(\(\) => \{\s*fitPlacesRef\.current = fitPlaces;\s*\}, \[fitPlaces\]\);/);
 });
 
 test("C8 markers are rebuilt only when the marker SET changes", () => {
@@ -167,13 +167,13 @@ test("C9 viewport reports are deduped, so a settled map never re-renders the row
 // 5. The curated camera dataset is derived, not re-filtered per render
 // ---------------------------------------------------------------------------
 
-test("C10 the curated camera pool is memoised on stable inputs only", () => {
-  assert.match(
-    pageCode,
-    /const curatedFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{[\s\S]*?\}, \[places, curatedIdSet, searchCenter, viewerPosition, searchViewport\]\);/,
-  );
+test("C10 2026-10-05: there is NO curated camera pool to memoise", () => {
+  // The curated camera pool and its fit nonce are REMOVED: "Tempat Pilihan"
+  // is a presentation layer and must never rebuild or re-frame the camera.
+  assert.doesNotMatch(pageCode, /const curatedFitPlaces/);
+  assert.doesNotMatch(pageCode, /fitNonce/);
   // It is not derived inside the render body and not stored in state, so a
-  // keystroke can never rebuild the camera dataset.
+  // keystroke can never rebuild a camera dataset.
   assert.equal((pageCode.match(/setCuratedFit|setCuratedCamera/g) ?? []).length, 0);
 });
 

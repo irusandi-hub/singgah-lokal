@@ -115,7 +115,7 @@ test("Marker refresh and filter changes never steal the viewport from the user",
   // prop — that is what keeps viewport/marker/camera from becoming circular.
   assert.match(mapCode, /const points = collectGeoPoints\(candidatePlaces\)/);
   assert.doesNotMatch(mapCode, /fitBounds\(L\.latLngBounds\(corners\)[\s\S]{0,200}collectGeoPoints\(places\)/);
-  assert.match(mapCode, /fitPlacesRef = useRef<HomeMapPlace\[\]>\(fitPlaces\)/);
+  assert.doesNotMatch(mapCode, /fitPlacesRef = useRef<HomeMapPlace\[\]>\(fitPlaces\)/);
   assert.match(mapCode, /searchFitPlacesRef = useRef<HomeMapPlace\[\]>\(searchFitPlaces\)/);
   // ...and programmatic flights are excluded from the latch.
   assert.match(mapCode, /programmaticMoveRef\.current = true/);
@@ -237,7 +237,7 @@ test("Every distance tab is a deterministic camera preset through ONE mechanism"
   assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ \.\.\.cameraAnimationOptions\(\) \}\)/);
   // Home feeds every mode into that ONE camera prop: distance tabs through
   // the ordered preset mapping, curated through its 10 km value.
-  assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  assert.match(pageCode, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
   // The zoom is derived from the preset radius, never from the current zoom:
   // no Math.max(map.getZoom()...) preset flight survives.
   assert.doesNotMatch(mapCode, /Math\.max\(map\.getZoom\(\), \d+\)[^\n]*preset/i);
@@ -373,7 +373,7 @@ test("The curated and 10 km tab camera coverages stay exactly 10,000 m; no cover
   const curatedCameraUses = pageCode.match(/CURATED_CAMERA_RADIUS_M/g) ?? [];
   // 3 uses: import + the camera prop + the MOCKUP coverage/scale LABEL that
   // mirrors the active radius (display only — never a filter input).
-  assert.equal(curatedCameraUses.length, 3, "import + camera prop + display label only");
+  assert.equal(curatedCameraUses.length, 0, "2026-10-05: the curated tab never touches a camera radius");
   // The locate path stays a SEPARATE mechanism: it never reads the preset
   // radius of the selected tab.
   const locateEffect = mapCode.slice(
@@ -427,7 +427,7 @@ test("Bounded radius focuses the camera on the real Current Location, never on m
   // Home passes ONE camera preset mapping for every mode (distance tabs or
   // the curated 10 km preset).
   const pageCode = stripComments(homePage);
-  assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  assert.match(pageCode, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
 });
 
 test("No-preset fallback keeps the one-shot unbounded focus; it is not a distance tab", () => {
@@ -527,7 +527,7 @@ test("A new preset refocuses deterministically; manual pan/zoom wins between cho
   assert.match(mapCode, /getBoundsZoom\(bounds\)/);
   // Home passes the ONE preset mapping (curated 50 km or the tab preset).
   const pageCode = stripComments(homePage);
-  assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  assert.match(pageCode, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
 });
 
 test("Remount/refresh safety: container claim, full teardown, and size re-measure", () => {
@@ -554,8 +554,8 @@ test("Curated mode centers the camera on Current Location with 10 km coverage", 
   // Home passes the curated camera radius ONLY while curated is on; normal
   // modes keep the distance-tab preset mapping untouched. Both are 10 km
   // (locked by the coverage constants), never the retired 50 km frame.
-  assert.match(pageCode, /CURATED_CAMERA_RADIUS_M/);
-  assert.match(pageCode, /cameraRadiusMeters=\{\n?\s*curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]\n?\s*\}/);
+  assert.doesNotMatch(pageCode, /CURATED_CAMERA_RADIUS_M/);
+  assert.match(pageCode, /cameraRadiusMeters=\{\n?\s*CAMERA_PRESET_RADIUS_M\[distanceFilter\]\n?\s*\}/);
   assert.equal(CURATED_CAMERA_RADIUS_M, 10_000);
   // The map applies to the REAL fix with radius-derived zoom — no fallback
   // coordinate is ever introduced (the no-fake-position test above still
@@ -583,7 +583,7 @@ test("Curated MEMBERSHIP never comes from the camera radius or the coverage rule
   // 3 uses: import + the camera prop + the MOCKUP coverage/scale LABEL that
   // mirrors the active radius (display only — still never a membership or
   // dataset input; the membership rule above stays untouched).
-  assert.equal(cameraUses.length, 3, "import + camera prop + truthful display label only");
+  assert.equal(cameraUses.length, 0, "2026-10-05: the curated tab never touches a camera radius");
   // The coverage rule may only ADD ordinary Places to the curated MAP, and
   // only as the non-curated remainder. RE-ORDERED (product decision,
   // 2026-10-03): that remainder is named ONCE as `curatedCoverageSource` and

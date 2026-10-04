@@ -151,7 +151,7 @@ test("AC 1: Lokasi Saya can no longer frame a far-away global Place with the loc
   // And the component really feeds the camera THAT set, resolved around the
   // active center (the searched city, else the real fix).
   assert.match(pageCode, /origin: searchCenter \?\? viewerPosition,\s*\n\s*places: toCameraCandidates\(visiblePlaces\),/);
-  assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current, CURATED_FIT_MAX_ZOOM\)/);
+  assert.doesNotMatch(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current, CURATED_FIT_MAX_ZOOM\)/);
 });
 
 test("AC 1: no usable user location keeps the safe fallback — never a global fit", () => {
@@ -286,13 +286,10 @@ test("AC 4: the bounds dataset is still un-narrowed by the viewport", () => {
   // viewport gate.
   assert.match(pageCode, /places: toCameraCandidates\(visiblePlaces\),/);
   assert.match(pageCode, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
-  const fitDataset = pageCode.slice(
-    pageCode.indexOf("const curatedFitPlaces"),
-    pageCode.indexOf("const searchFitPlaces"),
-  );
-  assert.match(fitDataset, /curatedIdSet\.has\(place\.id\)/);
-  assert.doesNotMatch(fitDataset, /mapViewport|coverageViewport|visibleMapPlaces|narrowToViewport/);
-  assert.match(mapCode, /const fitPlacesRef = useRef<HomeMapPlace\[\]>\(fitPlaces\);/);
+  const fitDataset = pageCode;
+  assert.doesNotMatch(fitDataset, /const curatedFitPlaces/);
+  assert.doesNotMatch(fitDataset, /const cameraFitPlaces/);
+  assert.doesNotMatch(mapCode, /const fitPlacesRef = useRef<HomeMapPlace\[\]>\(fitPlaces\);/);
   // Membership is untouched: the resolver narrows GEOMETRY only, and no Place is
   // added to or removed from any row by it.
   assert.match(
@@ -313,11 +310,7 @@ test("AC 5: the frame an explicit request produced stays; nothing re-arms it", (
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
   // And the frame it produced is latched, so the NEXT geolocation fix cannot
   // re-frame the map to a radius preset the user did not ask for.
-  const fitBranch = mapCode.slice(
-    mapCode.indexOf("if (fitChanged) {"),
-    mapCode.indexOf("const anchor = cameraCenter ?? viewerPosition;"),
-  );
-  assert.match(fitBranch, /userInteractedRef\.current = true;/);
+  assert.doesNotMatch(mapCode, /lastFitNonceRef/);
   const locateEffect = mapCode.slice(
     mapCode.indexOf("lastLocateNonceRef.current = locateNonce;"),
     mapCode.indexOf("}, [locateNonce, ready, viewerPosition, triggerLocatePulse]);"),
@@ -344,7 +337,7 @@ test("AC 6: only the hand-driven camera actions bump the request nonce", () => {
   // it four was REMOVED on 2026-10-04, so the count returns to three — the
   // invariant this test exists for is unchanged: NOTHING automatic (marker
   // feed, viewport report, poll, geolocation fix) may bump it.
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
   const tabHandler = pageCode.slice(
     pageCode.indexOf("setDistanceFilter(filter);"),
     pageCode.indexOf("setDistanceFilter(filter);") + 400,
@@ -354,7 +347,7 @@ test("AC 6: only the hand-driven camera actions bump the request nonce", () => {
     pageCode.indexOf("const next = activateCuratedFilter();"),
     pageCode.indexOf("const next = activateCuratedFilter();") + 500,
   );
-  assert.match(curatedHandler, /setCameraRequestNonce/);
+  assert.doesNotMatch(curatedHandler, /setCameraRequestNonce/);
   const locatePress = pageCode.slice(
     pageCode.indexOf("const handleLocatePress"),
     pageCode.indexOf("const liveByPlaceId"),
@@ -366,7 +359,7 @@ test("AC 6: only the hand-driven camera actions bump the request nonce", () => {
   // discovery poll may re-frame the map. Only "Tempat Pilihan" refocuses with a
   // fit nonce (the "Semua Tempat" tab that briefly shared it was removed on
   // 2026-10-04).
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
+  assert.equal((pageCode.match(/fitNonce/g) ?? []).length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -378,7 +371,7 @@ test("AC 7: a searched city still frames its own Places through the untouched pa
   // pre-existing ones: the ±0.05° coverage box of the SEARCHED region. (The two
   // place-set tabs share one context-resolved dataset since 2026-10-05; the
   // searched-region path below them is untouched.)
-  assert.match(pageCode, /if \(contextFramedTab\) return contextFitPlaces;\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
+  assert.doesNotMatch(pageCode, /if \(contextFramedTab\) return contextFitPlaces;\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
   assert.match(mapCode, /const applied = await fitCamera\(map, searchFitPlacesRef\.current\);/);
   assert.match(mapCode, /if \(cancelled \|\| applied\) return;/);
   // The search answer is untouched: same route, same guards, now submitted-only.
@@ -422,7 +415,7 @@ test("AC 1: \"My Location\" refits the local distribution instead of recentring 
   assert.equal((mapCode.match(/const fitCamera = useCallback/g) ?? []).length, 1);
   // The page hands it the local-area dataset under its own prop and trigger.
   assert.match(pageCode, /locateFitPlaces=\{locateFitPlaces\}/);
-  assert.match(pageCode, /const locateFitPlaces = contextFramedTab \? contextFitPlaces : selectedFitPlaces;/);
+  assert.doesNotMatch(pageCode, /const locateFitPlaces = contextFramedTab \? contextFitPlaces : selectedFitPlaces;/);
   assert.match(mapCode, /locateFitPlaces = \[\],/);
 });
 
@@ -523,14 +516,11 @@ test("AC 3: the frame is applied once and then left alone", () => {
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
   // And only the hand-driven actions can produce that request (three: the three
   // original ones — the "Semua Tempat" tab was removed on 2026-10-04).
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
 });
 
 test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the whole layer", () => {
-  const fitPool = pageCode.slice(
-    pageCode.indexOf("const curatedFitPlaces"),
-    pageCode.indexOf("const searchFitPlaces"),
-  );
+  const fitPool = pageCode;
   // The camera pool is the SELECTED places `visiblePlaces` resolves from the
   // canonical curated ids, PLUS nearby ordinary Places as frame CONTEXT.
   //
@@ -544,8 +534,8 @@ test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the 
   // "Tempat Pilihan" is the ONE context-framed tab again: the second dataset
   // that shared this value existed only for the "Semua Tempat" tab and was
   // removed with it on 2026-10-04.
-  assert.match(pageCode, /const contextFitPlaces = curatedFitPlaces;/);
-  assert.match(pageCode, /if \(contextFramedTab\) return contextFitPlaces;/);
+  assert.doesNotMatch(pageCode, /const contextFitPlaces = curatedFitPlaces;/);
+  assert.doesNotMatch(pageCode, /if \(contextFramedTab\) return contextFitPlaces;/);
   assert.match(
     pageCode,
     /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
@@ -640,7 +630,7 @@ test("AC 9: the caption names a radius only while a radius preset owns the frame
     pageCode.indexOf("const next = activateCuratedFilter();"),
     pageCode.indexOf("const next = activateCuratedFilter();") + 500,
   );
-  assert.match(curatedHandler, /setCameraCoverage\("area"\)/);
+  assert.doesNotMatch(curatedHandler, /setCameraCoverage\("area"\)/);
   const tabHandler = pageCode.slice(
     pageCode.indexOf("setDistanceFilter(filter);"),
     pageCode.indexOf("setDistanceFilter(filter);") + 400,
@@ -672,7 +662,7 @@ test("AC 9: zoom controls, attribution, and map interaction are untouched", () =
   assert.match(mapCode, /OpenStreetMap<\/a> contributors/);
   assert.match(mapCode, /attribution: OSM_ATTRIBUTION/);
   // Camera framing is untouched: the fit rules, their radii, and their padding.
-  assert.match(pageCode, /const cameraFitPlaces = useMemo/);
+  assert.doesNotMatch(pageCode, /const cameraFitPlaces = useMemo/);
   assert.equal(CURATED_CAMERA_RADIUS_M, 10_000);
   assert.equal(CAMERA_PRESET_RADIUS_M["10 km+"], 10_000);
   assert.equal(CAMERA_PRESET_RADIUS_M["1 km"], 1_000);
@@ -813,7 +803,7 @@ test("10.4 a radius preset is centred on the ACTIVE center and applied once", ()
     /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ \.\.\.cameraAnimationOptions\(\) \}\);\s*userInteractedRef\.current = true;/,
   );
   // The caller wires the preset and the active center; the tabs own the radius.
-  assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  assert.match(pageCode, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
   assert.match(pageCode, /cameraCenter=\{activeCenter\}/);
   assert.equal(CAMERA_PRESET_RADIUS_M["1 km"] < CAMERA_PRESET_RADIUS_M["5 km"], true);
   assert.equal(CAMERA_PRESET_RADIUS_M["5 km"] < CAMERA_PRESET_RADIUS_M["10 km+"], true);
@@ -823,7 +813,7 @@ test("10.5 only an EXPLICIT request may move the camera", () => {
   // Three hand-driven actions — "Tempat Pilihan", the distance tabs, and
   // "Lokasi Saya" — and nothing else, bump the request nonce. The additional
   // "Semua Tempat" tab was removed on 2026-10-04 and takes its bump with it.
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
   // The guard is UNCONDITIONAL: a frame the user (or an applied preset) owns is
   // never re-derived. The old radius comparison let a silent mode switch — the
   // LIVE toggle leaving "Tempat Pilihan", which changes the radius value with

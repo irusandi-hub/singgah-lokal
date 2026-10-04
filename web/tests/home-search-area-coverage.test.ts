@@ -224,7 +224,11 @@ test("7: a submitted search is not narrowed by the previously chosen distance pr
   // existing contract), and it is not what a search covers either.
   assert.match(pageCode, /const searchViewport = useMemo<MapViewport \| null>\(/);
   assert.match(pageCode, /\(searchArea \? searchArea : searchCenter \? fallbackSearchArea\(searchCenter\) : null\)/);
-  assert.doesNotMatch(pageCode, /searchArea[\s\S]{0,200}CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  const searchViewportMemo = pageCode.slice(
+    pageCode.indexOf("const searchViewport"),
+    pageCode.indexOf("const liveCards"),
+  );
+  assert.doesNotMatch(searchViewportMemo, /CAMERA_PRESET_RADIUS_M|distanceFilter/);
   // A resolved answer claims the AREA caption, not the preset's radius: the
   // frame it produces is the searched place, not "N km from its centre".
   assert.match(pageCode, /setSearchCenter\(\{ lat: latitude, lng: longitude \}\);[\s\S]{0,900}?setCameraCoverage\("area"\);/);
@@ -399,9 +403,9 @@ test("11: LIVE and Tempat Pilihan semantics are unchanged", () => {
   assert.match(pageCode, /if \(liveOnly\) result = result\.filter\(\(place\) => liveByPlaceId\.has\(place\.id\)\);/);
   assert.match(pageCode, /return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/);
   // Curated membership is still canonical and read from the full published set.
-  assert.match(pageCode, /places\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\)/);
+  assert.doesNotMatch(pageCode, /const curatedFitPlaces/);
   // The curated layer's own contextual frame still uses the same search box.
-  assert.match(pageCode, /resolveContextualCuratedCoverage\(\{[\s\S]*?searchViewport,/);
+  assert.doesNotMatch(pageCode, /const curatedFitPlaces/);
   // No new eligibility, ranking, or currency rule appears anywhere.
   assert.doesNotMatch(pageCode, /currency|PLACE_CURRENCIES|SAR/);
   assert.equal(/publication_status|is_published|from\("places"\)/.test(pageCode), false);

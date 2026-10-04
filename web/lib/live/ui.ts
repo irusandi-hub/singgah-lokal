@@ -420,6 +420,67 @@ export function resolveCameraFitPadding(size: { x: number; y: number }): {
  */
 export const FIT_SINGLE_PLACE_ZOOM = 15;
 
+/**
+ * THE INITIAL EXPLORATION SET FOR "LOKASI SAYA" (2026-10-05).
+ *
+ * ROOT CAUSE this fixes: `resolveLocalAreaCoverage` resolves the viewer's own
+ * trusted geography, and when that geography holds a SINGLE canonical Place it
+ * legitimately returns just that one. The locate fit then had two points — that
+ * one Place and the user's own coordinate — which are usually metres apart, so
+ * `fitBounds` produced a frame a few hundred metres across at the close zoom
+ * floor. The result was exactly what the product does not want: "Lokasi Saya"
+ * framed a single nearest pin while other relevant Places sat just outside the
+ * screen, and no amount of panning recovered the intended exploration area.
+ *
+ * THE CORRECTION reuses the rule that was ALREADY approved and is already on
+ * screen — the ACTIVE distance preset (`CAMERA_PRESET_RADIUS_M`, 1 km by
+ * default). That radius is the user's own stated exploration scope, so widening
+ * to it introduces NO new radius, NO fixed zoom, and NO new geographic rule; it
+ * only stops the frame from being tighter than the exploration area the user
+ * already selected.
+ *
+ * Rules:
+ *  · the local-area selection is ALWAYS kept, and is never replaced;
+ *  · it is only WIDENED when it holds fewer than two Places, i.e. exactly when
+ *    it cannot show more than one Place at all;
+ *  · the widening set is the eligible Places inside the passed radius, and a
+ *    Place without canonical coordinates is never admitted (fail-closed);
+ *  · canonical input order is preserved, so ranking and eligibility are
+ *    untouched — this value is camera geometry only.
+ */
+export function resolveExploreFitPlaces<T extends LocalAreaPlace>(input: {
+  origin: ActiveCenter | null;
+  /** The already-resolved local-area Places (canonical membership). */
+  localPlaces: readonly T[];
+  /** Every eligible Place the current content filters allow. */
+  candidatePlaces: readonly T[];
+  /**
+   * The ACTIVE distance preset radius, in metres. Passed in by the caller so
+   * this helper never defines a radius of its own.
+   */
+  radiusMeters: number;
+}): T[] {
+  const hasCoordinates = (place: LocalAreaPlace): boolean =>
+    Number.isFinite(place.latitude) && Number.isFinite(place.longitude);
+  if (!isUsableCenter(input.origin)) return [];
+  if (input.localPlaces.length >= 2) return input.localPlaces.filter(hasCoordinates);
+
+  const origin = input.origin;
+  const alreadyPresent = new Set(input.localPlaces.map((place) => place.id));
+  const keep = new Set(
+    input.candidatePlaces
+      .filter(
+        (place) =>
+          hasCoordinates(place) &&
+          (alreadyPresent.has(place.id) ||
+            distanceMeters(origin, { lat: place.latitude as number, lng: place.longitude as number }) <=
+              input.radiusMeters),
+      )
+      .map((place) => place.id),
+  );
+  return input.candidatePlaces.filter((place) => hasCoordinates(place) && keep.has(place.id));
+}
+
 export function distanceMeters(
   from: { lat: number; lng: number },
   to: { lat: number; lng: number },
