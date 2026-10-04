@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requireProducerAccess } from "@/lib/auth/server";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
-import { resolvePlaceMutation, PlaceInputError } from "@/lib/place-management";
+import { resolvePlaceMutation, assertApplicationCurrency, PlaceInputError } from "@/lib/place-management";
 
 export async function GET(request: Request, { params }: { params: Promise<{ placeId: string }> }) {
   try {
@@ -31,6 +31,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ pl
     const mutation = await resolvePlaceMutation(await request.json(), id, {
       fallbackTimezone: existing.timezone ?? null,
     });
+    // APPLICATION CURRENCY RULE (server-side, AGENTS.md: validate inputs on the
+    // server): a Producer Place is IDR or USD. The shared parser accepts the
+    // whole stored vocabulary so an existing Place can always be re-saved with
+    // the currency it already has; this refuses only a NEW unsupported choice.
+    assertApplicationCurrency(mutation.currency);
     const sensitiveFields: (keyof typeof mutation)[] = ["area", "address", "contactInformation", "timezone", "currency", "latitude", "longitude"];
     if (access.role === "editor" && sensitiveFields.some((field) => mutation[field] !== existing[field])) {
       return NextResponse.json({ error: "producer_authorization_required" }, { status: 403 });

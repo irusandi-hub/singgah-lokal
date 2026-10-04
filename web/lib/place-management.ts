@@ -1,15 +1,42 @@
-import { type PlaceType, isValidPlaceCategory, validatePlaceInput } from "@/lib/places";
+import {
+  PLACE_CURRENCIES,
+  isApplicationCurrency,
+  isValidPlaceCategory,
+  validatePlaceInput,
+  type PlaceType,
+} from "@/lib/places";
 import { isValidPlaceCountry, isValidPlaceRegion } from "@/lib/geo/countries";
 import type { PlaceMutation } from "@/lib/place-experience-repository";
 
-// The canonical currency vocabulary (PO, 2026-09-28) — exactly IDR and USD,
-// enforced here on every write and in the database by migration 0033's
-// places_currency_check.
-const currencies = ["IDR", "USD"] as const;
-type ValidPlaceCurrency = (typeof currencies)[number];
+// The STORED currency vocabulary, imported from its single canonical home
+// (`lib/places.ts`) instead of being re-spelled here. The previous local copy
+// (`["IDR", "USD"]`, documented as "exactly IDR and USD") had drifted away from
+// the applied database CHECK — migration 0039 widened it with SAR (Master
+// Developer Authority & Dummy Place §7) and `PLACE_CURRENCIES` follows — while
+// the Admin currency select kept rendering that same widened list. The result
+// was a Place that could be loaded and displayed with SAR but could never be
+// saved again: the UI offered a value the server refused. One list, one rule.
+const currencies = PLACE_CURRENCIES;
+type ValidPlaceCurrency = (typeof PLACE_CURRENCIES)[number];
 const types: PlaceType[] = ["production", "experience"];
 
 export class PlaceInputError extends Error {}
+
+/**
+ * THE PRODUCER-SCOPED APPLICATION CURRENCY RULE.
+ *
+ * A stored Place may carry SAR (Master 01: currency follows the Place's own
+ * geography; Master Developer Authority & Dummy Place §7), but SINGGAH LOKAL
+ * works in IDR and USD only — that is what the Producer Place form offers and
+ * what every platform surface may price or label. The Producer write routes
+ * therefore run this check AFTER the shared parse: it never widens what the
+ * database accepts, it only refuses a value the platform does not support from
+ * a Producer's own request. The error code is the existing one, so the UI, the
+ * status mapping, and the Admin surface keep one vocabulary for a bad currency.
+ */
+export function assertApplicationCurrency(currency: string): void {
+  if (!isApplicationCurrency(currency)) throw new PlaceInputError("place_currency_invalid");
+}
 
 function parseCoverImageUrl(value: unknown): string | null {
   // Optional URL; empty/absent clears it. Server-validated (https, bounded).

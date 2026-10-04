@@ -13,16 +13,76 @@ export const PLACE_CATEGORIES: readonly PlaceCategory[] = [
 ] as const;
 
 /**
- * The complete currency vocabulary (PO, 2026-09-28): the exact values the
- * server accepts and migration 0033's `places_currency_check` enforces.
+ * THE STORED PLACE CURRENCY VOCABULARY — the exact values a `places.currency`
+ * column may hold.
+ *
+ * This is the ONE list every write path, the read model, and the Admin currency
+ * select are checked against, and it mirrors the database exactly:
+ * migration 0033's `places_currency_check` (`IDR`, `USD`) as widened by
+ * migration 0039 (`+ SAR`).
+ *
+ * SAR is in this list for ONE reason, recorded in MASTER DEVELOPER AUTHORITY &
+ * DUMMY PLACE v1.0 §7: a Place must always be able to carry an honest currency
+ * for its own geography (Master 01: "Currency follows Place") instead of
+ * claiming a currency its geography does not have. It admits the value for
+ * DEV-only test Places (migration 0040's ten Riyadh fixtures); it does NOT open
+ * a new market and does NOT make SAR a currency the platform prices, formats,
+ * or offers in its own surfaces — see `APPLICATION_CURRENCIES` below.
  */
-// SAR admitted (migration 0039) so a Place can always carry an honest currency
-// for its own geography (Master 01: "Currency follows Place"). The initial
-// market is unchanged — this widens the accepted vocabulary, it does not open
-// a new market.
 export const PLACE_CURRENCIES: readonly PlaceCurrency[] = ["IDR", "USD", "SAR"] as const;
 
 export type PlaceCurrency = "IDR" | "USD" | "SAR";
+
+/**
+ * THE APPLICATION CURRENCY VOCABULARY — what SINGGAH LOKAL itself supports
+ * (PO, 2026-09-28): Indonesian Rupiah and US Dollar.
+ *
+ * This is a DIFFERENT rule from `PLACE_CURRENCIES`, and keeping the two apart is
+ * the point:
+ *  · a stored Place may legitimately carry SAR (Master 01: currency follows the
+ *    Place's own geography; Master Developer Authority §7), so the read model
+ *    and the Admin editor must be able to load, show, and re-save it;
+ *  · the APPLICATION never prices, formats, offers, or accepts SAR: a Producer
+ *    can only set IDR or USD on a Place, and nothing in the product formats an
+ *    amount in SAR.
+ * Prices and tickets stay informational either way (AGENTS.md: no payment,
+ * checkout, wallet, escrow, or settlement).
+ */
+export const APPLICATION_CURRENCIES: readonly ApplicationCurrency[] = ["IDR", "USD"] as const;
+
+export type ApplicationCurrency = "IDR" | "USD";
+
+/**
+ * Deterministic, locale-independent labels for every stored currency.
+ *
+ * These are FIXED strings, never `Intl` output: a Place's currency must read
+ * identically on every device, in every locale, forever — no symbol, no
+ * separator, and no digit shaping is ever derived from the runtime locale, so
+ * the UI can never disagree with the stored code.
+ */
+export const PLACE_CURRENCY_LABELS: Readonly<Record<PlaceCurrency, string>> = {
+  IDR: "IDR — Rupiah Indonesia",
+  USD: "USD — Dolar Amerika Serikat",
+  SAR: "SAR — Riyal Arab Saudi",
+} as const;
+
+/**
+ * The label for a stored currency, falling back to the bare code for anything
+ * outside the canonical vocabulary. It never throws and never invents a name:
+ * an unexpected stored value renders as itself, which is honest and stable.
+ */
+export function placeCurrencyLabel(currency: string): string {
+  return PLACE_CURRENCY_LABELS[currency as PlaceCurrency] ?? currency;
+}
+
+/**
+ * Whether a currency is one the APPLICATION supports. `SAR` — and every other
+ * code outside IDR/USD — is refused here even though it is a legal stored
+ * Place currency: the platform never works in it.
+ */
+export function isApplicationCurrency(value: unknown): value is ApplicationCurrency {
+  return typeof value === "string" && (APPLICATION_CURRENCIES as readonly string[]).includes(value);
+}
 
 export type PlaceType = "production" | "experience";
 
@@ -188,8 +248,9 @@ export function isValidPlaceCategory(value: string): value is PlaceCategory {
 }
 
 function isValidCurrency(currency: string): boolean {
-  // Only the two platform currencies are valid (PO, 2026-09-28); this is the
-  // same vocabulary the database CHECK (migration 0033) enforces.
+  // The STORED vocabulary only — the same list migration 0039's widened
+  // `places_currency_check` enforces. Whether the platform may also WORK in
+  // that currency is a separate rule: `isApplicationCurrency`.
   return (PLACE_CURRENCIES as readonly string[]).includes(currency);
 }
 

@@ -177,8 +177,11 @@ test("AC 2: a searched region frames its own Place spread, not only the geocodin
   }
   assert.ok(bounds.east - bounds.west > 0.04);
 
-  // The component builds exactly that dataset for the search camera.
-  assert.match(pageCode, /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*if \(curatedOnly\) return curatedFitPlaces;\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
+  // The component builds exactly that dataset for the search camera. (2026-10-05:
+  // the two place-set TABS — curated and "Semua Tempat" — now share one
+  // context-resolved camera dataset, so this line reads `contextFramedTab` /
+  // `contextFitPlaces`; the searched-region path below it is unchanged.)
+  assert.match(pageCode, /if \(contextFramedTab\) return contextFitPlaces;\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
   // The search camera prefers the fit and only falls back to the geocoding
   // center when the region holds NO Place with canonical coordinates.
   assert.match(mapCode, /const applied = await fitCamera\(map, searchFitPlacesRef\.current\);/);
@@ -213,10 +216,14 @@ test("AC 3: the camera's bounds dataset never depends on the reported viewport",
     pageCode.indexOf("const searchFitPlaces") + 700,
   );
   assert.doesNotMatch(fitDatasets, /mapViewport|coverageViewport|visibleMapPlaces/);
-  // Nor does the map component narrow its own fit input.
+  // Nor does the map component narrow its own fit input. The end anchor is CODE
+  // (`const requestChanged`), not a comment: `mapCode` is comment-stripped, so a
+  // comment anchor resolved to -1 and silently turned this window into "the rest
+  // of the file" — which is how an unrelated later `map.getBounds()` could ever
+  // have been blamed on the fit mechanism.
   const fitMechanism = mapCode.slice(
     mapCode.indexOf("const fitCamera = useCallback"),
-    mapCode.indexOf("// Camera anchor:"),
+    mapCode.indexOf("const requestChanged = cameraRequestNonce"),
   );
   assert.doesNotMatch(fitMechanism, /narrowToViewport|visibleMapPlaces|map\.getBounds/);
   // The fit input is mirrored into a REF so a new array identity can never
@@ -288,8 +295,11 @@ test("AC 5: a real pan/zoom latches the camera; only a tab choice or a new searc
   );
   assert.match(mapCode, /const requestChanged = cameraRequestNonce !== lastRequestNonceRef\.current;/);
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
-  // The curated tab is the ONLY state change that bumps the FIT nonce.
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
+  // The curated tab is the ONLY state change that bumps the FIT nonce (plus the
+  // additional "Semua Tempat" tab from 2026-10-05, which is the second
+  // hand-driven refocus and uses the exact same contract). Nothing automatic —
+  // no marker refresh, viewport report, or poll — may ever carry it.
+  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
   const curatedHandler = pageCode.slice(
     pageCode.indexOf("const next = activateCuratedFilter();"),
     pageCode.indexOf("const next = activateCuratedFilter();") + 400,
@@ -297,9 +307,12 @@ test("AC 5: a real pan/zoom latches the camera; only a tab choice or a new searc
   assert.match(curatedHandler, /setFitNonce/);
   // Choosing a distance tab (the other explicit camera action) keeps its own
   // preset and carries no fit nonce.
+  // The window is generous because the handler gained the shared
+  // `leavePlaceSetTabs()` transition in 2026-10-05 (the radius preset now also
+  // leaves the "Semua Tempat" layer); the two assertions below are unchanged.
   const tabHandler = pageCode.slice(
     pageCode.indexOf("setDistanceFilter(filter);"),
-    pageCode.indexOf("setDistanceFilter(filter);") + 160,
+    pageCode.indexOf("setDistanceFilter(filter);") + 400,
   );
   assert.doesNotMatch(tabHandler, /setFitNonce/);
   // It DOES carry an explicit camera request, which is what releases the latch

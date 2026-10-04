@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requireAuthenticatedActor, requireProducerOwner } from "@/lib/auth/server";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
-import { derivePlaceIdFromName, resolvePlaceMutation, PlaceInputError } from "@/lib/place-management";
+import { derivePlaceIdFromName, resolvePlaceMutation, assertApplicationCurrency, PlaceInputError } from "@/lib/place-management";
 
 export async function GET(request: Request) {
   try {
@@ -22,6 +22,13 @@ export async function POST(request: Request) {
     // coordinates, never taken from the client. A NEW Place without
     // coordinates fails clearly instead of storing a guessed zone.
     const mutation = await resolvePlaceMutation(body);
+    // APPLICATION CURRENCY RULE (server-side, AGENTS.md: validate inputs on the
+    // server): the platform works in IDR and USD only. The shared parser admits
+    // the full stored vocabulary — SAR included — because a Place must be able
+    // to carry an honest currency for its own geography, but a Producer may not
+    // CHOOSE one the platform does not support. The form only ever offers IDR
+    // and USD, so this closes the request path rather than changing the UI.
+    assertApplicationCurrency(mutation.currency);
     const repository = await getServerPlaceManagementRepository();
     // System-generated Place ID (PO, 2026-09-26): the Producer never types a
     // technical ID. Derive the slug from the name, fall back to a random id

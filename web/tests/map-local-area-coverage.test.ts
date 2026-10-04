@@ -340,8 +340,12 @@ test("AC 5: the frame an explicit request produced stays; nothing re-arms it", (
 // 6. Manual pan/zoom is respected until an explicit refocus.
 // ---------------------------------------------------------------------------
 
-test("AC 6: only the three hand-driven camera actions bump the request nonce", () => {
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+test("AC 6: only the hand-driven camera actions bump the request nonce", () => {
+  // Four since 2026-10-05: the three original hand-driven actions plus the
+  // additional "Semua Tempat" tab, which is a hand-driven refocus of exactly the
+  // same kind. The invariant this test exists for is unchanged: NOTHING
+  // automatic (marker feed, viewport report, poll, geolocation fix) may bump it.
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 4);
   const tabHandler = pageCode.slice(
     pageCode.indexOf("setDistanceFilter(filter);"),
     pageCode.indexOf("setDistanceFilter(filter);") + 400,
@@ -360,8 +364,9 @@ test("AC 6: only the three hand-driven camera actions bump the request nonce", (
   // A real user gesture still latches the camera the same way.
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
   // Nothing automatic carries a request: no marker feed, viewport report, or
-  // discovery poll may re-frame the map.
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
+  // discovery poll may re-frame the map. Only the two place-set tabs refocus
+  // ("Tempat Pilihan", plus "Semua Tempat" from 2026-10-05).
+  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
 });
 
 // ---------------------------------------------------------------------------
@@ -370,8 +375,10 @@ test("AC 6: only the three hand-driven camera actions bump the request nonce", (
 
 test("AC 7: a searched city still frames its own Places through the untouched path", () => {
   // The search mechanism, its state, and its dataset are byte-for-byte the
-  // pre-existing ones: the ±0.05° coverage box of the SEARCHED region.
-  assert.match(pageCode, /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*if \(curatedOnly\) return curatedFitPlaces;\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
+  // pre-existing ones: the ±0.05° coverage box of the SEARCHED region. (The two
+  // place-set tabs share one context-resolved dataset since 2026-10-05; the
+  // searched-region path below them is untouched.)
+  assert.match(pageCode, /if \(contextFramedTab\) return contextFitPlaces;\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
   assert.match(mapCode, /const applied = await fitCamera\(map, searchFitPlacesRef\.current\);/);
   assert.match(mapCode, /if \(cancelled \|\| applied\) return;/);
   // The search answer is untouched: same route, same guards, now submitted-only.
@@ -415,7 +422,7 @@ test("AC 1: \"My Location\" refits the local distribution instead of recentring 
   assert.equal((mapCode.match(/const fitCamera = useCallback/g) ?? []).length, 1);
   // The page hands it the local-area dataset under its own prop and trigger.
   assert.match(pageCode, /locateFitPlaces=\{locateFitPlaces\}/);
-  assert.match(pageCode, /const locateFitPlaces = curatedOnly \? curatedFitPlaces : selectedFitPlaces;/);
+  assert.match(pageCode, /const locateFitPlaces = contextFramedTab \? contextFitPlaces : selectedFitPlaces;/);
   assert.match(mapCode, /locateFitPlaces = \[\],/);
 });
 
@@ -514,8 +521,9 @@ test("AC 3: the frame is applied once and then left alone", () => {
   // Manual pan/zoom survives until an explicit request releases the latch.
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
-  // And only the three hand-driven actions can produce that request.
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+  // And only the hand-driven actions can produce that request (four since
+  // 2026-10-05: the three original ones plus the "Semua Tempat" tab).
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 4);
 });
 
 test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the whole layer", () => {
@@ -533,7 +541,11 @@ test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the 
   // it is resolved outside every result row, and it can never make a Place
   // curated, eligible, ranked, or counted.
   assert.match(fitPool, /curatedIdSet\.has\(place\.id\)/);
-  assert.match(pageCode, /if \(curatedOnly\) return curatedFitPlaces;/);
+  // Since 2026-10-05 the two place-set TABS share one context-framed camera
+  // value: the curated tab hands it `curatedFitPlaces`, the additional
+  // "Semua Tempat" tab hands it `allPlacesFitPlaces` (the whole eligible set).
+  assert.match(pageCode, /const contextFitPlaces = curatedOnly \? curatedFitPlaces : allPlacesFitPlaces;/);
+  assert.match(pageCode, /if \(contextFramedTab\) return contextFitPlaces;/);
   assert.match(
     pageCode,
     /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
@@ -828,8 +840,9 @@ test("10.4 a radius preset is centred on the ACTIVE center and applied once", ()
 });
 
 test("10.5 only an EXPLICIT request may move the camera", () => {
-  // Three hand-driven actions, and nothing else, bump the request nonce.
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
+  // Four hand-driven actions since 2026-10-05 (the three original ones plus the
+  // additional "Semua Tempat" tab), and nothing else, bump the request nonce.
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 4);
   // The guard is UNCONDITIONAL: a frame the user (or an applied preset) owns is
   // never re-derived. The old radius comparison let a silent mode switch — the
   // LIVE toggle leaving "Tempat Pilihan", which changes the radius value with
