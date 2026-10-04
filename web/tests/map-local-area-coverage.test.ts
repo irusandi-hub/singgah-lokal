@@ -153,7 +153,7 @@ test("AC 1: Lokasi Saya can no longer frame a far-away global Place with the loc
   // And the component really feeds the camera THAT set, resolved around the
   // active center (the searched city, else the real fix).
   assert.match(pageCode, /origin: searchCenter \?\? viewerPosition,\s*\n\s*places: toCameraCandidates\(visiblePlaces\),/);
-  assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current\)/);
+  assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current, CURATED_FIT_MAX_ZOOM\)/);
 });
 
 test("AC 1: no usable user location keeps the safe fallback — never a global fit", () => {
@@ -282,25 +282,17 @@ test("AC 3: a Place 25 km away is framed, a Place 400 km away is not", () => {
 test("AC 4: the bounds dataset is still un-narrowed by the viewport", () => {
   // The local-area resolver reads the CONTENT filter one step before the
   // viewport gate, so a Place outside the current frame is still inside the
-  // area. The curated camera pool is the SELECTED local area PLUS nearby
-  // camera context (bug fix 2026-10-03); the context is resolved from the
-  // ordinary, un-narrowed candidate set anchored on the SELECTED anchor, so it
-  // can never leave the selection's own subdivision.
+  // area — that is what the NON-curated modes still frame. "Tempat Pilihan"
+  // frames EVERY curated Place (product decision, 2026-10-04), read from the
+  // full published set through the canonical curated ids, still without the
+  // viewport gate.
   assert.match(pageCode, /places: toCameraCandidates\(visiblePlaces\),/);
-  const fitPool = pageCode.slice(
-    pageCode.indexOf("const cameraFitPlaces"),
-    pageCode.indexOf("const searchFitPlaces"),
-  );
-  // The context is drawn from the ordinary candidates and anchored on the
-  // SELECTED anchor Place's own coordinate — never on the device fix.
-  assert.match(fitPool, /const anchor = visiblePlaces\.find\(\(place\) => place\.id === selectedLocalArea\.anchorId\);/);
-  assert.match(fitPool, /origin: \{ lat: anchor\.latitude, lng: anchor\.longitude \},/);
-  assert.match(fitPool, /places: toCameraCandidates\(curatedCoverageSource\),/);
   assert.match(pageCode, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
   const fitDataset = pageCode.slice(
-    pageCode.indexOf("const cameraFitPlaces"),
+    pageCode.indexOf("const curatedFitPlaces"),
     pageCode.indexOf("const searchFitPlaces"),
   );
+  assert.match(fitDataset, /curatedIdSet\.has\(place\.id\)/);
   assert.doesNotMatch(fitDataset, /mapViewport|coverageViewport|visibleMapPlaces|narrowToViewport/);
   assert.match(mapCode, /const fitPlacesRef = useRef<HomeMapPlace\[\]>\(fitPlaces\);/);
   // Membership is untouched: the resolver narrows GEOMETRY only, and no Place is
@@ -379,7 +371,7 @@ test("AC 6: only the three hand-driven camera actions bump the request nonce", (
 test("AC 7: a searched city still frames its own Places through the untouched path", () => {
   // The search mechanism, its state, and its dataset are byte-for-byte the
   // pre-existing ones: the ±0.05° coverage box of the SEARCHED region.
-  assert.match(pageCode, /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
+  assert.match(pageCode, /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*if \(curatedOnly\) return curatedFitPlaces;\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
   assert.match(mapCode, /const applied = await fitCamera\(map, searchFitPlacesRef\.current\);/);
   assert.match(mapCode, /if \(cancelled \|\| applied\) return;/);
   // The search answer is untouched: same route, same guards, now submitted-only.
@@ -423,7 +415,7 @@ test("AC 1: \"My Location\" refits the local distribution instead of recentring 
   assert.equal((mapCode.match(/const fitCamera = useCallback/g) ?? []).length, 1);
   // The page hands it the local-area dataset under its own prop and trigger.
   assert.match(pageCode, /locateFitPlaces=\{locateFitPlaces\}/);
-  assert.match(pageCode, /const locateFitPlaces = selectedFitPlaces;/);
+  assert.match(pageCode, /const locateFitPlaces = curatedOnly \? curatedFitPlaces : selectedFitPlaces;/);
   assert.match(mapCode, /locateFitPlaces = \[\],/);
 });
 
@@ -517,7 +509,7 @@ test("AC 3: the frame is applied once and then left alone", () => {
   );
   assert.match(
     presetBranch,
-    /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\);\s*userInteractedRef\.current = true;/,
+    /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ \.\.\.cameraAnimationOptions\(\) \}\);\s*userInteractedRef\.current = true;/,
   );
   // Manual pan/zoom survives until an explicit request releases the latch.
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
@@ -528,7 +520,7 @@ test("AC 3: the frame is applied once and then left alone", () => {
 
 test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the whole layer", () => {
   const fitPool = pageCode.slice(
-    pageCode.indexOf("const cameraFitPlaces"),
+    pageCode.indexOf("const curatedFitPlaces"),
     pageCode.indexOf("const searchFitPlaces"),
   );
   // The camera pool is the SELECTED places `visiblePlaces` resolves from the
@@ -540,8 +532,8 @@ test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the 
   // frame with no surrounding context at all. Context is CAMERA geometry only:
   // it is resolved outside every result row, and it can never make a Place
   // curated, eligible, ranked, or counted.
-  assert.match(fitPool, /places: toCameraCandidates\(curatedCoverageSource\),/);
-  assert.match(fitPool, /origin: \{ lat: anchor\.latitude, lng: anchor\.longitude \},/);
+  assert.match(fitPool, /curatedIdSet\.has\(place\.id\)/);
+  assert.match(pageCode, /if \(curatedOnly\) return curatedFitPlaces;/);
   assert.match(
     pageCode,
     /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
@@ -826,7 +818,7 @@ test("10.4 a radius preset is centred on the ACTIVE center and applied once", ()
   // Applied exactly once, then LATCHED: the frame it produced stays.
   assert.match(
     anchorEffect,
-    /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ animate: false \}\);\s*userInteractedRef\.current = true;/,
+    /map\.setView\(\[anchor\.lat, anchor\.lng\], Math\.max\(2, zoom\), \{ \.\.\.cameraAnimationOptions\(\) \}\);\s*userInteractedRef\.current = true;/,
   );
   // The caller wires the preset and the active center; the tabs own the radius.
   assert.match(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);

@@ -244,8 +244,8 @@ test("the map frames the searched region's Place spread once per new server answ
   );
   // Keyed on the nonce (one re-frame per answer), never per keystroke.
   assert.match(effect, /fitCamera\(map, searchFitPlacesRef\.current\)/);
-  // Instant, like every other camera apply — no fly-through.
-  assert.match(effect, /animate: false/);
+  // Smooth, through the ONE shared camera-transition helper (2026-10-04).
+  assert.match(effect, /\.\.\.cameraAnimationOptions\(\)/);
   // No marker is invented for the search center and no radius preset is
   // consulted. AUTO-FIT (product decision, 2026-10-03): the search now frames
   // the SPREAD of the Places relevant to the searched region instead of only

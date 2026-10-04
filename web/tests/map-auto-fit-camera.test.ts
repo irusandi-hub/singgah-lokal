@@ -98,7 +98,10 @@ test("AC 1: curated coverage is derived from the Place spread, and the camera ha
   assert.match(pageCode, /origin: searchCenter \?\? viewerPosition,/);
   // ...and the camera's fit is a fitBounds, not a radius frame.
   assert.match(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
-  assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current\)/);
+  assert.match(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current, CURATED_FIT_MAX_ZOOM\)/);
+  // The curated frame carries a COMFORTABLE DENSITY zoom ceiling (product
+  // decision, 2026-10-04) that can only ever widen the frame.
+  assert.match(mapCode, /const CURATED_FIT_MAX_ZOOM = 13;/);
   assert.match(mapCode, /map\.fitBounds\(L\.latLngBounds\(corners\)/);
 
   // The fit branch does NOT consult the curated radius value: choosing the tab
@@ -119,23 +122,21 @@ test("AC 1: curated MEMBERSHIP is untouched — the fit is geometry, never a mem
     pageCode,
     /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
   );
-  // The fit dataset is derived from that membership plus nearby non-curated
-  // CONTEXT (bug fix 2026-10-03): it never re-selects, never sorts, and never
-  // re-orders a row. Coordinate fail-closed and dedupe now live in the shared
-  // `toCameraCandidates` projection, so both pools inherit them.
+  // The fit dataset is derived from that membership (product decision,
+  // 2026-10-04): the "Tempat Pilihan" focus frames EVERY curated Place at
+  // once, straight from the canonical curated ids — it never re-selects, never
+  // sorts, and never re-orders a row. Coordinate fail-closed lives in the
+  // shared `toCameraCandidates` projection used by the local-area datasets.
   const fitDataset = pageCode.slice(
+    pageCode.indexOf("const curatedFitPlaces"),
     pageCode.indexOf("const cameraFitPlaces"),
-    pageCode.indexOf("const searchFitPlaces"),
   );
-  assert.match(fitDataset, /if \(seen\.has\(place\.id\)\) return false;/);
-  assert.match(pageCode, /if \(place\.latitude === null \|\| place\.longitude === null\) return null;/);
+  assert.match(fitDataset, /curatedIdSet\.has\(place\.id\)/);
+  assert.match(fitDataset, /place\.latitude !== null && place\.longitude !== null/);
   assert.match(pageCode, /function toCameraCandidates\(source: readonly Place\[\]\)/);
-  // Context never touches membership: the curated id set is the ONLY source of
-  // curated selection, and the context pool is the ordinary remainder.
-  assert.match(fitDataset, /places: toCameraCandidates\(curatedCoverageSource\),/);
-  // The local-area resolver is a pure function in lib/live/ui.ts: the fit
-  // dataset itself still neither sorts, re-selects, nor measures anything.
-  assert.doesNotMatch(fitDataset, /\.sort\(|curatedIdSet\.size|is_curated|distanceMeters/);
+  // The fit dataset itself still neither sorts, re-selects, nor measures
+  // anything — membership and geometry stay independent.
+  assert.doesNotMatch(fitDataset, /\.sort\(|curatedIdSet\.size|distanceMeters/);
   // No list row reads the fit dataset.
   assert.equal(/\bfitNonce\b|\bcameraFitPlaces\b|\bsearchFitPlaces\b/.test(pageCode.slice(pageCode.indexOf("const listedPlaces"), pageCode.indexOf("return ("))), false);
 });
@@ -175,7 +176,7 @@ test("AC 2: a searched region frames its own Place spread, not only the geocodin
   assert.ok(bounds.east - bounds.west > 0.04);
 
   // The component builds exactly that dataset for the search camera.
-  assert.match(pageCode, /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
+  assert.match(pageCode, /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{\s*if \(curatedOnly\) return curatedFitPlaces;\s*if \(!searchViewport\) return \[\];\s*return narrowToViewport\(visiblePlaces, searchViewport\)/);
   // The search camera prefers the fit and only falls back to the geocoding
   // center when the region holds NO Place with canonical coordinates.
   assert.match(mapCode, /const applied = await fitCamera\(map, searchFitPlacesRef\.current\);/);
@@ -252,11 +253,12 @@ test("AC 4: only a NONCE can re-frame the camera — no viewport or marker input
     mapCode.indexOf("}, [ready, markerKey, places, liveByPlaceId, router]);"),
   );
   assert.doesNotMatch(markerEffect, /fitCamera|fitBounds|setView|flyTo/);
-  // NO animated camera move anywhere in the component, so nothing can ease
-  // back and forth (since the 2026-10-03 correction the locate refocus is
-  // instant too).
+  // ONE shared smooth-transition helper (product decision, 2026-10-04): the
+  // camera eases between view distances through the SAME curve everywhere, and
+  // there is still no flyTo. Exactly one declared duration lives in the helper.
   assert.equal((mapCode.match(/map\.flyTo\(/g) ?? []).length, 0);
-  assert.equal((mapCode.match(/duration:/g) ?? []).length, 0);
+  assert.equal((mapCode.match(/duration:/g) ?? []).length, 1);
+  assert.match(mapCode, /function cameraAnimationOptions\(\)/);
 });
 
 // ---------------------------------------------------------------------------
@@ -339,7 +341,7 @@ test("AC 6: ONE Place is focused on its canonical coordinate, never zoomed to th
     mapCode.indexOf("const fitCamera = useCallback"),
     mapCode.indexOf("// Camera anchor:"),
   );
-  assert.match(fitMechanism, /if \(points\.length === 1\) \{\s*map\.setView\(\[points\[0\]\.lat, points\[0\]\.lng\], FIT_SINGLE_PLACE_ZOOM, \{ animate: false \}\);/);
+  assert.match(fitMechanism, /if \(points\.length === 1\) \{\s*const singleZoom =\s*typeof maxZoom === "number" \? Math\.min\(FIT_SINGLE_PLACE_ZOOM, maxZoom\) : FIT_SINGLE_PLACE_ZOOM;\s*map\.setView\(\[points\[0\]\.lat, points\[0\]\.lng\], singleZoom, \{ \.\.\.cameraAnimationOptions\(\) \}\);/);
   // A close, deliberate focus level — the same floor "Lokasi Saya" uses, and
   // never Leaflet's maximum zoom.
   assert.ok(FIT_SINGLE_PLACE_ZOOM >= 14 && FIT_SINGLE_PLACE_ZOOM <= 17);
