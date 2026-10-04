@@ -210,6 +210,54 @@ export function isWithinViewport(viewport: MapViewport, latitude: number, longit
  * paint can never show an empty list. A Place without canonical coordinates
  * is dropped regardless — it has no position to be visible at.
  */
+/**
+ * Normalize the searched AREA a geocode answer carried, or `null`.
+ *
+ * The server already validated the provider's bounding box; this is the
+ * client-side half of the same rule, so an untrusted JSON body can never hand
+ * the coverage filter a reversed, empty, non-finite, or out-of-range box — the
+ * failure modes that would either exclude everything or include everything.
+ *
+ * Fail-closed by design: anything unusable yields `null`, and the caller then
+ * uses its documented narrower fallback rather than inventing an area. No
+ * radius is ever guessed from the centre coordinate here — a fixed window is
+ * wrong for a district and wrong for Riyadh alike, which is exactly the bug
+ * this replaces.
+ */
+export function normalizeSearchArea(bounds: unknown): MapViewport | null {
+  if (typeof bounds !== "object" || bounds === null) return null;
+  const candidate = bounds as Partial<MapViewport>;
+  const values = [candidate.north, candidate.south, candidate.east, candidate.west].map((value) =>
+    Number(value),
+  );
+  if (!values.every((value) => Number.isFinite(value))) return null;
+  const [north, south, east, west] = values;
+  if (north <= south || east <= west) return null;
+  if (south < -90 || north > 90 || west < -180 || east > 180) return null;
+  return { north, south, east, west };
+}
+
+/**
+ * The fallback searched area when a geocode answer published no usable box:
+ * the same small ±0.05° window around the resolved centre the search has
+ * always used before Leaflet reports its own bounds.
+ *
+ * This is a LAST RESORT for a provider answer that carries no boundary, not a
+ * model of how large a place is — the canonical box is used whenever the
+ * geocoder publishes one. It exists to keep one gap deterministic, exactly as
+ * it did before, and it is released as soon as the real viewport is reported.
+ */
+export const SEARCH_AREA_FALLBACK_DEGREES = 0.05;
+
+export function fallbackSearchArea(center: { lat: number; lng: number }): MapViewport {
+  return {
+    north: center.lat + SEARCH_AREA_FALLBACK_DEGREES,
+    south: center.lat - SEARCH_AREA_FALLBACK_DEGREES,
+    east: center.lng + SEARCH_AREA_FALLBACK_DEGREES,
+    west: center.lng - SEARCH_AREA_FALLBACK_DEGREES,
+  };
+}
+
 export function narrowToViewport<T extends { latitude: number | null; longitude: number | null }>(
   places: readonly T[],
   viewport: MapViewport | null,

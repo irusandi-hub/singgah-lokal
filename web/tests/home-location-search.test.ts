@@ -141,21 +141,28 @@ test("a resolved search center becomes the coverage viewport for markers and bot
   // One shared coverage value for every consumer, so the markers and the two
   // rows can never disagree about the visible area.
   //
-  // PRECEDENCE CORRECTED (bug fix 2026-10-02): the REAL Leaflet viewport now
-  // wins, and the ±0.05° box around a searched city is only the stand-in for
-  // the one gap before Leaflet reports bounds for the recentered camera. The
-  // box used to win FOREVER, so a searched city permanently overrode manual
-  // panning — the map moved and the list refused to follow. A new search
-  // answer releases the latch, so the box returns for that gap only.
+  // PRECEDENCE CORRECTED (bug fix 2026-10-02): the REAL Leaflet viewport wins,
+  // and the searched box is only the stand-in for the one gap before Leaflet
+  // reports bounds for the recentered camera. The box used to win FOREVER, so
+  // a searched city permanently overrode manual panning — the map moved and the
+  // list refused to follow. A new search answer releases the latch, so the box
+  // returns for that gap only.
   assert.match(discoveryCode, /const coverageViewport = mapViewport \?\? searchViewport;/);
-  // MEMOIZED (product decision, 2026-10-03): the region box is now derived
-  // through useMemo so the search camera's own bounds dataset keeps a stable
-  // identity — an unstable box would re-derive that dataset on every render.
-  // The value and the ±0.05° size are unchanged.
-  assert.match(discoveryCode, /const searchViewport = useMemo\(/);
-  assert.match(discoveryCode, /searchCenter\n\s*\?\s*\{\n\s*north: searchCenter\.lat \+ 0\.05,/);
-  // A null center (no answer) leaves the map viewport in charge.
-  assert.match(discoveryCode, /: null;/);
+  // THE SEARCHED AREA IS NOW THE GEOCODER'S OWN BOX (2026-10-04). It used to be
+  // a fixed ±0.05° window around the centre POINT, which excluded every
+  // eligible Place outside a few kilometres of that point — the reported
+  // defect. The canonical bounding box the geocoder published for the resolved
+  // hit is now the primary source; the fixed window survives only as the
+  // documented fallback for an answer that carries no usable boundary. It is
+  // still derived through useMemo, so the search camera's bounds dataset keeps
+  // a stable identity.
+  assert.match(discoveryCode, /const searchViewport = useMemo<MapViewport \| null>\(/);
+  assert.match(
+    discoveryCode,
+    /\(searchArea \? searchArea : searchCenter \? fallbackSearchArea\(searchCenter\) : null\)/,
+  );
+  // A null center AND no area (no answer) leaves the map viewport in charge.
+  assert.match(discoveryCode, /\(searchArea \? searchArea : searchCenter \? fallbackSearchArea\(searchCenter\) : null\),\n\s*\[searchArea, searchCenter\],/);
   // The latch that keeps the two from disagreeing across the handoff.
   assert.match(discoveryCode, /const resetViewportLatch = useCallback/);
   // All three consumers use it.

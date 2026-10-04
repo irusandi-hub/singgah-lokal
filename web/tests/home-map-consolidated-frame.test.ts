@@ -426,10 +426,12 @@ test("13.4 no regression to LIVE, search, or Place navigation", () => {
   assert.match(mapCode, /zIndexOffset: 1000/);
   assert.match(mapCode, /BRAND_LIVE/);
   assert.match(pageCode, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
-  // The search flow is untouched: same server route, same bridge box, same
-  // search fit dataset.
+  // The search flow keeps its server route and its search fit dataset. The box
+  // itself changed on 2026-10-04: the searched AREA is now the canonical
+  // bounding box the geocoder published, with the old fixed window kept only
+  // as the documented fallback for an answer with no usable boundary.
   assert.match(pageCode, /fetch\(`\/api\/geocode\?q=\$\{encodeURIComponent\(trimmed\)\}`/);
-  assert.match(pageCode, /north: searchCenter\.lat \+ 0\.05/);
+  assert.match(pageCode, /fallbackSearchArea\(searchCenter\)/);
   assert.match(pageCode, /searchFitPlaces=\{searchFitPlaces\}/);
   // The distance tabs and their ordered camera presets are unchanged.
   assert.equal(CAMERA_PRESET_RADIUS_M["1 km"] < CAMERA_PRESET_RADIUS_M["5 km"], true);

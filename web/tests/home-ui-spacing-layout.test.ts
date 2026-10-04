@@ -86,11 +86,11 @@ test("T1.2 the banner renders ONLY while a search is running or failed", () => {
 
 test("T1.3 removing the readout removed no geographic state", () => {
   // Everything the search and the camera actually consume must be untouched.
+  // (2026-10-04: the ±0.05° literals moved into the shared, documented
+  // `fallbackSearchArea` helper because the canonical geocoder bounding box
+  // became the primary searched area; the fallback itself is unchanged.)
   assert.match(code, /const \[searchCenter, setSearchCenter\] = useState<\{ lat: number; lng: number \} \| null>\(null\);/);
-  assert.match(code, /north: searchCenter\.lat \+ 0\.05/);
-  assert.match(code, /south: searchCenter\.lat - 0\.05/);
-  assert.match(code, /east: searchCenter\.lng \+ 0\.05/);
-  assert.match(code, /west: searchCenter\.lng - 0\.05/);
+  assert.match(code, /searchCenter \? fallbackSearchArea\(searchCenter\) : null/);
   assert.match(code, /origin: searchCenter \?\? viewerPosition/);
   assert.match(code, /const activeSearch = resolveActiveCenter\(\{ searchCenter, viewerPosition \}\);/);
   // The camera still receives the real center, not a stripped-down one.

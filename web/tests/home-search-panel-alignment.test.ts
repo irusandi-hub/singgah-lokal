@@ -56,11 +56,15 @@ test("no settings/filter graphic is rendered inside the search field", () => {
   assert.match(bar, /aria-label="Cari tempat, cerita, produksi"/);
 });
 
-test("no replacement icon, button, or filter was invented in its place", () => {
-  // The bar's only control is the clear "×" that already existed.
-  assert.equal((bar.match(/<button/g) ?? []).length, 1);
+test("the only controls in the bar are the existing clear '×' and the real 'Cari' submit", () => {
+  // 2026-10-04: the "Cari" button is a REAL control that runs the one submit
+  // path — not a decorative icon standing in for the removed settings graphic.
+  // No decorative icon exists: the sliders SVG stays gone.
+  assert.equal((bar.match(/<button/g) ?? []).length, 2);
   assert.match(bar, /aria-label="Hapus pencarian"/);
-  // No new affordance appeared anywhere else on the search surface either.
+  assert.match(bar, /aria-label="Cari lokasi"/);
+  assert.match(bar, /onClick=\{handleSearchSubmitClick\}/);
+  // No filter/settings affordance appeared anywhere on the search surface.
   assert.doesNotMatch(pageCode, /aria-label="(Setelan|Filter|Pengaturan)/);
   assert.equal(/onClick=\{\(\) => set(ShowFilters|FiltersOpen)/.test(pageCode), false);
   // And the tab row — the one real filter surface — is unchanged in kind.
@@ -71,8 +75,10 @@ test("search stays submit-only: no search-on-keystroke", () => {
   assert.match(bar, /onKeyDown=\{handleSearchKeyDown\}/);
   assert.match(pageCode, /const handleSearchSubmit = useCallback\(async/);
   assert.doesNotMatch(bar, /onChange=\{\(event\) => handleSearchSubmit/);
-  // Typing only updates the local query state.
+  // Typing only updates the DRAFT query state; the rows read `submittedQuery`,
+  // which only this submit path sets.
   assert.match(bar, /onChange=\{\(event\) => handleSearchChange\(event\.target\.value\)\}/);
+  assert.match(pageCode, /const searchFiltered = useMemo\(\(\) => \{\s*const normalizedQuery = submittedQuery\.trim\(\)/);
 });
 
 // ---------------------------------------------------------------------------
@@ -81,10 +87,13 @@ test("search stays submit-only: no search-on-keystroke", () => {
 
 test("the bar's own box is a single, unconditional class list", () => {
   // Padding, radius, border, and shadow are on the flex row itself and are not
-  // part of any conditional, so they cannot differ between states.
+  // part of any conditional, so they cannot differ between states. (2026-10-04:
+  // the padding moved to `pl-3.5 pr-1.5` so the two controls sit inside the
+  // same approved surface rather than floating past it; radius, border, and
+  // shadow are unchanged.)
   assert.match(
     pageCode,
-    /<div className="flex items-center gap-2\.5 rounded-\[20px\] border border-black\/10 bg-white px-3\.5 py-2\.5 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]">/,
+    /<div className="flex items-center gap-2 rounded-\[20px\] border border-black\/10 bg-white pl-3\.5 pr-1\.5 py-2 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]">/,
   );
   // The row is the bar's only sized element: there is no second wrapper that
   // could change width with the query.
@@ -116,6 +125,42 @@ test("a long query cannot widen the field or overflow a narrow phone", () => {
 
 // ---------------------------------------------------------------------------
 // 3. The floating results panel matches the search field exactly.
+test("the 'Cari' control is usable on touch and by keyboard", () => {
+  // 2026-10-04 (review): the pill is 26px tall, which reads fine on desktop but
+  // is a small thumb target, and it had NO visible keyboard focus. Both are
+  // fixed without touching layout, which is what the assertions below pin.
+  //
+  // The hit area is extended by an ABSOLUTELY positioned, out-of-flow child, so
+  // the bar's height, padding, radius and position are untouched by it.
+  assert.match(bar, /relative inline-flex h-\[26px\] shrink-0/);
+  assert.match(bar, /aria-hidden\s*\n?\s*className="pointer-events-auto absolute -inset-x-1 -bottom-2 top-0"/);
+  // DOWNWARD ONLY: the floating header is `absolute top-0` and already overlaps
+  // the pill's top edge, so growing the target upward would steal taps meant
+  // for the header controls. Asserted here so it cannot regress.
+  assert.doesNotMatch(bar, /absolute -inset-y-2/);
+  assert.doesNotMatch(bar, /absolute -top-2/);
+  // A keyboard user can see where they are. The ring is used rather than an
+  // outline because the browser's default outline resolved to WHITE on the
+  // white bar and was invisible in the real rendered page.
+  assert.match(bar, /focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black\/45/);
+  assert.match(bar, /ring-offset-2/);
+  // The pending state is a real disabled state, not only a visual one.
+  assert.match(bar, /disabled=\{searchPending\}/);
+  assert.match(bar, /disabled:opacity-60/);
+});
+
+test("the extended 'Cari' hit area cannot eat the bar's other controls", () => {
+  // The overlay must stay inside the bar: the clear "×" sits immediately to
+  // its left, so an oversized or full-width overlay would swallow the clear.
+  const overlay = bar.slice(bar.indexOf("absolute -inset-x-1 -bottom-2"));
+  assert.ok(overlay.indexOf("Hapus pencarian") === -1 || overlay.indexOf("Hapus pencarian") > 0);
+  // It is decorative only — no label, no role, and it cannot be tabbed to.
+  const spanStart = bar.lastIndexOf("<span", bar.indexOf("absolute -inset-x-1 -bottom-2"));
+  const overlayTag = bar.slice(spanStart, bar.indexOf("/>", spanStart) + 2);
+  assert.match(overlayTag, /^<span\s+aria-hidden/);
+  assert.doesNotMatch(overlayTag, /tabIndex|role=/);
+});
+
 // ---------------------------------------------------------------------------
 
 test("panel and search field share ONE horizontal geometry", () => {

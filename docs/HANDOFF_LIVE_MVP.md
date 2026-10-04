@@ -1368,3 +1368,157 @@ Verification: home/map batch 258/258 and 167/167; `tsc -b --noEmit` clean;
   and the search field carry byte-identical column geometry, the compass keeps
   the retired arrow's exact box and exposes no interaction, and no scale
   indicator or reserved strip survives.
+
+## 26. LOCATION SEARCH: SUBMITTED QUERY + CANONICAL SEARCH AREA (branch `fix/home-search-area-coverage-and-cari-button`, 2026-10-04)
+
+Built on `aed6b655` (PR #22). §25's approved visual corrections are UNCHANGED —
+the "Cari" button lives inside the approved search field without altering the
+Home/Map screen, and the removed tab, compass, scale, and panel work stay as
+they are. No Supabase schema or migration was touched; no currency logic exists
+anywhere in this change.
+
+### 26.1 Root causes
+
+1. **A city search covered a few kilometres.** Coverage for a searched place was
+   a fixed ±0.05° window (~5.5 km) around the geocoder's CENTRE POINT. The
+   search camera then framed only the Places inside that same window, Leaflet
+   reported that small frame as the real viewport, and `coverageViewport` —
+   which every row and the marker set read — became the real viewport. So
+   searching "Riyadh" listed only the eligible Places near one coordinate.
+   There is no fixed window that is right for a district and right for a
+   capital, which is why none is used as the model.
+2. **Typing was the search.** `searchQuery` was both the input draft and the
+   live Place text filter, so every keystroke changed the rows and the markers
+   before the user had committed to anything.
+3. **No visible way to submit on a phone** other than the keyboard's Enter.
+
+### 26.2 What changed
+
+- **Canonical searched area.** The geocoder response is parsed for the hit's own
+  bounding box (`parseGeocodeBounds` in `lib/live/geocoding-core.ts`, provider
+  quad `[south, north, west, east]`), returned by `/api/geocode` as
+  `result.bounds`, and normalized again on the client (`normalizeSearchArea`,
+  `lib/live/ui.ts`). That box is the primary `searchViewport` source for the
+  rows, the markers, and the search camera's own fit dataset, so all three stay
+  consistent. Fail-closed everywhere: a missing, malformed, zero-area,
+  out-of-range or untrusted box yields `null`, and the documented
+  `fallbackSearchArea` ±0.05° window applies only in that case. No radius is
+  ever guessed, and no boundary is ever fabricated.
+- **Draft vs submitted.** `searchQuery` is the draft; `submittedQuery` is the
+  committed text filter and the only filter the rows read. Every reset path
+  (empty submit, `X`, "Lokasi Saya") clears both.
+- **One submit path.** Enter and "Cari" both call `handleSearchSubmit`; the
+  button reads the draft state, never the DOM. `inFlightSearchRef` makes an
+  identical submit while one is running a no-op, so Enter-then-tap cannot race
+  two geocodes. The pre-existing epoch + submitted-query guard is unchanged and
+  now also gates the area: the centre and the box are written together, after
+  both guards, and every failure branch drops both.
+- **Coverage caption honesty.** A resolved answer claims the "area" caption
+  instead of the distance preset's radius, because the frame it produces is the
+  searched place. Choosing a distance tab afterwards sets its own radius caption
+  again.
+- **"Cari" button** inside the approved field, fixed 26px height, `shrink-0`,
+  with an accessible name, `type="button"`, disabled while a geocode is in
+  flight. Padding moved to `pl-3.5 pr-1.5` so it sits inside the same surface;
+  radius, border, and shadow are unchanged, and the clear "×" keeps its fixed
+  18×18 box, so the field's outer geometry is identical in the empty, typed,
+  pending, and submitted states.
+
+### 26.3 Preserved
+
+Distance tabs are still camera presets (never a Place filter); LIVE and
+"Tempat Pilihan" semantics, curated membership from canonical `is_curated`
+ids, Discovery ranking, Place eligibility, markers, "Lokasi Saya", camera
+framing and fit padding, the viewport latch semantics, and the server-only
+geocoding boundary (`photon.ts` is untouched).
+
+### 26.4 Verification
+
+New `tests/home-search-area-coverage.test.ts` (17) covering all twelve required
+behaviours, including the canonical-box-versus-fixed-window comparison on a
+Riyadh-shaped dataset (5 Places across the city: all 5 with the canonical box,
+1 with the old window). Amended with a stated reason:
+`home-location-search`, `home-search-center-sync`, `home-ui-spacing-layout`,
+`home-map-first-ui`, `home-map-consolidated-frame`,
+`home-search-panel-alignment`. Nothing was deleted or weakened.
+
+Focused search/geocode batch 103/103; Home/Map batch 392/392;
+`tsc -b --noEmit` clean; `eslint .` 0 errors / 10 warnings (baseline);
+`next build` succeeded. Full suite in batches (106 files):
+184/0 (+ `discovery-aggregate` and `discovery-dev-dataset` SIGKILL),
+266/0, 293/0, 89/0 (+ `place-curated-admin-migration` SIGKILL, passes 4/4
+alone), 80/0, 123/0.
+
+### 26.5 Known limitations (honest)
+
+- A provider hit that publishes no usable bounding box (or one that fails
+  validation) still falls back to the ±0.05° window, so such a hit keeps the
+  old narrow coverage. Nominatim publishes a box for the settlement hits this
+  product resolves; no boundary is invented when it does not.
+- `discovery-aggregate`, `discovery-dev-dataset` and
+  `place-curated-admin-migration` still SIGKILL under batch memory pressure in
+  this 1-CPU/2 GB sandbox (see §24.4 / §25.4); not regressions.
+- **No visual verification.** The managed preview does not hydrate in any
+  headless browser available here (same standing limitation as §23.7 / §25.4),
+  so the new "Cari" button's rendered size and the wider coverage frame were
+  NOT observed on a page. The executed guarantees are structural: one submit
+  path, one in-flight guard, one coverage source, and fixed-size controls.
+
+## 27. PR #23 REVIEW — "CARI" BUTTON USABILITY, NOW VERIFIED IN A REAL BROWSER (same branch, 2026-10-04)
+
+§26's limitation above is RESOLVED: a Playwright Chromium is available in this
+sandbox and the managed preview on port 3000 serves the app, so the Home screen
+was rendered and measured rather than only read in source. Two things came out
+of that, and the "button is missing" report was NOT one of them.
+
+### 27.1 Why the button looked absent
+
+The button is on the branch and was never missing from it. It is absent from
+`main`/production, which is what was being viewed: the PR is unmerged, so the
+deployed production SHA is still `aed6b655`, and `main`'s copy of the component
+contains no `aria-label="Cari lokasi"` at all. On the branch, in the rendered
+page, the control measures 52×26 px, paints the brand green `rgb(14,107,79)`
+under white text, sits inside the white bar, is the hit target at its own centre
+(`elementFromPoint` returns the button), and stays inside the viewport with zero
+horizontal overflow at 320, 360, 390, 768, and 1280 px. The bar itself is 44px
+tall at every one of those widths.
+
+### 27.2 Two real defects the browser found, and fixed
+
+1. **The keyboard focus ring was invisible.** `focus-visible:outline-brand-ink`
+   resolved to a WHITE outline on a WHITE bar, confirmed by reading computed
+   style and the pixels around the pill. Replaced with
+   `focus-visible:ring-2 focus-visible:ring-black/45` + `ring-offset-2`; the
+   focused pill now paints a 45 %-black ring that is measurable in a screenshot.
+2. **The 26px pill was a small thumb target.** An absolutely positioned,
+   out-of-flow child extends the HIT area to 34px, and a real tap 6px BELOW the
+   visible pill now fires exactly one geocode. The extension is
+   **downward only, on purpose**: the floating header is `absolute top-0` and
+   already overlaps the pill's TOP edge (measured), so growing the target
+   upward would have swallowed taps meant for the header — verified, since a tap
+   in the upper overlap zone hits the header's own container, not the button.
+   Being out of flow, it changes nothing about the bar's height, padding, radius
+   or position, which is why the §25 dimensional-stability guarantee still
+   holds at 44px.
+
+### 27.3 Verified in the running page
+
+Enter submits once; "Cari" submits once through the same handler; Enter and a
+button press dispatched in the SAME TICK produce exactly ONE `/api/geocode`
+request; a tap on the disabled, pending button produces none; "×" clears the
+input and fires no request; Tab reaches "Cari" and shows the ring. Coverage:
+the row list goes 74 → 28 for "Riyadh" → back to 74 after "×", with the caption
+switching to the searched area and back to "Discovery Place".
+
+### 27.4 Remaining limitation
+
+- **Map MARKERS could not be observed in the page.** Leaflet never initialises
+  in this headless sandbox — no `.leaflet-container`, no panes, no tiles, at any
+  wait time and with no page error — so marker coverage was NOT visually
+  confirmed; only the result ROWS were (the counts above). This reproduces on
+  the unmodified branch state and is unrelated to this change. Markers and rows
+  reading the same `searchViewport` is asserted by the test suite, not by a
+  rendered frame.
+- `discovery-aggregate`, `discovery-dev-dataset` and
+  `place-curated-admin-migration` still SIGKILL in this 1-CPU/2 GB sandbox,
+  reproduced identically on an unmodified `main` worktree (not regressions).
