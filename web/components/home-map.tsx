@@ -11,6 +11,7 @@ import {
   isSameViewport,
   resolveCameraFitPadding,
   resolveMapScale,
+  selectAlwaysLabelledPlaceIds,
   shouldReportViewportStatus,
   type MapScale,
   type MapViewport,
@@ -380,6 +381,18 @@ const CURATED_FIT_MAX_ZOOM = 13;
  * browser reports one, is drawn independently on top of it.
  */
 const LOCATE_AREA_RADIUS_M = 350;
+/**
+ * PIN LABEL DENSITY (2026-10-05). The compact chip under every pin is
+ * unchanged, but a dense cluster used to paint one chip per pin on top of one
+ * another, so in exactly the area the user cares about NO name was readable.
+ * The declutter is a DETERMINISTIC priority budget (`selectAlwaysLabelledPlaceIds`)
+ * computed once per marker rebuild — no `getBoundingClientRect`, no per-frame
+ * or per-render layout pass, nothing added on pan/zoom — and the chips past the
+ * budget stay in the DOM, revealed by the existing hover/keyboard-focus state.
+ * Nothing is filtered, nothing is removed, and labels are never ALL hidden:
+ * the budget always keeps at least one.
+ */
+const PIN_LABEL_ON_DEMAND_ATTRIBUTE = "data-label-state";
 
 function escapeHtml(value: string): string {
   return value
@@ -1298,6 +1311,23 @@ export default function HomeMap({
         markerPositions.push([place.latitude, place.longitude]);
       }
       markerPositionsRef.current = markerPositions;
+      // LABEL DENSITY (2026-10-05): ONE deterministic pass over the rendered
+      // pins decides which compact chips stay painted when a dense cluster is
+      // on screen. It is computed here — once per MARKER REBUILD, an effect
+      // already keyed on the stable marker signature — so panning, zooming,
+      // and every viewport report cost nothing extra, and no layout is ever
+      // measured (no `getBoundingClientRect`, no `offsetWidth`, no reflow).
+      // Chips past the budget keep their DOM node and their full text; only
+      // their paint state changes, and CSS reveals them again on the existing
+      // hover/keyboard-focus state. Priority follows the marker ladder above:
+      // curated first, then Live, then canonical order.
+      const alwaysLabelledPlaceIds = selectAlwaysLabelledPlaceIds(
+        currentPlaces.map((place) => ({
+          id: place.id,
+          isCurated: place.isCurated === true,
+          isLive: liveByPlaceId.has(place.id),
+        })),
+      );
       if (currentPlaces.length === 0) {
         evaluateViewportStatus();
         return;
@@ -1343,6 +1373,13 @@ export default function HomeMap({
         // to its LIVE pin.
         const isCurated = place.isCurated === true;
         const pinColor = isCurated ? BRAND_SECONDARY : BRAND_BROWN;
+        // DENSE-FRAME LABEL STATE (2026-10-05): `always` paints the compact
+        // chip outright; `on-demand` keeps the same chip — same markup, same
+        // truncation, same full text — and lets globals.css hold it back until
+        // the pin is hovered or keyboard-focused. The accessible name, the
+        // tooltip, the click target, and the marker order are identical in
+        // both states, so nothing becomes unreachable.
+        const labelState = alwaysLabelledPlaceIds.has(place.id) ? "always" : "on-demand";
         const accent = isCurated
           ? `<span style="transform:rotate(45deg);color:#fff;font-size:13px;line-height:1;">✦</span>`
           : "";
@@ -1352,7 +1389,7 @@ export default function HomeMap({
               ${accent}
             </div>
             <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:5px;height:5px;border-radius:9999px;background:${pinColor};box-shadow:0 0 0 2px rgb(255 255 255 / 0.9);"></div>
-            <span class="singgah-pin-label" style="position:absolute;left:50%;top:100%;transform:translate(-50%,1px);">${escapeHtml(place.name)}</span>
+            <span class="singgah-pin-label" ${PIN_LABEL_ON_DEMAND_ATTRIBUTE}="${labelState}" style="position:absolute;left:50%;top:100%;transform:translate(-50%,1px);">${escapeHtml(place.name)}</span>
           </div>`;
         const marker = L.marker(position, {
           icon: L.divIcon({

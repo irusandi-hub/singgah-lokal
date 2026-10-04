@@ -7,7 +7,7 @@ import {
   describeCoverageScope,
   describeNearOrigin,
   distanceMeters,
-  resolveLocalAreaCoverage,
+  resolveContextualCuratedCoverage,
 } from "../lib/live/ui";
 
 /**
@@ -88,28 +88,40 @@ const ORDINARY = LOCAL.filter((place) => place.id.startsWith("near-"));
 /**
  * The camera pool exactly as `home-discovery.tsx` composes it, over the REAL
  * resolver. Mirrored here on purpose: the assertions below are about the rule
- * (selected focus kept, context local, distant excluded), and the component
- * shape itself is pinned by the source assertions in each test.
+ * (the selection framed in its active context, distant Places excluded), and
+ * the component shape itself is pinned by the source assertions in each test.
+ *
+ * Amended 2026-10-05: the pool is no longer "the selected local area plus its
+ * ordinary context, anchored on the selection" — it is the SELECTION RESOLVED
+ * AGAINST THE ACTIVE CONTEXT (`resolveContextualCuratedCoverage`), which is
+ * what stops the curated tab from fitting two continents in one frame. The
+ * ordinary context is a MARKER-layer rule (§15 item 2) and still must not steer
+ * the camera, so it stays out of this mirror exactly as before.
  */
 function curatedCameraPool(input: {
   origin: { lat: number; lng: number } | null;
+  searchCenter?: { lat: number; lng: number } | null;
   curated: readonly Row[];
   ordinary: readonly Row[];
 }): Row[] {
-  const selected = resolveLocalAreaCoverage({ origin: input.origin, places: input.curated });
-  if (selected.places.length === 0) return [];
-  const anchor = input.curated.find((place) => place.id === selected.anchorId);
-  if (!anchor) return [...selected.places];
-  const context = resolveLocalAreaCoverage({
-    origin: { lat: anchor.latitude, lng: anchor.longitude },
-    places: input.ordinary,
+  // The searched city owns the frame while a search is active; the real fix is
+  // the origin otherwise. The ±0.05° bridge box exists ONLY for an active
+  // search — it is the searched region's own coverage box, never a radius
+  // invented around the device.
+  const origin = input.searchCenter ?? input.origin;
+  const searchViewport = input.searchCenter
+    ? {
+        north: input.searchCenter.lat + 0.05,
+        south: input.searchCenter.lat - 0.05,
+        east: input.searchCenter.lng + 0.05,
+        west: input.searchCenter.lng - 0.05,
+      }
+    : null;
+  return resolveContextualCuratedCoverage({
+    curatedPlaces: input.curated,
+    origin,
+    searchViewport,
   }).places;
-  const seen = new Set<string>();
-  return [...selected.places, ...context].filter((place) => {
-    if (seen.has(place.id)) return false;
-    seen.add(place.id);
-    return true;
-  });
 }
 
 function farthestKm(from: { lat: number; lng: number }, places: readonly Row[]): number {
@@ -124,24 +136,28 @@ function farthestKm(from: { lat: number; lng: number }, places: readonly Row[]):
 // 11. CURATED CAMERA FRAMING
 // ---------------------------------------------------------------------------
 
-test("11.1 ONE curated Place still frames nearby context, not a single point", () => {
+test("11.1 ONE curated Place still frames its own area, never a global set", () => {
   const pool = curatedCameraPool({ origin: BANDUNG, curated: [CURATED[0]], ordinary: ORDINARY });
   // The single selection is still there — it is the PRIMARY focus.
   assert.ok(pool.some((place) => place.id === "sel-a"));
-  // ...and it is no longer alone: the nearby ordinary Places give the frame its
-  // surrounding context, which is exactly what a one-point fit lacked.
-  assert.ok(pool.length >= 2, "one curated Place must still frame nearby context");
-  assert.ok(pool.some((place) => place.id.startsWith("near-")));
-  // Every added Place is genuinely local to the selection.
+  // ...and the frame stays LOCAL. A one-Place selection is focused on that
+  // Place at the single-Place zoom; it never drags the rest of the curated
+  // layer (or any other region) into the same fit, which is what used to turn
+  // this tab into a world view.
+  assert.ok(pool.length < 5, "a one-Place selection must not expand into a global frame");
   assert.ok(farthestKm({ lat: CURATED[0].latitude, lng: CURATED[0].longitude }, pool) < 60);
+  // The ordinary Places of the area remain a MARKER-layer rule (§15 item 2):
+  // they are on the map around the selection, but they must never steer the
+  // camera — so they are deliberately absent from the camera pool here.
+  assert.equal(pool.some((place) => place.id.startsWith("near-")), false);
 });
 
 test("11.2 MULTIPLE curated Places keep framing their own local area", () => {
   const pool = curatedCameraPool({ origin: BANDUNG, curated: CURATED, ordinary: ORDINARY });
   // Both selections stay in the frame — the context never displaces them.
   for (const place of CURATED) assert.ok(pool.some((entry) => entry.id === place.id), `${place.id} stays`);
-  // And the ordinary context is added around them, still local.
-  assert.ok(pool.length > CURATED.length);
+  // ...and the frame covers only that local area.
+  assert.ok(pool.length <= CURATED.length);
   assert.ok(farthestKm(BANDUNG, pool) < 60);
 });
 
@@ -178,10 +194,13 @@ test("11.4 the SEARCH center drives the curated frame and the fix never override
 
 test("11.5 the curated pool is CAMERA geometry only — results stay curated-only", () => {
   const pool = pageCode.slice(pageCode.indexOf("const curatedFitPlaces"), pageCode.indexOf("const searchFitPlaces"));
-  // The pool is EVERY curated Place, read from the canonical curated ids over
-  // the full published set (product decision, 2026-10-04) — never a local-area
-  // subset, and never anchored on the device fix.
+  // The pool CANDIDATES are still every curated Place, read from the canonical
+  // curated ids over the full published set (2026-10-04), so a search that
+  // narrowed the ROWS cannot decide which curated Places the camera may
+  // consider — it is CONTEXT (2026-10-05) that then bounds which of those
+  // candidates are framed, never the membership itself.
   assert.match(pool, /curatedIdSet\.has\(place\.id\)/);
+  assert.match(pool, /resolveContextualCuratedCoverage\(/);
   assert.match(pageCode, /if \(curatedOnly\) return curatedFitPlaces;/);
   // The curated LIST and its count are untouched: they still read canonical
   // membership only, and the viewport gate still narrows them.
@@ -195,8 +214,12 @@ test("11.5 the curated pool is CAMERA geometry only — results stay curated-onl
 });
 
 test("11.6 a Place without coordinates never enters the curated frame", () => {
-  // Coordinates are required in the pool — fail-closed, never a default.
-  assert.match(pageCode, /place\.latitude !== null && place\.longitude !== null/);
+  // Coordinates are required in the pool — fail-closed, never a default. The
+  // check moved with the pool into the shared projections on 2026-10-05: the
+  // component filters through `toCameraCandidates` (null without real
+  // coordinates) and the resolver drops any non-finite coordinate itself.
+  assert.match(pageCode, /function toCameraCandidate\(place: Place\)/);
+  assert.match(pageCode, /if \(place\.latitude === null \|\| place\.longitude === null\) return null;/);
   // And no origin at all still yields no frame for the local-area datasets, so
   // the current view stays.
   assert.deepEqual(curatedCameraPool({ origin: null, curated: CURATED, ordinary: ORDINARY }), []);

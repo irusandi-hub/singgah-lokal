@@ -123,17 +123,19 @@ test("AC 1: curated MEMBERSHIP is untouched — the fit is geometry, never a mem
     /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
   );
   // The fit dataset is derived from that membership (product decision,
-  // 2026-10-04): the "Tempat Pilihan" focus frames EVERY curated Place at
-  // once, straight from the canonical curated ids — it never re-selects, never
-  // sorts, and never re-orders a row. Coordinate fail-closed lives in the
-  // shared `toCameraCandidates` projection used by the local-area datasets.
+  // 2026-10-04; contextual framing 2026-10-05): the CANDIDATES are every
+  // curated Place, straight from the canonical curated ids — it never
+  // re-selects, never sorts, and never re-orders a row. Coordinate
+  // fail-closed lives in the shared `toCameraCandidates` projection used by
+  // every camera dataset, and again inside the resolver itself.
   const fitDataset = pageCode.slice(
     pageCode.indexOf("const curatedFitPlaces"),
     pageCode.indexOf("const cameraFitPlaces"),
   );
   assert.match(fitDataset, /curatedIdSet\.has\(place\.id\)/);
-  assert.match(fitDataset, /place\.latitude !== null && place\.longitude !== null/);
+  assert.match(fitDataset, /toCameraCandidates\(/);
   assert.match(pageCode, /function toCameraCandidates\(source: readonly Place\[\]\)/);
+  assert.match(pageCode, /if \(place\.latitude === null \|\| place\.longitude === null\) return null;/);
   // The fit dataset itself still neither sorts, re-selects, nor measures
   // anything — membership and geometry stay independent.
   assert.doesNotMatch(fitDataset, /\.sort\(|curatedIdSet\.size|distanceMeters/);

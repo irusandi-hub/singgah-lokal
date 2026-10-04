@@ -596,6 +596,154 @@ export function resolveLocalAreaCoverage<T extends LocalAreaPlace>(input: {
 }
 
 // ---------------------------------------------------------------------------
+// CONTEXTUAL CAMERA DATASET — "Tempat Pilihan" frames the SELECTION IN THE
+// ACTIVE CONTEXT, never the whole curated layer worldwide.
+// ---------------------------------------------------------------------------
+
+/** The candidate facts this rule is allowed to read (coordinates + geography). */
+export type ContextualCuratedPlace = LocalAreaPlace;
+
+/** The outcome, and WHY the frame is what it is (testable, no UI involved). */
+export type ContextualCuratedBasis = "search" | "area" | "none";
+
+export type ContextualCuratedCoverage<T extends LocalAreaPlace> = {
+  /** The curated Places of the active context, in the INPUT order. */
+  places: T[];
+  basis: ContextualCuratedBasis;
+  /** The curated Places considered (canonical coordinates only). */
+  consideredCount: number;
+};
+
+/**
+ * THE CURATED CAMERA POOL, RESOLVED AGAINST THE ACTIVE CONTEXT.
+ *
+ * ROOT CAUSE this closes: the "Tempat Pilihan" focus used to frame EVERY
+ * curated Place in the whole published set at once. On the canonical dataset
+ * that set spans two continents ~13 000 km apart, so one fit produced a WORLD
+ * view in which the viewer's own neighbourhood was a couple of pixels wide —
+ * and `CURATED_FIT_MAX_ZOOM` (13) could not prevent it, because that ceiling
+ * can only widen a frame that is already too TIGHT, never one that is too wide.
+ *
+ * The frame is now the SELECTION IN THE USER'S CURRENT CONTEXT, resolved with
+ * the helpers this module already owns — no new geographic rule, no invented
+ * coordinate, no hard-coded place:
+ *  1. `search` — a city search is active: the curated Places inside the
+ *     searched region's own coverage box (the SAME box, and therefore the same
+ *     Places, the rows already use before Leaflet reports real bounds);
+ *  2. `area`   — otherwise the curated Places of the viewer's LOCAL AREA
+ *     (`resolveLocalAreaCoverage`, anchored on the searched city first and the
+ *     real fix second), which is bounded by trusted canonical geography;
+ *  3. `none`   — with no usable origin the pool is EMPTY, so the camera keeps
+ *     the frame it has. There is no world fallback, ever (AGENTS.md: never
+ *     fabricate; §19: no origin → no invented camera move).
+ *
+ * It is CAMERA GEOMETRY ONLY: curated membership still comes solely from the
+ * canonical `places.is_curated` ids, the curated LIST, both rows, every count,
+ * and Discovery are untouched, and a Place is never added, dropped, or
+ * re-ordered by this value in any result.
+ */
+export function resolveContextualCuratedCoverage<T extends ContextualCuratedPlace>(input: {
+  curatedPlaces: readonly T[];
+  origin: ActiveCenter | null;
+  searchViewport: MapViewport | null;
+}): ContextualCuratedCoverage<T> {
+  const candidates = input.curatedPlaces.flatMap((place) =>
+    Number.isFinite(place.latitude) && Number.isFinite(place.longitude) ? [place] : [],
+  );
+  if (candidates.length === 0) return { places: [], basis: "none", consideredCount: 0 };
+
+  // 1. The searched region: the curated Places INSIDE its own coverage box.
+  // A box that holds no curated Place must NOT widen into another region — it
+  // falls through to the local-area rule, which is anchored on the same
+  // searched city.
+  if (input.searchViewport) {
+    const searched = narrowToViewport(candidates, input.searchViewport);
+    if (searched.length > 0) {
+      return { places: searched, basis: "search", consideredCount: candidates.length };
+    }
+  }
+
+  // 2. The viewer's local area of the SELECTION (trusted canonical geography,
+  // or the scale-free separation rule when the anchor has none).
+  const area = resolveLocalAreaCoverage({ origin: input.origin, places: candidates });
+  if (area.places.length === 0) return { places: [], basis: "none", consideredCount: candidates.length };
+  return { places: area.places, basis: "area", consideredCount: candidates.length };
+}
+
+// ---------------------------------------------------------------------------
+// PIN LABEL DENSITY — a deterministic, non-hiding declutter (this change)
+// ---------------------------------------------------------------------------
+
+/**
+ * How many Place name chips stay permanently painted at once.
+ *
+ * The chip itself is unchanged (compact, 11px/700, truncated at 132px, with
+ * the full name on hover/focus). This budget only decides WHICH chips are
+ * painted when a whole dense cluster is on screen at once, where chips used to
+ * pile up on top of each other and none of them was readable.
+ *
+ * It is a presentation budget, never a filter: every pin keeps its marker, its
+ * click target, its keyboard target, its tooltip with the full name, and its
+ * chip in the DOM.
+ */
+export const PIN_LABEL_ALWAYS_ON_LIMIT = 12;
+
+export type PinLabelCandidate = {
+  id: string;
+  /** Canonical curated membership (`places.is_curated`) — the first tier. */
+  isCurated?: boolean | null;
+  /** An active Live session — the second tier. */
+  isLive?: boolean | null;
+};
+
+/**
+ * WHICH pins keep their always-on label when the map is dense.
+ *
+ * Deliberately the SIMPLEST strategy that is compatible with the existing
+ * architecture, because the alternatives are all worse here:
+ *  · it needs NO measurement — no `getBoundingClientRect`, no `offsetWidth`,
+ *    no per-frame or per-render layout pass. It runs once per marker rebuild
+ *    (already keyed on the stable marker signature), so panning and zooming
+ *    cost nothing extra;
+ *  · it is DETERMINISTIC and STABLE: the same marker set always yields the
+ *    same label set, in the same canonical order, so a label can never flicker
+ *    between rebuilds;
+ *  · it HIDES NOTHING PERMANENTLY: past the budget the chip stays in the DOM
+ *    and is revealed by the existing hover/keyboard-focus state (pure CSS),
+ *    and the full name is always available through the pin's tooltip;
+ *  · it never hides ALL labels: the budget is always at least one, so a single
+ *    pin, a normally spaced set, and a dense cluster all keep their names
+ *    readable.
+ *
+ * Priority is the existing per-Place marker ladder — curated first, then
+ * Live, then canonical order — so the labels that survive a dense frame are
+ * the same Places the marker ladder already promotes to the top of the stack.
+ */
+export function selectAlwaysLabelledPlaceIds(
+  candidates: readonly PinLabelCandidate[],
+  limit: number = PIN_LABEL_ALWAYS_ON_LIMIT,
+): Set<string> {
+  const budget = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : PIN_LABEL_ALWAYS_ON_LIMIT;
+  const chosen = new Set<string>();
+  if (budget === 0) return chosen;
+  const consumed = new Set<string>();
+  const tiers: readonly ((candidate: PinLabelCandidate) => boolean)[] = [
+    (candidate) => candidate.isCurated === true,
+    (candidate) => candidate.isLive === true,
+    () => true,
+  ];
+  for (const tier of tiers) {
+    for (const candidate of candidates) {
+      if (chosen.size >= budget) return chosen;
+      if (consumed.has(candidate.id) || !tier(candidate)) continue;
+      consumed.add(candidate.id);
+      chosen.add(candidate.id);
+    }
+  }
+  return chosen;
+}
+
+// ---------------------------------------------------------------------------
 // MAP SCALE — a scale bar derived from the REAL viewport (2026-10-03)
 // ---------------------------------------------------------------------------
 

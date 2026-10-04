@@ -1088,3 +1088,119 @@ header tier).
   curation decisions, remain exactly as reported in §21.6 — still open, still
   not actioned.
 - `isDummy` on the public `/api/places` payload is still untouched (§21.7).
+
+## 23. CORRECTION — CONTEXTUAL CURATED FRAME + PIN LABEL DENSITY (2026-10-05)
+
+This section corrects the 2026-10-04 "Tempat Pilihan frames ALL curated Places"
+decision (recorded in §2) and adds one label-declutter rule. Everything in
+§14–§22 that is not named here still stands: curated MEMBERSHIP still reads only
+the canonical `places.is_curated` ids, the viewport is still the only coverage
+source for markers and rows, the 0/1/many fit matrix, the local-area resolver,
+the explicit-request camera latch, the chrome padding, the measured scale bar,
+`CURATED_FIT_MAX_ZOOM = 13`, the single `cameraAnimationOptions()` easing helper,
+the reduced-motion behaviour, the search mechanism, the distance tabs, and the
+`X` clear control.
+
+### 23.1 Root cause — the curated frame was global
+
+The curated focus fitted EVERY curated Place in the published set in one
+`fitBounds`. On the canonical dataset that set spans West Java and the Kingdom
+of Saudi Arabia (~13 000 km), so one fit produced a WORLD frame in which the
+viewer's own neighbourhood was a couple of pixels wide. `CURATED_FIT_MAX_ZOOM`
+(13) cannot prevent that: a maxZoom can only widen a frame that is too TIGHT,
+never one that is already too wide. The viewport had then become the world, so
+the marker layer re-rendered every Place on two continents.
+
+### 23.2 The decision — frame the selection in the active context
+
+`resolveContextualCuratedCoverage` (`web/lib/live/ui.ts`, pure and unit-tested)
+resolves the curated camera pool against the USER'S CURRENT CONTEXT, using the
+helpers this module already owns — no new geographic rule, no new radius, no
+hard-coded place, no invented coordinate:
+
+1. `search` — a city search is active: the curated Places inside that searched
+   region's own coverage box (the same box the rows already use before Leaflet
+   reports real bounds), so a context change after a search really re-frames
+   the camera;
+2. `area` — otherwise the curated Places of the viewer's LOCAL AREA
+   (`resolveLocalAreaCoverage`), anchored on the searched city first and the
+   real fix second;
+3. `none` — with no usable origin the pool is EMPTY and the camera keeps its
+   frame. There is no world fallback, so "geolocation denied and nothing
+   searched" can never frame distant Places again.
+
+The pool CANDIDATES are still every curated Place over the full published set,
+so a search that narrowed the ROWS cannot decide which curated Places the
+camera may consider. Curated membership, the curated LIST, both rows, every
+count, and Discovery are untouched; the value is camera geometry only and is
+still keyed on its nonce alone, so marker refreshes, polls, and viewport
+reports cannot re-frame it.
+
+### 23.3 Pin label density
+
+Every Place pin paints its compact chip (11px/700, truncated at 132px, full
+name on hover/focus). In a dense cluster every chip was painted at once, so in
+exactly the area the user cares about no name was readable. `selectAlwaysLabelledPlaceIds`
+now applies a deterministic priority budget (`PIN_LABEL_ALWAYS_ON_LIMIT`, 12):
+curated first, then Live, then canonical order. It runs ONCE per marker rebuild
+(effect keyed on the stable marker signature), so panning, zooming, and every
+viewport report cost nothing extra, and nothing is ever measured at runtime —
+no `getBoundingClientRect`, no `offsetWidth`, no per-frame layout pass. Chips
+past the budget stay in the DOM with their full text and are revealed by the
+existing hover / keyboard-focus state (pure CSS, no transition, no animation,
+so reduced motion is unaffected). No marker, tooltip, click target, accessible
+name, artwork, colour, or z-order changed, and labels are never ALL hidden.
+
+### 23.4 Measured, and measured only
+
+On a canonical-shape 74-Place dataset (30 curated across two continents), a
+viewer in West Java, phone map box 360x460 with the real chrome padding:
+
+| | before | after |
+| --- | --- | --- |
+| camera candidates | 30 | 12 |
+| frame span | 7 475 km | 7 km |
+| fit zoom | 2.58 | 12.46 |
+| markers rendered after the fit | 47 | 14 |
+
+Derivation cost: the curated pool resolver is 0.037 ms per derivation (the old
+full-set scan was 0.003 ms) and the whole Home derive chain is 0.093 ms at 74
+Places, with the per-keystroke content filter at 0.022 ms. The resolver is
+memoised on stable inputs, so the extra work is paid only when the Places, the
+search center, the fix, or the search box actually change. No other bottleneck
+was found, so nothing else was optimised: no state, effect, filter, or camera
+path was changed for performance.
+
+### 23.5 Explicitly NOT changed
+
+Curated eligibility, ranking, membership and every result count; the Discovery
+contract; the distance tabs and their ordered presets; the search mechanism and
+its ±0.05° box; the `X` clear control; LIVE; marker coordinates, artwork,
+navigation and the z-index ladder; Place data, database, RLS, branding, copy,
+and routes.
+
+### 23.6 Verification
+
+New `tests/map-contextual-curated-framing.test.ts` (16), new
+`tests/map-pin-label-density.test.ts` (14) and new
+`tests/home-search-submit-guard.test.ts` (11) — all executable against the real
+resolver, the real fixtures, and Leaflet's own `getBoundsZoom` arithmetic, so
+they assert the FRAME (span and the zoom a fit would produce), not that a helper
+was called. Amended — never deleted — assertions in `map-auto-fit-camera`,
+`home-map-consolidated-frame` and the two curated-map coverage assertions in
+`map-viewport-coverage` / `discovery-home-integration`, each annotated with the
+superseded behaviour it locked.
+
+Home/map/Discovery/geocoding suites 366/366; full suite in batches 269 (2 known
+environment failures), 224, 193, 118, 176 (1 known pre-existing failure);
+`tsc -b --noEmit` clean; `eslint .` 0 errors / 10 warnings (baseline).
+
+### 23.7 Known environment limitation (not a product defect)
+
+The managed preview serves this Next.js app without hydrating in any headless
+browser available in the sandbox (reproduced on the unmodified baseline), so no
+screenshot of the live Leaflet map could be captured. The label strategy is
+therefore covered EXECUTABLY (deterministic budget, bounded, non-destructive,
+no layout measurement) — no claim is made that the chips are visually
+collision-free, only that the layout logic is deterministic and that every name
+remains reachable.

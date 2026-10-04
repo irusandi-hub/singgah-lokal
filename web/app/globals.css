@@ -155,6 +155,25 @@ select {
   pointer-events: none;
 }
 
+/* DENSE-FRAME DECLUTTER (2026-10-05). In a tight cluster every pin used to
+   paint its chip at once and the names piled up unreadable. The chips past the
+   deterministic on-screen budget therefore stay in the DOM — full text,
+   identical typography, identical truncation — and are simply held back until
+   the pin is hovered or keyboard-focused, which is exactly the interaction the
+   full-name tooltip already uses. Pure CSS, no transition, no animation, and
+   nothing measured at runtime: reduced-motion preferences are therefore
+   unaffected, and the labels can never be ALL hidden (the budget always keeps
+   at least one) nor can any Place name become unreachable. */
+.singgah-pin-label[data-label-state="on-demand"] {
+  visibility: hidden;
+}
+
+.singgah-map-marker:hover .singgah-pin-label[data-label-state="on-demand"],
+.singgah-map-marker:focus .singgah-pin-label[data-label-state="on-demand"],
+.singgah-map-marker:focus-within .singgah-pin-label[data-label-state="on-demand"] {
+  visibility: visible;
+}
+
 .singgah-map-marker:hover,
 .singgah-map-marker:focus-within {
   filter: brightness(1.08);
