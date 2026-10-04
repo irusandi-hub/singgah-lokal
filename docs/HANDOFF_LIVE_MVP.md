@@ -25,6 +25,23 @@ pressure in this 1-CPU/2 GB sandbox; run alone it passes 8/8 (and
 it is an environment limit, not a regression. Lint 0 errors / 7 warnings
 (baseline); `tsc --noEmit` clean; `next build` (28/28).
 
+### Home discovery improvements (branch `fix/home-discovery-improvements`, 2026-10-04)
+- Home location search is now SUBMIT-ONLY: typing never geocodes; the single
+  geocode runs on Enter/submit (`handleSearchSubmit`), guarded by the same
+  search-epoch + submitted-query checks. No empty submit ever geocodes.
+- The search bar's right control is CONDITIONAL: a real clear "×" button while
+  the query is non-empty, the decorative (aria-hidden) control icon while empty.
+- Both Home result rows (`curatedListed`, `discoveryRowPlaces`) are VERTICAL
+  full-width lists instead of horizontal snap-carousels; the old carousel
+  frames are gone. Dataset, order, eligibility, and cards are unchanged —
+  presentation only.
+- Camera/geographic rules, coverage, radius presets, and the server-only
+  geocoding path are untouched.
+- Files: `web/components/home-discovery.tsx` + 10 home/map test files.
+- Verification: targeted home/map suites 191/191 and 144/144; `tsc -b --noEmit`
+  clean; `eslint .` 0 errors, 10 pre-existing warnings (none in
+  `home-discovery.tsx`).
+
 ## 3. LIVE IMPLEMENTATION STATUS
 
 ### Completed

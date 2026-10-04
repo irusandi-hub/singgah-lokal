@@ -292,8 +292,8 @@ test("LOC-10: a slow earlier response is dropped after a newer query replaces it
 
 test("LOC-09 LOC-10: the search flow guards every post-await write with the epoch check", () => {
   const body = discoveryCode.slice(
-    discoveryCode.indexOf("const runSearch"),
-    discoveryCode.indexOf("useEffect", discoveryCode.indexOf("const runSearch")),
+    discoveryCode.indexOf("const handleSearchSubmit"),
+    discoveryCode.indexOf("const handleSearchKeyDown"),
   );
   // The epoch is captured BEFORE the request goes out, so a later intent is
   // always visible on return.

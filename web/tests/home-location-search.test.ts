@@ -80,7 +80,7 @@ test("the client never performs its own geocoding — one search path only", () 
   const fetchCalls = discoveryCode.match(/\/api\/geocode/g) ?? [];
   assert.equal(fetchCalls.length, 1, "exactly one geocode call site");
   assert.equal(
-    (discoveryCode.match(/async \(query: string\)/g) ?? []).length,
+    (discoveryCode.match(/const handleSearchSubmit = useCallback\(async/gi) ?? []).length,
     1,
     "one search runner only — no second, competing implementation",
   );
@@ -166,6 +166,9 @@ test("a resolved search center becomes the coverage viewport for markers and bot
     /narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/,
   );
   assert.match(discoveryCode, /narrowToViewport\(mapPlaces, coverageViewport\)/);
+  // 2026-10-04: the result strips are now vertical lists, not horizontal carousels.
+  assert.match(discoveryCode, /flex flex-col gap-2\.5/);
+  assert.doesNotMatch(discoveryCode, /snap-x snap-mandatory/);
 });
 
 test("searching narrows every layer to the centered area (executable)", () => {
@@ -195,7 +198,7 @@ test("searching narrows every layer to the centered area (executable)", () => {
 
 test("a search is CAMERA-ONLY: it never rewrites the radius tab or the filter mode", () => {
   const searchBlock = discoveryCode.slice(
-    discoveryCode.indexOf("const runSearch"),
+    discoveryCode.indexOf("const handleSearchSubmit"),
     discoveryCode.indexOf("const liveByPlaceId"),
   );
   // A search may move the camera and set the center, nothing else.
@@ -282,41 +285,42 @@ test("the search status line reports server state without becoming a second sear
   assert.doesNotMatch(homeDiscovery, /localStorage|sessionStorage/);
 });
 
-test("debounced search: one request per pause, and a slow earlier answer cannot win", () => {
-  assert.match(discoveryCode, /setTimeout\(\(\) => \{\s*runSearch\(searchQuery\);/, );
-  assert.match(discoveryCode, /\}, 250\);/);
-  // Every response checks it is still for the CURRENT query before applying.
-  assert.match(discoveryCode, /if \(activeSearchRef\.current !== trimmed\) return;/);
+test("submit-only search: typed text does not trigger a geocode, Enter/submit does", () => {
+  // The input handler must NOT contain the search runner or any timer.
+  const handler = discoveryCode.slice(
+    discoveryCode.indexOf("const handleSearchChange"),
+    discoveryCode.indexOf("const handleSearchSubmit"),
+  );
+  assert.match(handler, /setSearchQuery\(value\);/);
+  assert.doesNotMatch(handler, /runSearch|fetch\(`\/api\/geocode|setTimeout|searchEpochRef/);
+  // There must be an explicit Enter/submit path with an epoch bump.
+  const submitBlock = discoveryCode.slice(
+    discoveryCode.indexOf("const handleSearchSubmit"),
+    discoveryCode.indexOf("const handleSearchKeyDown"),
+  );
+  assert.match(submitBlock, /searchEpochRef\.current \+= 1;/);
+  assert.match(submitBlock, /submittedSearchRef\.current = trimmed;/);
+  assert.match(submitBlock, /fetch\(`\/api\/geocode\?q=\$\{encodeURIComponent\(trimmed\)\}`/);
+  // The input must wire the Enter key handler.
+  assert.match(discoveryCode, /onKeyDown=\{handleSearchKeyDown\}/);
+  // There is still exactly one search runner.
   assert.equal(
-    (discoveryCode.match(/activeSearchRef\.current !== trimmed/g) ?? []).length >= 3,
-    true,
-    "the stale-response guard guards every outcome branch",
+    (discoveryCode.match(/const handleSearchSubmit = useCallback\(async/gi) ?? []).length,
+    1,
+    "one search runner only — no second, competing implementation",
   );
 });
 
-test("clearing the input resets the search state in the handler, not in an effect", () => {
-  const handler = discoveryCode.slice(
-    discoveryCode.indexOf("const handleSearchChange"),
-    discoveryCode.indexOf("// Home filter bar"),
+test("clearing the search resets the state in the clear handler, not in an effect", () => {
+  const clearBlock = discoveryCode.slice(
+    discoveryCode.indexOf("const handleSearchClear"),
+    discoveryCode.indexOf("const handleLocatePress"),
   );
-  assert.match(handler, /if \(value\.trim\(\)\) return;/);
-  // The four reset fields now come from ONE payload (bug fix 2026-10-02) so
-  // the handler can never leave a half-cleared state. The intent is unchanged:
-  // the whole reset happens here, in the handler, and not in an effect.
-  assert.match(handler, /const cleared = clearCitySearch\(\);/);
-  assert.match(handler, /setSearchCenter\(cleared\.center\)/);
-  assert.match(handler, /setSearchError\(cleared\.error\)/);
-  assert.match(handler, /setSearchPending\(cleared\.pending\)/);
-  // Emptying the box is a real intent change: a response still in flight must
-  // not land right after the user cleared it.
-  assert.match(handler, /searchEpochRef\.current \+= 1;/);
-  // The effect body must NOT reset state synchronously (cascading renders).
-  const effect = discoveryCode.slice(
-    discoveryCode.indexOf("debounceTimerRef.current = setTimeout"),
-    discoveryCode.indexOf("const handleSearchChange"),
-  );
-  assert.doesNotMatch(effect, /setSearchCenter\(null\)/);
-  assert.doesNotMatch(effect, /setSearchPending\(false\)/);
+  // Clearing is a real intent change: it must invalidate a response still in
+  // flight, or the old city would land right after the user cleared it.
+  assert.match(clearBlock, /searchEpochRef\.current \+= 1;/);
+  assert.match(clearBlock, /submittedSearchRef\.current = "";/);
+  assert.match(clearBlock, /setSearchPlaceName\(cleared\.placeName\);/);
 });
 
 test("no View Intent, payment, or transaction wording leaked into the search flow", () => {

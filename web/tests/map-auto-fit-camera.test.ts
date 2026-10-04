@@ -182,13 +182,15 @@ test("AC 2: a searched region frames its own Place spread, not only the geocodin
   assert.match(mapCode, /if \(cancelled \|\| applied\) return;/);
 });
 
-test("AC 2: the Place-keyword search mechanism is unchanged — one search, never a second path", () => {
-  // Same debounce, same route, same state reset, same epoch guard.
-  assert.match(pageCode, /setTimeout\(\(\) => \{\s*runSearch\(searchQuery\);/);
-  assert.match(pageCode, /\}, 250\);/);
+test("AC 2: the Place-keyword search is submit-only — one search, never a second path", () => {
+  // 2026-10-04: the debounce is gone. Typing only updates the box; the ONE
+  // geocode runs on Enter/submit, guarded by the same epoch check.
+  assert.doesNotMatch(pageCode, /setTimeout\(\(\) => \{\s*runSearch\(searchQuery\);/);
+  assert.doesNotMatch(pageCode, /\}, 250\);/);
+  assert.match(pageCode, /onKeyDown=\{handleSearchKeyDown\}/);
   assert.match(pageCode, /fetch\(`\/api\/geocode\?q=\$\{encodeURIComponent\(trimmed\)\}`/);
   assert.match(pageCode, /const isCurrent = \(\) =>\s*acceptSearchResponse\(\{/);
-  assert.equal((pageCode.match(/activeSearchRef\.current !== trimmed/g) ?? []).length >= 3, true);
+  assert.equal((pageCode.match(/submittedSearchRef\.current !== trimmed/g) ?? []).length >= 3, true);
   // The auto-fit reads searchCenter/searchViewport; it never runs its own query.
   assert.equal(/fetch\(/.test(pageCode.slice(pageCode.indexOf("const searchFitPlaces"), pageCode.indexOf("const searchFitPlaces") + 600)), false);
 });
@@ -454,25 +456,23 @@ test("AC 8: the search info panel spans the screen and is fully opaque", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 9. The Place carousel has a clear frame and stays horizontally scrollable.
+// 9. The Place rows are vertical lists inside the results panel.
 // ---------------------------------------------------------------------------
 
-test("AC 9: both Place strips sit in a visible, tidily clipped frame and still scroll sideways", () => {
+test("AC 9: both Place rows are vertical lists inside the panel", () => {
+  // 2026-10-04: the horizontal carousels became vertical lists. The same
+  // dataset, order, and cards remain; only the layout changed.
   const frames = (pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []);
-  assert.equal(frames.length, 2, "Baris 1 and Baris 2 both get the frame");
-  const strips = (pageCode.match(/-mx-4 flex snap-x snap-mandatory gap-2\.5 overflow-x-auto px-4 pb-1"/g) ?? []);
-  assert.equal(strips.length, 2, "both strips keep their scroll + snap pattern");
-  // The cards, their fixed tracks, and their order are untouched.
-  assert.equal(
-    (pageCode.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []).length,
-    2,
-  );
-  // The frame CLIPS the strip's bleed (so a card can never look like it is
-  // entering from outside the container) while the strip keeps the gesture.
+  assert.equal(frames.length, 0, "the old carousel frames are gone");
+  const strips = (pageCode.match(/-mx-4 flex flex-col gap-2\.5 px-4 pb-1"/g) ?? []);
+  assert.equal(strips.length, 2, "Baris 1 and Baris 2 are both vertical lists");
+  const tracks = (pageCode.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []);
+  assert.equal(tracks.length, 0, "no fixed-width horizontal tracks remain");
+  // Cards stay wrapped in a full-width list item in BOTH rows.
+  assert.equal((pageCode.match(/className="w-full"/g) ?? []).length, 2);
   const curated = pageCode.slice(pageCode.indexOf("{curatedOnly && curatedListed.length > 0 && ("));
-  assert.match(curated, /overflow-hidden border-y[\s\S]{0,200}overflow-x-auto/);
   assert.match(curated, /\{curatedListed\.map\(\(place\) => \(/);
-  // No page-level horizontal overflow is introduced: the frame only cancels
+  // No page-level horizontal overflow is introduced: the list only cancels
   // the section's own padding, it never exceeds it.
   assert.equal(/-mx-4 overflow-hidden border-y[^\n]*w-\[100vw\]/.test(pageCode), false);
 });

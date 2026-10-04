@@ -302,22 +302,13 @@ export default function HomeDiscovery({
     requestViewerPosition();
   }, [requestViewerPosition]);
 
-  // LOCATION SEARCH — debounce is intentional: a server geocode must not run
-  // on every keystroke, and the camera must not move while the user is still
-  // typing. The window is short and time-based (250 ms), never length-based.
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // A response only wins while it is still for the CURRENT query, so a slow
-  // earlier request can never overwrite a newer center (last-write-wins by
-  // the query the user actually typed, not by arrival order).
-  const activeSearchRef = useRef<string>("");
-  // EPOCH guard (bug fix 2026-10-02): the string guard above cannot see a
-  // response that was superseded by a LATER INTENT rather than a newer query
-  // — pressing "Lokasi Saya" after "Riyadh" was typed leaves the text
-  // unchanged, so the string guard would happily let the late Riyadh answer
-  // drag the map and the rows back. Every intent change (new search, cleared
-  // input, "Lokasi Saya") bumps the epoch, and a response carrying an older
-  // epoch is dropped on arrival.
-  const searchEpochRef = useRef(0);
+  // LOCATION SEARCH — SUBMIT-ONLY (2026-10-04): the geocode must not run on
+  // every keystroke. Typing only updates `searchQuery`; the single geocode runs
+  // on Enter/submit (`handleSearchSubmit`) and the last SUBMITTED query is
+  // tracked separately from the typed text. EPOCH guard: every intent change
+  // (new submit, cleared input, "Lokasi Saya") bumps the epoch, and a response
+  // carrying an older epoch is dropped on arrival, so a late answer can never
+  // drag the map and the rows back after the user has moved on.
   // Leaflet's own bounds for the search-recentered camera supersede the
   // synthetic ±0.05° bridge box. Releasing the latch on a NEW answer makes
   // coverage follow the real viewport again (so panning after a search works)
@@ -327,144 +318,130 @@ export default function HomeDiscovery({
     setMapViewport(null);
   }, []);
 
-  const runSearch = useCallback(async (query: string) => {
-    const trimmed = query.trim();
-    if (!trimmed) {
-      const cleared = clearCitySearch();
-      setSearchQuery(cleared.query);
-      setSearchPending(cleared.pending);
-      setSearchError(cleared.error);
-      setSearchCenter(cleared.center);
-      setSearchPlaceName(cleared.placeName);
-      activeSearchRef.current = "";
-      return;
-    }
+  const submittedSearchRef = useRef("");
+  const searchEpochRef = useRef(0);
 
-    activeSearchRef.current = trimmed;
-    setSearchQuery(trimmed);
-    setSearchPending(true);
-    setSearchError(null);
-    setSearchCenter(null);
-
-    // Captured BEFORE the request goes out: a response is only allowed to
-    // write state if no newer intent (new query, cleared input, "Lokasi
-    // Saya") replaced this one in the meantime.
-    const requestEpoch = searchEpochRef.current;
-    const isCurrent = () =>
-      acceptSearchResponse({
-        requestEpoch,
-        currentEpoch: searchEpochRef.current,
-        submitted: trimmed,
-        activeQuery: activeSearchRef.current,
-      });
-
-    try {
-      // The provider endpoint is server-only; the browser calls our own
-      // route, which validates the query and returns one canonical center.
-      const response = await fetch(`/api/geocode?q=${encodeURIComponent(trimmed)}`, {
-        headers: { Accept: "application/json" },
-      });
-      if (activeSearchRef.current !== trimmed) return;
-      if (!isCurrent()) return;
-      if (response.status === 404) {
-        setSearchPending(false);
-        setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
-        setSearchCenter(null);
-        return;
-      }
-      if (!response.ok) {
-        setSearchPending(false);
-        setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
-        setSearchCenter(null);
-        return;
-      }
-      const result = (await response.json()) as {
-        latitude?: number;
-        longitude?: number;
-        displayName?: string;
-        name?: string;
-      };
-      if (activeSearchRef.current !== trimmed) return;
-      if (!isCurrent()) return;
-      const latitude = Number(result.latitude);
-      const longitude = Number(result.longitude);
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        setSearchPending(false);
-        setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
-        setSearchCenter(null);
-        return;
-      }
-      setSearchPending(false);
-      setSearchCenter({ lat: latitude, lng: longitude });
-      // The geocoder's OWN resolved name drives the radius caption, so it can
-      // never name a city the search did not resolve. An absent name falls
-      // back to the neutral phrase rather than the typed text.
-      setSearchPlaceName(
-        typeof result.displayName === "string" && result.displayName.trim()
-          ? result.displayName.trim()
-          : typeof result.name === "string" && result.name.trim()
-            ? result.name.trim()
-            : null,
-      );
-      // The real Leaflet bounds for this new center supersede the synthetic
-      // bridge box; the map reports them on the next moveend.
-      resetViewportLatch();
-    } catch {
-      if (activeSearchRef.current !== trimmed) return;
-      if (!isCurrent()) return;
-      setSearchPending(false);
-      setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
-      setSearchCenter(null);
-    } finally {
-      // The nonce is bumped only AFTER the server answered, so the newest
-      // successful request always wins — a slow earlier response can never
-      // overwrite a later center.
-      setSearchNonce((nonce) => nonce + 1);
-    }
-  }, [resetViewportLatch]);
-
-  useEffect(() => {
-    if (debounceTimerRef.current !== null) {
-      clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = null;
-    }
-    // An empty query is cleared in the input handler (handleSearchChange),
-    // NOT here: synchronizing state from an effect body would cascade renders.
-    if (!searchQuery.trim()) return;
-    debounceTimerRef.current = setTimeout(() => {
-      runSearch(searchQuery);
-    }, 250);
-    return () => {
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-    };
-  }, [searchQuery, runSearch]);
-
-  // Release the debounce handle on unmount so a pending timer never fires
-  // after the component has left the page.
-  useEffect(() => {
-    return () => {
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-        debounceTimerRef.current = null;
-      }
-    };
-  }, []);
+  // NOTE (2026-10-04): the debounced auto-search-on-keystroke was removed. The
+  // search is SUBMIT-ONLY — typing never geocodes, and `handleSearchSubmit`
+  // below is the ONE search path.
 
   // Clearing the input is the ONE place the search state resets (no effect):
   // an empty query immediately drops the pending flag, the error, and the
   // center, so the map and every row fall back to the REAL Leaflet viewport.
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
-    if (value.trim()) return;
-    // Clearing the input is a real intent change: it must also invalidate a
-    // response still in flight, or the old city would land right after the
-    // user emptied the box.
+  }, []);
+
+  const handleSearchSubmit = useCallback(async (
+    value: string,
+  ) => {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        // An empty submit never geocodes. It simply returns the box, the
+        // error, and the map to the neutral, device-centred state — the same
+        // reset the clear control performs, so every reset path clears the
+        // resolved name together with the center.
+        searchEpochRef.current += 1;
+        submittedSearchRef.current = "";
+        const cleared = clearCitySearch();
+        setSearchQuery(cleared.query);
+        setSearchPending(cleared.pending);
+        setSearchError(cleared.error);
+        setSearchCenter(cleared.center);
+        setSearchPlaceName(cleared.placeName);
+        return;
+      }
+
+      // Every submit intent invalidates any response still in flight, so a
+      // late answer for a previous query can never overwrite a newer one.
+      searchEpochRef.current += 1;
+      submittedSearchRef.current = trimmed;
+      setSearchQuery(trimmed);
+      setSearchPending(true);
+      setSearchError(null);
+      setSearchCenter(null);
+
+      const requestEpoch = searchEpochRef.current;
+      const isCurrent = () =>
+        acceptSearchResponse({
+          requestEpoch,
+          currentEpoch: searchEpochRef.current,
+          submitted: trimmed,
+          activeQuery: submittedSearchRef.current,
+        });
+
+      try {
+        const response = await fetch(`/api/geocode?q=${encodeURIComponent(trimmed)}`, {
+          headers: { Accept: "application/json" },
+        });
+        if (submittedSearchRef.current !== trimmed) return;
+        if (!isCurrent()) return;
+        if (response.status === 404) {
+          setSearchPending(false);
+          setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
+          setSearchCenter(null);
+          return;
+        }
+        if (!response.ok) {
+          setSearchPending(false);
+          setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
+          setSearchCenter(null);
+          return;
+        }
+        const result = (await response.json()) as {
+          latitude?: number;
+          longitude?: number;
+          displayName?: string;
+          name?: string;
+        };
+        if (submittedSearchRef.current !== trimmed) return;
+        if (!isCurrent()) return;
+        const latitude = Number(result.latitude);
+        const longitude = Number(result.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          setSearchPending(false);
+          setSearchError("Lokasi tidak ditemukan. Cek ejaan atau pilih dari daftar.");
+          setSearchCenter(null);
+          return;
+        }
+        setSearchPending(false);
+        setSearchCenter({ lat: latitude, lng: longitude });
+        setSearchPlaceName(
+          typeof result.displayName === "string" && result.displayName.trim()
+            ? result.displayName.trim()
+            : typeof result.name === "string" && result.name.trim()
+              ? result.name.trim()
+              : null,
+        );
+        resetViewportLatch();
+      } catch {
+        if (submittedSearchRef.current !== trimmed) return;
+        if (!isCurrent()) return;
+        setSearchPending(false);
+        setSearchError("Layanan lokasi sedang tidak tersedia. Coba lagi nanti.");
+        setSearchCenter(null);
+      } finally {
+        setSearchNonce((nonce) => nonce + 1);
+      }
+    },
+    [resetViewportLatch],
+  );
+
+  const handleSearchKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        handleSearchSubmit(event.currentTarget.value);
+      }
+    },
+    [handleSearchSubmit],
+  );
+
+  const handleSearchClear = useCallback(() => {
     searchEpochRef.current += 1;
-    activeSearchRef.current = "";
+    submittedSearchRef.current = "";
     const cleared = clearCitySearch();
+    setSearchQuery(cleared.query);
     setSearchPending(cleared.pending);
     setSearchError(cleared.error);
     setSearchCenter(cleared.center);
@@ -503,7 +480,7 @@ export default function HomeDiscovery({
   // longer pull the map and the rows back to it.
   const handleLocatePress = useCallback(() => {
     searchEpochRef.current += 1;
-    activeSearchRef.current = "";
+    submittedSearchRef.current = "";
     const cleared = clearCitySearch();
     setSearchQuery(cleared.query);
     setSearchPending(cleared.pending);
@@ -1255,10 +1232,12 @@ export default function HomeDiscovery({
             surface, its markers, or the layout changes. */}
         <div className="relative z-[1100] pointer-events-none mx-auto w-full max-w-6xl px-4">
           {/* Search — MOCKUP §2: floating white bar, search icon LEFT and the
-              sliders/control icon RIGHT. The right icon is DECORATIVE ONLY
-              (aria-hidden, non-inline, never a button): no search-settings
-              feature exists, and none is invented. Copy, input, and search
-              behavior are untouched (ONE search implementation). */}
+              right control. The right side is CONDITIONAL (2026-10-04): while
+              the box is non-empty it is a real clear button (×, aria-labelled);
+              while the box is empty it is the decorative sliders/control icon
+              (aria-hidden, non-interactive) — no search-settings feature exists,
+              and none is invented. Typing never searches: the ONE search runs on
+              Enter/submit only (submit-only, 2026-10-04). */}
           <div className="pointer-events-auto mt-[60px] sm:mt-[64px]">
             <div className="flex items-center gap-2.5 rounded-[20px] border border-black/10 bg-white px-3.5 py-2.5 shadow-[0_2px_10px_rgb(0_0_0/0.10)]">
               <span className="shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</span>
@@ -1267,18 +1246,28 @@ export default function HomeDiscovery({
                 placeholder="Cari tempat, cerita, produksi..."
                 value={searchQuery}
                 onChange={(event) => handleSearchChange(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 aria-label="Cari tempat, cerita, produksi"
               />
-              {/* Sliders/control icon (MOCKUP §2) — replaces the previous gear
-                  glyph. Decorative only; it opens nothing. */}
-              <span aria-hidden className="shrink-0 leading-none text-black/45">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0" />
-                  <circle cx="16" cy="7" r="2.2" />
-                  <circle cx="10" cy="12" r="2.2" />
-                  <circle cx="18" cy="17" r="2.2" />
-                </svg>
-              </span>
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={handleSearchClear}
+                  className="shrink-0 rounded-full bg-black/5 p-1 text-black/45 transition hover:bg-black/10"
+                  aria-label="Hapus pencarian"
+                >
+                  <span aria-hidden>×</span>
+                </button>
+              ) : (
+                <span aria-hidden className="shrink-0 leading-none text-black/45">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0" />
+                    <circle cx="16" cy="7" r="2.2" />
+                    <circle cx="10" cy="12" r="2.2" />
+                    <circle cx="18" cy="17" r="2.2" />
+                  </svg>
+                </span>
+              )}
             </div>
             {/* LOCATION SEARCH status (PO 2026-10-02; coordinate readout
                 REMOVED 2026-10-04): ONE source of truth for the geocoder
@@ -1740,36 +1729,23 @@ export default function HomeDiscovery({
           {/* Baris 1 (curated layer only): the Admin-promoted selection.
               Renders nothing when no Place is curated — the curated layer
               never substitutes the full published set.
-              MOCKUP §12 (2026-10-01): the row is a HORIZONTAL STRIP at every
-              viewport (mobile swipe AND desktop 1280) — same dataset, same
-              order, same cards; presentation only. */}
+              MOCKUP §12 (2026-10-01): the row is a VERTICAL LIST at every
+              viewport — same dataset, same order, same cards; presentation
+              only. */}
           {curatedOnly && curatedListed.length > 0 && (
             <>
               <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
                 Tempat Pilihan
               </p>
-              {/* CAROUSEL FRAME (product decision, 2026-10-03): the strip is
-                  wrapped in a visible edge-to-edge band so the Place-card area
-                  reads as one container instead of cards floating loose on the
-                  cream background. `overflow-hidden` on the frame keeps the
-                  strip's bleed past the frame edge TIDY while dragging, while
-                  the strip itself keeps `overflow-x-auto` + `snap-x`, so the
-                  cards stay horizontally scrollable and snap exactly as
-                  before. Cards, spacing, order, and handlers are untouched. */}
-              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-1.5">
               <div
                 id={CURATED_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-1"
+                className="-mx-4 flex flex-col gap-2.5 px-4 pb-1"
               >
                 {curatedListed.map((place) => (
-                  <div
-                    key={place.id}
-                    className="w-[46vw] max-w-[200px] min-w-[132px] shrink-0 snap-start"
-                  >
+                  <div key={place.id} className="w-full">
                     {renderPlaceCard(place, place.isCurated)}
                   </div>
                 ))}
-              </div>
               </div>
             </>
           )}
@@ -1785,37 +1761,18 @@ export default function HomeDiscovery({
                   Discovery Place
                 </p>
               )}
-              {/* MOCKUP §12 (2026-10-01): horizontal strip at EVERY viewport
-                  — the same snap-strip pattern as Baris 1. Same dataset, same
-                  order, same cards (presentation only).
-
-                  GAP FIX (2026-10-01, §19 root cause): the Discovery row used
-                  to render the cards DIRECTLY into the flex strip. Each card is
-                  `w-full`, so every one of them claimed the full strip width
-                  and flex-shrank it down to a few pixels — which is exactly the
-                  "tall empty vertical stripes" pattern seen in the actual
-                  render (no skeleton, no loading state, no empty pattern: the
-                  cards themselves were collapsing). Wrapping each card in the
-                  SAME fixed-width, non-shrinking track as the curated row is
-                  the presentation-only fix: no data, order, eligibility, or
-                  query changes, but the cards now render at their intended
-                  size and several are visible side by side. */}
-              {/* Same framed band as Baris 1 — one consistent Place-card
-                  container across the whole result panel. */}
-              <div className="-mx-4 overflow-hidden border-y border-black/10 bg-white/70 py-1.5">
+              {/* MOCKUP §12 (2026-10-01): vertical list at EVERY viewport —
+                  the same vertical-list pattern as Baris 1. Same dataset, same
+                  order, same cards (presentation only). */}
               <div
                 id={DISCOVERY_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex snap-x snap-mandatory gap-2.5 overflow-x-auto px-4 pb-1"
+                className="-mx-4 flex flex-col gap-2.5 px-4 pb-1"
               >
                 {discoveryRowPlaces.map((place) => (
-                  <div
-                    key={place.id}
-                    className="w-[46vw] max-w-[200px] min-w-[132px] shrink-0 snap-start"
-                  >
+                  <div key={place.id} className="w-full">
                     {renderPlaceCard(place, curatedIdSet.has(place.id))}
                   </div>
                 ))}
-              </div>
               </div>
             </>
           ) : (
