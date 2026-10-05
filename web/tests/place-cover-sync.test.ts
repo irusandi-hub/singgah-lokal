@@ -122,12 +122,25 @@ test("a save without a usable URL never clears a working cover", () => {
 test("the POST handler applies the cover sync from the uploaded object", () => {
   assert.match(routeCode, /resolvePlaceCoverSync\(\{ slotKey: slot\.key, action: "save", url: uploaded\.url \}\)/);
   const syncIdx = routeCode.indexOf('resolvePlaceCoverSync({ slotKey: slot.key, action: "save"');
-  const savedIdx = routeCode.indexOf("if (saved.error || !saved.data) throw");
-  assert.ok(savedIdx >= 0 && syncIdx > savedIdx, "the cover sync runs only after the reference is saved");
+  // The save-failure guard is now a BLOCK: it removes the object it just
+  // uploaded before throwing, so a failed reference write never leaves a
+  // dangling Storage object behind. The cover sync still runs only after the
+  // reference is successfully saved.
+  const savedIdx = routeCode.indexOf("if (saved.error || !saved.data) {");
+  assert.ok(savedIdx >= 0, "a failed reference save must be handled explicitly");
+  assert.ok(syncIdx > savedIdx, "the cover sync runs only after the reference is saved");
   // It writes the canonical Place column through the service-role client.
   assert.match(routeCode, /const cover = await supabase\.from\("places"\)\.update\(coverSync\)\.eq\("id", placeId\);/);
-  // ...and fails loudly rather than serving a stale cover.
+  // ...and fails loudly rather than serving a stale cover. The failed cover
+  // sync reconciles the reference back to the previous photo (or removes the
+  // row it just wrote) and removes the new object, so the request never
+  // reports a failure while a half-saved photo stays on the Place.
   assert.match(routeCode, /if \(cover\.error\) throw new Error\("place_media_upload_failed"\);/);
+  assert.match(
+    routeCode,
+    /removePlacePhotoObject\(previous\.data\.storage_path\)\.catch\(\(\) => \{\}\)/,
+    "removing the replaced object must stay best-effort so it cannot fail an already-saved upload",
+  );
 });
 
 test("the DELETE handler clears the cover only after the reference is deleted", () => {
