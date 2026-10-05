@@ -111,7 +111,6 @@ export default function AuthForm() {
 
         <header className="mt-8 flex flex-col items-center text-center">
           <BrandLogo height={44} className="max-w-full" />
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Masuk</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
             Masuk untuk mengirim Kunjungan atau mengelola Tempat-mu.
           </p>
