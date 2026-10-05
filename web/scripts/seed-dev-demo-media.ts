@@ -63,6 +63,13 @@ const BULK_DUMMY_ID_PATTERN = /^dummy-[a-z]+-\d+$/;
 /** The one slot the demo seed fills: the first standard slot (0021 contract). */
 const DEMO_SLOT_KEY = "hook";
 
+/**
+ * Every row this seed writes carries this title prefix. It is how a later run
+ * tells ITS OWN media apart from a Producer's upload in the same slot: the
+ * seed may refresh only what it wrote.
+ */
+const DEMO_TITLE_PREFIX = "Demo cover — ";
+
 type PlaceRow = {
   id: string;
   name: string;
@@ -74,7 +81,7 @@ type PlaceRow = {
   cover_image_url: string | null;
 };
 
-type PhotoRow = { place_id: string; slot_key: string; storage_path: string };
+type PhotoRow = { place_id: string; slot_key: string; storage_path: string; title: string };
 
 /** DEV demo Places only — everything else is refused, never guessed. */
 export function isDemoPlace(place: Pick<PlaceRow, "id" | "is_dummy" | "short_description">): boolean {
@@ -149,7 +156,7 @@ async function main(): Promise<void> {
 
   const { data: photos, error: photosError } = await supabase
     .from("place_photos")
-    .select("place_id, slot_key, storage_path");
+    .select("place_id, slot_key, storage_path, title");
   if (photosError) throw photosError;
   const hookRows = new Map(
     (photos ?? [])
@@ -175,7 +182,7 @@ async function main(): Promise<void> {
     // The EXISTING production validators gate the file and the metadata.
     validatePlaceMediaFile({ type: "image/png", size: buffer.byteLength });
     const meta = validatePlacePhotoMeta(
-      `Demo cover — ${place.name}`,
+      `${DEMO_TITLE_PREFIX}${place.name}`,
       `Ilustrasi demo untuk Discovery DEV (motif: ${motif}). Bukan foto Producer dan bukan bukti kepemilikan.`,
     );
     if (buffer.byteLength > PLACE_MEDIA_MAX_BYTES) throw new Error("place_photo_size_invalid");
@@ -204,11 +211,22 @@ async function main(): Promise<void> {
     }
 
     if (hook) {
-      // An existing `hook` row is only rewritten when its object is genuinely
-      // missing, or when a DEV refresh explicitly asked for it. A slot whose
-      // object still exists is Producer-owned media and is otherwise left
-      // exactly as it is — this seed never overwrites real uploads.
-      if (force || !(await storedObjectExists(supabase, hook.storage_path))) {
+      // An existing `hook` row is rewritten ONLY when this seed owns it or its
+      // object is genuinely missing.
+      //
+      // OWNERSHIP IS OBJECT-BASED, NOT TITLE-BASED (fix, 2026-10-05): a row
+      // belongs to this seed only when it points at the very object this seed
+      // stored as the Place's cover. A DEMO title alone is NOT proof of
+      // ownership — an earlier run relabelled real Producer uploads, so title
+      // matching would have let `--force` overwrite them again. A row whose
+      // object exists and is not the demo cover is Producer-owned media and is
+      // out of reach, `--force` included.
+      const coverObject = place.cover_image_url
+        ? place.cover_image_url.split(`/public/${PLACE_MEDIA_BUCKET}/`)[1] ?? null
+        : null;
+      const seedOwnsRow =
+        coverObject !== null && hook.storage_path === coverObject && hook.title.startsWith(DEMO_TITLE_PREFIX);
+      if (seedOwnsRow || !(await storedObjectExists(supabase, hook.storage_path))) {
         const { error } = await supabase
           .from("place_photos")
           .update({ storage_path: storagePath, title: meta.title, description: meta.description })

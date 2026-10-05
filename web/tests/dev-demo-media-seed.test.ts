@@ -133,12 +133,22 @@ test("the seed is idempotent and dry-run by default", () => {
 
 test("an existing stored object is left alone, even when its row is repaired", () => {
   assert.match(seedCode, /storedObjectExists/);
-  // The `hook` row is rewritten ONLY when its object is gone, or on an explicit
-  // DEV refresh of that Place.
+  // Ownership is OBJECT-based: a `hook` row belongs to this seed only when it
+  // points at the very object this seed stored as the Place's cover. A DEMO
+  // title alone is not proof — an earlier run relabelled real Producer
+  // uploads, so a title match would let `--force` overwrite them again.
+  assert.match(seedCode, /const coverObject = place\.cover_image_url/);
+  assert.match(seedCode, /place\.cover_image_url\.split\(`\/public\/\$\{PLACE_MEDIA_BUCKET\}\/`\)\[1\]/);
   assert.match(
     seedCode,
-    /if \(force \|\| !\(await storedObjectExists\(supabase, hook\.storage_path\)\)\) \{/,
+    /const seedOwnsRow =\s*coverObject !== null && hook\.storage_path === coverObject && hook\.title\.startsWith\(DEMO_TITLE_PREFIX\);/,
   );
+  assert.match(
+    seedCode,
+    /if \(seedOwnsRow \|\| !\(await storedObjectExists\(supabase, hook\.storage_path\)\)\) \{/,
+  );
+  // `--force` must never be a way around the ownership check.
+  assert.doesNotMatch(seedCode, /if \(force \|\| !\(await storedObjectExists/);
   // The dangling-repair loop skips every reference whose object still exists,
   // so a Producer upload is never repointed.
   assert.match(seedCode, /if \(await storedObjectExists\(supabase, legacy\.storage_path\)\) continue;/);
@@ -161,6 +171,38 @@ test("every generated cover carries a DEMO badge and an explicit disclaimer", ()
   const escaped = buildDemoCoverSvg({ name: 'Sari <A & B> "Demo"', motif: "bamboo", area: null });
   assert.match(escaped, /Sari &lt;A &amp; B&gt; &quot;Demo&quot;/);
   assert.doesNotMatch(escaped, /<A & B>/);
+});
+
+test("REGRESSION (2026-10-05): no generated cover renders an unresolved template", () => {
+  // The bug this locks: a caption written as `Gambar demo untuk{someFn()}` in a
+  // PLAIN string (not a template literal) rasterizes the raw expression into
+  // the PNG, and every Discovery card then shows "Gambar demo
+  // untuk{dataIsDemoLabel()}" to users. The artwork is rasterized ONCE and
+  // stored, so a broken source string can never be fixed by editing the code
+  // alone — it has to be re-rendered.
+  for (const motif of [
+    "soup-bowl",
+    "corn",
+    "leaf-wrapped",
+    "tofu",
+    "bamboo",
+    "batik",
+    "weaving",
+    "lantern",
+    "herbs",
+    "seedling",
+    "palm-sugar",
+    "workshop",
+  ] as const) {
+    const svg = buildDemoCoverSvg({ name: "Sari Contoh", motif, area: "Cibiru" });
+    assert.doesNotMatch(svg, /\{[A-Za-z_$][^}]*\}/, `${motif} rendered an unresolved template`);
+    assert.doesNotMatch(svg, /\{|<\?/);
+    // The caption must be the resolved sentence.
+    assert.match(svg, /Gambar demo untuk Discovery DEV\./);
+  }
+  // The same guard on the source text: a helper call may only ever appear
+  // inside a real template interpolation (`${...}`), never bare in the markup.
+  assert.doesNotMatch(art, />[^<]*\{[A-Za-z_$][A-Za-z0-9_$]*\(\)\}/);
 });
 
 test("each demo Place's motif follows its own name and description", () => {
