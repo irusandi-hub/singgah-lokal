@@ -13,10 +13,21 @@ import { createClient } from "@supabase/supabase-js";
  * Read-only: it writes nothing.
  */
 
+/**
+ * Producer-owned references this check GUARDS rather than expects to exist.
+ *
+ * The seed adds the `hook` cover for every demo Place, so a demo Place's hook
+ * row is demo media, not a Producer upload — those are covered by check 1/2
+ * above. This list therefore holds only NON-hook slots that were uploaded
+ * through the real Producer flow; the seed must never touch or drop them, and
+ * they must keep resolving from their own stored objects.
+ *
+ * `bakso-migran/hook` and `bakso-migran/process` are deliberately absent: the
+ * bakso hook is demo media, and its `process` slot has no surviving reference
+ * (an earlier manual attempt wrote a row for an object it never stored — the
+ * seed's dangling-reference repair removed exactly that).
+ */
 const PRODUCER_OWNED: Array<{ place_id: string; slot_key: string; storage_path: string }> = [
-  { place_id: "bakso-migran", slot_key: "hook", storage_path: "places/bakso-migran/hook-b580478b1cca0898af386288.png" },
-  { place_id: "bakso-migran", slot_key: "process", storage_path: "places/bakso-migran/process-6bc91e4c842fce42e2857872.png" },
-  { place_id: "rumah-teh-lokal", slot_key: "hook", storage_path: "places/rumah-teh-lokal/hook-7ba55834b85952b2bb596ba2.png" },
   { place_id: "rumah-teh-lokal", slot_key: "process", storage_path: "places/rumah-teh-lokal/process-6a27b61870950d9a594da19b.png" },
   { place_id: "rumah-teh-lokal", slot_key: "place", storage_path: "places/rumah-teh-lokal/place-a2a366220e49c4e3c5a67774.png" },
   { place_id: "rumah-teh-lokal", slot_key: "people", storage_path: "places/rumah-teh-lokal/people-100e31752a483fc5a0b6d009.png" },

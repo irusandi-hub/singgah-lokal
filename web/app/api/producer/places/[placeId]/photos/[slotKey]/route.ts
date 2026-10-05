@@ -53,6 +53,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pla
 
     const uploaded = await uploadPlacePhoto({ placeId, slotKey: slot.key, file });
 
+    // Write the canonical slot reference first (replace or insert).
     const saved = previous.data
       ? await supabase
           .from("place_photos")
@@ -77,18 +78,63 @@ export async function POST(request: Request, { params }: { params: Promise<{ pla
           })
           .select("id, place_id, slot_key, storage_path, title, description, sort_order")
           .single();
-    if (saved.error || !saved.data) throw new Error("place_media_upload_failed");
-
-    // The reference is canonical now — the replaced object can go.
-    if (previous.data) await removePlacePhotoObject(previous.data.storage_path);
+    if (saved.error || !saved.data) {
+      // The Storage object is live but the canonical reference failed. The
+      // failure-safe contract is: no DB reference may outlive its object, so
+      // the new object goes and the PREVIOUS object (untouched) stays
+      // canonical. Nothing half-saved remains behind.
+      await removePlacePhotoObject(uploaded.storagePath).catch(() => {});
+      throw new Error("place_media_upload_failed");
+    }
 
     // Hook ⇄ cover: the Place's public cover points at the stored object, so a
     // Hook upload (new or replacement) is what Home renders. Non-Hook slots
-    // resolve to `null` here and cannot touch the cover.
+    // resolve to `null` here and therefore cannot touch the cover at all.
     const coverSync = resolvePlaceCoverSync({ slotKey: slot.key, action: "save", url: uploaded.url });
     if (coverSync) {
       const cover = await supabase.from("places").update(coverSync).eq("id", placeId);
-      if (cover.error) throw new Error("place_media_upload_failed");
+      if (cover.error) {
+        // The slot reference is saved but the cover did not update. Reporting
+        // success here is exactly the bug this guards: the Place would show a
+        // stale cover while the producer believed the new one was live. So the
+        // new state is reconciled away and the REAL failure is surfaced.
+        //
+        // A replacement restores the previous reference (the Place keeps the
+        // working photo it already had); a brand-new slot removes the row it
+        // just wrote. Either way no half-saved slot survives, and the previous
+        // Storage object was never deleted, so the restore is complete.
+        if (previous.data) {
+          const restored = await supabase
+            .from("place_photos")
+            .update({
+              storage_path: previous.data.storage_path,
+              title: previous.data.title,
+              description: previous.data.description,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", previous.data.id)
+            .select("id")
+            .single();
+          if (restored.error) {
+            console.error("place_media_reference_rollback_failed", String(placeId), String(previous.data.id), restored.error.message);
+          }
+        } else {
+          const removed = await supabase.from("place_photos").delete().eq("id", saved.data.id);
+          if (removed.error) {
+            console.error("place_media_reference_cleanup_failed", String(placeId), String(saved.data.id), removed.error.message);
+          }
+        }
+        await removePlacePhotoObject(uploaded.storagePath).catch(() => {});
+        throw new Error("place_media_upload_failed");
+      }
+    }
+
+    // LAST MUTATION. The reference AND the cover are both canonical now, so the
+    // replaced object can go. Doing this any earlier could destroy a working
+    // photo before its replacement was confirmed — the original defect this
+    // endpoint is being fixed for.
+    if (previous.data && previous.data.storage_path !== uploaded.storagePath) {
+      await removePlacePhotoObject(previous.data.storage_path).catch(() => {});
     }
 
     return NextResponse.json(mapPlacePhotoRow(saved.data as never));
