@@ -1027,15 +1027,15 @@ export default function HomeDiscovery({
       <VisitedLink
         key={place.id}
         href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
-        className="group flex h-full w-full flex-col overflow-hidden rounded-[16px] border border-black/10 bg-white shadow-sm transition hover:shadow-md"
-        visitedClassName={live ? "border-live/60 bg-[#fdf6f2]" : "border-brand-accent/35 bg-[#faf6ee]"}
+        className="group flex h-full w-full flex-col overflow-hidden rounded-[16px] border border-black/5 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition hover:shadow-[0_8px_20px_rgb(0_0_0/0.08)]"
+        visitedClassName={live ? "border-live/50 bg-[#fdf6f2]" : "border-brand-accent/30 bg-[#faf6ee]"}
       >
         {/* CARD IMAGE — MOCKUP §13: every card carries an image area. When
             the Place has no canonical cover yet, a NEUTRAL DUMMY area keeps
             the mockup composition (visual placeholder only — no data change,
             no invented imagery, and the canonical cover still wins when it
             exists). */}
-        <div className="relative h-[104px] w-full shrink-0 overflow-hidden bg-[#ece7db] sm:h-[124px]">
+        <div className="relative h-[92px] w-full shrink-0 overflow-hidden bg-[#ece7db] sm:h-[108px]">
           {place.coverImageUrl ? (
             // External producer-supplied image URL; next/image would require
             // host allowlisting that producers cannot configure. Same
@@ -1073,7 +1073,7 @@ export default function HomeDiscovery({
               Place coordinates both exist — never a fabricated number. */}
           {isCurated && (
             <span
-              className="absolute left-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-lg bg-brand-secondary text-[11px] leading-none text-white shadow-sm ring-1 ring-white/50"
+              className="absolute left-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-[10px] bg-brand-secondary text-[10px] leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.18)] ring-1 ring-white/60"
               title="Tempat Pilihan"
             >
               <span aria-hidden>✦</span>
@@ -1085,12 +1085,12 @@ export default function HomeDiscovery({
               It must never read as a saved-state control. */}
           <span
             aria-hidden
-            className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-xs leading-none text-brand-ink shadow-sm"
+            className="absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/90 text-[10px] leading-none text-brand-ink/70 shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
           >
             ♡
           </span>
           {distance && (
-            <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full bg-brand-ink/75 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+            <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full bg-brand-ink/70 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.16)]">
               <span aria-hidden>➤</span>
               {distance}
             </span>
@@ -1103,9 +1103,9 @@ export default function HomeDiscovery({
             server); a Place outside the engine (e.g. Live cards) shows five
             empty slots. NEVER a rating number, NEVER a review count — no
             such data exists in this product. */}
-        <div className="flex flex-1 flex-col p-2.5">
-          <h3 className="line-clamp-2 text-[13px] font-bold leading-tight">{place.name}</h3>
-          <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-black/55">
+        <div className="flex flex-1 flex-col p-3">
+          <h3 className="line-clamp-2 text-sm font-bold leading-snug text-brand-ink">{place.name}</h3>
+          <p className="mt-1 line-clamp-2 text-xs leading-[18px] text-brand-ink/60">
             {live?.processTitle ?? place.shortDescription}
           </p>
           {/* MOCKUP §9/§18: five star slots, always. The active slots take the
@@ -1133,7 +1133,7 @@ export default function HomeDiscovery({
             MOCKUP §8 moved the distance and the curated badge ONTO the cover
             image, so they are no longer repeated here — the same canonical
             values, shown once, and still only when they really exist. */}
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+        <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
           {/* Follow control (User → Place follow foundation for
               MASTER 10 notifications): server-derived state only
               — Follow / Following, signed-out → /auth. Sits next
@@ -1146,7 +1146,7 @@ export default function HomeDiscovery({
                 stopNestedCardAction(event);
                 window.open(directionsUrl, "_blank", "noopener,noreferrer");
               }}
-              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-brand-accent/40 px-3 py-1.5 text-[11px] font-bold text-brand-accent transition hover:bg-brand-accent/10"
+              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-brand-accent/30 px-2.5 py-1 text-[11px] font-bold text-brand-accent transition hover:bg-brand-accent/10"
               aria-label={`Petunjuk arah ke ${place.name} di aplikasi peta`}
             >
               <span aria-hidden>➤</span> Direction
@@ -1157,7 +1157,7 @@ export default function HomeDiscovery({
             <span
               aria-disabled="true"
               title="Koordinat Tempat belum tersedia"
-              className="ml-auto inline-flex shrink-0 cursor-not-allowed items-center gap-1 rounded-full border border-black/10 px-3 py-1.5 text-[11px] font-bold text-black/35"
+              className="ml-auto inline-flex shrink-0 cursor-not-allowed items-center gap-1 rounded-full border border-black/5 px-2.5 py-1 text-[11px] font-bold text-brand-ink/30"
             >
               <span aria-hidden>➤</span> Direction
             </span>
@@ -1171,7 +1171,7 @@ export default function HomeDiscovery({
             honest not-live status when pressed. Live state is
             never invented — liveByPlaceId (canonical
             live_sessions feed) is the only source. */}
-        <div className="mt-2">
+        <div className="mt-1.5">
           {live ? (
             <button
               type="button"
@@ -1179,7 +1179,7 @@ export default function HomeDiscovery({
                 stopNestedCardAction(event);
                 router.push(`/live/${live.sessionId}`);
               }}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-live px-3 py-2 text-[11px] font-bold text-white transition hover:opacity-90"
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-[14px] bg-live px-3 py-1.5 text-[11px] font-bold text-white shadow-[0_2px_8px_rgb(0_0_0/0.10)] transition hover:opacity-90"
               aria-label={`Buka Live di ${place.name}`}
             >
               <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
@@ -1194,7 +1194,7 @@ export default function HomeDiscovery({
                   stopNestedCardAction(event);
                   setNonLiveNoticePlaceId((current) => (current === place.id ? null : place.id));
                 }}
-                className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-live/40 bg-white px-3 py-2 text-[11px] font-bold text-live transition hover:bg-live/10"
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-[14px] border border-live/25 bg-white px-3 py-1.5 text-[11px] font-bold text-live transition hover:bg-live/[0.06]"
                 aria-label={`Status Live ${place.name}`}
               >
                 <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-live/60" />
@@ -1203,7 +1203,7 @@ export default function HomeDiscovery({
               {nonLiveNoticePlaceId === place.id && (
                 <p
                   role="status"
-                  className="mt-1.5 rounded-lg bg-live/10 px-3 py-1.5 text-[11px] font-semibold text-live"
+                  className="mt-1.5 rounded-[10px] bg-live/[0.08] px-3 py-1.5 text-[11px] font-semibold text-live"
                 >
                   {place.name} sedang tidak Live. Tempat ini dapat memulai Live kapan saja.
                 </p>
@@ -1349,10 +1349,10 @@ export default function HomeDiscovery({
               Typing never searches: it only edits the draft the ONE submit
               path reads (submit-only, 2026-10-04). */}
           <div className="pointer-events-auto mt-[60px] sm:mt-[64px]">
-            <div className="flex items-center gap-2 rounded-[20px] border border-black/10 bg-white pl-3.5 pr-1.5 py-2 shadow-[0_2px_10px_rgb(0_0_0/0.10)]">
-              <span className="shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</span>
+            <div className="flex items-center gap-2 rounded-[18px] border border-black/5 bg-white py-2 pl-3.5 pr-1.5 shadow-[0_4px_16px_rgb(0_0_0/0.08)] ring-1 ring-black/[0.02]">
+              <span className="shrink-0 text-[15px] leading-none text-brand-ink/70" aria-hidden>⌕</span>
               <input
-                className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-black/40"
+                className="w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-black/35"
                 placeholder="Cari tempat, cerita, produksi..."
                 value={searchQuery}
                 onChange={(event) => handleSearchChange(event.target.value)}
@@ -1363,7 +1363,7 @@ export default function HomeDiscovery({
                 <button
                   type="button"
                   onClick={handleSearchClear}
-                  className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-black/5 text-[15px] leading-none text-black/45 transition hover:bg-black/10"
+                  className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-black/5 text-[15px] leading-none text-black/40 transition hover:bg-black/10"
                   aria-label="Hapus pencarian"
                 >
                   <span aria-hidden>×</span>
@@ -1377,7 +1377,7 @@ export default function HomeDiscovery({
                 type="button"
                 onClick={handleSearchSubmitClick}
                 disabled={searchPending}
-                className="relative inline-flex h-[26px] shrink-0 items-center justify-center rounded-full bg-brand-primary px-3 text-[11px] font-bold uppercase tracking-wide text-white ring-offset-2 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/45 disabled:opacity-60 disabled:hover:opacity-60"
+                className="relative inline-flex h-[26px] shrink-0 items-center justify-center rounded-full bg-brand-primary px-3 text-[11px] font-bold uppercase tracking-wide text-white shadow-[0_2px_6px_rgb(0_0_0/0.12)] ring-offset-2 transition hover:bg-brand-primary-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/45 disabled:opacity-60 disabled:hover:opacity-60"
                 aria-label="Cari lokasi"
               >
                 {/* The visible pill is 26px tall, which is comfortable on
@@ -1501,10 +1501,10 @@ export default function HomeDiscovery({
                 setCuratedOnly(next.curatedOnly);
               }}
               aria-pressed={liveOnly}
-              className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-sm transition sm:px-3.5 sm:text-xs ${
+              className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[14px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:px-3 sm:text-xs ${
                 liveOnly
                   ? "bg-live text-white"
-                  : "border border-live/40 bg-white text-live"
+                  : "border border-live/25 bg-white text-live"
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-live"}`} />
@@ -1529,10 +1529,10 @@ export default function HomeDiscovery({
                 // area, and "Lokasi Saya" keeps the frame it established.
               }}
               aria-pressed={curatedOnly}
-              className={`whitespace-nowrap rounded-[16px] px-2 py-1.5 text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
+              className={`whitespace-nowrap rounded-[14px] px-2 py-1.5 text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:px-3 sm:text-xs ${
                 curatedOnly
                   ? "bg-brand-primary text-white"
-                  : "border border-brand-ink/20 bg-white text-brand-ink/70"
+                  : "border border-black/5 bg-white text-brand-ink/70"
               }`}
             >
               Tempat Pilihan
@@ -1552,10 +1552,10 @@ export default function HomeDiscovery({
                   setCameraRequestNonce((nonce) => nonce + 1);
                 }}
                 aria-pressed={distanceFilter === filter && !curatedOnly}
-                className={`whitespace-nowrap rounded-[16px] px-1 py-1.5 text-center text-[11px] font-bold shadow-sm transition sm:px-3.5 sm:text-xs ${
+                className={`whitespace-nowrap rounded-[14px] px-1 py-1.5 text-center text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:px-3 sm:text-xs ${
                   distanceFilter === filter && !curatedOnly
                     ? "bg-brand-primary text-white"
-                    : "border border-black/10 bg-white text-black/65"
+                    : "border border-black/5 bg-white text-brand-ink/70"
                 }`}
               >
                 {filter}
@@ -1600,7 +1600,7 @@ export default function HomeDiscovery({
               simply has more pixels to live in. The 460px floor still clears
               the whole floating control ladder (190 / 240 / 290 + 64px) and now
               also carries the floating results card at every supported size. */}
-          <div aria-hidden className="h-[56vh] min-h-[460px] max-h-[680px] sm:h-[62vh]" />
+          <div aria-hidden className="h-[60vh] min-h-[470px] max-h-[700px] sm:h-[66vh]" />
         </div>
 
         {/* Viewport-aware map empty state (PO, 2026-09-30): shown when the
@@ -1631,13 +1631,13 @@ export default function HomeDiscovery({
              horizontally). `bottom-32` clears a two-line title with room to
              spare, and the 460px map floor leaves ample space above it. */
           <div className="pointer-events-none absolute inset-x-0 bottom-32 z-[1100] flex justify-center px-4">
-            <div className="w-fit max-w-[min(20rem,100%)] rounded-xl bg-white/95 px-3 py-1.5 text-center shadow-md ring-1 ring-brand-ink/10">
-              <p className="text-[11px] font-semibold leading-4 text-brand-ink">
+            <div className="w-fit max-w-[min(20rem,100%)] rounded-[14px] bg-white/95 px-3 py-1.5 text-center shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5">
+              <p className="text-[11px] font-semibold leading-4 text-brand-ink/85">
                 {curatedOnly
                   ? "Belum ada Tempat Pilihan di sekitar area ini"
                   : "Belum ada Tempat Terdaftar di sekitar area ini"}
               </p>
-              <p className="mt-0.5 text-[10px] leading-3.5 text-black/55">
+              <p className="mt-0.5 text-[10px] leading-3.5 text-brand-ink/55">
                 Geser peta dengan dua jari untuk melihat area lain.
               </p>
             </div>
@@ -1703,19 +1703,19 @@ export default function HomeDiscovery({
             · `pointer-events-none` on the wrapper, re-enabled on the card, so
               the sliver of map beside the card still pans and zooms. */}
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-[1100] mx-auto w-full max-w-6xl px-4">
-          <div className="pointer-events-auto rounded-2xl bg-white/95 px-3 py-2 shadow-[0_6px_20px_rgb(0_0_0/0.14)] ring-1 ring-black/5 backdrop-blur-sm">
+          <div className="pointer-events-auto rounded-[18px] bg-white/95 px-3.5 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.10)] ring-1 ring-black/5 backdrop-blur-sm">
             {/* Panel handle — small centered bar, mockup §10 (visual only). */}
-            <span aria-hidden className="mx-auto mb-1 block h-1.5 w-12 rounded-full bg-black/15" />
+            <span aria-hidden className="mx-auto mb-0.5 block h-1 w-10 rounded-full bg-black/10" />
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
-                <h2 id="place-results-heading" className="text-lg font-bold leading-tight">
+                <h2 id="place-results-heading" className="text-base font-bold leading-tight tracking-tight">
                   {searchQuery.trim()
                     ? `Hasil untuk “${searchQuery.trim()}”`
                     : curatedOnly
                       ? "Tempat Pilihan"
                       : "Discovery Place"}
                 </h2>
-                <p className="mt-1 text-[11px] font-semibold text-black/50">
+                <p className="mt-0.5 text-[11px] font-semibold leading-4 text-brand-ink/55">
                   {/* Count semantics (PO, 2026-09-30): each layer counts ONLY
                       its own rows — the Tempat Pilihan header counts the
                       curated selection (Baris 1), never the Discovery Place row
@@ -1739,12 +1739,12 @@ export default function HomeDiscovery({
               {resultsAnchorId ? (
                 <a
                   href={`#${resultsAnchorId}`}
-                  className="inline-flex shrink-0 items-center gap-0.5 text-xs font-bold text-brand-ink/80 transition hover:text-brand-ink"
+                  className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-bold text-brand-ink/75 transition hover:text-brand-ink"
                 >
                   Ke hasil <span aria-hidden>›</span>
                 </a>
               ) : (
-                <span className="shrink-0 text-xs font-bold text-black/35">Ke hasil</span>
+                <span className="shrink-0 text-[11px] font-bold text-brand-ink/35">Ke hasil</span>
               )}
             </div>
           </div>
@@ -1760,15 +1760,15 @@ export default function HomeDiscovery({
         {/* LIVE filter empty state — a clear notice instead of an empty
             screen. Based only on canonical discovery data; no fake Live. */}
         {liveOnly && liveItems.length === 0 && (
-          <div className="mt-4 rounded-2xl border border-live/30 bg-white p-6 text-center shadow-sm">
-            <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
-            <p className="mt-1 text-xs text-black/55">
+          <div className="mt-4 rounded-[18px] border border-live/20 bg-white p-6 text-center shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
+            <p className="text-sm font-bold text-brand-ink">Saat ini belum ada Live yang sedang berlangsung.</p>
+            <p className="mt-1 text-xs text-brand-ink/60">
               Ketika sebuah Tempat memulai Live, proses produksinya otomatis muncul di sini.
             </p>
             <button
               type="button"
               onClick={() => setLiveOnly(false)}
-              className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white"
+              className="mt-4 inline-flex rounded-[14px] bg-brand-primary px-4 py-2 text-[13px] font-bold text-white shadow-[0_2px_8px_rgb(0_0_0/0.10)] transition hover:bg-brand-primary-deep"
             >
               Lihat Semua Tempat
             </button>
@@ -1793,23 +1793,23 @@ export default function HomeDiscovery({
                 <VisitedLink
                   key={item.sessionId}
                   href={`/live/${item.sessionId}`}
-                  className="group rounded-2xl border border-live/30 bg-white p-4 shadow-sm transition hover:shadow-md"
+                  className="group rounded-[16px] border border-live/20 bg-white p-4 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition hover:shadow-[0_8px_20px_rgb(0_0_0/0.08)]"
                   visitedClassName="border-live/60 bg-[#fdf6f2]"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-live px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-white">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-live px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-white shadow-[0_2px_6px_rgb(0_0_0/0.10)]">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
                       Live Sekarang
                     </span>
-                    <span className="text-[10px] font-bold text-black/45">
+                    <span className="text-[10px] font-bold text-brand-ink/50">
                       {liveDurationLabel(item.startedAt)} • {item.viewerPeak}/100
                     </span>
                   </div>
-                  <p className="mt-3 text-sm font-semibold">{item.processTitle ?? "Proses produksi"}</p>
-                  <p className="mt-0.5 text-xs text-black/55">
+                  <p className="mt-3 text-sm font-semibold text-brand-ink">{item.processTitle ?? "Proses produksi"}</p>
+                  <p className="mt-0.5 text-xs text-brand-ink/60">
                     {place?.name ?? item.placeName} • {place?.area ?? ""}
                   </p>
-                  <p className="mt-2 text-[11px] font-bold text-brand-accent">
+                  <p className="mt-2 text-[11px] font-bold text-brand-accent/90">
                     {distance ? `${distance} • ` : ""}
                     {place?.type === "production" ? "Sedang berproduksi" : "Sedang aktif"}
                   </p>
@@ -1842,7 +1842,7 @@ export default function HomeDiscovery({
             the count, the "Ke hasil" link, the category labels, and both strips
             are UNCHANGED — nothing was hidden, truncated, or made scrollable. */}
         <section
-          className="relative z-10 rounded-t-[24px] bg-brand-cream pb-1 pt-1 shadow-[0_-6px_18px_rgb(0_0_0/0.06)]"
+          className="relative z-10 rounded-t-[24px] bg-brand-cream pb-1 pt-1 shadow-[0_-8px_24px_rgb(0_0_0/0.05)]"
           aria-labelledby="place-results-heading"
         >
           {/* The result TITLE / COUNT / "Ke hasil" block now FLOATS over the
@@ -1865,12 +1865,12 @@ export default function HomeDiscovery({
               only. */}
           {curatedOnly && curatedListed.length > 0 && (
             <>
-              <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
+              <p className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-brand-ink/55">
                 Tempat Pilihan
               </p>
               <div
                 id={CURATED_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex flex-col gap-2.5 px-4 pb-1"
+                className="-mx-4 flex flex-col gap-2 px-4 pb-1"
               >
                 {curatedListed.map((place) => (
                   <div key={place.id} className="w-full">
@@ -1888,7 +1888,7 @@ export default function HomeDiscovery({
           {discoveryRowPlaces.length > 0 ? (
             <>
               {curatedOnly && (
-                <p className="mb-2 px-1 text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/70">
+                <p className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-brand-ink/55">
                   Discovery Place
                 </p>
               )}
@@ -1897,7 +1897,7 @@ export default function HomeDiscovery({
                   order, same cards (presentation only). */}
               <div
                 id={DISCOVERY_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex flex-col gap-2.5 px-4 pb-1"
+                className="-mx-4 flex flex-col gap-2 px-4 pb-1"
               >
                 {discoveryRowPlaces.map((place) => (
                   <div key={place.id} className="w-full">
@@ -1907,18 +1907,18 @@ export default function HomeDiscovery({
               </div>
             </>
           ) : (
-            <div className="rounded-2xl border border-black/10 bg-white px-4 py-5 text-center">
+            <div className="rounded-[18px] border border-black/5 bg-white px-4 py-5 text-center shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
               {searchQuery.trim() ? (
                 <>
-                  <p className="text-sm font-bold">Tempat tidak ditemukan</p>
-                  <p className="mt-1 text-xs text-black/55">
+                  <p className="text-sm font-bold text-brand-ink">Tempat tidak ditemukan</p>
+                  <p className="mt-1 text-xs text-brand-ink/60">
                     Coba kata kunci atau radius yang berbeda.
                   </p>
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-bold">Belum ada Discovery Place</p>
-                  <p className="mt-1 text-xs text-black/55">
+                  <p className="text-sm font-bold text-brand-ink">Belum ada Discovery Place</p>
+                  <p className="mt-1 text-xs text-brand-ink/60">
                     Tempat yang siap tayang akan muncul di sini secara otomatis.
                   </p>
                 </>
@@ -1928,11 +1928,11 @@ export default function HomeDiscovery({
         </section>
 
         {/* Intro */}
-        <section className="px-1 pb-4 pt-8">
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-accent">
+        <section className="px-1 pb-4 pt-7">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent/90">
             SINGGAH LOKAL
           </p>
-          <h1 className="mt-2 max-w-xl text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
+          <h1 className="mt-2 max-w-xl text-[28px] font-semibold leading-tight tracking-tight text-brand-ink sm:text-[34px]">
             Jangan hanya datang.
             <br />
             Kenali ceritanya.

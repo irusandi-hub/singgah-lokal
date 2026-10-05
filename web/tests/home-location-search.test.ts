@@ -174,7 +174,7 @@ test("a resolved search center becomes the coverage viewport for markers and bot
   );
   assert.match(discoveryCode, /narrowToViewport\(mapPlaces, coverageViewport\)/);
   // 2026-10-04: the result strips are now vertical lists, not horizontal carousels.
-  assert.match(discoveryCode, /flex flex-col gap-2\.5/);
+  assert.match(discoveryCode, /flex flex-col gap-2/);
   assert.doesNotMatch(discoveryCode, /snap-x snap-mandatory/);
 });
 

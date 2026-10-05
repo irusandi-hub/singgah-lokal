@@ -801,14 +801,17 @@ test("MOCKUP 2026-10-01 §5 (revised 2026-10-04): right-side control stack — C
   assert.doesNotMatch(mapCode, /Pusatkan peta ke lokasi saya/);
   assert.match(mapCode, /Lokasi Saya\n/);
   assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
-  // The COMPASS: same box (offset, 44px size, white surface, radius, ring,
+  // The COMPASS: same box (offset 190px, white surface, radius, ring, soft
   // shadow) as the arrow it replaces, and an accurate north indicator — the
-  // red needle points at true north. It is deliberately NOT a button: this
-  // Leaflet build cannot rotate the map, so there is no rotation to restore and
-  // an invented click handler would advertise a capability that does not exist.
+  // red needle points at true north. VISUAL REFINEMENT (2026-10-05): the
+  // button shrank 44px -> 40px and its radius/ring/shadow joined the shared
+  // ladder, so the control column is lighter; the offset, the role, and the
+  // needle are unchanged. It is deliberately NOT a button: this Leaflet build
+  // cannot rotate the map, so there is no rotation to restore and an invented
+  // click handler would advertise a capability that does not exist.
   assert.match(
     mapCode,
-    /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"\s*\n\s*className="absolute right-3 top-\[190px\] z-\[1100\] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black\/10"/,
+    /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"\s*\n\s*className="absolute right-3 top-\[190px\] z-\[1100\] inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5"/,
   );
   assert.match(mapCode, /<path d="M12 4\.2 15\.1 13\.2H8\.9L12 4\.2Z" fill="#dc2626" \/>/);
   assert.match(mapCode, /<circle cx="12" cy="12" r="9" stroke="currentColor"/);

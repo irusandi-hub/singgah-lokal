@@ -411,17 +411,21 @@ test("AC 6: MANY Places are framed with padding that reserves the chrome and the
 // ---------------------------------------------------------------------------
 
 test("AC 7: the +/- stack is below both right-hand controls, and the zoom control is untouched", () => {
-  const compass = Number(/absolute right-3 top-\[(\d+)px\] z-\[1100\] inline-flex h-11 w-11/.exec(homeMap)?.[1] ?? "0");
-  const labeled = Number(/absolute right-3 top-\[(\d+)px\] z-\[1100\] inline-flex w-11 flex-col/.exec(homeMap)?.[1] ?? "0");
+  // VISUAL REFINEMENT (2026-10-05): the two React controls are 40px boxes now
+  // (they were 44px); their OFFSETS — which is what this ladder is about — are
+  // unchanged.
+  const compass = Number(/absolute right-3 top-\[(\d+)px\] z-\[1100\] inline-flex h-10 w-10/.exec(homeMap)?.[1] ?? "0");
+  const labeled = Number(/absolute right-3 top-\[(\d+)px\] z-\[1100\] inline-flex w-10 flex-col/.exec(homeMap)?.[1] ?? "0");
   const zoomStack = Number(/\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: (\d+)px;/.exec(globals)?.[1] ?? "0");
   // LOWER on the screen means a LARGER offset: the zoom stack is last.
   assert.ok(compass > 150, "the compass clears the floating chrome");
   assert.ok(labeled > compass, `"Lokasi Saya" (${labeled}px) sits below the compass (${compass}px)`);
   assert.ok(zoomStack > labeled, `the +/- stack (${zoomStack}px) sits below "Lokasi Saya" (${labeled}px)`);
-  // No collision: the labeled control is ~41px tall, so the stack starts after
-  // it, and the whole ladder still ends above the bottom overlays on the
-  // shortest supported map (a 42vh map on a 640px screen ≈ 413px tall).
-  assert.ok(zoomStack >= labeled + 41, "the stack starts below the labeled control, never on it");
+  // No collision: the labeled control is ~34px tall (it was ~41px), so the
+  // stack still starts below it, and the whole ladder still ends above the
+  // bottom overlays on the shortest supported map (a 60vh map clamped at its
+  // 470px floor).
+  assert.ok(zoomStack >= labeled + 34, "the stack starts below the labeled control, never on it");
   assert.ok(zoomStack + 60 <= 360, "the stack clears the floating results card on the shortest map");
   // FUNCTIONALITY IS UNCHANGED: still Leaflet's own control, same position,
   // same two buttons, same titles and handlers.
@@ -478,7 +482,7 @@ test("AC 9: both Place rows are vertical lists inside the panel", () => {
   // dataset, order, and cards remain; only the layout changed.
   const frames = (pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []);
   assert.equal(frames.length, 0, "the old carousel frames are gone");
-  const strips = (pageCode.match(/-mx-4 flex flex-col gap-2\.5 px-4 pb-1"/g) ?? []);
+  const strips = (pageCode.match(/-mx-4 flex flex-col gap-2 px-4 pb-1"/g) ?? []);
   assert.equal(strips.length, 2, "Baris 1 and Baris 2 are both vertical lists");
   const tracks = (pageCode.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []);
   assert.equal(tracks.length, 0, "no fixed-width horizontal tracks remain");

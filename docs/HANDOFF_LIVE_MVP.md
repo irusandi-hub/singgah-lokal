@@ -1581,3 +1581,43 @@ stored in the repository or the app environment.
   email/password present, no "bukan pembayaran").
 - **Not yet operational:** Apple needs the Supabase provider enabled plus an
   Apple Services ID/key — see `docs/AUTH_APPLE_OAUTH_SETUP.md`.
+
+### Home UI visual refinement (branch `feat/home-ui-refinement`, 2026-10-05)
+Presentation-only pass against the approved Home mockup's visual language.
+NO new section, tab, filter, navigation, Place action, data field, route,
+search behavior, camera rule, or MVP step was added — everything below is
+typography, spacing, color, radius, shadow, and sizing on the existing Home
+surfaces.
+- **Consistent radius ladder:** controls 14px (filter buttons, map buttons,
+  in-card actions, empty state), Place cards 16px, floating surfaces 18px
+  (search bar, floating results panel), section cap 24px, chips/pills stay
+  fully round.
+- **Subtle shadows instead of heavy borders:** Place cards, the search bar,
+  the floating panel, the map controls, and the section seam now use one
+  low/high shadow pair (`0 1px 2px / 0 04` → `0 8px 20px / 0 08`) with a
+  lighter `black/5` border instead of `border-black/10` + `shadow-sm/md`.
+- **Cleaner hierarchy:** card name 14px/700, description 12px in brand ink at
+  60%, results title 16px with tracking, "Ke hasil" and the count line at
+  11px, star slots 12px, section labels at 55% ink. Every muted color moved
+  from `black/NN` to `brand-ink/NN` for one consistent, higher-contrast ramp.
+- **Compact controls and cards:** filter buttons tightened (`px-3.5`→`px-3`
+  from `sm:`), image area 104/124px → 92/108px, card padding and the card
+  action rows reduced, live buttons 8px → 6px vertical padding at a 14px
+  radius. A Place card is ~254px tall on mobile instead of ~290px.
+- **Map presence:** the visible map window grew to 60vh / 66vh from `sm:`,
+  floor 470px, ceiling 700px — paid for by the more compact floating panel,
+  not by touching any camera constant. The right-hand ladder offsets
+  (compass 190 / "Lokasi Saya" 240 / zoom 290) are unchanged; the two React
+  controls shrank 44px → 40px so the ladder is lighter and still collision
+  free (190+40 = 230 < 240 < 290).
+- **Pin labels** are quieter on the map: 11px/700 → 10.5px/600, max width
+  132px → 124px, softer shadow. Truncation, the deterministic density
+  budget, and the on-demand reveal are unchanged.
+- Verified: every runnable test file (108 files) passes; the focused Home/map
+  suites were updated ONLY where they pinned the old visual values
+  (radii, shadows, type sizes, band heights, control boxes) — no behavioral
+  assertion was relaxed; `tsc -b --noEmit` clean; `eslint .` 0 errors / 10
+  pre-existing warnings; `next build` clean; browser verification at 390×844
+  and 1280×800 (computed radius/spacing/type/elevation for the search bar,
+  filter row, floating panel, Place cards, map controls, stars, and intro,
+  plus no horizontal overflow and no page errors).

@@ -131,7 +131,7 @@ test("R-A: the hardcoded caption can never return", () => {
   // claiming "dari lokasi Anda" about a frame the preset never framed.
   assert.match(discoveryCode, /hasCenter: hasActiveCenter,/);
   // 2026-10-04: the result strips are now vertical lists, not horizontal carousels.
-  assert.match(discoveryCode, /flex flex-col gap-2\.5/);
+  assert.match(discoveryCode, /flex flex-col gap-2/);
   assert.doesNotMatch(discoveryCode, /snap-x snap-mandatory/);
 });
 
@@ -149,7 +149,7 @@ test("R-B: the empty state is content-sized, not a full-width panel", () => {
   assert.match(discoveryCode, /w-fit max-w-\[min\(20rem,100%\)\]/);
   // Reduced padding and text scale versus the old panel.
   assert.doesNotMatch(discoveryCode, /absolute inset-x-6 bottom-32/);
-  assert.match(discoveryCode, /rounded-xl bg-white\/95 px-3 py-1\.5/);
+  assert.match(discoveryCode, /rounded-\[14px\] bg-white\/95 px-3 py-1\.5/);
   assert.match(discoveryCode, /text-\[11px\] font-semibold leading-4/);
   assert.match(discoveryCode, /text-\[10px\] leading-3\.5/);
 });

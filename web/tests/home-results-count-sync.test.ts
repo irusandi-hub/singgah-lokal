@@ -119,7 +119,7 @@ test("SCENARIO city search: the count and the rendered cards come from one array
   // summed, which would double-count a Place present in both rows.
   assert.doesNotMatch(discoveryCode, /curatedListed\.length \+ discoveryRowPlaces\.length/);
   // The result strips are now vertical lists, not horizontal carousels.
-  assert.match(discoveryCode, /flex flex-col gap-2\.5/);
+  assert.match(discoveryCode, /flex flex-col gap-2/);
   assert.doesNotMatch(discoveryCode, /snap-x snap-mandatory/);
 });
 

@@ -421,15 +421,15 @@ test("12: the search field keeps its approved geometry and both controls", () =>
   // One row, one rounded surface, and the approved left glyph.
   assert.match(
     pageCode,
-    /<div className="flex items-center gap-2 rounded-\[20px\] border border-black\/10 bg-white pl-3\.5 pr-1\.5 py-2 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]">/,
+    /<div className="flex items-center gap-2 rounded-\[18px\] border border-black\/5 bg-white py-2 pl-3\.5 pr-1\.5 shadow-\[0_4px_16px_rgb\(0_0_0\/0\.08\)\] ring-1 ring-black\/\[0\.02\]">/,
   );
-  assert.match(pageCode, /shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</);
+  assert.match(pageCode, /shrink-0 text-\[15px\] leading-none text-brand-ink\/70" aria-hidden>⌕</);
   assert.match(pageCode, /placeholder="Cari tempat, cerita, produksi\.\.\."/);
   assert.match(pageCode, /aria-label="Cari tempat, cerita, produksi"/);
   // The clear control is unchanged in size, and is the only conditional one.
   assert.match(
     pageCode,
-    /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/45 transition hover:bg-black\/10"/,
+    /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/40 transition hover:bg-black\/10"/,
   );
   // "Cari" is a fixed-height, shrink-0 control, so adding it cannot change the
   // bar's height; the input is the only elastic part and it may shrink to zero.

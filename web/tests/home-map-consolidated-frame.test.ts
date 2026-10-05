@@ -332,7 +332,7 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
   assert.match(pageCode, /curatedOnly && curatedListed\.length > 0/);
   // Filter behaviour, the vertical list interaction, and the empty/error states are
   // untouched by the consolidation.
-  assert.match(pageCode, /flex flex-col gap-2\.5/);
+  assert.match(pageCode, /flex flex-col gap-2/);
   assert.match(pageCode, /Lokasi tidak ditemukan\. Cek ejaan atau pilih dari daftar\./);
   assert.match(pageCode, /mapEmptyStateVisible &&/);
   assert.match(pageCode, /Belum ada Tempat Terdaftar di sekitar area ini/);
@@ -352,8 +352,8 @@ test("12.4 the panel footprint shrank without losing a control", () => {
   assert.match(header, /\{nearOrigin\} · \$\{coverageScope\}/);
   // The panel and its chrome keep the approved visual identity.
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.match(pageCode, /mx-auto mb-1 block h-1\.5 w-12 rounded-full bg-black\/15/);
-  assert.match(pageCode, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
+  assert.match(pageCode, /mx-auto mb-0\.5 block h-1 w-10 rounded-full bg-black\/10/);
+  assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
   // Nothing essential became scrollable or hidden.
   assert.doesNotMatch(header, /line-clamp|max-h-\[|overflow-hidden/);
   assert.doesNotMatch(header, /snap-x/);

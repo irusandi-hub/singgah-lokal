@@ -114,25 +114,27 @@ test("MOCKUP §8: map height is responsive and always leaves the Result panel in
   // "+/-" stack was clipped by the section's own overflow-hidden on an
   // ordinary phone. Still responsive, still clamped, still a valid
   // non-degenerate Leaflet box.
-  assert.match(code, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
+  assert.match(code, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
   // The spacer is purely presentational — it reserves the visible map window
   // and carries no data or behaviour.
-  assert.match(code, /<div aria-hidden className="h-\[56vh\]/);
+  assert.match(code, /<div aria-hidden className="h-\[60vh\]/);
   // The floating control ladder (compass 190px / "Lokasi Saya" 240px /
   // +/- 290px) MUST fit inside the shortest supported map — this is the
   // arithmetic the old 240px floor violated. The bottom-right scale chip left
   // the ladder with the indicator on 2026-10-04.
   const ladderBottom = 290 + 64; // +/- stack offset + Leaflet's own control height
-  assert.ok(440 >= ladderBottom, "the control ladder fits the shortest map");
+  assert.ok(470 >= ladderBottom, "the control ladder fits the shortest map");
 });
 
-test("MOCKUP §2: search is a floating ~20px-radius white bar with a real 'Cari' control", () => {
-  // (2026-10-04: the padding moved to `pl-3.5 pr-1.5` so the new "Cari" button
-  // sits INSIDE the same approved surface; radius, border and shadow are the
-  // same values as before.)
+test("MOCKUP §2: search is a floating white bar with a real 'Cari' control", () => {
+  // VISUAL REFINEMENT (2026-10-05): the bar keeps its approved geometry — one
+  // white surface, `pl-3.5 pr-1.5`, the same padding pair and the same control
+  // order — but the radius now belongs to the shared ladder (18px), the border
+  // is the lighter `black/5`, and the elevation is a softer, wider shadow. Only
+  // the surface treatment moved; nothing about the control itself changed.
   assert.match(
     code,
-    /flex items-center gap-2 rounded-\[20px\] border border-black\/10 bg-white pl-3\.5 pr-1\.5 py-2 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]/,
+    /flex items-center gap-2 rounded-\[18px\] border border-black\/5 bg-white py-2 pl-3\.5 pr-1\.5 shadow-\[0_4px_16px_rgb\(0_0_0\/0\.08\)\]/,
   );
   // Copy, label, and control function are untouched by the polish.
   assert.match(code, /aria-label="Cari tempat, cerita, produksi"/);
@@ -145,8 +147,8 @@ test("MOCKUP §2: search is a floating ~20px-radius white bar with a real 'Cari'
   assert.doesNotMatch(code, /viewBox="0 0 24 24" width="18" height="18"/);
   assert.match(code, /aria-label="Cari lokasi"/);
   assert.match(code, />\s*Cari\s*<\/button>/);
-  // The search glyph on the left stays.
-  assert.match(code, /shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</);
+  // The search glyph on the left stays (refined to 15px in the softer ink tone).
+  assert.match(code, /shrink-0 text-\[15px\] leading-none text-brand-ink\/70" aria-hidden>⌕</);
   // A long query can never widen the bar on a narrow phone.
   assert.match(code, /className="w-full min-w-0 bg-transparent text-sm outline-none/);
 });
@@ -158,14 +160,14 @@ test("MOCKUP §2: the search field is dimensionally stable, empty and filled", (
   // The input is the only elastic part, and it may shrink to zero width.
   assert.match(
     code,
-    /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/45 transition hover:bg-black\/10"/,
+    /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/40 transition hover:bg-black\/10"/,
   );
   // 2026-10-04: the pill gained `relative` because its touch target is extended
   // by an absolutely positioned, out-of-flow child. The fixed h-[26px] and
   // shrink-0 that make the bar dimensionally stable are unchanged.
   assert.match(code, /className="relative inline-flex h-\[26px\] shrink-0 items-center justify-center rounded-full bg-brand-primary/);
   const bar = code.slice(
-    code.indexOf("rounded-[20px] border border-black/10 bg-white"),
+    code.indexOf("rounded-[18px] border border-black/5 bg-white"),
     code.indexOf("Mencari lokasi"),
   );
   assert.equal((bar.match(/<button/g) ?? []).length, 2, "the clear button and the Cari button, nothing else");
@@ -210,19 +212,19 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
     /distanceFilter === filter && !curatedOnly\n\s*\? "bg-brand-primary text-white"/,
   );
   // The unselected distance tabs keep their white surface (mockup).
-  assert.match(code, /: "border border-black\/10 bg-white text-black\/65"/);
+  assert.match(code, /: "border border-black\/5 bg-white text-brand-ink\/70"/);
   // LIVE keeps its red dot and its red selected fill.
   assert.match(code, /liveOnly\n\s*\? "bg-live text-white"/);
 });
 
-test("filter controls use a ~16px radius rather than full pills", () => {
+test("filter controls use a compact 14px radius rather than full pills", () => {
   const filterRow = code.slice(
     code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
     code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]") + 2600,
   );
-  const rounded16 = filterRow.match(/rounded-\[16px\]/g) ?? [];
+  const roundedControls = filterRow.match(/rounded-\[14px\]/g) ?? [];
   // LIVE, Tempat Pilihan, and the shared distance-tab class.
-  assert.equal(rounded16.length, 3);
+  assert.equal(roundedControls.length, 3);
   // No pill styling may creep back onto the filter BUTTONS. The only
   // rounded-full left in the row is the tiny LIVE status dot, which is
   // existing LIVE semantics (a dot, not a pill) and stays untouched.
@@ -249,11 +251,15 @@ test("filter row has no horizontal-overflow escape hatch", () => {
 });
 
 test("result cards use a ~16px radius with a subtle border and light shadow", () => {
+  // VISUAL REFINEMENT (2026-10-05): the card keeps its radius and its border,
+  // but the border is lighter (`black/5`) and the elevation is an explicit
+  // low/high shadow pair instead of `shadow-sm`/`shadow-md`, so a Place card
+  // never competes with the map for attention.
   // overflow-hidden is what lets the mockup's cover image sit flush with the
   // card's rounded corners instead of spilling out of them.
   assert.match(
     code,
-    /group flex h-full w-full flex-col overflow-hidden rounded-\[16px\] border border-black\/10 bg-white shadow-sm transition hover:shadow-md/,
+    /group flex h-full w-full flex-col overflow-hidden rounded-\[16px\] border border-black\/5 bg-white shadow-\[0_1px_2px_rgb\(0_0_0\/0\.04\)\] transition hover:shadow-\[0_8px_20px_rgb\(0_0_0\/0\.08\)\]/,
   );
   // MOCKUP §10, REVISED 2026-10-04: the results keep the cream panel and its
   // rounded top corners, but the `-mt-5` tuck that pulled it under the map is
@@ -263,12 +269,12 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // results surface and still carries the accessible name; only the seam moved.
   assert.match(
     code,
-    /<section\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1 shadow-\[0_-6px_18px_rgb\(0_0_0\/0\.06\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
+    /<section\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1 shadow-\[0_-8px_24px_rgb\(0_0_0\/0\.05\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
   );
   assert.doesNotMatch(code, /relative z-10 -mt-5 rounded-t-\[24px\]/);
   // The handle travels with the floating panel, so it keeps its shape but no
   // longer carries the old `mb-1.5` in-flow spacing.
-  assert.match(code, /mx-auto mb-1 block h-1\.5 w-12 rounded-full bg-black\/15/);
+  assert.match(code, /mx-auto mb-0\.5 block h-1 w-10 rounded-full bg-black\/10/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
@@ -310,7 +316,7 @@ test("MOCKUP §16: every card image area is filled — canonical cover, else the
   assert.match(code, /Gambar sampul \$\{place\.name\}/);
   // The image area is ALWAYS rendered with a fixed height, so a card without a
   // cover can never change the card height.
-  assert.match(code, /relative h-\[104px\] w-full shrink-0 overflow-hidden bg-\[#ece7db\] sm:h-\[124px\]/);
+  assert.match(code, /relative h-\[92px\] w-full shrink-0 overflow-hidden bg-\[#ece7db\] sm:h-\[108px\]/);
   // MOCKUP §16 closed the "flat icon block" gap: the fallback is now a LOCAL
   // decorative placeholder photo shipped with the app — not a category glyph,
   // not a broken image, not a blank fill. It is aria-hidden with an empty alt
@@ -338,13 +344,13 @@ test("MOCKUP §14: card overlays are compact and cannot collide at the narrower 
   // of the long text pill, so it can never cover the image. It still renders
   // ONLY from the canonical curated flag.
   assert.match(code, /\{isCurated && \(/);
-  assert.match(code, /absolute left-1\.5 top-1\.5 inline-flex h-6 w-6 items-center justify-center rounded-lg bg-brand-secondary/);
+  assert.match(code, /absolute left-1\.5 top-1\.5 inline-flex h-5 w-5 items-center justify-center rounded-\[10px\] bg-brand-secondary/);
   // Decorative heart top-right (no favorite feature exists — non-interactive).
-  assert.match(code, /absolute right-1\.5 top-1\.5 inline-flex h-6 w-6 items-center justify-center rounded-full bg-white\/90/);
+  assert.match(code, /absolute right-1\.5 top-1\.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white\/90/);
   // Real distance bottom-right, still fail-closed (only with the real fix and
   // canonical coordinates — never a fabricated number).
   assert.match(code, /\{distance && \(/);
-  assert.match(code, /absolute bottom-1\.5 right-1\.5 inline-flex items-center gap-0\.5 rounded-full bg-brand-ink\/75/);
+  assert.match(code, /absolute bottom-1\.5 right-1\.5 inline-flex items-center gap-0\.5 rounded-full bg-brand-ink\/70/);
 });
 
 test("MOCKUP §18: rating is a 5-slot star row — stars only, never a number", () => {
@@ -460,7 +466,7 @@ test("MOCKUP §11: result header keeps title + real-count subtitle + Ke hasil", 
   assert.match(code, /href=\{`#\$\{resultsAnchorId\}`\}/);
   // ...and with no strip rendered the same label is plain text, so there is
   // never a dead anchor.
-  assert.match(code, /<span className="shrink-0 text-xs font-bold text-black\/35">Ke hasil<\/span>/);
+  assert.match(code, /<span className="shrink-0 text-\[11px\] font-bold text-brand-ink\/35">Ke hasil<\/span>/);
 });
 
 test("BUG FIX: both result strips carry UNIQUE anchor ids and the link targets them", () => {
@@ -498,12 +504,12 @@ test("BUG FIX: both result strips carry UNIQUE anchor ids and the link targets t
 test("MOCKUP §12/§19: every result row is a vertical list of full-width card items", () => {
   // 2026-10-04: the rows are vertical lists at 360px AND 1280px — the same
   // dataset, order, and cards as the old carousels; presentation only.
-  assert.match(code, /-mx-4 flex flex-col gap-2\.5 px-4 pb-1"/);
+  assert.match(code, /-mx-4 flex flex-col gap-2 px-4 pb-1"/);
   // Baris 2 (Discovery) — the same vertical pattern (no grid comeback).
   const discoveryRow = code.slice(code.indexOf("{discoveryRowPlaces.length > 0 ? ("));
-  assert.match(discoveryRow, /-mx-4 flex flex-col gap-2\.5 px-4 pb-1"/);
+  assert.match(discoveryRow, /-mx-4 flex flex-col gap-2 px-4 pb-1"/);
   assert.doesNotMatch(discoveryRow, /grid gap-3 sm:grid-cols-2/);
-  assert.match(discoveryRow, /flex flex-col gap-2\.5/);
+  assert.match(discoveryRow, /flex flex-col gap-2/);
   // Presentation only: the curated dataset, its order, and the cards are
   // unchanged, and the row still renders nothing when nothing is curated.
   assert.match(

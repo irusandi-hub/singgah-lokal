@@ -170,7 +170,7 @@ test("T2.4 the floating panel cannot swallow map gestures", () => {
   // Wrapper is click-through; only the card opts back in. The strip of map
   // beside and under the card must keep panning and zooming.
   assert.match(card, /pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\]/);
-  assert.match(card, /<div className="pointer-events-auto rounded-2xl/);
+  assert.match(card, /<div className="pointer-events-auto rounded-\[18px\]/);
   // The map itself is untouched — still the real Leaflet surface.
   assert.match(mapCode, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
   assert.match(mapCode, /scrollWheelZoom: true/);
@@ -196,8 +196,11 @@ test("T2.6 the panel neither covers a map control nor the empty state", () => {
   // long search query wraps the panel title to a second line and grows it.
   const CARD_BOTTOM_OFFSET = 12; // bottom-3
   const EMPTY_STATE_BOTTOM_OFFSET = 128; // bottom-32
-  const ONE_LINE_TITLE_CARD_HEIGHT = 84; // measured at 360px: 12 + handle + title + 2 count lines
-  const WRAPPED_TITLE_EXTRA = 26; // one more `text-lg leading-tight` row
+  // VISUAL REFINEMENT (2026-10-05): the card is COMPACTER than it was — 18px
+  // radius, `py-1.5`, a 4px handle, and a `text-base` title instead of
+  // `text-lg`. Re-measured at 360px: 12 + handle + title + count line ≈ 66px.
+  const ONE_LINE_TITLE_CARD_HEIGHT = 66;
+  const WRAPPED_TITLE_EXTRA = 20; // one more `text-base leading-tight` row
   assert.ok(
     CARD_BOTTOM_OFFSET + ONE_LINE_TITLE_CARD_HEIGHT + WRAPPED_TITLE_EXTRA <= EMPTY_STATE_BOTTOM_OFFSET,
     "even a wrapped two-line title clears the empty state",
@@ -242,11 +245,11 @@ test("T2.6b the panel still fits the smallest supported viewport", () => {
   assert.ok(textLine >= titlePlusAction, "title and Ke hasil fit on one line at 360px");
   // The title is allowed to wrap for a long query (nothing is truncated), which
   // is exactly why T2.6 budgets the extra row.
-  assert.match(code, /<h2 id="place-results-heading" className="text-lg font-bold leading-tight">/);
+  assert.match(code, /<h2 id="place-results-heading" className="text-base font-bold leading-tight tracking-tight">/);
   // Nothing overflows: the title column can shrink and truncate its own text,
   // and the action never grows.
   assert.match(code, /<div className="min-w-0">/);
-  assert.match(code, /className="inline-flex shrink-0 items-center gap-0\.5 text-xs font-bold/);
+  assert.match(code, /className="inline-flex shrink-0 items-center gap-0\.5 text-\[11px\] font-bold/);
 });
 
 test("T2.7 there is exactly ONE results information panel", () => {
@@ -267,8 +270,14 @@ test("T2.7 there is exactly ONE results information panel", () => {
 // ---------------------------------------------------------------------------
 
 test("T3.1 the map window is larger than it was, on mobile and on desktop", () => {
-  assert.match(code, /<div aria-hidden className="h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]" \/>/);
+  // VISUAL REFINEMENT (2026-10-05): the visible map window keeps growing —
+  // 60vh (66vh from `sm:`), floor 470px, ceiling 700px — because "map
+  // maximum visual presence within the existing layout" is the approved
+  // direction. The height still comes ONLY from the reclaimed bands: the
+  // floating panel got more compact in the same pass.
+  assert.match(code, /<div aria-hidden className="h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]" \/>/);
   // The previous band is gone entirely.
+  assert.doesNotMatch(code, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
   assert.doesNotMatch(code, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
 });
 
@@ -279,8 +288,8 @@ test("T3.2 the larger floor still clears the whole floating control ladder", () 
   const LOCATE_TOP = 240;
   const ZOOM_TOP = 290;
   const LEAFLET_ZOOM_HEIGHT = 64;
-  const FLOOR = 460;
-  assert.ok(FLOOR > 440, "the floor grew");
+  const FLOOR = 470;
+  assert.ok(FLOOR > 460, "the floor grew");
   assert.ok(FLOOR >= ZOOM_TOP + LEAFLET_ZOOM_HEIGHT, "the zoom control is not clipped");
   assert.ok(RE_CENTER_TOP < LOCATE_TOP, "the control ladder keeps its order");
   assert.ok(LOCATE_TOP < ZOOM_TOP, "the zoom stack stays below both locate controls");
@@ -305,17 +314,17 @@ test("T3.3 the camera and geographic rules are untouched", () => {
   assert.match(mapCode, /CAMERA_FIT_PADDING|singgah-user-pane/);
   // No zoom-out escape hatch was introduced to fake a bigger map.
   assert.equal(code.includes("setView("), false);
-  assert.doesNotMatch(code, /min-h-\[240px\]|sm:h-\[38vh\]|h-\[64vh\]|max-h-\[760px\]/);
+  assert.doesNotMatch(code, /min-h-\[240px\]|sm:h-\[38vh\]|h-\[64vh\]|max-h-\[760px\]|h-\[56vh\]/);
 });
 
 test("T3.4 the spacer stays a presentational, non-degenerate Leaflet box", () => {
-  const spacer = code.match(/<div aria-hidden className="(h-\[56vh\][^"]*)" \/>/);
+  const spacer = code.match(/<div aria-hidden className="(h-\[60vh\][^"]*)" \/>/);
   assert.ok(spacer, "the map spacer is present and marked aria-hidden");
   // vh-driven with a real floor and ceiling, so the Leaflet container is never
   // zero-height at any supported viewport.
-  assert.match(spacer![1], /min-h-\[460px\]/);
-  assert.match(spacer![1], /max-h-\[680px\]/);
-  assert.match(spacer![1], /sm:h-\[62vh\]/);
+  assert.match(spacer![1], /min-h-\[470px\]/);
+  assert.match(spacer![1], /max-h-\[700px\]/);
+  assert.match(spacer![1], /sm:h-\[66vh\]/);
 });
 
 // ---------------------------------------------------------------------------
@@ -340,7 +349,7 @@ test("T4.2 the vertical list bands and cards are untouched", () => {
     "the old carousel frames are gone",
   );
   assert.equal(
-    (code.match(/-mx-4 flex flex-col gap-2\.5 px-4 pb-1/g) ?? []).length,
+    (code.match(/-mx-4 flex flex-col gap-2 px-4 pb-1/g) ?? []).length,
     2,
     "both strips are vertical lists",
   );
