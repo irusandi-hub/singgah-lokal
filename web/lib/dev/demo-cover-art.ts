@@ -116,31 +116,43 @@ const PALETTE = {
   line: "#ded8c9",
 } as const;
 
-function esc(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+/** Full-bleed cover scene themes — flat brand colours, no gradients. */
+type CoverTheme = { sky: string; sun: string; far: string; near: string; detail: string; badge: string };
+
+const COVER_THEMES = {
+  warm: { sky: "#f3e7d8", sun: "#e6c79c", far: "#d9a86c", near: "#c89b6b", detail: "#a97b4f", badge: "#0e6b4f" },
+  harvest: { sky: "#f5efd9", sun: "#e8d27a", far: "#cbb25a", near: "#a8913f", detail: "#8a7430", badge: "#0a5640" },
+  fresh: { sky: "#eaf1e4", sun: "#cfe0be", far: "#8fae80", near: "#6b8f72", detail: "#4f7256", badge: "#0e6b4f" },
+  craft: { sky: "#f6f3eb", sun: "#e6d3ba", far: "#cbbba0", near: "#a89377", detail: "#7d6a52", badge: "#0e6b4f" },
+  workshop: { sky: "#eceef0", sun: "#c9d2d8", far: "#94a4ae", near: "#6f8089", detail: "#4f5f68", badge: "#0a5640" },
+} as const satisfies Record<string, CoverTheme>;
+
+type CoverThemeName = keyof typeof COVER_THEMES;
+
+/** Motif family → scene theme, so the 26 motifs do not all look the same. */
+const MOTIF_THEME: Array<{ motifs: DemoMotif[]; theme: CoverThemeName }> = [
+  { motifs: ["soup-bowl", "kitchen-pot", "tea", "coffee"], theme: "warm" },
+  { motifs: ["corn", "grain", "palm-sugar", "honey", "spice"], theme: "harvest" },
+  { motifs: ["seedling", "herbs", "flower", "leaf-wrapped", "tofu", "seafood"], theme: "fresh" },
+  { motifs: ["bamboo", "lantern", "batik", "weaving", "clay", "timber", "leather", "glassware", "soap"], theme: "craft" },
+  { motifs: ["tools", "wheel", "workshop"], theme: "workshop" },
+];
+
+function themeForMotif(motif: DemoMotif): CoverTheme {
+  const group = MOTIF_THEME.find((entry) => entry.motifs.includes(motif));
+  return COVER_THEMES[group?.theme ?? "craft"];
 }
 
-/** Greedy wrap so a long Place name never runs past the right margin. */
-function wrap(value: string, maxChars: number, maxLines: number): string[] {
-  const words = value.trim().split(/\s+/);
-  const lines: string[] = [];
-  let current = "";
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (candidate.length > maxChars && current) {
-      lines.push(current);
-      current = word;
-      if (lines.length === maxLines) break;
-    } else {
-      current = candidate;
-    }
+/** Stable pseudo-random sequence so a motif always paints the same texture. */
+function seededOffsets(seed: string, count: number): number[] {
+  let state = 0;
+  for (const character of seed) state = (state * 31 + character.charCodeAt(0)) >>> 0;
+  const values: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    values.push(state / 0xffffffff);
   }
-  if (lines.length < maxLines && current) lines.push(current);
-  return lines.slice(0, maxLines);
+  return values;
 }
 
 /** Each motif draws into a 380x380 box centred on (0,0). */
@@ -400,38 +412,56 @@ export type DemoCoverArtInput = {
 };
 
 /**
- * Build the full demo cover SVG. Every rendering carries the DEMO badge and
- * the "not a real Producer photo" caption — that is the whole point of it.
+ * Build the full demo cover SVG — a REAL VISUAL COVER across the whole canvas.
+ *
+ * NO PLACE DATA IS PAINTED (PO, 2026-10-05): the Home/Place card already
+ * renders the Place name, short description, stars, distance, Live state, and
+ * Direction, so baking any of that into the image produced a mini information
+ * card inside the picture. The artwork therefore carries only visual material:
+ * a full-bleed scene, a large motif that owns the main visual area, and
+ * texture — plus the DEMO badge, which stays because these are generated DEV
+ * assets and must never be mistaken for Producer photography.
+ *
+ * `name`, `area` and `kindLabel` remain in the input shape (the seed passes
+ * them) and are deliberately NOT rendered.
  */
 export function buildDemoCoverSvg(input: DemoCoverArtInput): string {
-  const nameLines = wrap(input.name, 20, 3);
-  const areaLine = wrap(input.area ?? "—", 30, 1)[0];
+  void input.name;
+  void input.area;
+  void input.kindLabel;
 
-  const nameText = nameLines
-    .map(
-      (line, index) =>
-        `<text x="640" y="${300 + index * 62}" font-family="Poppins, DejaVu Sans, sans-serif" font-size="56" font-weight="700" fill="${PALETTE.ink}">${esc(line)}</text>`,
-    )
+  const theme = themeForMotif(input.motif);
+  const width = DEMO_COVER_WIDTH;
+  const height = DEMO_COVER_HEIGHT;
+
+  // Background texture: deterministic dots + a horizon pattern band, so two
+  // covers of the same motif family still read as different artwork.
+  const dots = seededOffsets(input.motif, 26)
+    .map((value, index) => {
+      const x = 40 + ((index * 137) % (width - 80)) + Math.round(value * 26);
+      const y = 40 + ((index * 91) % (height - 260));
+      const r = 4 + Math.round(value * 9);
+      return `<circle cx="${x}" cy="${y}" r="${r}" fill="${theme.detail}" opacity="0.18"/>`;
+    })
     .join("");
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${DEMO_COVER_WIDTH}" height="${DEMO_COVER_HEIGHT}" viewBox="0 0 ${DEMO_COVER_WIDTH} ${DEMO_COVER_HEIGHT}">
-  <rect width="${DEMO_COVER_WIDTH}" height="${DEMO_COVER_HEIGHT}" fill="${PALETTE.cream}"/>
-  <rect x="0" y="0" width="${DEMO_COVER_WIDTH}" height="12" fill="${PALETTE.green}"/>
-  <circle cx="330" cy="400" r="212" fill="${PALETTE.paper}"/>
-  <circle cx="330" cy="400" r="212" fill="none" stroke="${PALETTE.line}" stroke-width="4"/>
-  <g transform="translate(330 400)">${motifArt(input.motif)}</g>
-  <g>
-    <rect x="640" y="170" width="220" height="46" rx="23" fill="${PALETTE.green}"/>
-    <text x="750" y="201" text-anchor="middle" font-family="Poppins, DejaVu Sans, sans-serif" font-size="24" font-weight="700" letter-spacing="3" fill="${PALETTE.paper}">SINGGAH LOKAL</text>
-    <text x="640" y="262" font-family="Poppins, DejaVu Sans, sans-serif" font-size="26" font-weight="600" fill="${PALETTE.muted}">${esc(input.kindLabel ?? "Demo Place")} • ${esc(areaLine)}</text>
-    ${nameText}
-    <rect x="640" y="470" width="480" height="4" rx="2" fill="${PALETTE.line}"/>
-    <text x="640" y="522" font-family="Poppins, DejaVu Sans, sans-serif" font-size="26" fill="${PALETTE.muted}">Gambar demo untuk Discovery DEV.</text>
-  </g>
-  <g>
-    <rect x="900" y="60" width="240" height="72" rx="36" fill="${PALETTE.accent}"/>
-    <text x="1020" y="108" text-anchor="middle" font-family="Poppins, DejaVu Sans, sans-serif" font-size="36" font-weight="700" letter-spacing="4" fill="${PALETTE.paper}">DEMO</text>
-  </g>
-  <text x="40" y="712" font-family="Poppins, DejaVu Sans, sans-serif" font-size="24" fill="${PALETTE.muted}">Ilustrasi demo — bukan foto Producer, bukan bukti kepemilikan.</text>
+  const sprigs = seededOffsets(`${input.motif}-sprig`, 6)
+    .map((value, index) => {
+      const x = 70 + index * 190;
+      const height2 = 60 + Math.round(value * 70);
+      return `<path d="M${x} ${height - 30} q${Math.round(value * 30) - 15} ${-height2 / 2} 0 ${-height2}" fill="none" stroke="${theme.detail}" stroke-width="6" stroke-linecap="round" opacity="0.28"/>`;
+    })
+    .join("");
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <rect width="${width}" height="${height}" fill="${theme.sky}"/>
+  <circle cx="${width / 2}" cy="215" r="225" fill="${theme.sun}"/>
+  <g>${dots}</g>
+  <path d="M0 452 Q300 386 600 452 T${width} 436 V${height} H0 Z" fill="${theme.far}"/>
+  <path d="M0 566 Q300 496 600 566 T${width} 548 V${height} H0 Z" fill="${theme.near}"/>
+  <g>${sprigs}</g>
+  <g transform="translate(${width / 2} 372) scale(1.92)">${motifArt(input.motif)}</g>
+  <rect x="${width - 268}" y="40" width="228" height="70" rx="35" fill="${theme.badge}"/>
+  <text x="${width - 154}" y="86" text-anchor="middle" font-family="Poppins, DejaVu Sans, sans-serif" font-size="32" font-weight="700" letter-spacing="4" fill="${PALETTE.paper}">DEMO</text>
 </svg>`;
 }

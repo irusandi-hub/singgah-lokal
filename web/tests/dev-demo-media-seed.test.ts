@@ -160,27 +160,50 @@ test("an existing stored object is left alone, even when its row is repaired", (
 // 5. The artwork is unmistakably DEMO and motif-matched.
 // ---------------------------------------------------------------------------
 
-test("every generated cover carries a DEMO badge and an explicit disclaimer", () => {
+test("every generated cover is a FULL VISUAL COVER with only a DEMO badge as text", () => {
   const svg = buildDemoCoverSvg({ name: "Sari Tempe Makmur", motif: "leaf-wrapped", area: "Buahbatu" });
+  // The DEMO badge stays: these are generated DEV assets and must never be
+  // mistaken for Producer photography.
   assert.match(svg, /DEMO/);
-  assert.match(svg, /SINGGAH LOKAL/);
-  // The caption states, in Indonesian, that this is not a Producer photo.
-  assert.match(svg, /Ilustrasi demo/);
-  assert.match(svg, /bukan foto Producer/);
-  // XML-escaped text: a Place name can never break the document.
-  const escaped = buildDemoCoverSvg({ name: 'Sari <A & B> "Demo"', motif: "bamboo", area: null });
-  assert.match(escaped, /Sari &lt;A &amp; B&gt; &quot;Demo&quot;/);
-  assert.doesNotMatch(escaped, /<A & B>/);
+  // Nothing else may be painted. The Home/Place card already renders the
+  // Place name, short description, stars, distance, Live state and Direction,
+  // so none of that may be baked into the picture.
+  for (const forbidden of [
+    "Sari Tempe Makmur",
+    "Demo Place",
+    "Buahbatu",
+    "SINGGAH LOKAL",
+    "Gambar demo",
+    "Ilustrasi demo",
+    "bukan foto Producer",
+  ]) {
+    assert.equal(svg.includes(forbidden), false, `the cover must not paint "${forbidden}"`);
+  }
+  // DEMO is the ONLY text element in the whole document.
+  const texts = svg.match(/<text[\s\S]*?<\/text>/g) ?? [];
+  assert.equal(texts.length, 1, "exactly one text element");
+  assert.match(texts[0], />DEMO</);
+  // No unresolved template can leak into the image again.
+  assert.doesNotMatch(svg, /\{[A-Za-z_$][^}]*\}/);
+  assert.doesNotMatch(svg, /\{|<\?/);
 });
 
-test("REGRESSION (2026-10-05): no generated cover renders an unresolved template", () => {
-  // The bug this locks: a caption written as `Gambar demo untuk{someFn()}` in a
-  // PLAIN string (not a template literal) rasterizes the raw expression into
-  // the PNG, and every Discovery card then shows "Gambar demo
-  // untuk{dataIsDemoLabel()}" to users. The artwork is rasterized ONCE and
-  // stored, so a broken source string can never be fixed by editing the code
-  // alone — it has to be re-rendered.
-  for (const motif of [
+test("the cover fills the canvas and the motif owns the main visual area", () => {
+  const svg = buildDemoCoverSvg({ name: "Bakso Migran", motif: "soup-bowl", area: null });
+  // Full-bleed background: a rect covering the whole 1200x750 canvas plus a
+  // horizon scene — the image is a cover, not a panel on a white field.
+  assert.match(svg, /<rect width="1200" height="750" fill="#/);
+  assert.match(svg, /<path d="M0 452/);
+  assert.match(svg, /<path d="M0 566/);
+  // The motif is scaled up and centred instead of being trapped in a disc.
+  assert.match(svg, /<g transform="translate\(600 372\) scale\(1\.92\)">/);
+  assert.doesNotMatch(svg, /r="212"/);
+  // Scene texture exists, so the cover does not read as a flat placeholder.
+  assert.ok((svg.match(/<circle/g) ?? []).length >= 20, "background texture dots");
+});
+
+test("a Place name can never reach the artwork through any motif", () => {
+  const motifs = [
     "soup-bowl",
     "corn",
     "leaf-wrapped",
@@ -192,17 +215,55 @@ test("REGRESSION (2026-10-05): no generated cover renders an unresolved template
     "herbs",
     "seedling",
     "palm-sugar",
+    "coffee",
+    "tea",
+    "kitchen-pot",
+    "clay",
+    "timber",
+    "tools",
+    "honey",
+    "grain",
+    "spice",
+    "seafood",
+    "soap",
+    "glassware",
+    "leather",
+    "wheel",
+    "flower",
     "workshop",
-  ] as const) {
-    const svg = buildDemoCoverSvg({ name: "Sari Contoh", motif, area: "Cibiru" });
-    assert.doesNotMatch(svg, /\{[A-Za-z_$][^}]*\}/, `${motif} rendered an unresolved template`);
-    assert.doesNotMatch(svg, /\{|<\?/);
-    // The caption must be the resolved sentence.
-    assert.match(svg, /Gambar demo untuk Discovery DEV\./);
+  ] as const;
+  for (const motif of motifs) {
+    const svg = buildDemoCoverSvg({
+      name: 'Sari <A & B> "Demo"',
+      motif,
+      area: "Kota Rahasia",
+      kindLabel: "Demo Place • Produksi",
+    });
+    for (const forbidden of ["Sari", "Kota Rahasia", "Demo Place", "&lt;A", "&quot;Demo&quot;"]) {
+      assert.equal(svg.includes(forbidden), false, `${motif} must not paint "${forbidden}"`);
+    }
   }
-  // The same guard on the source text: a helper call may only ever appear
-  // inside a real template interpolation (`${...}`), never bare in the markup.
+});
+
+test("REGRESSION: the artwork source can never bake an unresolved template or Place data", () => {
+  // The original bug: a caption written as `Gambar demo untuk{someFn()}` in a
+  // PLAIN string (not a template literal) rasterizes the raw expression into
+  // the PNG, and every Discovery card then shows that raw text to users. The
+  // artwork is rasterized ONCE and stored, so a broken source string can never
+  // be fixed by editing the code alone — it has to be re-rendered.
+  //
+  // Guards, on the source itself:
+  //  · a helper call may only appear inside a real interpolation (`${...}`),
+  //    never bare inside the SVG markup;
+  //  · the cover must not paint any Place data, and DEMO is its only text.
   assert.doesNotMatch(art, />[^<]*\{[A-Za-z_$][A-Za-z0-9_$]*\(\)\}/);
+  for (const forbidden of ["Gambar demo", "Ilustrasi demo", "SINGGAH LOKAL</text>", "kindLabel ??", "wrap(", "esc("]) {
+    assert.equal(art.includes(forbidden), false, `the artwork must not contain "${forbidden}"`);
+  }
+  // The renderer explicitly discards the Place metadata it is handed.
+  assert.match(art, /void input\.name;/);
+  assert.match(art, /void input\.area;/);
+  assert.match(art, /void input\.kindLabel;/);
 });
 
 test("each demo Place's motif follows its own name and description", () => {
