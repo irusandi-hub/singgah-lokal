@@ -50,7 +50,7 @@ export default async function VisitIntentsPage() {
       <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
         <h1 className="text-2xl font-semibold tracking-tight">Kunjungan Saya</h1>
         <p className="mt-2 text-sm text-black/55">
-          Niat berkunjungmu ke Tempat. Status diperbarui setelah Pengelola merespons. Ini bukan pembayaran atau konfirmasi reservasi.
+          Niat berkunjungmu ke Tempat. Status diperbarui setelah Pengelola merespons.
         </p>
 
         {records.length === 0 ? (

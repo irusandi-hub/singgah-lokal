@@ -39,8 +39,8 @@ export default function AboutPage() {
           <section className="rounded-2xl border border-black/10 bg-white p-6">
             <h2 className="text-lg font-semibold tracking-tight">SINGGAH adalah visit intent</h2>
             <p className="mt-3 text-sm leading-6 text-black/60">
-              SINGGAH mengekspresikan niat berkunjung ke sebuah Tempat — bukan checkout, keranjang,
-              atau pembayaran. Harga dan tiket yang tampil bersifat informasional dari Pengelola.
+              SINGGAH mengekspresikan niat berkunjung ke sebuah Tempat. Harga dan tiket yang tampil
+              bersifat informasional dari Pengelola.
             </p>
           </section>
 

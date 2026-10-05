@@ -14,8 +14,10 @@ const experienceForm = readFileSync(
   new URL("../app/producer/places/[placeId]/experiences/ExperienceForm.tsx", import.meta.url),
   "utf8",
 );
-const authPage = readFileSync(new URL("../app/auth/page.tsx", import.meta.url), "utf8");
-const signUpPage = readFileSync(new URL("../app/auth/sign-up/page.tsx", import.meta.url), "utf8");
+// The interactive auth UI lives in the client form components; the route
+// `page.tsx` files are thin dynamic server wrappers.
+const authPage = readFileSync(new URL("../app/auth/auth-form.tsx", import.meta.url), "utf8");
+const signUpPage = readFileSync(new URL("../app/auth/sign-up/sign-up-form.tsx", import.meta.url), "utf8");
 const securityManager = readFileSync(
   new URL("../app/developer/account-security-manager.tsx", import.meta.url),
   "utf8",

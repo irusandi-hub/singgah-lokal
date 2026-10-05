@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { sanitizeReturnTo } from "@/lib/auth/return-to";
+import { normalizeOAuthProvider, type OAuthProvider } from "@/lib/auth/oauth";
 
 /**
- * OAuth callback for the existing Supabase Auth (Google provider).
+ * OAuth callback shared by every OAuth provider (Google and Apple) on the
+ * existing Supabase Auth.
  *
  * Reuses the same SSR server client as every other auth route, so the session
  * is written with the project's secure cookie handling — no parallel session
@@ -12,9 +14,11 @@ import { sanitizeReturnTo } from "@/lib/auth/return-to";
  * Indonesian copy; the destination path is always re-sanitized, so a tampered
  * `next` cannot become an open redirect.
  */
-function authErrorRedirect(origin: string, code: string): NextResponse {
+function authErrorRedirect(origin: string, code: string, provider: OAuthProvider): NextResponse {
   const url = new URL("/auth", origin);
   url.searchParams.set("error", code);
+  // Keeps the error copy naming the provider the user actually tried.
+  url.searchParams.set("provider", provider);
   return NextResponse.redirect(url);
 }
 
@@ -23,24 +27,25 @@ export async function GET(request: Request) {
   const providerError = searchParams.get("error");
   const code = searchParams.get("code");
   const next = sanitizeReturnTo(searchParams.get("next"));
+  const provider = normalizeOAuthProvider(searchParams.get("provider"));
 
-  // Google/Supabase can come back with an explicit error (e.g. access_denied
-  // when the user cancels consent) before any code is issued.
+  // The provider/Supabase can come back with an explicit error (e.g.
+  // access_denied when the user cancels consent) before any code is issued.
   if (providerError) {
-    return authErrorRedirect(origin, providerError);
+    return authErrorRedirect(origin, providerError, provider);
   }
   if (!code) {
-    return authErrorRedirect(origin, "missing_code");
+    return authErrorRedirect(origin, "missing_code", provider);
   }
 
   try {
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      return authErrorRedirect(origin, "oauth_exchange_failed");
+      return authErrorRedirect(origin, "oauth_exchange_failed", provider);
     }
   } catch {
-    return authErrorRedirect(origin, "oauth_exchange_failed");
+    return authErrorRedirect(origin, "oauth_exchange_failed", provider);
   }
 
   // Same-origin only: `next` is a validated absolute path.
