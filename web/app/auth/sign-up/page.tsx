@@ -4,7 +4,9 @@ import { FormEvent, Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import BrandLogo from "@/components/brand-logo";
+import GoogleAuthButton from "@/components/google-auth-button";
 import { sanitizeReturnTo } from "@/lib/auth/return-to";
+import { describeOAuthError } from "@/lib/auth/oauth";
 import { validateSignUpInput } from "@/lib/auth/sign-up";
 
 const validationMessages: Record<string, string> = {
@@ -24,13 +26,18 @@ function SignUpForm() {
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [googlePending, setGooglePending] = useState(false);
+  // OAuth callback failures can surface here too; email/password failures are
+  // set locally. Both use the same alert element.
+  const [error, setError] = useState<string | null>(() =>
+    describeOAuthError(searchParams.get("error")),
+  );
   // null = form; otherwise the sign-up outcome shown as a clear status.
   const [created, setCreated] = useState<{ authenticated: boolean; needsEmailConfirmation: boolean } | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting) return;
+    if (submitting || googlePending) return;
     setError(null);
 
     const input = { name, email, password, passwordConfirmation };
@@ -137,17 +144,29 @@ function SignUpForm() {
 
         <header className="mt-8 flex flex-col items-center text-center">
           <BrandLogo height={44} className="max-w-full" />
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Daftar akun</h1>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Daftar</h1>
           <p className="mt-3 text-sm leading-6 text-black/60">
             Buat akun untuk mengirim Kunjungan ke Pengelola. Akses Pengelola diberikan terpisah
             oleh admin platform.
           </p>
         </header>
 
-        <form
-          className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-6"
-          onSubmit={handleSubmit}
-        >
+        <div className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-6">
+          <GoogleAuthButton
+            label="Daftar dengan Google"
+            returnTo={returnTo}
+            disabled={submitting}
+            onError={(message) => setError(message)}
+            onPendingChange={setGooglePending}
+          />
+
+          <div className="my-5 flex items-center gap-3">
+            <span aria-hidden className="h-px flex-1 bg-black/10" />
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-black/40">atau</span>
+            <span aria-hidden className="h-px flex-1 bg-black/10" />
+          </div>
+
+          <form onSubmit={handleSubmit}>
           <label className="block text-sm font-semibold" htmlFor="name">
             Nama
             <input
@@ -213,20 +232,21 @@ function SignUpForm() {
           ) : null}
 
           <button
-            className="mt-6 w-full rounded-2xl bg-brand-primary py-4 text-sm font-bold text-white disabled:opacity-60"
-            disabled={submitting}
+            className="mt-6 w-full rounded-2xl bg-brand-primary py-4 text-sm font-bold text-white transition hover:bg-brand-primary-deep disabled:opacity-60"
+            disabled={submitting || googlePending}
             type="submit"
           >
             {submitting ? "Memproses…" : "Daftar"}
           </button>
+          </form>
 
           <p className="mt-4 text-center text-xs leading-5 text-black/55">
             Sudah punya akun?{" "}
             <Link className="font-bold text-brand-accent underline-offset-2 hover:underline" href="/auth">
-              Masuk di sini
+              Masuk sekarang
             </Link>
           </p>
-        </form>
+        </div>
       </div>
     </main>
   );
