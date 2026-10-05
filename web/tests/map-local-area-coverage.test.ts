@@ -566,15 +566,17 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // the section ended above the bottom of the zoom control and clipped it on an
   // ordinary phone. 2026-10-04 grew the CANVAS (42vh -> 56vh, 440 -> 460 floor)
   // using the vertical space the coordinate strip and the in-flow results panel
-  // gave back. The camera rules are untouched — only the container grew.
-  assert.match(pageCode, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
+  // gave back. 2026-10-05 grew it once more (60vh, 470 floor, 700 ceiling) for
+  // the same reason: map presence is the approved priority. The camera rules
+  // are untouched — only the container grew.
+  assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
   assert.doesNotMatch(pageCode, /min-h-\[240px\]|sm:h-\[38vh\]/);
   // ...and the panel's own padding went with it.
   assert.match(
     pageCode,
     /<section\s*\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1/,
   );
-  assert.match(pageCode, /mx-auto mb-1 block h-1\.5 w-12 rounded-full bg-black\/15/);
+  assert.match(pageCode, /mx-auto mb-0\.5 block h-1 w-10 rounded-full bg-black\/10/);
   assert.match(pageCode, /flex items-end justify-between gap-3/);
   // NOTHING important was cut: the title, the count, the "Ke hasil" link, the
   // category labels, and both (now vertical) result lists are all still there.
@@ -586,7 +588,7 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // 2026-10-04: the carousel frames are gone — the rows are vertical lists now.
   assert.equal((pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []).length, 0);
   assert.equal(
-    (pageCode.match(/-mx-4 flex flex-col gap-2\.5 px-4 pb-1"/g) ?? []).length,
+    (pageCode.match(/-mx-4 flex flex-col gap-2 px-4 pb-1"/g) ?? []).length,
     2,
   );
   assert.equal(
@@ -907,8 +909,8 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 290px;/);
   assert.match(mapCode, /absolute right-3 top-\[190px\]/);
   assert.match(mapCode, /absolute right-3 top-\[240px\]/);
-  assert.match(pageCode, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
-  const floor = 460;
+  assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
+  const floor = 470;
   assert.ok(floor >= ZOOM_TOP + LEAFLET_ZOOM_HEIGHT, "the zoom control must not be clipped");
   assert.ok(floor >= COVERAGE_BOTTOM_OFFSET + COVERAGE_HEIGHT, "the coverage box must fit");
   assert.ok(RE_CENTER_TOP < LOCATE_TOP, "the control ladder keeps its order");

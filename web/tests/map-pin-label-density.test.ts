@@ -143,9 +143,12 @@ test("3.3 a very dense cluster still keeps at least one label", () => {
 test("4.1 a decluttered label is held back by CSS, not removed", () => {
   // The chip keeps its exact approved styling: compact, truncated, no pointer
   // capture, high contrast.
-  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?max-width: 132px;/);
-  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?font-size: 11px;/);
-  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?font-weight: 700;/);
+  // VISUAL REFINEMENT (2026-10-05): the chip is now 10.5px/600 in a 124px box
+  // — quieter on the map, still high-contrast, still truncating with an
+  // ellipsis and still never capturing a gesture.
+  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?max-width: 124px;/);
+  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?font-size: 10\.5px;/);
+  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?font-weight: 600;/);
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?text-overflow: ellipsis;/);
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?pointer-events: none;/);
   // Only the paint state changes, and only through the data attribute.

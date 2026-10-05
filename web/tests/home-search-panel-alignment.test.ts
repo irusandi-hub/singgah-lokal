@@ -39,7 +39,10 @@ const SEARCH_COLUMN = 'className="relative z-[1100] pointer-events-none mx-auto 
 /** The same column, reused by the floating results panel. */
 const PANEL_COLUMN = 'className="pointer-events-none absolute inset-x-0 bottom-3 z-[1100] mx-auto w-full max-w-6xl px-4"';
 
-const bar = pageCode.slice(pageCode.indexOf("rounded-[20px] border border-black/10 bg-white"), pageCode.indexOf("Mencari lokasi"));
+const bar = pageCode.slice(
+  pageCode.indexOf("rounded-[18px] border border-black/5 bg-white"),
+  pageCode.indexOf("Mencari lokasi"),
+);
 
 // ---------------------------------------------------------------------------
 // 1. The search field's right end is empty.
@@ -51,7 +54,7 @@ test("no settings/filter graphic is rendered inside the search field", () => {
   assert.doesNotMatch(bar, /<circle cx="16"/);
   assert.doesNotMatch(pageCode, /viewBox="0 0 24 24" width="18" height="18"/);
   // The left search glyph, the placeholder, and the accessible name stay.
-  assert.match(bar, /shrink-0 text-base leading-none text-brand-ink" aria-hidden>⌕</);
+  assert.match(bar, /shrink-0 text-\[15px\] leading-none text-brand-ink\/70" aria-hidden>⌕</);
   assert.match(bar, /placeholder="Cari tempat, cerita, produksi\.\.\."/);
   assert.match(bar, /aria-label="Cari tempat, cerita, produksi"/);
 });
@@ -89,15 +92,16 @@ test("the bar's own box is a single, unconditional class list", () => {
   // Padding, radius, border, and shadow are on the flex row itself and are not
   // part of any conditional, so they cannot differ between states. (2026-10-04:
   // the padding moved to `pl-3.5 pr-1.5` so the two controls sit inside the
-  // same approved surface rather than floating past it; radius, border, and
-  // shadow are unchanged.)
+  // same approved surface rather than floating past it. VISUAL REFINEMENT
+  // 2026-10-05: the surface geometry is unchanged; only the radius (18px, from
+  // the shared ladder), the border weight (`black/5`), and the shadow moved.)
   assert.match(
     pageCode,
-    /<div className="flex items-center gap-2 rounded-\[20px\] border border-black\/10 bg-white pl-3\.5 pr-1\.5 py-2 shadow-\[0_2px_10px_rgb\(0_0_0\/0\.10\)\]">/,
+    /<div className="flex items-center gap-2 rounded-\[18px\] border border-black\/5 bg-white py-2 pl-3\.5 pr-1\.5 shadow-\[0_4px_16px_rgb\(0_0_0\/0\.08\)\] ring-1 ring-black\/\[0\.02\]">/,
   );
   // The row is the bar's only sized element: there is no second wrapper that
   // could change width with the query.
-  assert.equal((bar.match(/rounded-\[20px\]/g) ?? []).length, 1);
+  assert.equal((bar.match(/rounded-\[18px\]/g) ?? []).length, 1);
 });
 
 test("the conditional control occupies a FIXED 18×18 box, so the bar never resizes", () => {
@@ -106,7 +110,7 @@ test("the conditional control occupies a FIXED 18×18 box, so the bar never resi
   // height: the input's own line box governs in BOTH states.
   assert.match(
     bar,
-    /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/45 transition hover:bg-black\/10"/,
+    /className="inline-flex h-\[18px\] w-\[18px\] shrink-0 items-center justify-center rounded-full bg-black\/5 text-\[15px\] leading-none text-black\/40 transition hover:bg-black\/10"/,
   );
   // No padding-derived box (p-1) whose height depended on the glyph's own line
   // height, and no font-size that could differ from the removed SVG.
@@ -188,19 +192,21 @@ test("the reserved strip for the removed distance scale is gone", () => {
 
 test("the panel keeps its own content, actions, and interactions", () => {
   const panel = pageCode.slice(pageCode.indexOf("absolute inset-x-0 bottom-3 z-[1100]"), pageCode.indexOf("</section>"));
-  // Card surface, radius, and handle are untouched.
-  assert.match(panel, /pointer-events-auto rounded-2xl bg-white\/95 px-3 py-2 shadow-\[0_6px_20px_rgb\(0_0_0\/0\.14\)\] ring-1 ring-black\/5 backdrop-blur-sm/);
-  assert.match(panel, /<span aria-hidden className="mx-auto mb-1 block h-1\.5 w-12 rounded-full bg-black\/15" \/>/);
+  // Card surface, radius, and handle keep the same SHAPE (VISUAL REFINEMENT
+  // 2026-10-05: 18px radius, `py-1.5`, a 4px handle, and a softer, deeper
+  // shadow so the panel reads as floating without shouting).
+  assert.match(panel, /pointer-events-auto rounded-\[18px\] bg-white\/95 px-3\.5 py-1\.5 shadow-\[0_8px_24px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5 backdrop-blur-sm/);
+  assert.match(panel, /<span aria-hidden className="mx-auto mb-0\.5 block h-1 w-10 rounded-full bg-black\/10" \/>/);
   // Title, count, and the "Ke hasil" action are unchanged, including the
   // plain-text fallback when there is nothing to scroll to.
-  assert.match(panel, /<h2 id="place-results-heading" className="text-lg font-bold leading-tight">/);
+  assert.match(panel, /<h2 id="place-results-heading" className="text-base font-bold leading-tight tracking-tight">/);
   assert.match(panel, /\$\{nearOrigin\} · \$\{coverageScope\}/);
   assert.match(panel, /href=\{`#\$\{resultsAnchorId\}`\}/);
-  assert.match(panel, /<span className="shrink-0 text-xs font-bold text-black\/35">Ke hasil<\/span>/);
+  assert.match(panel, /<span className="shrink-0 text-\[11px\] font-bold text-brand-ink\/35">Ke hasil<\/span>/);
   // The wrapper stays click-through and the card itself does not, so the map
   // beside the panel still pans and zooms.
   assert.match(pageCode, /<div className="pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\]/);
-  assert.match(panel, /<div className="pointer-events-auto rounded-2xl/);
+  assert.match(panel, /<div className="pointer-events-auto rounded-\[18px\]/);
 });
 
 test("panel content cannot overflow the wider card", () => {

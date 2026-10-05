@@ -66,7 +66,7 @@ select {
 .leaflet-bar a:hover {
   background-color: #fff;
   color: var(--brand-ink);
-  border-color: rgb(0 0 0 / 0.1);
+  border-color: rgb(0 0 0 / 0.06);
 }
 
 .leaflet-bar a:hover {
@@ -74,9 +74,9 @@ select {
 }
 
 .leaflet-bar {
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
-  border: 1px solid rgb(0 0 0 / 0.1);
-  border-radius: 12px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.1);
+  border: 1px solid rgb(0 0 0 / 0.06);
+  border-radius: 14px;
   overflow: hidden;
 }
 
@@ -122,36 +122,42 @@ select {
 /* Home map marker system (PO, 2026-09-29; always-on name label 2026-10-04):
    ONE base Place pin — a compact teardrop that anchors on the Place's
    canonical coordinate — with per-mode treatments only (brown base →
-   secondary-green "Tempat Pilihan" → red LIVE). Each pin now carries its
+   secondary-green "Tempat Pilihan" → red LIVE). Each pin carries its
    Place name directly beneath the anchor as a compact, truncated chip, so a
    Place is readable without hovering; the hover/focus tooltip still carries
    the full name. No emoji glyphs, no decorative extras. The pin tip sits
    exactly on the coordinate; the hover/focus lift is pure feedback for the
-   tap target. */
+   tap target.
+
+   VISUAL REFINEMENT (2026-10-05): the chip is now 10.5px/600 in a slightly
+   narrower (124px) box with a softer shadow, so dense clusters stay legible
+   without the labels out-shouting the map they sit on. Truncation, the
+   deterministic on-screen budget, and the on-demand reveal below are
+   unchanged. */
 .singgah-map-marker {
   transition: filter 0.15s ease;
 }
 
 /* Always-on Place name label (product decision, 2026-10-04): a compact,
    high-contrast chip under the pin tip. Typography is tuned for legibility at
-   map scale — 11px/700, tight line-height, subtle letterspacing — and long
+   map scale — 10.5px/600, tight line-height, subtle letterspacing — and long
    names truncate with an ellipsis instead of widening without bound. It is
    non-interactive (pointer-events: none) so it never steals a map gesture. */
 .singgah-pin-label {
   display: block;
-  max-width: 132px;
+  max-width: 124px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  padding: 2px 7px;
+  padding: 2px 6px;
   border-radius: 9999px;
   background: rgb(255 255 255 / 0.94);
   color: var(--brand-ink);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10.5px;
+  font-weight: 600;
   line-height: 1.2;
   letter-spacing: 0.01em;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
   pointer-events: none;
 }
 
@@ -269,7 +275,7 @@ select {
    TANPA angka rating dan TANPA jumlah review (Master: no invented data).
    Satu sumber tampilan untuk semua kartu hasil. */
 .singgah-star {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
 }
 

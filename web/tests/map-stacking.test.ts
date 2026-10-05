@@ -85,7 +85,7 @@ test("React map overlays sit above Leaflet's documented z-index ceiling (1000)",
     /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/,
     "empty-state card must ride above the Leaflet control ceiling",
   );
-  assert.match(pageCode, /w-fit max-w-\[min\(20rem,100%\)\] rounded-xl bg-white\/95 px-3 py-1\.5/);
+  assert.match(pageCode, /w-fit max-w-\[min\(20rem,100%\)\] rounded-\[14px\] bg-white\/95 px-3 py-1\.5/);
   // The DUPLICATE "Tempat Pilihan" chip is gone (bug fix 2026-10-03): the map
   // stage repeated the filter bar's own control as a second chip. The filter
   // itself is untouched in the main bar; only the duplicate is removed.

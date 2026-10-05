@@ -1445,9 +1445,9 @@ export default function HomeMap({
       <div
         role="img"
         aria-label="Arah peta: utara ke atas"
-        className="absolute right-3 top-[190px] z-[1100] inline-flex h-11 w-11 items-center justify-center rounded-xl bg-white text-brand-ink shadow-md ring-1 ring-black/10"
+        className="absolute right-3 top-[190px] z-[1100] inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5"
       >
-        <svg aria-hidden viewBox="0 0 24 24" width="22" height="22" fill="none">
+        <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
           <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
           <path d="M12 4.2 15.1 13.2H8.9L12 4.2Z" fill="#dc2626" />
           <path d="M12 19.8 8.9 10.8h6.2L12 19.8Z" fill="currentColor" opacity="0.35" />
@@ -1456,10 +1456,10 @@ export default function HomeMap({
       <button
         type="button"
         onClick={onRequestLocate}
-        className="absolute right-3 top-[240px] z-[1100] inline-flex w-11 flex-col items-center gap-1 rounded-xl bg-white px-1 py-2 text-[9px] font-bold leading-tight text-brand-ink shadow-md ring-1 ring-black/10 transition hover:bg-brand-cream"
+        className="absolute right-3 top-[240px] z-[1100] inline-flex w-10 flex-col items-center gap-0.5 rounded-[14px] bg-white px-1 py-1.5 text-[9px] font-bold leading-tight text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
         aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
       >
-        <span aria-hidden className="h-2.5 w-2.5 rounded-full bg-[#2563eb] ring-2 ring-white" />
+        <span aria-hidden className="h-2 w-2 rounded-full bg-[#2563eb] ring-2 ring-white" />
         Lokasi Saya
       </button>
     </div>
