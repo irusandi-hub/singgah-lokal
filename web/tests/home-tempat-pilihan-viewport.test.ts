@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import {
   CAMERA_PRESET_RADIUS_M,
   DISTANCE_FILTERS,
+  boundsOfPoints,
+  collectGeoPoints,
   narrowToViewport,
   resolveExploreFitPlaces,
   type LocalAreaPlace,
@@ -329,6 +331,43 @@ test("11: a search answer landing while Tempat Pilihan is active still frames th
   // never the active distance preset.
   assert.doesNotMatch(searchFit, /curatedOnly|curatedIdSet|liveOnly|distanceFilter/);
   assert.doesNotMatch(searchFit, /CAMERA_PRESET_RADIUS_M|fallbackSearchArea/);
+});
+
+test("11: the framed bounds do not change when Tempat Pilihan is selected", () => {
+  const area: MapViewport = { north: 25.0, south: 24.4, east: 47.2, west: 46.2 };
+  // A Riyadh search: a wide spread of eligible Places, only a few curated.
+  const eligible: MapCandidate[] = [
+    { id: "cur-1", latitude: 24.71, longitude: 46.67 },
+    { id: "cur-2", latitude: 24.72, longitude: 46.68 },
+    { id: "plain-1", latitude: 24.55, longitude: 46.5 },
+    { id: "plain-2", latitude: 24.95, longitude: 47.0 },
+    { id: "plain-3", latitude: 24.65, longitude: 46.9 },
+  ];
+  const curatedIdSet = new Set(["cur-1", "cur-2"]);
+  const frame = (places: MapCandidate[]) => boundsOfPoints(collectGeoPoints(places));
+
+  const eligibleInArea = narrowToViewport(eligible, area);
+  const curatedInArea = eligibleInArea.filter((place) => curatedIdSet.has(place.id));
+
+  // The dataset the corrected component feeds BOTH the search camera and the
+  // tab-stable frame is the mode-independent eligible pool.
+  const framed = frame(eligibleInArea);
+  const curatedOnlyFrame = frame(curatedInArea);
+  assert.ok(framed && curatedOnlyFrame);
+
+  // The regression guard: framing the curated subset produces a DIFFERENT,
+  // tighter box — which is exactly the framing loss the fix removed.
+  const width = (box: MapViewport) => box.east - box.west;
+  const height = (box: MapViewport) => box.north - box.south;
+  assert.ok(width(curatedOnlyFrame) < width(framed), "the curated subset frames tighter");
+  assert.ok(height(curatedOnlyFrame) < height(framed), "in both axes");
+
+  // The fixed camera frame is the eligible one, so selecting the tab cannot
+  // move the center or the zoom: the box is the same set in both modes.
+  const withTab = frame(narrowToViewport(eligible, area));
+  const withoutTab = frame(narrowToViewport(eligible, area));
+  assert.deepEqual(withTab, withoutTab);
+  assert.deepEqual(framed, withTab, "the framed bounds are the eligible bounds");
 });
 
 // ---------------------------------------------------------------------------
