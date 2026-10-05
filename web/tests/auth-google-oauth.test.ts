@@ -107,10 +107,28 @@ test("logout is provider-agnostic so Google sessions sign out like password sess
   assert.doesNotMatch(signOutRoute, /provider|google/i);
 });
 
+test("Masuk page no longer renders the redundant heading, and nothing replaces it", () => {
+  // The visible "Masuk" heading was removed to reclaim vertical space so the
+  // informational text below the auth controls is visible on small screens.
+  assert.doesNotMatch(authPage, /<h1[^>]*>\s*Masuk\s*<\/h1>/);
+  assert.doesNotMatch(authPage, /<h1[^>]*>/);
+  assert.doesNotMatch(authPage, /<h[2-6][^>]*>/);
+  // The header itself, logo, and explanatory text stay exactly as they were.
+  assert.match(authPage, /<header className="mt-8 flex flex-col items-center text-center">/);
+  assert.match(authPage, /<BrandLogo height=\{44\} className="max-w-full" \/>/);
+  assert.match(
+    authPage,
+    /Masuk untuk mengirim Kunjungan atau mengelola Tempat-mu\./,
+  );
+});
+
+test("removing the heading did not touch the Daftar page heading", () => {
+  assert.match(signUpPage, /<h1[^>]*>\s*Daftar\s*<\/h1>/);
+});
+
 // --- Masuk (sign-in) page -------------------------------------------------
 
 test("Masuk page renders the approved structure", () => {
-  assert.match(authPage, /<h1[^>]*>\s*Masuk\s*<\/h1>/);
   assert.match(authPage, /label="Masuk dengan Google"/);
   assert.match(authPage, />atau</);
   assert.match(authPage, /Belum punya akun\?/);
