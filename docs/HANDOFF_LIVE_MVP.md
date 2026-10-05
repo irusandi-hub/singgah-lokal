@@ -1522,3 +1522,35 @@ switching to the searched area and back to "Discovery Place".
 - `discovery-aggregate`, `discovery-dev-dataset` and
   `place-curated-admin-migration` still SIGKILL in this 1-CPU/2 GB sandbox,
   reproduced identically on an unmodified `main` worktree (not regressions).
+
+## 28. GOOGLE SIGN-IN UI + OAUTH INTEGRATION (branch `feat/google-auth-ui`, 2026-10-05)
+
+Masuk (`/auth`) and Daftar (`/auth/sign-up`) now offer Google beside the
+untouched email/password flow: logo, heading, "Masuk dengan Google" /
+"Daftar dengan Google", an "atau" divider, the existing fields (with the
+password visibility toggle on Masuk), the green brand submit, and the required
+footers ("Belum punya akun? Daftar sekarang" / "Sudah punya akun? Masuk
+sekarang"). No mockup copy, logo, or design token was invented.
+
+Google uses the project's **existing Supabase Auth** — `POST
+/api/auth/oauth/google` starts the provider flow on the same SSR client and
+stores the PKCE verifier as a cookie; `GET /auth/callback` exchanges the code
+into the same secure session cookie, and sign-out stays provider-agnostic.
+`next` is re-sanitized at both ends, so neither route is an open redirect, and
+no role/membership/producer input is accepted (Google users are ordinary USERs,
+provisioned only by the existing `handle_new_user` trigger).
+
+Verified in this sandbox against the managed preview: 67/67 browser checks at
+390 and 1280 px (headings, both Google labels, divider, logo, green submit
+`rgb(14,107,79)`, labels, toggle, no horizontal overflow, no page errors,
+loading/disabled + duplicate-submit guard, graceful failure message) plus the
+endpoint contract (200 + Supabase authorize URL + PKCE cookie, unsafe `returnTo`
+→ `/`) and callback routing (cancel / missing code / bad `next` all land on
+`/auth` with Indonesian copy). Automated: `tests/auth-google-oauth.test.ts`
+(11 tests) with the existing auth tests; full runnable suite 1055/1055; tsc,
+eslint (0 errors), and `next build` all pass.
+
+**Not yet operational:** the Google provider must be enabled in Supabase and a
+real consent round trip observed before this is called live — see
+`docs/AUTH_GOOGLE_OAUTH_SETUP.md` for the exact owner actions. No secret is
+stored in the repository or the app environment.
