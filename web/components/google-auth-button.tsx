@@ -80,7 +80,8 @@ export default function GoogleAuthButton({
         return;
       }
 
-      // Hand off to Google; the browser returns to /auth/callback.
+      // Hand off to Google; the browser returns to /auth/callback (which
+      // carries the provider through for provider-correct error copy).
       window.location.assign(result.url);
     } catch {
       onError("Tidak bisa memulai masuk dengan Google. Periksa koneksi dan coba lagi.");

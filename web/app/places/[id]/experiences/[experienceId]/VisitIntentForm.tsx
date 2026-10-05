@@ -127,7 +127,7 @@ export default function VisitIntentForm({ place, experience }: VisitIntentFormPr
   return (
     <form className="mt-8 rounded-2xl border border-brand-accent/25 bg-[#fffaf0] p-5" onSubmit={handleSubmit} autoComplete="off">
       <h2 className="text-xl font-semibold">SINGGAH DI SINI</h2>
-      <p className="mt-2 text-sm leading-6 text-black/65">Ajukan niat berkunjung kepada Pengelola. Belum ada pembayaran atau kepastian reservasi.</p>
+      <p className="mt-2 text-sm leading-6 text-black/65">Ajukan niat berkunjung kepada Pengelola.</p>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <label className="text-sm font-semibold">Tanggal ({place.timezone})
           <input className="mt-1 w-full rounded-xl border border-black/10 bg-white px-3 py-2 font-normal" type="date" min={getToday(place.timezone)} value={requestedDate} onChange={(event) => setRequestedDate(event.target.value)} required />

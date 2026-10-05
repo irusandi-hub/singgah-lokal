@@ -27,8 +27,11 @@ function read(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
 }
 
-const authPage = read("../app/auth/page.tsx");
-const signUpPage = read("../app/auth/sign-up/page.tsx");
+// The interactive UI now lives in the client form components; the route
+// `page.tsx` files are thin dynamic server wrappers (locked by
+// tests/auth-server-wrapper.test.ts).
+const authPage = read("../app/auth/auth-form.tsx");
+const signUpPage = read("../app/auth/sign-up/sign-up-form.tsx");
 const googleButton = read("../components/google-auth-button.tsx");
 const oauthRoute = read("../app/api/auth/oauth/google/route.ts");
 const callbackRoute = read("../app/auth/callback/route.ts");
@@ -96,7 +99,7 @@ test("the callback exchanges the code with secure cookies and redirects safely",
   assert.match(callbackRoute, /NextResponse\.redirect\(new URL\(next, origin\)\)/);
   // Cancel / provider error is handled before any code exchange.
   assert.match(callbackRoute, /if \(providerError\)/);
-  assert.match(callbackRoute, /authErrorRedirect\(origin, "missing_code"\)/);
+  assert.match(callbackRoute, /authErrorRedirect\(origin, "missing_code", provider\)/);
 });
 
 test("logout is provider-agnostic so Google sessions sign out like password sessions", () => {
@@ -120,7 +123,7 @@ test("Masuk page renders the approved structure", () => {
   assert.match(authPage, /aria-label=\{showPassword \? "Sembunyikan password" : "Tampilkan password"\}/);
   // Green primary submit.
   assert.match(authPage, /bg-brand-primary py-4 text-sm font-bold text-white/);
-  assert.match(authPage, /describeOAuthError\(searchParams\.get\("error"\)\)/);
+  assert.match(authPage, /describeOAuthError\(searchParams\.get\("error"\), oauthProvider\)/);
 });
 
 // --- Daftar (sign-up) page ------------------------------------------------
@@ -155,10 +158,13 @@ test("Google button prevents duplicate submits and reports loading state", () =>
 test("both pages disable the other option while one auth path is in flight", () => {
   for (const page of [authPage, signUpPage]) {
     assert.match(page, /onPendingChange=\{setGooglePending\}/);
+    assert.match(page, /onPendingChange=\{setApplePending\}/);
+    // Google and Apple cross-disable each other while either is in flight.
+    assert.match(page, /disabled=\{submitting \|\| applePending\}/);
     assert.match(page, /disabled=\{submitting \|\| googlePending\}/);
+    assert.match(page, /disabled=\{submitting \|\| googlePending \|\| applePending\}/);
+    assert.match(page, /if \(submitting \|\| googlePending \|\| applePending\) return;/);
   }
-  assert.match(authPage, /if \(submitting \|\| googlePending\) return;/);
-  assert.match(signUpPage, /if \(submitting \|\| googlePending\) return;/);
 });
 
 // --- Roles / no parallel account system ----------------------------------

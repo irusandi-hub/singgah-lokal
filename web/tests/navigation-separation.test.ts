@@ -12,7 +12,9 @@ const developerLib = readFileSync(new URL("../lib/developer/platform-admins.ts",
 const creatorLib = readFileSync(new URL("../lib/auth/creator.ts", import.meta.url), "utf8");
 const serviceClient = readFileSync(new URL("../lib/supabase/admin.ts", import.meta.url), "utf8");
 const developerApi = readFileSync(new URL("../app/api/developer/platform-admins/route.ts", import.meta.url), "utf8");
-const authPage = readFileSync(new URL("../app/auth/page.tsx", import.meta.url), "utf8");
+// The interactive auth UI lives in the client form component; the route
+// `page.tsx` is a thin dynamic server wrapper.
+const authPage = readFileSync(new URL("../app/auth/auth-form.tsx", import.meta.url), "utf8");
 const sessionRoute = readFileSync(new URL("../app/api/auth/session/route.ts", import.meta.url), "utf8");
 const securityLib = readFileSync(new URL("../lib/creator/security-settings.ts", import.meta.url), "utf8");
 const securityApi = readFileSync(new URL("../app/api/creator/security-settings/route.ts", import.meta.url), "utf8");
@@ -74,7 +76,7 @@ test("Sign Out gives explicit success feedback and only navigates after server c
 });
 
 test("Sign In shows explicit success feedback after server confirms the session", () => {
-  const signInCode = readFileSync(new URL("../app/auth/page.tsx", import.meta.url), "utf8");
+  const signInCode = readFileSync(new URL("../app/auth/auth-form.tsx", import.meta.url), "utf8");
   assert.match(signInCode, /Berhasil masuk\. Mengalihkan/);
   assert.match(signInCode, /role="status"/);
   // Success only after the authenticated check passed.

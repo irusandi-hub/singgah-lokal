@@ -3,17 +3,18 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildOAuthCallbackUrl, resolveAppOrigin } from "@/lib/auth/oauth";
 
 /**
- * Starts the Google OAuth flow through the project's EXISTING Supabase Auth.
+ * Starts the Apple OAuth flow through the project's EXISTING Supabase Auth.
  *
  * No new auth system: this is Supabase's supported provider flow
- * (`signInWithOAuth`) on the same SSR server client used by /api/auth/sign-in.
- * The PKCE code verifier is stored by that client in an httpOnly cookie and
- * the browser is sent to the provider URL returned here.
+ * (`signInWithOAuth`) on the same SSR server client used by /api/auth/sign-in
+ * and /api/auth/oauth/google. The PKCE code verifier is stored by that client
+ * in an httpOnly cookie and the browser is sent to the provider URL returned
+ * here.
  *
  * `skipBrowserRedirect: true` keeps the redirect choice on the client so the
  * page can show a loading/disabled state and handle failures gracefully.
- * No provider secret ever touches the client or this repository — the Google
- * client id/secret live only in the Supabase project's Auth provider settings.
+ * No provider secret ever touches the client or this repository — the Apple
+ * Service ID / key live only in the Supabase project's Auth provider settings.
  */
 export async function POST(request: Request) {
   let body: Record<string, unknown> = {};
@@ -33,12 +34,10 @@ export async function POST(request: Request) {
   try {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
+      provider: "apple",
       options: {
-        redirectTo: buildOAuthCallbackUrl(origin, returnTo, "google"),
+        redirectTo: buildOAuthCallbackUrl(origin, returnTo, "apple"),
         skipBrowserRedirect: true,
-        // Always let the user pick the Google account (new or already linked).
-        queryParams: { prompt: "select_account" },
       },
     });
 

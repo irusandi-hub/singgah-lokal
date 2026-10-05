@@ -1,9 +1,9 @@
 import { sanitizeReturnTo } from "@/lib/auth/return-to";
 
 /**
- * Pure helpers for the Google OAuth flow through the project's existing
- * Supabase Auth. No framework imports so both the route handlers and the
- * unit tests can use them.
+ * Pure helpers for the OAuth flows (Google + Apple) through the project's
+ * existing Supabase Auth. No framework imports so both the route handlers and
+ * the unit tests can use them.
  *
  * Design rules baked in here:
  * - The post-login destination is ALWAYS re-sanitized with sanitizeReturnTo,
@@ -17,13 +17,28 @@ import { sanitizeReturnTo } from "@/lib/auth/return-to";
 /** Canonical OAuth callback path inside this app. */
 export const OAUTH_CALLBACK_PATH = "/auth/callback";
 
+/** OAuth providers this app initiates. */
+export type OAuthProvider = "google" | "apple";
+
+const PROVIDER_LABELS: Record<OAuthProvider, string> = {
+  apple: "Apple",
+  google: "Google",
+};
+
 /**
- * Absolute URL Supabase should return the browser to after Google consent.
+ * Absolute URL Supabase should return the browser to after provider consent.
  * `returnTo` is validated first and then carried as the `next` query param.
+ * The initiating `provider` is carried too so the callback can name the right
+ * provider in its error copy (the callback itself is provider-agnostic).
  */
-export function buildOAuthCallbackUrl(origin: string, returnTo: string): string {
+export function buildOAuthCallbackUrl(
+  origin: string,
+  returnTo: string,
+  provider: OAuthProvider = "google",
+): string {
   const url = new URL(OAUTH_CALLBACK_PATH, origin);
   url.searchParams.set("next", sanitizeReturnTo(returnTo));
+  url.searchParams.set("provider", provider);
   return url.toString();
 }
 
@@ -48,19 +63,37 @@ export function resolveAppOrigin(requestUrl: string, siteUrl?: string | null): s
 }
 
 /** User-facing Indonesian copy for OAuth failures (cancel, provider, callback). */
-export const OAUTH_ERROR_MESSAGES: Record<string, string> = {
-  access_denied: "Masuk dengan Google dibatalkan. Kamu bisa mencoba lagi kapan saja.",
-  missing_code: "Masuk dengan Google tidak selesai. Silakan coba lagi.",
-  oauth_exchange_failed: "Sesi Google tidak dapat dibuat. Silakan coba lagi.",
-  oauth_unavailable: "Layanan masuk dengan Google sedang tidak tersedia. Coba lagi nanti.",
-  server_error: "Layanan masuk dengan Google sedang bermasalah. Coba lagi nanti.",
-  temporarily_unavailable: "Layanan masuk dengan Google sedang tidak tersedia. Coba lagi nanti.",
-};
+export function oauthErrorMessages(provider: OAuthProvider = "google"): Record<string, string> {
+  const label = PROVIDER_LABELS[provider];
+  return {
+    access_denied: `Masuk dengan ${label} dibatalkan. Kamu bisa mencoba lagi kapan saja.`,
+    missing_code: `Masuk dengan ${label} tidak selesai. Silakan coba lagi.`,
+    oauth_exchange_failed: `Sesi ${label} tidak dapat dibuat. Silakan coba lagi.`,
+    oauth_unavailable: `Layanan masuk dengan ${label} sedang tidak tersedia. Coba lagi nanti.`,
+    server_error: `Layanan masuk dengan ${label} sedang bermasalah. Coba lagi nanti.`,
+    temporarily_unavailable: `Layanan masuk dengan ${label} sedang tidak tersedia. Coba lagi nanti.`,
+  };
+}
 
-export const OAUTH_ERROR_FALLBACK =
-  "Masuk dengan Google gagal. Silakan coba lagi atau gunakan email dan password.";
+/** Google error copy (kept for existing call sites/tests). */
+export const OAUTH_ERROR_MESSAGES: Record<string, string> = oauthErrorMessages("google");
 
-export function describeOAuthError(code: string | null | undefined): string | null {
+export function oauthErrorFallback(provider: OAuthProvider = "google"): string {
+  return `Masuk dengan ${PROVIDER_LABELS[provider]} gagal. Silakan coba lagi atau gunakan email dan password.`;
+}
+
+/** Google fallback copy (kept for existing call sites/tests). */
+export const OAUTH_ERROR_FALLBACK = oauthErrorFallback("google");
+
+export function describeOAuthError(
+  code: string | null | undefined,
+  provider: OAuthProvider = "google",
+): string | null {
   if (!code) return null;
-  return OAUTH_ERROR_MESSAGES[code] ?? OAUTH_ERROR_FALLBACK;
+  return oauthErrorMessages(provider)[code] ?? oauthErrorFallback(provider);
+}
+
+/** Narrow an arbitrary query value to a known provider, defaulting to google. */
+export function normalizeOAuthProvider(value: string | null | undefined): OAuthProvider {
+  return value === "apple" ? "apple" : "google";
 }

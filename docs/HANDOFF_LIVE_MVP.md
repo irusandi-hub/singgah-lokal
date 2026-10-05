@@ -1554,3 +1554,30 @@ eslint (0 errors), and `next build` all pass.
 real consent round trip observed before this is called live — see
 `docs/AUTH_GOOGLE_OAUTH_SETUP.md` for the exact owner actions. No secret is
 stored in the repository or the app environment.
+
+### Auth refresh + Apple sign-in (branch `feat/apple-auth-and-auth-refresh`, 2026-10-05)
+- **Stale-render fix.** `/auth` and `/auth/sign-up` were client-only pages that
+  production kept serving as an older cached document. Each route is now a
+  minimal SERVER wrapper with `export const dynamic = "force-dynamic"` that
+  defers to a dedicated client component (`app/auth/auth-form.tsx`,
+  `app/auth/sign-up/sign-up-form.tsx`). UI, Google behavior, email/password
+  behavior, returnTo handling, and error/success handling are unchanged; no
+  cache-busting params, service worker, or CDN hack was added. `next build` now
+  reports both routes as dynamic (ƒ).
+- **Apple sign-in** is a second OAuth option beside Google and email/password:
+  Google → Apple → "atau" divider → existing fields. `POST /api/auth/oauth/apple`
+  mirrors the Google route on the same Supabase SSR client (`provider: "apple"`),
+  reuses `/auth/callback`, `sanitizeReturnTo`, and the session-cookie mechanism.
+  The callback carries a `provider` param so error copy names the right provider.
+  No parallel account system, no elevated role, no provider secret in the repo.
+- **Payment disclaimer removed** from user-facing UI only (`/auth` subtitle,
+  `/visit-intents`, `VisitIntentForm`, `/about`, Producer visit-intent inbox).
+  The Visit Intent concept, Master terminology, and informational Producer
+  pricing all remain; the domain rule stays in `AGENTS.md`/masters.
+- Verified: focused auth + payment-regression tests 45/45; full runnable suite
+  1081/1081 (3 pre-existing PGlite/memory suites excluded, unchanged); tsc
+  clean; eslint 0 errors / 10 pre-existing warnings; `next build` clean; browser
+  verification at 1280 and 390 px on both routes (Google, Apple, divider,
+  email/password present, no "bukan pembayaran").
+- **Not yet operational:** Apple needs the Supabase provider enabled plus an
+  Apple Services ID/key — see `docs/AUTH_APPLE_OAUTH_SETUP.md`.
