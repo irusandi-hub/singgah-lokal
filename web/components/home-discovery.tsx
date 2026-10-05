@@ -765,13 +765,31 @@ export default function HomeDiscovery({
   //     set is EMPTY, so the camera keeps its current view instead of framing
   //     every Place on earth.
   //
-  // SELECTED PLACES ("Tempat Pilihan", correction 2026-10-03 #2): in that
-  // mode the candidates are the SELECTED Places themselves — exactly what
-  // `visiblePlaces` already resolves from the canonical `places.is_curated`
-  // ids. The ordinary non-curated remainder is a MARKER-layer decision (§15
-  // item 2, still untouched in `mapPlaces`); it must not steer the CAMERA,
-  // whose job there is to frame the selected distribution. Eligibility,
-  // membership, the curated LIST, and the row counts are unchanged.
+  // CAMERA CANDIDATE SET (correction 2026-10-05) — the ONE mode-independent
+  // Place pool every camera dataset below reads.
+  //
+  // ROOT CAUSE it closes: the camera datasets used to be projected from
+  // `visiblePlaces`, the CONTENT-MODE set. `visiblePlaces` collapses to the
+  // curated subset the moment "Tempat Pilihan" is active, so a geocode answer
+  // that landed while the tab was on resolved `searchFitPlaces` from the
+  // curated Places instead of the full searched region — the renewed search
+  // then framed only the curated pins and the expected full search-area
+  // framing was gone. The same narrowing reached the "Lokasi Saya" datasets.
+  //
+  // The pool is therefore the SEARCH-FILTERED eligible set (`searchFiltered`)
+  // with NO content-mode gate: curated / LIVE can no longer narrow, re-frame,
+  // or re-centre the camera. It is CAMERA GEOMETRY ONLY — it never filters,
+  // re-orders, or admits a Place in any row; membership still comes solely
+  // from the canonical sets the rows render.
+  const cameraEligiblePlaces = searchFiltered;
+
+  // SELECTED PLACES ("Tempat Pilihan"): the local area of the eligible Places,
+  // always resolved from the MODE-INDEPENDENT pool above (correction
+  // 2026-10-05), so a content-mode tab can never change what the camera is
+  // allowed to frame. The ordinary non-curated remainder is a MARKER-layer
+  // decision (§15 item 2, still untouched in `mapPlaces`); it must not steer
+  // the CAMERA. Eligibility, membership, the curated LIST, and the row counts
+  // are unchanged.
   //
   // It is display geometry only: membership still comes solely from the
   // canonical curated ids, no Place is added to or removed from any row by
@@ -785,9 +803,9 @@ export default function HomeDiscovery({
         // fix), so the memo depends on stable state identities rather than on
         // a derived object — and a stale fix can never override a live search.
         origin: searchCenter ?? viewerPosition,
-        places: toCameraCandidates(visiblePlaces),
+        places: toCameraCandidates(cameraEligiblePlaces),
       }),
-    [visiblePlaces, searchCenter, viewerPosition],
+    [cameraEligiblePlaces, searchCenter, viewerPosition],
   );
 
   // "Tempat Pilihan" IS NOT A CONTEXT-FRAMED TAB ANY MORE (2026-10-05).
@@ -821,10 +839,11 @@ export default function HomeDiscovery({
   // polls, and viewport reports cannot re-frame it.
   //
   // "Tempat Pilihan" no longer frames anything (2026-10-05): every mode keeps
-  // the local area of the currently visible Places it has always had —
-  // canonical coordinates only, never the viewport, never a fallback to the
-  // whole dataset, and empty (so the camera does not move at all) when there is
-  // no usable origin.
+  // the local area of the MODE-INDEPENDENT eligible Places — canonical
+  // coordinates only, never the viewport, never a fallback to the whole
+  // dataset, and empty (so the camera does not move at all) when there is no
+  // usable origin. Because the pool no longer reads `visiblePlaces`, switching
+  // the content mode cannot change what the camera may frame.
   // "LOKASI SAYA" BOUNDS DATASET — the SAME local-area set, handed to the map
   // under its own prop and its own trigger (correction 2026-10-03).
   //
@@ -845,11 +864,13 @@ export default function HomeDiscovery({
         resolveExploreFitPlaces({
           origin: viewerPosition,
           localPlaces: selectedLocalArea.places,
-          candidatePlaces: toCameraCandidates(visiblePlaces),
+          // The MODE-INDEPENDENT pool (correction 2026-10-05): a content-mode
+          // tab can never narrow the "Lokasi Saya" widening candidates.
+          candidatePlaces: toCameraCandidates(cameraEligiblePlaces),
           radiusMeters: CAMERA_PRESET_RADIUS_M[distanceFilter],
         }),
       ),
-    [selectedLocalArea, visiblePlaces, viewerPosition, distanceFilter],
+    [selectedLocalArea, cameraEligiblePlaces, viewerPosition, distanceFilter],
   );
 
   // CAMERA BOUNDS DATASET — LOCATION SEARCH AUTO-FIT (product decision,
@@ -861,16 +882,18 @@ export default function HomeDiscovery({
   // holds no Place with canonical coordinates, and the camera then keeps the
   // geocoding center instead.
   const searchFitPlaces = useMemo<HomeMapPlace[]>(() => {
-    // A search frames the eligible Places of the SEARCHED REGION. It is
-    // independent of the tab (2026-10-05): choosing "Tempat Pilihan" no longer
-    // swaps this dataset, so the searched area stays exactly as resolved.
+    // A search frames the eligible Places of the SEARCHED REGION. It reads the
+    // MODE-INDEPENDENT pool (correction 2026-10-05), so the tab cannot swap,
+    // narrow, or re-frame this dataset: an answer that lands while "Tempat
+    // Pilihan" is active still frames the FULL searched area, never just the
+    // curated pins.
     if (!searchViewport) return [];
-    return narrowToViewport(visiblePlaces, searchViewport).flatMap((place) =>
+    return narrowToViewport(cameraEligiblePlaces, searchViewport).flatMap((place) =>
       place.latitude === null || place.longitude === null
         ? []
         : [{ id: place.id, name: place.name, latitude: place.latitude, longitude: place.longitude }],
     );
-  }, [visiblePlaces, searchViewport]);
+  }, [cameraEligiblePlaces, searchViewport]);
 
   const mapPlaces = useMemo<HomeMapPlace[]>(() => {
     // Curated Places first (they are the point of the layer), then the

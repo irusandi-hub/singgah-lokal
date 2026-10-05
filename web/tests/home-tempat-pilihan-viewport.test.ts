@@ -4,8 +4,10 @@ import { readFileSync } from "node:fs";
 import {
   CAMERA_PRESET_RADIUS_M,
   DISTANCE_FILTERS,
+  narrowToViewport,
   resolveExploreFitPlaces,
   type LocalAreaPlace,
+  type MapViewport,
 } from "../lib/live/ui";
 
 /**
@@ -284,4 +286,100 @@ test("the curated LIST, both rows and eligibility are untouched", () => {
   // The tab row keeps exactly its five controls.
   assert.match(pageCode, /grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*<\/button>/);
+});
+
+// ---------------------------------------------------------------------------
+// 11. The CAMERA datasets are MODE-INDEPENDENT (correction 2026-10-05).
+//
+// ROOT CAUSE the previous round left open: the camera datasets were projected
+// from `visiblePlaces`, the CONTENT-MODE set. Selecting "Tempat Pilihan"
+// collapses that set to the curated subset, so a geocode answer that landed
+// while the tab was active resolved the search camera dataset from the curated
+// pins — the renewed search framed only the 10 curated Places and the full
+// search-area framing was gone. Every camera dataset now reads ONE
+// mode-independent eligible pool.
+// ---------------------------------------------------------------------------
+
+test("11: every camera dataset reads the mode-independent eligible pool", () => {
+  // ONE pool, declared from the search-filtered eligible set.
+  assert.match(pageCode, /const cameraEligiblePlaces = searchFiltered;/);
+  // The searched region, the local area, and the locate widening all read it.
+  assert.match(
+    pageCode,
+    /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{[\s\S]*?narrowToViewport\(cameraEligiblePlaces, searchViewport\)/,
+  );
+  assert.match(pageCode, /places: toCameraCandidates\(cameraEligiblePlaces\),/);
+  assert.match(pageCode, /candidatePlaces: toCameraCandidates\(cameraEligiblePlaces\),/);
+  // ...and NONE of them reads the content-mode set any more, so selecting
+  // "Tempat Pilihan" cannot re-frame or re-narrow the camera.
+  const cameraDatasets = pageCode.slice(
+    pageCode.indexOf("const cameraEligiblePlaces"),
+    pageCode.indexOf("const mapPlaces"),
+  );
+  assert.doesNotMatch(cameraDatasets, /\bvisiblePlaces\b/);
+});
+
+test("11: a search answer landing while Tempat Pilihan is active still frames the full area", () => {
+  const searchFit = pageCode.slice(
+    pageCode.indexOf("const searchFitPlaces"),
+    pageCode.indexOf("const mapPlaces"),
+  );
+  // No content mode appears in the search camera dataset: the framed set is
+  // the eligible Places of the searched region, never the curated subset and
+  // never the active distance preset.
+  assert.doesNotMatch(searchFit, /curatedOnly|curatedIdSet|liveOnly|distanceFilter/);
+  assert.doesNotMatch(searchFit, /CAMERA_PRESET_RADIUS_M|fallbackSearchArea/);
+});
+
+// ---------------------------------------------------------------------------
+// 12. The map LAYER keeps every eligible Place in the active search area.
+// ---------------------------------------------------------------------------
+
+type MapCandidate = { id: string; latitude: number | null; longitude: number | null };
+
+test("12: curated mode keeps the same eligible Places on the map as the normal mode", () => {
+  const area: MapViewport = { north: 25.0, south: 24.4, east: 47.2, west: 46.2 };
+  const searchFiltered: MapCandidate[] = [
+    { id: "cur-1", latitude: 24.71, longitude: 46.67 },
+    { id: "cur-2", latitude: 24.75, longitude: 46.7 },
+    { id: "plain-1", latitude: 24.68, longitude: 46.65 },
+    { id: "plain-2", latitude: 24.8, longitude: 46.72 },
+    { id: "outside", latitude: 40.0, longitude: 46.6 },
+  ];
+  const curatedIdSet = new Set(["cur-1", "cur-2"]);
+
+  // The exact `mapPlaces` formula the component uses in curated mode.
+  const visible = searchFiltered.filter((place) => curatedIdSet.has(place.id));
+  const coverageSource = searchFiltered.filter((place) => !curatedIdSet.has(place.id));
+  const coverage = narrowToViewport(coverageSource, area);
+  const mapPlaces = [...visible, ...coverage];
+  const curatedLayer = narrowToViewport(mapPlaces, area)
+    .map((place) => place.id)
+    .sort();
+
+  // The normal-mode layer over the same data.
+  const normalLayer = narrowToViewport(searchFiltered, area)
+    .map((place) => place.id)
+    .sort();
+
+  assert.deepEqual(curatedLayer, normalLayer, "curated mode must not drop an eligible Place");
+  assert.deepEqual(curatedLayer, ["cur-1", "cur-2", "plain-1", "plain-2"]);
+  assert.equal(curatedLayer.includes("outside"), false, "a Place outside the area stays out");
+});
+
+// ---------------------------------------------------------------------------
+// 13. Current Location framing stays mode-independent.
+// ---------------------------------------------------------------------------
+
+test("13: the locate frame reads the mode-independent pool, so a tab cannot change it", () => {
+  const locateMemo = pageCode.slice(
+    pageCode.indexOf("const locateFitPlaces"),
+    pageCode.indexOf("const mapPlaces"),
+  );
+  assert.match(locateMemo, /candidatePlaces: toCameraCandidates\(cameraEligiblePlaces\),/);
+  assert.doesNotMatch(locateMemo, /\bvisiblePlaces\b/);
+  // The locate trigger and latch are untouched by the tab: only `locateNonce`
+  // fires the frame.
+  assert.match(mapCode, /if \(!locateNonce \|\| lastLocateNonceRef\.current === locateNonce\) return;/);
+  assert.match(mapCode, /lastLocateNonceRef\.current = locateNonce;/);
 });

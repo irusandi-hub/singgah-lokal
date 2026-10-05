@@ -150,7 +150,7 @@ test("AC 1: Lokasi Saya can no longer frame a far-away global Place with the loc
   }
   // And the component really feeds the camera THAT set, resolved around the
   // active center (the searched city, else the real fix).
-  assert.match(pageCode, /origin: searchCenter \?\? viewerPosition,\s*\n\s*places: toCameraCandidates\(visiblePlaces\),/);
+  assert.match(pageCode, /origin: searchCenter \?\? viewerPosition,\s*\n\s*places: toCameraCandidates\(cameraEligiblePlaces\),/);
   assert.doesNotMatch(mapCode, /const applied = await fitCamera\(map, fitPlacesRef\.current, CURATED_FIT_MAX_ZOOM\)/);
 });
 
@@ -278,13 +278,11 @@ test("AC 3: a Place 25 km away is framed, a Place 400 km away is not", () => {
 // ---------------------------------------------------------------------------
 
 test("AC 4: the bounds dataset is still un-narrowed by the viewport", () => {
-  // The local-area resolver reads the CONTENT filter one step before the
-  // viewport gate, so a Place outside the current frame is still inside the
-  // area — that is what the NON-curated modes still frame. "Tempat Pilihan"
-  // frames EVERY curated Place (product decision, 2026-10-04), read from the
-  // full published set through the canonical curated ids, still without the
-  // viewport gate.
-  assert.match(pageCode, /places: toCameraCandidates\(visiblePlaces\),/);
+  // The local-area resolver reads the MODE-INDEPENDENT eligible pool one step
+  // before the viewport gate (correction 2026-10-05), so a Place outside the
+  // current frame is still inside the area — and a content-mode tab can never
+  // narrow the set the camera is allowed to frame.
+  assert.match(pageCode, /places: toCameraCandidates\(cameraEligiblePlaces\),/);
   assert.match(pageCode, /const source = curatedOnly \? \[\.\.\.visiblePlaces, \.\.\.curatedCoveragePlaces\] : visiblePlaces;/);
   const fitDataset = pageCode;
   assert.doesNotMatch(fitDataset, /const curatedFitPlaces/);

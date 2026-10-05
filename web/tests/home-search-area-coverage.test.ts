@@ -291,10 +291,12 @@ test("9: markers and rows read ONE coverage source", () => {
   assert.match(pageCode, /narrowToViewport\(canonical, coverageViewport\)/);
   assert.match(pageCode, /narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/);
   // The search camera frames the SAME box, so the reported viewport and the
-  // rows it narrows cannot disagree.
+  // rows it narrows cannot disagree. It reads the MODE-INDEPENDENT eligible
+  // pool (correction 2026-10-05), so selecting "Tempat Pilihan" cannot shrink
+  // the framed set to the curated subset.
   assert.match(
     pageCode,
-    /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{[\s\S]*?narrowToViewport\(visiblePlaces, searchViewport\)/,
+    /const searchFitPlaces = useMemo<HomeMapPlace\[\]>\(\(\) => \{[\s\S]*?narrowToViewport\(cameraEligiblePlaces, searchViewport\)/,
   );
 });
 

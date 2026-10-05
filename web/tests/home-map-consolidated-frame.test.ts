@@ -189,7 +189,7 @@ test("11.4 the SEARCH center drives the curated frame and the fix never override
     pageCode.indexOf("const selectedLocalArea"),
     pageCode.indexOf("const selectedFitPlaces"),
   );
-  assert.match(selectedArea, /\[visiblePlaces, searchCenter, viewerPosition\]/);
+  assert.match(selectedArea, /\[cameraEligiblePlaces, searchCenter, viewerPosition\]/);
 });
 
 test("11.5 the curated pool is CAMERA geometry only — results stay curated-only", () => {
