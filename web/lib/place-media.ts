@@ -132,4 +132,39 @@ export function isPlacePhotoSlotKey(key: string): key is PlacePhotoSlotKey {
   return PLACE_PHOTO_SLOTS.some((slot) => slot.key === key);
 }
 
+/** The slot whose saved reference is ALSO the Place's public cover image. */
+export const PLACE_COVER_SLOT_KEY = "hook";
+
+export type PlaceCoverSyncAction = "save" | "delete";
+
+/**
+ * HOOK ⇄ PLACE COVER SYNCHRONISATION (audit fix, 2026-10-05).
+ *
+ * The Place's public cover is `places.cover_image_url` (migration 0018) — it is
+ * what Home and the Place hero render. Until now the upload API saved the file
+ * to Storage and the reference to `place_photos` and never touched that column,
+ * so a successful Hook upload stayed invisible on Home.
+ *
+ * This is the ONE rule that decides whether a slot write may change the cover:
+ *
+ * - `hook` + `save`   → the uploaded object's public URL;
+ * - `hook` + `delete` → `null` (the Place simply has no cover any more);
+ * - any other slot    → `null`, meaning "do not touch the cover at all".
+ *
+ * Nothing else may write `cover_image_url`: the four content slots are media
+ * library entries, not the Place cover, and a save without a usable URL never
+ * silently clears a working cover.
+ */
+export function resolvePlaceCoverSync(params: {
+  slotKey: string;
+  action: PlaceCoverSyncAction;
+  url?: string | null;
+}): { cover_image_url: string | null } | null {
+  if (params.slotKey !== PLACE_COVER_SLOT_KEY) return null;
+  if (params.action === "delete") return { cover_image_url: null };
+  const url = params.url;
+  if (typeof url !== "string" || !url) return null;
+  return { cover_image_url: url };
+}
+
 export { slotByKey as getPlacePhotoSlot };

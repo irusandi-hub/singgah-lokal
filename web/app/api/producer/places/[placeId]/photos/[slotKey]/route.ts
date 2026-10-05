@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requireProducerAccess } from "@/lib/auth/server";
-import { getPlacePhotoSlot, PlaceMediaError, validatePlaceMediaFile, validatePlacePhotoMeta } from "@/lib/place-media";
+import { getPlacePhotoSlot, PlaceMediaError, resolvePlaceCoverSync, validatePlaceMediaFile, validatePlacePhotoMeta } from "@/lib/place-media";
 import { mapPlacePhotoRow, removePlacePhotoObject, uploadPlacePhoto } from "@/lib/place-media-storage";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 
@@ -21,6 +21,13 @@ import { createSupabaseServiceClient } from "@/lib/supabase/admin";
  *   restores every slot from the canonical record.
  * - REPLACE is idempotent: the previous object is deleted after the new
  *   reference is saved, so a repeated submit never duplicates a slot.
+ * - HOOK ⇄ COVER (audit fix, 2026-10-05): the `hook` slot is ALSO the Place's
+ *   public cover, so a Hook upload points `places.cover_image_url` at the
+ *   uploaded object and a Hook delete clears it. Without this the upload
+ *   succeeded but stayed invisible on Home, which renders `coverImageUrl`.
+ *   The four other slots never touch the cover. The rule itself lives in
+ *   `resolvePlaceCoverSync` (lib/place-media.ts), so exactly one place decides
+ *   when the cover may change.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ placeId: string; slotKey: string }> }) {
   try {
@@ -75,6 +82,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ pla
     // The reference is canonical now — the replaced object can go.
     if (previous.data) await removePlacePhotoObject(previous.data.storage_path);
 
+    // Hook ⇄ cover: the Place's public cover points at the stored object, so a
+    // Hook upload (new or replacement) is what Home renders. Non-Hook slots
+    // resolve to `null` here and cannot touch the cover.
+    const coverSync = resolvePlaceCoverSync({ slotKey: slot.key, action: "save", url: uploaded.url });
+    if (coverSync) {
+      const cover = await supabase.from("places").update(coverSync).eq("id", placeId);
+      if (cover.error) throw new Error("place_media_upload_failed");
+    }
+
     return NextResponse.json(mapPlacePhotoRow(saved.data as never));
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) return NextResponse.json({ error: "authentication_required" }, { status: 401 });
@@ -107,6 +123,15 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ p
     const removed = await supabase.from("place_photos").delete().eq("id", existing.data.id);
     if (removed.error) throw new Error("place_media_upload_failed");
     await removePlacePhotoObject(existing.data.storage_path);
+
+    // Hook ⇄ cover: with its reference gone the Place has no cover any more.
+    // Every other slot resolves to `null` and leaves the cover untouched.
+    const coverSync = resolvePlaceCoverSync({ slotKey: slot.key, action: "delete" });
+    if (coverSync) {
+      const cover = await supabase.from("places").update(coverSync).eq("id", placeId);
+      if (cover.error) throw new Error("place_media_upload_failed");
+    }
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) return NextResponse.json({ error: "authentication_required" }, { status: 401 });
