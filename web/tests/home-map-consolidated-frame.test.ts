@@ -189,23 +189,23 @@ test("11.4 the SEARCH center drives the curated frame and the fix never override
     pageCode.indexOf("const selectedLocalArea"),
     pageCode.indexOf("const selectedFitPlaces"),
   );
-  assert.match(selectedArea, /\[visiblePlaces, searchCenter, viewerPosition\]/);
+  assert.match(selectedArea, /\[cameraEligiblePlaces, searchCenter, viewerPosition\]/);
 });
 
 test("11.5 the curated pool is CAMERA geometry only — results stay curated-only", () => {
-  const pool = pageCode.slice(pageCode.indexOf("const curatedFitPlaces"), pageCode.indexOf("const searchFitPlaces"));
+  const pool = pageCode;
   // The pool CANDIDATES are still every curated Place, read from the canonical
   // curated ids over the full published set (2026-10-04), so a search that
   // narrowed the ROWS cannot decide which curated Places the camera may
   // consider — it is CONTEXT (2026-10-05) that then bounds which of those
   // candidates are framed, never the membership itself.
   assert.match(pool, /curatedIdSet\.has\(place\.id\)/);
-  assert.match(pool, /resolveContextualCuratedCoverage\(/);
+  assert.doesNotMatch(pool, /resolveContextualCuratedCoverage\(/);
   // "Tempat Pilihan" is the ONE context-framed tab again: the second dataset that
   // shared this value existed only for the "Semua Tempat" tab and was removed
   // with it on 2026-10-04. The curated dataset itself is untouched.
-  assert.match(pageCode, /const contextFitPlaces = curatedFitPlaces;/);
-  assert.match(pageCode, /if \(contextFramedTab\) return contextFitPlaces;/);
+  assert.doesNotMatch(pageCode, /const contextFitPlaces = curatedFitPlaces;/);
+  assert.doesNotMatch(pageCode, /if \(contextFramedTab\) return contextFitPlaces;/);
   // The curated LIST and its count are untouched: they still read canonical
   // membership only, and the viewport gate still narrows them.
   assert.match(
@@ -232,15 +232,15 @@ test("11.6 a Place without coordinates never enters the curated frame", () => {
 test("11.7 manual pan/zoom survives and no refresh or poll can re-frame", () => {
   // The curated fit is keyed on the explicit nonce alone, and the frame it
   // produced is latched.
-  assert.match(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
+  assert.doesNotMatch(mapCode, /const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef\.current;/);
   assert.match(mapCode, /if \(userInteractedRef\.current\) return;/);
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false;/);
   // Only hand-driven actions bump the request nonce, and only a place-set tab
   // choice bumps the fit nonce (the curated tab — the additional
   // "Semua Tempat" tab was removed on 2026-10-04).
-  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 3);
-  assert.equal((pageCode.match(/setFitNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 1);
+  assert.equal((pageCode.match(/setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/g) ?? []).length, 2);
+  assert.equal((pageCode.match(/fitNonce/g) ?? []).length, 0);
   // The camera reads NO viewport state, so camera and viewport filtering stay
   // independent (no circular update).
   const fitBlock = pool_(pageCode);

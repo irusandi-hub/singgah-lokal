@@ -213,7 +213,7 @@ test("a search is CAMERA-ONLY: it never rewrites the radius tab or the filter mo
   // The camera radius passed to the map is still the preset, untouched.
   assert.match(
     discoveryCode,
-    /cameraRadiusMeters=\{\s*curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/,
+    /cameraRadiusMeters=\{\s*CAMERA_PRESET_RADIUS_M\[distanceFilter\]/,
   );
 });
 

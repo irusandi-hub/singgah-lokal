@@ -154,9 +154,9 @@ test("LIVE, 'Tempat Pilihan', and the distance tabs keep their own transitions",
     discoveryCode.indexOf("const next = activateCuratedFilter();"),
     discoveryCode.indexOf("const next = activateCuratedFilter();") + 500,
   );
-  assert.match(curatedHandler, /setFitNonce\(\(nonce\) => nonce \+ 1\);/);
-  assert.match(curatedHandler, /setCameraCoverage\("area"\);/);
-  assert.match(curatedHandler, /setCameraRequestNonce\(\(nonce\) => nonce \+ 1\);/);
+  assert.doesNotMatch(curatedHandler, /setFitNonce\(\(nonce\) => nonce \+ 1\);/);
+  assert.doesNotMatch(curatedHandler, /setCameraCoverage\("area"\);/);
+  assert.doesNotMatch(curatedHandler, /setCameraRequestNonce/);
   // A distance tab sets its radius, leaves the curated layer, and claims the
   // radius coverage — exactly the rules it had before.
   const distanceHandler = discoveryCode.slice(
@@ -184,8 +184,8 @@ test("the curated dataset is untouched", () => {
     /if \(curatedOnly\) \{\s*return searchFiltered\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\);/,
   );
   // Only the two place-set rules remain, and they stay mutually exclusive.
-  assert.match(discoveryCode, /const contextFramedTab = curatedOnly;/);
-  assert.match(discoveryCode, /const contextFitPlaces = curatedFitPlaces;/);
+  assert.doesNotMatch(discoveryCode, /const contextFramedTab = curatedOnly;/);
+  assert.doesNotMatch(discoveryCode, /const contextFitPlaces = curatedFitPlaces;/);
 });
 
 test("the contextual coverage rule is still ONE shared implementation", () => {

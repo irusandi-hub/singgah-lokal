@@ -300,7 +300,7 @@ test("T3.3 the camera and geographic rules are untouched", () => {
   ]) {
     assert.equal(pageCode.includes(token), true, `${token} is still in use`);
   }
-  assert.match(code, /curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
+  assert.match(code, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
   // The padding ladder that reserves space for the floating chrome is unchanged.
   assert.match(mapCode, /CAMERA_FIT_PADDING|singgah-user-pane/);
   // No zoom-out escape hatch was introduced to fake a bigger map.

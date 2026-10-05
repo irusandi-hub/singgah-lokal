@@ -193,14 +193,6 @@ type HomeMapProps = {
    * chasing the markers it just moved. Same canonical data, same membership,
    * one step earlier in the pipeline.
    */
-  fitPlaces?: HomeMapPlace[];
-  /**
-   * EXPLICIT refocus trigger for the auto-fit camera (product decision,
-   * 2026-10-03): bumped ONLY when the user chooses "Tempat Pilihan". Nothing
-   * else — no marker refresh, no discovery poll, no viewport report — can
-   * re-frame the camera.
-   */
-  fitNonce?: number;
   /**
    * AUTO-FIT BOUNDS DATASET for a location search (product decision,
    * 2026-10-03): the canonical coordinates of the Places relevant to the
@@ -216,11 +208,9 @@ type HomeMapProps = {
    * coordinates and canonical geography (country + administrative subdivision,
    * with the documented proximity fallback).
    *
-   * It is deliberately a SEPARATE prop from `fitPlaces`, even though both hold
-   * the same local-area set: the two refits have different TRIGGERS (the
-   * curated choice vs. the locate press) and different fallbacks, and keeping
-   * them apart is what lets one dataset serve both without either camera path
-   * being able to fire for the other's reason.
+   * It is a SEPARATE prop from `places` because that one is narrowed to the
+   * visible viewport, which is what keeps the camera from chasing the markers
+   * it just moved.
    */
   locateFitPlaces?: HomeMapPlace[];
   /**
@@ -353,14 +343,6 @@ function cameraAnimationOptions(): { animate: boolean; duration?: number; easeLi
   return { animate: true, duration: 0.6, easeLinearity: 0.25 };
 }
 /**
- * COMFORTABLE DENSITY CAP for the "Tempat Pilihan" focus (product decision,
- * 2026-10-04): all curated Places are framed together, and this ZOOM LEVEL
- * stops a tightly clustered selection from becoming a street-level frame. It
- * is a zoom ceiling, never a coverage radius: it can only widen the frame, so
- * it can never push a curated Place out of view.
- */
-const CURATED_FIT_MAX_ZOOM = 13;
-/**
  * SURROUNDING-AREA radius for the Current Location pin (product decision,
  * 2026-10-04): the user marker shows a soft, translucent disc around it, so
  * "Lokasi Saya" reads as "the area around me" rather than a bare dot. It is
@@ -414,8 +396,6 @@ export default function HomeMap({
   cameraCenter = null,
   searchCenter = null,
   searchNonce = 0,
-  fitPlaces = [],
-  fitNonce = 0,
   searchFitPlaces = [],
   locateFitPlaces = [],
   pulsePinOnPresetChange = false,
@@ -479,14 +459,12 @@ export default function HomeMap({
   // narrowing upstream) can therefore never re-run a fit that already
   // happened, which is what makes a recenter loop impossible. lastFitNonceRef
   // guarantees the fit applies exactly once per explicit trigger.
-  const fitPlacesRef = useRef<HomeMapPlace[]>(fitPlaces);
   const searchFitPlacesRef = useRef<HomeMapPlace[]>(searchFitPlaces);
   // Same mirroring rule for the "Lokasi Saya" local-area dataset. It is
   // refreshed in an effect declared BEFORE the locate effect below, so a press
   // always reads the CURRENT dataset — never the one from a previous fix or a
   // previous search.
   const locateFitPlacesRef = useRef<HomeMapPlace[]>(locateFitPlaces);
-  const lastFitNonceRef = useRef(0);
 
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -503,10 +481,6 @@ export default function HomeMap({
   useEffect(() => {
     onViewportChangeRef.current = onViewportChange ?? null;
   }, [onViewportChange]);
-
-  useEffect(() => {
-    fitPlacesRef.current = fitPlaces;
-  }, [fitPlaces]);
 
   useEffect(() => {
     searchFitPlacesRef.current = searchFitPlaces;
@@ -987,27 +961,6 @@ export default function HomeMap({
     // BEFORE the anchor guard, because a fit carries its OWN canonical
     // coordinates and must therefore still work when geolocation was denied
     // and no anchor exists at all.
-    const fitChanged = fitNonce > 0 && fitNonce !== lastFitNonceRef.current;
-    if (fitChanged) {
-      if (!ready || !map) return;
-      // Marked as applied even when the dataset is still empty: a later
-      // viewport report or marker refresh must never re-frame the camera for
-      // the SAME choice (that would be the recenter loop).
-      lastFitNonceRef.current = fitNonce;
-      lastRadiusRef.current = cameraRadiusMeters;
-      // The camera is now exactly where the user's choice put it, so it is
-      // LATCHED again: the radius preset must not take it back when the next
-      // geolocation fix arrives. Only a new explicit request releases it.
-      userInteractedRef.current = true;
-      void (async () => {
-        const applied = await fitCamera(map, fitPlacesRef.current, CURATED_FIT_MAX_ZOOM);
-        // The instant-camera rule (PO 2026-09-30) is unchanged: the transition
-        // into the layer is confirmed by the one-shot Current Location pin
-        // pulse, never by an animated camera move.
-        if (applied && pulsePinOnPresetChange) triggerLocatePulse();
-      })();
-      return;
-    }
     const anchor = cameraCenter ?? viewerPosition;
     if (!ready || !map || !anchor) return;
     // CAMERA AUTHORITY (bug fix, 2026-10-03). Once the frame belongs to the
@@ -1065,7 +1018,7 @@ export default function HomeMap({
     return () => {
       cancelled = true;
     };
-  }, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, fitNonce, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);
+  }, [ready, viewerPositionKey, cameraCenterKey, cameraRadiusMeters, viewerPosition, cameraCenter, cameraRequestNonce, focusUser, radiusZoom, fitCamera, pulsePinOnPresetChange, triggerLocatePulse]);
 
   // Render/update the user marker from the real geolocation fix. Camera
   // decisions live in the anchor effect above.
@@ -1262,7 +1215,7 @@ export default function HomeMap({
   // Rebuild markers whenever the filtered marker set changes. Camera note:
   // the viewport is NEVER driven by the marker set — there is NO fit to the
   // markers in this component. The auto-fit camera reads a SEPARATE bounds
-  // dataset (`fitPlaces` / `searchFitPlaces`), which is the same canonical
+  // dataset (`searchFitPlaces` / `locateFitPlaces`), which is the same canonical
   // content filter WITHOUT the viewport gate; that separation is exactly what
   // keeps viewport, marker filtering, and camera from becoming a circular
   // dependency. When no Current Location fix exists yet the map stays on the

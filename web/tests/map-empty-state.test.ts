@@ -159,7 +159,7 @@ test("Overlay keys on dataset-empty OR reported-empty-viewport, not dataset leng
 
 test("The callback does not touch dataset, camera presets, or marker design", () => {
   // Camera preset mapping and map dataset stay exactly as locked before.
-  assert.match(pageCode, /cameraRadiusMeters=\{\n?\s*curatedOnly \? CURATED_CAMERA_RADIUS_M : CAMERA_PRESET_RADIUS_M\[distanceFilter\]\n?\s*\}/);
+  assert.match(pageCode, /cameraRadiusMeters=\{\n?\s*CAMERA_PRESET_RADIUS_M\[distanceFilter\]\n?\s*\}/);
   // The map dataset memo (up to the empty-state flag) never references the
   // callback — dataset composition is untouched.
   const mapDataset = pageCode.slice(pageCode.indexOf("const mapPlaces"), pageCode.indexOf("const mapEmptyStateVisible"));
