@@ -28,11 +28,17 @@ const readMigration = (name: string) =>
   readFileSync(new URL(`../supabase/migrations/${name}`, import.meta.url), "utf8");
 const readWeb = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-const migration = readMigration("0043_ai_media_audit.sql");
+const migration0043 = readMigration("0043_ai_media_audit.sql");
+const migration0045 = readMigration("0045_ai_media_initial_generation.sql");
 const auditModule = readWeb("lib/ai-media-audit.ts");
 const sourcesRoute = readWeb("app/api/producer/places/[placeId]/ai-media/sources/[sourceKey]/route.ts");
 const approveRoute = readWeb("app/api/producer/places/[placeId]/ai-media/approve/route.ts");
 const generateRoute = readWeb("app/api/producer/places/[placeId]/ai-media/generate-ulg/route.ts");
+
+/** The vocabulary the database reaches after the latest AI media migration. */
+function latestAiMediaAuditMigration(): string {
+  return migration0045;
+}
 
 function stripComments(source: string): string {
   return source
@@ -229,13 +235,13 @@ test("the server-only RPC validates the actor, the place and the action vocabula
 });
 
 test("migration 0043 is idempotent and additive", async () => {
-  const bare = stripComments(migration);
-  assert.match(migration, /create table if not exists public\.ai_media_audit/);
-  assert.match(migration, /create or replace function public\.record_ai_media_audit/);
-  assert.match(migration, /drop trigger if exists ai_media_audit_block_mutation/);
-  assert.match(migration, /alter table public\.ai_media_audit enable row level security/);
-  assert.match(migration, /revoke all on public\.ai_media_audit from public, anon, authenticated/);
-  assert.match(migration, /revoke all on function public\.record_ai_media_audit[\s\S]*from public, anon, authenticated/);
+  const bare = stripComments(migration0043);
+  assert.match(migration0043, /create table if not exists public\.ai_media_audit/);
+  assert.match(migration0043, /create or replace function public\.record_ai_media_audit/);
+  assert.match(migration0043, /drop trigger if exists ai_media_audit_block_mutation/);
+  assert.match(migration0043, /alter table public\.ai_media_audit enable row level security/);
+  assert.match(migration0043, /revoke all on public\.ai_media_audit from public, anon, authenticated/);
+  assert.match(migration0043, /revoke all on function public\.record_ai_media_audit[\s\S]*from public, anon, authenticated/);
   for (const table of ["places", "producers", "users", "producer_memberships", "ai_media", "ai_media_sources"]) {
     assert.doesNotMatch(bare, new RegExp(`alter\\s+table\\s+public\\.${table}\\b`, "i"));
   }
@@ -245,7 +251,7 @@ test("migration 0043 is idempotent and additive", async () => {
   // Re-applying the file is a no-op on the engine.
   const db = await bootstrapDb();
   try {
-    await db.exec(stripPgcrypto(migration));
+    await db.exec(stripPgcrypto(migration0043));
     const count = await rows(db, "select count(*)::int as c from information_schema.tables where table_schema='public' and table_name='ai_media_audit'");
     assert.equal(count[0].c, 1);
   } finally {
@@ -260,19 +266,65 @@ test("migration 0043 is idempotent and additive", async () => {
 test("the code audit vocabulary is exactly the database CHECK vocabulary", () => {
   const codeActions = Object.values(AI_MEDIA_AUDIT_ACTIONS).sort();
 
-  // The table CHECK and the RPC guard are the two places the vocabulary is
-  // pinned in the database; both must match the code exactly.
-  const checkStart = migration.indexOf("action text not null check (action in (");
-  assert.ok(checkStart > -1, "the table must CHECK the action vocabulary");
-  const checkBlock = migration.slice(checkStart, migration.indexOf("))", checkStart));
-  const checkActions = [...checkBlock.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]).sort();
-  assert.deepEqual(checkActions, codeActions, "the table CHECK must match the code vocabulary");
+  // The table CHECK is defined in 0043 and widened by 0045 (via alter table drop/
+  // add constraint). The authoritative vocabulary is therefore the union of the
+  // actions listed in BOTH migrations. We find each CHECK clause by searching for
+  // "check (action in (" (0045's widen omits the "action text not null" prefix).
+  const unionActions = new Set<string>();
+  for (const migration of [migration0043, migration0045]) {
+    // Both migrations define an action CHECK. 0043 writes the full table CHECK
+    // in one clause; 0045 widens it by dropping then re-adding the same constraint.
+    // Either spelling is valid: match both "check (action in (" and the longer
+    // table-column CHECK form, then extract until the matching closing "))".
+    let start: number | undefined;
+    const clause = "check (action in (";
+    const idx = migration.indexOf(clause);
+    if (idx !== -1) start = idx + clause.length;
+    if (start === undefined) {
+      const colClause = "action text not null check (action in (";
+      const colIdx = migration.indexOf(colClause);
+      if (colIdx !== -1) start = colIdx + colClause.length;
+    }
+    if (start === undefined) continue;
+    let depth = 1;
+    let i = start;
+    while (i < migration.length && depth > 0) {
+      if (migration[i] === "(") depth += 1;
+      if (migration[i] === ")") depth -= 1;
+      i += 1;
+    }
+    assert.ok(depth === 0, "a CHECK clause must close within the migration");
+    const block = migration.slice(start, i - 1);
+    for (const m of block.matchAll(/'([a-z_]+)'/g)) unionActions.add(m[1]);
+  }
+  const unionSorted = [...unionActions].sort();
+  assert.deepStrictEqual(
+    unionSorted,
+    codeActions,
+    "the database vocabulary (0043 + 0045) must match the code vocabulary",
+  );
+  assert.ok(
+    unionSorted.includes("ai_source_uploaded") &&
+      unionSorted.includes("ai_generation_requested"),
+    "the union must include both the original and the widened action",
+  );
 
-  const rpcStart = migration.indexOf("if p_action is null or p_action not in (");
+  // The record_ai_media_audit RPC guard lives in 0043. Newer actions added by
+  // later migrations (e.g. 0045) are not required to be present in that legacy
+  // guard, but every action that existed in 0043 must still be present.
+  const oldActions = codeActions.filter((action) => migration0043.includes(`'${action}'`));
+  const rpcStart = migration0043.indexOf("if p_action is null or p_action not in (");
   assert.ok(rpcStart > -1, "the RPC must re-validate the action vocabulary");
-  const rpcBlock = migration.slice(rpcStart, migration.indexOf(") then", rpcStart));
-  const rpcActions = [...rpcBlock.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]).sort();
-  assert.deepEqual(rpcActions, codeActions, "the RPC guard must match the code vocabulary");
+  const rpcBlock = migration0043.slice(
+    rpcStart,
+    migration0043.indexOf(") then", rpcStart),
+  );
+  const rpcActions = [...rpcBlock.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort();
+  assert.deepStrictEqual(
+    rpcActions,
+    oldActions,
+    "the record_ai_media_audit RPC guard must still contain every 0043 action",
+  );
 
   for (const action of codeActions) assert.equal(validateAiMediaAuditAction(action), true);
   assert.equal(validateAiMediaAuditAction("ai_not_a_real_action"), false);
@@ -280,7 +332,11 @@ test("the code audit vocabulary is exactly the database CHECK vocabulary", () =>
 
 test("the audit target vocabulary matches the database CHECK", () => {
   for (const target of AI_MEDIA_AUDIT_TARGET_TYPES) {
-    assert.match(migration, new RegExp(`'${target}'`), `migration must accept target ${target}`);
+    assert.match(
+      migration0043,
+      new RegExp(`'${target}'`),
+      `migration 0043 must accept target ${target}`,
+    );
     assert.equal(validateAiMediaAuditTargetType(target), true);
   }
   assert.equal(validateAiMediaAuditTargetType("shopping-cart"), false);

@@ -115,6 +115,7 @@ export const AI_MEDIA_OUTPUT_SLOTS: readonly AiMediaOutputSlot[] = [
 
 /** Client-facing error codes the UI maps to readable messages. */
 export type AiMediaErrorCode =
+  | "ai_media_request_invalid"
   | "ai_media_source_key_invalid"
   | "ai_media_source_type_invalid"
   | "ai_media_source_size_invalid"
@@ -132,6 +133,7 @@ export type AiMediaErrorCode =
   | "ai_media_prompt_key_invalid"
   | "ai_media_prompt_version_invalid"
   | "ai_media_generation_locked"
+  | "ai_media_generation_failed"
   | "ai_media_source_upload_failed"
   | "ai_media_output_upload_failed"
   | "ai_media_bucket_missing"
@@ -165,6 +167,7 @@ export const AI_MEDIA_AUDIT_ACTIONS = {
   regenerationRequested: "ai_regeneration_requested",
   regenerationBlocked: "ai_regeneration_blocked",
   generationQuotaBlocked: "ai_generation_quota_blocked",
+  generationRequested: "ai_generation_requested",
 } as const;
 
 export type AiMediaAuditAction = (typeof AI_MEDIA_AUDIT_ACTIONS)[keyof typeof AI_MEDIA_AUDIT_ACTIONS];

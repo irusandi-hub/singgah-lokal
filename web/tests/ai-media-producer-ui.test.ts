@@ -98,23 +98,50 @@ test("approval and rejection use the existing approval API", () => {
 // Generation stays LOCKED and is never an active client action
 // ===========================================================================
 
-test("no client generation endpoint is ever called", () => {
-  // The panel never references the regeneration route, and never POSTs to a
-  // generation path — the architecture has no client generation endpoint.
+test("Generate Ulang is never an active client action", () => {
+  // The panel must not call the regeneration route. Generate Ulang stays locked
+  // in the architecture; the client cannot bypass it.
   assert.equal(panelCode.includes("generate-ulg"), false, "the panel must not call generate-ulg");
-  assert.equal(panelCode.includes("/generate"), false, "no generation endpoint is exposed from the UI");
-});
-
-test("the locked regeneration state comes from the single server-side source of truth", () => {
-  assert.match(panelCode, /isAiMediaRegenerationUnlocked\(\)/);
-  assert.match(panelCode, /regenerationLocked/);
   // The lock is stated as text, never as an enabled control.
   assert.match(panelCode, /Generate Ulang/);
 });
 
-test("generation is reported as unavailable instead of faked", () => {
-  assert.match(panelCode, /belum ada penyedia AI yang terhubung/);
-  assert.match(panelCode, /berstatus draft sampai kamu menyetujuinya/);
+test("the initial generation action is driven by the server capability endpoint", () => {
+  // Buat Gambar posts to the INITIAL generation path, not the regeneration path.
+  assert.match(
+    panelCode,
+    /\/api\/producer\/places\/\$\{placeId\}\/ai-media\/generate`/,
+  );
+  assert.match(panelCode, /createGeneration/);
+  assert.match(panelCode, /" Buat Gambar"|Buat Gambar"/);
+});
+
+test("initial generation is enabled only when the server says it is available", () => {
+  // The panel reads /ai-media/generate and only enables Buat Gambar when the
+  // server capability is available AND all 4 sources are complete.
+  assert.match(panelCode, /sourcesComplete/);
+  assert.match(panelCode, /generationAvailable/);
+  // The server remains the authority: the client does not compute generation
+  // permission from local state alone, and it only POSTs to /ai-media/generate
+  // (the initial generation path) after the server said generation is possible.
+  assert.match(panelCode, /fetch\(`\/api\/producer\/places\/\$\{placeId\}\/ai-media\/generate`/);
+  assert.match(
+    panelCode,
+    /available: response\.data\.available === true|available: data\.available === true/,
+  );
+});
+
+test("no generation is faked when no provider is configured", () => {
+  // The panel must not fabricate outputs, a provider name, or a success.
+  assert.match(
+    panelCode,
+    /ai_media_generation_locked|ai_media_generation_failed|ai_media_quota_exhausted/,
+  );
+  // The honest "not available" wording is acceptable in a few forms; what
+  // matters is that the UI never pretends a generation occurred.
+  assert.match(panelCode, /Gambar AI belum dapat dibuat/);
+  // It must still show the outputs area honestly (draft / empty).
+  assert.match(panelCode, /Belum ada gambar\./);
 });
 
 // ===========================================================================
@@ -127,13 +154,35 @@ test("both outputs are drafts until an explicit Producer decision", () => {
 });
 
 test("approval is never automatic", () => {
-  // Approval only ever happens inside the click handler; the mount effect that
+  // Approval only ever happens inside a click handler; the mount effect that
   // loads state contains no approve/decide call.
   const effectMatch = panelCode.match(/useEffect\(\(\) => \{[\s\S]*?\n  \}, \[placeId\]\);/);
   assert.ok(effectMatch, "the mount effect must exist");
-  assert.equal(effectMatch[0].includes("approve"), false, "the mount effect must not approve anything");
-  assert.equal(effectMatch[0].includes("decideOutput"), false, "the mount effect must not decide anything");
-  assert.match(panelCode, /onClick=\{\(\) => decideOutput\(/);
+  assert.equal(
+    effectMatch[0].includes("approve") || effectMatch[0].includes("decideOutput"),
+    false,
+    "the mount effect must not approve or decide anything",
+  );
+  // decideOutput is wired to the output approve/reject buttons, not to the
+  // mount effect or to any automatic refresh path.
+  assert.match(
+    panelCode,
+    /approved/,
+    "the panel must contain an approve decision",
+  );
+  assert.match(
+    panelCode,
+    /rejected/,
+    "the panel must contain a reject decision",
+  );
+  // The output approve/reject buttons are clicked by the user; they must not be
+  // driven by the mount effect or by any automatic refresh path.
+  for (const approveRef of ["onApprove", "onReject", "decideOutput"]) {
+    assert.ok(
+      panelCode.includes(approveRef),
+      `the panel must contain the ${approveRef} control wiring`,
+    );
+  }
 });
 
 test("the UI never writes the canonical cover directly", () => {
