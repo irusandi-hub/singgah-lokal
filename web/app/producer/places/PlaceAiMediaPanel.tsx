@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AI_MEDIA_ACCEPTED_TYPES,
+  AI_MEDIA_MAX_BYTES,
   AI_MEDIA_OUTPUT_SLOTS,
   AI_MEDIA_SOURCE_SLOTS,
   AiMediaError,
@@ -285,9 +286,8 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
             });
             return;
           }
-          const available = data.available === true;
           setGenerationCap({
-            available,
+            available: data.available === true,
             reason: data.reason ?? undefined,
             provider: data.provider ?? undefined,
           });
@@ -596,6 +596,11 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
             ) ?? null;
             const busy = Boolean(decisionBusy[slot.key]);
 
+            // The status check is mirrored here for rendering; the server
+            // remains the authority on the canonical status.
+            const outputStatus = output?.status ?? "";
+            const isDraft = output && output.status === "draft";
+
             return (
               <AiMediaOutputCard
                 key={slot.key}
@@ -604,6 +609,7 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
                 aspect={slot.aspect}
                 output={output}
                 busy={busy}
+                outputStatus={outputStatus}
                 onApprove={() => decideOutput(slot.key, "approved")}
                 onReject={() => decideOutput(slot.key, "rejected")}
               />
@@ -747,6 +753,7 @@ function AiMediaOutputCard({
   aspect,
   output,
   busy,
+  outputStatus,
   onApprove,
   onReject,
 }: {
@@ -755,13 +762,14 @@ function AiMediaOutputCard({
   aspect: "portrait" | "landscape";
   output: OutputState | null;
   busy: boolean;
+  outputStatus: string;
   onApprove: () => void;
   onReject: () => void;
 }) {
   const imageUrl = output?.previewUrl ?? output?.publicUrl ?? null;
-  const isDraft = output?.status === "draft";
-  const isApproved = output?.status === "approved";
-  const isRejected = output?.status === "rejected";
+  const isDraft = outputStatus === "draft";
+  const isApproved = outputStatus === "approved";
+  const isRejected = outputStatus === "rejected";
 
   return (
     <div
