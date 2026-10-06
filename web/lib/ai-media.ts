@@ -129,6 +129,8 @@ export type AiMediaErrorCode =
   | "ai_media_regeneration_locked"
   | "ai_media_quota_exhausted"
   | "ai_media_quota_invalid"
+  | "ai_media_prompt_key_invalid"
+  | "ai_media_prompt_version_invalid"
   | "ai_media_generation_locked"
   | "ai_media_source_upload_failed"
   | "ai_media_output_upload_failed"
@@ -242,14 +244,26 @@ export interface AiMediaProvider {
 export const REGENERATION_OUTPUT_KEYS: readonly AiMediaOutputKey[] = ["hook", "place_story"];
 
 /**
+ * REGENERATION LOCK — LOCKED initially (locked product design).
+ *
+ * "Generate Ulang" is architecturally supported (the `regenerate_ai_media` RPC,
+ * the job table and the both-outputs contract) but this constant is the
+ * single code-side switch and it starts `false`. Flipping it is a product
+ * decision in server code, never a client one: no request parameter, header or
+ * cookie can change it.
+ */
+export const PLACE_AI_REGENERATE_UNLOCKED = false;
+
+/**
  * Whether regeneration is unlocked server-side. This is the single gate; the
  * client may not bypass it by any parameter/header/cookie. When false, every
  * regeneration attempt is refused.
  */
 export function isAiMediaRegenerationUnlocked(): boolean {
-  // Locked by default. The server job worker / admin config flips this when
-  // the feature is approved. This module never invents an unlocked state.
-  return false;
+  // Locked by default (PLACE_AI_REGENERATE_UNLOCKED === false). The server job
+  // worker / admin config flips this when the feature is approved. This module
+  // never invents an unlocked state.
+  return PLACE_AI_REGENERATE_UNLOCKED;
 }
 
 /** Canonical DB row for one generated output (server-side shape). */
@@ -311,4 +325,71 @@ export function validateAiMediaIdempotencyKey(key: unknown): string {
     throw new AiMediaError("ai_media_idempotency_key_invalid");
   }
   return key.trim();
+}
+
+// ---------------------------------------------------------------------------
+// Prompt / version tracking + request metadata (migration 0044)
+//
+// Provider-neutral: this records WHICH prompt revision a run used and the
+// request context around it, so a generated image is reproducible and
+// explainable. It names no vendor and performs no generation.
+// ---------------------------------------------------------------------------
+
+/** The prompt revision keys, one per output. Code is the source of truth. */
+export const AI_MEDIA_PROMPT_KEYS = {
+  hook: "place_hook_image",
+  placeStory: "place_story_image",
+} as const;
+
+export type AiMediaPromptKey = (typeof AI_MEDIA_PROMPT_KEYS)[keyof typeof AI_MEDIA_PROMPT_KEYS];
+
+/** The prompt revision that produced an output maps 1:1 to its output key. */
+export const AI_MEDIA_PROMPT_KEYS_BY_OUTPUT: Record<AiMediaOutputKey, AiMediaPromptKey> = {
+  hook: AI_MEDIA_PROMPT_KEYS.hook,
+  place_story: AI_MEDIA_PROMPT_KEYS.placeStory,
+};
+
+/**
+ * Current prompt revision. It is bumped in code when a prompt changes; the
+ * database stores the value as a bounded positive integer so history is never
+ * rewritten by a later revision.
+ */
+export const AI_MEDIA_CURRENT_PROMPT_VERSION = 1;
+
+/** Which kind of run produced (or requested) an output. */
+export const AI_MEDIA_GENERATION_KINDS = ["initial", "regeneration"] as const;
+export type AiMediaGenerationKind = (typeof AI_MEDIA_GENERATION_KINDS)[number];
+
+/** Bound prompt key validation (mirrors the 0044 CHECK). */
+export function validateAiMediaPromptKey(key: unknown): key is string {
+  return typeof key === "string" && key.trim().length > 0 && key.length <= 80;
+}
+
+/** A prompt version is a positive integer (mirrors the 0044 CHECK). */
+export function validateAiMediaPromptVersion(version: unknown): version is number {
+  return typeof version === "number" && Number.isInteger(version) && version > 0;
+}
+
+/**
+ * Build the persisted request metadata for a generation run. Pure and
+ * provider-neutral: it names the outputs, their prompt keys, the prompt
+ * revision and the request moment — nothing about a vendor and no Place facts
+ * that could be invented.
+ */
+export function buildAiMediaRequestMetadata(params: {
+  generationKind: AiMediaGenerationKind;
+  outputKeys: readonly AiMediaOutputKey[];
+  promptVersion: number;
+  requestedAt: string;
+}): Record<string, unknown> {
+  if (!validateAiMediaPromptVersion(params.promptVersion)) {
+    throw new AiMediaError("ai_media_prompt_version_invalid");
+  }
+  return {
+    generationKind: params.generationKind,
+    outputKeys: [...params.outputKeys],
+    promptKeys: params.outputKeys.map((key) => AI_MEDIA_PROMPT_KEYS_BY_OUTPUT[key]),
+    promptVersion: params.promptVersion,
+    requestedAt: params.requestedAt,
+  };
 }
