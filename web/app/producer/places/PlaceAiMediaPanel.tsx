@@ -3,39 +3,40 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AI_MEDIA_ACCEPTED_TYPES,
-  AI_MEDIA_MAX_BYTES,
   AI_MEDIA_OUTPUT_SLOTS,
   AI_MEDIA_SOURCE_SLOTS,
   AiMediaError,
-  isAiMediaRegenerationUnlocked,
   validateAiMediaSourceFile,
   validateAiMediaSourceKey,
   type AiMediaSourceKey,
 } from "@/lib/ai-media";
 
 /**
- * AI PLACE MEDIA — Producer surface (foundation, locked).
+ * AI MEDIA — Producer surface (SINGGAH LOKAL).
  *
- * The 4 source photos (Tempat / Bahan / Proses Produksi / Hasil) are PRIVATE
- * inputs for the AI media foundation. They coexist with the standard 5 photo
- * slots and never replace them: different tab, different API, different private
- * bucket. Uploading a source REPLACES that slot (the server RPC is keyed by
- * place + producer + source key) and the original file the Producer uploaded is
- * stored unchanged.
+ * A Producer-facing panel for the locked AI Place Media flow:
+ *  1. Upload the 4 source photos (Tempat / Bahan / Proses Produksi / Hasil).
+ *  2. When all 4 are ready and the server says generation is available, press
+ *     "Buat Gambar".
+ *  3. Review the 2 generated outputs (Hook Image / Place Story Image) — both
+ *     stay Draft until the Producer approves or rejects.
  *
- * Generated media is DERIVED media: the 2 outputs (Hook Image + Place Story
- * Image) are drafts until the Producer approves them through the existing
- * approval API, and nothing is ever auto-published. Hook approval may update
- * the canonical cover only through that server path; Place Story stays
- * separate from the cover.
+ * Source photos are PRIVATE inputs for the AI media flow. They coexist with the
+ * standard 5 Place photo slots (different tab, different API, different private
+ * bucket) and never replace them. Uploading a source replaces only that slot;
+ * the original file the Producer uploaded stays unchanged.
  *
- * Generation is NOT exposed here. No AI provider is integrated and there is no
- * client generation endpoint, so the generation area reports the honest
- * locked/unavailable state instead of pretending a generation happened, and
- * "Generate Ulang" stays locked — never an active action.
+ * Generated media is DERIVED media. Nothing is auto-published. Hook approval may
+ * affect the canonical cover only through the existing server approval path;
+ * Place Story stays separate.
  *
- * The UI mirrors the server limits for instant pick-time feedback only; the
- * server re-validates every write and stays the authority.
+ * "Buat Gambar" is enabled only when the server says generation is actually
+ * possible (provider configured + enabled, 4 sources present, quota available).
+ * If no provider is connected, the panel shows that honestly instead of faking a
+ * generation. "Generate Ulang" stays locked and is never an active control.
+ *
+ * The UI mirrors server limits for instant pick-time feedback only; the server
+ * re-validates every write and stays the authority.
  */
 
 type SourceState = {
@@ -71,19 +72,32 @@ const OUTPUT_STATUS_LABELS: Record<string, string> = {
 
 const AI_MEDIA_ERROR_LABELS: Record<string, string> = {
   ai_media_source_key_invalid: "Slot foto sumber tidak dikenali.",
-  ai_media_source_type_invalid: "Format file tidak didukung (gunakan JPG, PNG, WebP, atau AVIF).",
-  ai_media_source_size_invalid: "Ukuran foto melebihi batas (maksimal 5 MB).",
-  ai_media_source_upload_failed: "Foto sumber tidak dapat disimpan. Coba lagi.",
+  ai_media_source_type_invalid:
+    "Format file tidak didukung (gunakan JPG, PNG, WebP, atau AVIF).",
+  ai_media_source_size_invalid:
+    "Ukuran foto melebihi batas (maksimal 5 MB).",
+  ai_media_source_upload_failed:
+    "Foto sumber tidak dapat disimpan. Coba lagi.",
   ai_media_output_key_invalid: "Jenis gambar tidak dikenali.",
   ai_media_output_not_found: "Gambar belum tersedia.",
   ai_media_output_not_draft: "Gambar ini sudah tidak berstatus draft.",
   ai_media_status_invalid: "Status keputusan tidak valid.",
   ai_media_approval_failed: "Keputusan tidak dapat disimpan. Coba lagi.",
-  ai_media_promotion_failed: "Gambar tidak dapat dipublikasikan. Coba lagi.",
-  ai_media_bucket_missing: "Penyimpanan AI Media belum tersedia. Hubungi pengelola platform.",
+  ai_media_promotion_failed:
+    "Gambar tidak dapat dipublikasikan. Coba lagi.",
+  ai_media_bucket_missing:
+    "Penyimpanan AI Media belum tersedia. Hubungi pengelola platform.",
   ai_media_unavailable: "AI Media tidak dapat dimuat. Coba lagi.",
-  authentication_required: "Sesi berakhir. Masuk kembali sebagai Pengelola Tempat ini.",
-  producer_authorization_required: "Kamu tidak memiliki akses mengelola AI Media Tempat ini.",
+  authentication_required:
+    "Sesi berakhir. Masuk kembali sebagai Pengelola Tempat ini.",
+  producer_authorization_required:
+    "Kamu tidak memiliki akses mengelola AI Media Tempat ini.",
+  ai_media_generation_locked:
+    "Gambar AI belum dapat dibuat. Coba lagi nanti.",
+  ai_media_generation_failed:
+    "Gambar AI tidak dapat dibuat. Coba lagi.",
+  ai_media_quota_exhausted:
+    "Kuota AI habis. Coba lagi nanti.",
 };
 
 function aiMediaErrorLabel(code: string): string {
@@ -103,47 +117,68 @@ function mapSourceRows(rows: SourceRow[]): Partial<Record<AiMediaSourceKey, Sour
     next[key] = {
       signedUrl: typeof row.signedUrl === "string" ? row.signedUrl : null,
       mimeType: typeof row.mimeType === "string" ? row.mimeType : "",
-      byteSize: typeof row.byteSize === "number" ? row.byteSize : 0,
+      byteSize:
+        typeof row.byteSize === "number" ? row.byteSize : 0,
       uploadedAt: typeof row.uploadedAt === "string" ? row.uploadedAt : "",
     };
   }
   return next;
 }
 
-function mapOutputRows(rows: OutputState[]): OutputState[] {
+type OutputRow = {
+  outputKey?: unknown;
+  status?: unknown;
+  provider?: unknown;
+  generatedAt?: unknown;
+  approvedAt?: unknown;
+  previewUrl?: unknown;
+  publicUrl?: unknown;
+};
+
+function mapOutputRows(rows: OutputRow[]): OutputState[] {
   return rows.map((output) => ({
-    outputKey: String(output.outputKey),
-    status: String(output.status),
-    provider: output.provider ?? null,
+    outputKey: String(output.outputKey ?? ""),
+    status: String(output.status ?? ""),
+    provider: output.provider == null ? null : String(output.provider),
     generatedAt: String(output.generatedAt ?? ""),
-    approvedAt: output.approvedAt ?? null,
-    previewUrl: output.previewUrl ?? null,
-    publicUrl: output.publicUrl ?? null,
+    approvedAt: output.approvedAt == null ? null : String(output.approvedAt),
+    previewUrl: output.previewUrl == null ? null : String(output.previewUrl),
+    publicUrl: output.publicUrl == null ? null : String(output.publicUrl),
   }));
 }
 
 export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
-  const [sources, setSources] = useState<Partial<Record<AiMediaSourceKey, SourceState>>>({});
+  const [sources, setSources] = useState<
+    Partial<Record<AiMediaSourceKey, SourceState>>
+  >({});
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [sourcesError, setSourcesError] = useState("");
   const [outputs, setOutputs] = useState<OutputState[]>([]);
   const [outputsLoading, setOutputsLoading] = useState(true);
   const [outputsError, setOutputsError] = useState("");
+  const [generationCap, setGenerationCap] = useState<{
+    available: boolean;
+    reason?: string;
+    provider?: string;
+  } | null>(null);
+  const [generationCapLoading, setGenerationCapLoading] = useState(true);
   const [slotBusy, setSlotBusy] = useState<Record<string, boolean>>({});
   const [slotError, setSlotError] = useState<Record<string, string>>({});
   const [decisionBusy, setDecisionBusy] = useState<Record<string, boolean>>({});
+  const [generateBusy, setGenerateBusy] = useState(false);
+  const [generateError, setGenerateError] = useState("");
   const [message, setMessage] = useState("");
 
-  // Both reads are independent: a failure in one never blanks the other, and an
-  // empty/incomplete source set is a normal state — it must never block the rest
-  // of the Place editor. These loaders are used by the upload/approval handlers
-  // to re-read the canonical server state after a confirmed write.
   const loadSources = useCallback(async () => {
     try {
-      const response = await fetch(`/api/producer/places/${placeId}/ai-media`);
+      const response = await fetch(
+        `/api/producer/places/${placeId}/ai-media`,
+      );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setSourcesError(aiMediaErrorLabel(String(data.error ?? "ai_media_unavailable")));
+        setSourcesError(
+          aiMediaErrorLabel(String(data.error ?? "ai_media_unavailable")),
+        );
         return;
       }
       setSources(mapSourceRows((data.sources ?? []) as SourceRow[]));
@@ -157,13 +192,17 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
 
   const loadOutputs = useCallback(async () => {
     try {
-      const response = await fetch(`/api/producer/places/${placeId}/ai-media/outputs`);
+      const response = await fetch(
+        `/api/producer/places/${placeId}/ai-media/outputs`,
+      );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setOutputsError(aiMediaErrorLabel(String(data.error ?? "ai_media_unavailable")));
+        setOutputsError(
+          aiMediaErrorLabel(String(data.error ?? "ai_media_unavailable")),
+        );
         return;
       }
-      setOutputs(mapOutputRows((data.outputs ?? []) as OutputState[]));
+      setOutputs(mapOutputRows((data.outputs ?? []) as OutputRow[]));
       setOutputsError("");
     } catch {
       setOutputsError(aiMediaErrorLabel("ai_media_unavailable"));
@@ -172,44 +211,95 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
     }
   }, [placeId]);
 
-  // Initial load follows the repo's mount-fetch pattern: setState only inside
-  // the promise callbacks, never synchronously in the effect body. The panel is
-  // keyed by the Place id, so switching Places remounts it with fresh state.
+  // Mount fetch follows the repo pattern: setState only inside the promise
+  // callbacks, never synchronously in the effect body. The panel is keyed by
+  // the Place id, so switching Places remounts it with fresh state.
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/producer/places/${placeId}/ai-media`)
-      .then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }))
-      .then(({ ok, data }) => {
-        if (cancelled) return;
-        if (!ok) {
-          setSourcesError(aiMediaErrorLabel(String(data.error ?? "ai_media_unavailable")));
-          return;
-        }
-        setSources(mapSourceRows((data.sources ?? []) as SourceRow[]));
-      })
-      .catch(() => {
-        if (!cancelled) setSourcesError(aiMediaErrorLabel("ai_media_unavailable"));
-      })
-      .finally(() => {
-        if (!cancelled) setSourcesLoading(false);
-      });
 
-    fetch(`/api/producer/places/${placeId}/ai-media/outputs`)
-      .then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }))
-      .then(({ ok, data }) => {
-        if (cancelled) return;
-        if (!ok) {
-          setOutputsError(aiMediaErrorLabel(String(data.error ?? "ai_media_unavailable")));
-          return;
-        }
-        setOutputs(mapOutputRows((data.outputs ?? []) as OutputState[]));
-      })
-      .catch(() => {
-        if (!cancelled) setOutputsError(aiMediaErrorLabel("ai_media_unavailable"));
-      })
-      .finally(() => {
-        if (!cancelled) setOutputsLoading(false);
-      });
+    const fetchSources = () => {
+      fetch(`/api/producer/places/${placeId}/ai-media`)
+        .then(async (response) => ({
+          ok: response.ok,
+          data: await response.json().catch(() => ({})),
+        }))
+        .then(({ ok, data }) => {
+          if (cancelled) return;
+          if (!ok) {
+            setSourcesError(
+              aiMediaErrorLabel(String(data.error ?? "ai_media_unavailable")),
+            );
+            return;
+          }
+          setSources(mapSourceRows((data.sources ?? []) as SourceRow[]));
+        })
+        .catch(() => {
+          if (!cancelled)
+            setSourcesError(aiMediaErrorLabel("ai_media_unavailable"));
+        })
+        .finally(() => {
+          if (!cancelled) setSourcesLoading(false);
+        });
+    };
+
+    const fetchOutputs = () => {
+      fetch(`/api/producer/places/${placeId}/ai-media/outputs`)
+        .then(async (response) => ({
+          ok: response.ok,
+          data: await response.json().catch(() => ({})),
+        }))
+        .then(({ ok, data }) => {
+          if (cancelled) return;
+          if (!ok) {
+            setOutputsError(
+              aiMediaErrorLabel(String(data.error ?? "ai_media_unavailable")),
+            );
+            return;
+          }
+          setOutputs(mapOutputRows((data.outputs ?? []) as OutputRow[]));
+        })
+        .catch(() => {
+          if (!cancelled)
+            setOutputsError(aiMediaErrorLabel("ai_media_unavailable"));
+        })
+        .finally(() => {
+          if (!cancelled) setOutputsLoading(false);
+        });
+    };
+
+    const fetchGenerationCap = () => {
+      fetch(`/api/producer/places/${placeId}/ai-media/generate`)
+        .then(async (response) => ({
+          ok: response.ok,
+          data: await response.json().catch(() => ({})),
+        }))
+        .then((response) => {
+          if (cancelled) return;
+          const { ok, data } = response;
+          if (!ok) {
+            setGenerationCap({
+              available: false,
+              reason: aiMediaErrorLabel(
+                String(data.error ?? "ai_media_unavailable"),
+              ),
+            });
+            return;
+          }
+          const available = data.available === true;
+          setGenerationCap({
+            available,
+            reason: data.reason ?? undefined,
+            provider: data.provider ?? undefined,
+          });
+        })
+        .finally(() => {
+          if (!cancelled) setGenerationCapLoading(false);
+        });
+    };
+
+    fetchSources();
+    fetchOutputs();
+    fetchGenerationCap();
 
     return () => {
       cancelled = true;
@@ -223,46 +313,131 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
     try {
       const body = new FormData();
       body.append("file", file);
-      const response = await fetch(`/api/producer/places/${placeId}/ai-media/sources/${sourceKey}`, {
-        method: "POST",
-        body,
-      });
+      const response = await fetch(
+        `/api/producer/places/${placeId}/ai-media/sources/${sourceKey}`,
+        {
+          method: "POST",
+          body,
+        },
+      );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         setSlotError((current) => ({
           ...current,
-          [sourceKey]: aiMediaErrorLabel(String(data.error ?? "ai_media_source_upload_failed")),
+          [sourceKey]:
+            aiMediaErrorLabel(
+              String(data.error ?? "ai_media_source_upload_failed"),
+            ),
         }));
         return;
       }
-      // Re-read the canonical list so the preview comes from a freshly signed
-      // private URL minted by the server (never a client-side assumption).
+      // Re-read the canonical list so the preview uses a freshly signed private
+      // URL minted by the server (never a client assumption).
       await loadSources();
-      setMessage(replacing ? "Foto sumber diganti." : "Foto sumber tersimpan.");
+      setMessage(
+        replacing ? "Foto sumber diganti." : "Foto sumber tersimpan.",
+      );
     } catch {
-      setSlotError((current) => ({ ...current, [sourceKey]: aiMediaErrorLabel("ai_media_source_upload_failed") }));
+      setSlotError((current) => ({
+        ...current,
+        [sourceKey]: aiMediaErrorLabel("ai_media_source_upload_failed"),
+      }));
     } finally {
       setSlotBusy((current) => ({ ...current, [sourceKey]: false }));
     }
   }
 
-  async function decideOutput(outputKey: string, status: "approved" | "rejected") {
+  async function createGeneration() {
+    if (!generationCap?.available) return;
+    setGenerateBusy(true);
+    setGenerateError("");
+    try {
+      const idempotencyKey =
+        `initial-${placeId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const response = await fetch(
+        `/api/producer/places/${placeId}/ai-media/generate`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ idempotencyKey }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setGenerateError(
+          aiMediaErrorLabel(
+            String(data.error ?? "ai_media_generation_failed"),
+          ),
+        );
+        return;
+      }
+      // A queued job does not instantly create outputs. Re-read outputs so the
+      // panel reflects the canonical state when the worker finishes.
+      await loadOutputs();
+      setMessage("Memulai pembuatan gambar AI...");
+      // Keep polling outputs briefly so the UI updates when the worker saves the
+      // drafts. A few seconds is enough for a real provider worker; if nothing
+      // appears, the panel still shows the honest empty state.
+      let polled = 0;
+      const interval = setInterval(async () => {
+        if (polled > 12) {
+          clearInterval(interval);
+          return;
+        }
+        polled += 1;
+        await loadOutputs();
+        const hasAny =
+          outputs.length > 0 ||
+          (await (
+            await fetch(
+              `/api/producer/places/${placeId}/ai-media/outputs`,
+            )
+          ).json()).outputs?.length
+            ? true
+            : false;
+        if (hasAny) {
+          clearInterval(interval);
+        }
+      }, 1000);
+      await new Promise((resolve) => setTimeout(resolve, 12000));
+      clearInterval(interval);
+      await loadOutputs();
+    } catch {
+      setGenerateError(aiMediaErrorLabel("ai_media_generation_failed"));
+    } finally {
+      setGenerateBusy(false);
+    }
+  }
+
+  async function decideOutput(
+    outputKey: string,
+    status: "approved" | "rejected",
+  ) {
     setDecisionBusy((current) => ({ ...current, [outputKey]: true }));
     setOutputsError("");
     try {
-      const response = await fetch(`/api/producer/places/${placeId}/ai-media/approve`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ outputKey, status }),
-      });
+      const response = await fetch(
+        `/api/producer/places/${placeId}/ai-media/approve`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ outputKey, status }),
+        },
+      );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        setOutputsError(aiMediaErrorLabel(String(data.error ?? "ai_media_approval_failed")));
+        setOutputsError(
+          aiMediaErrorLabel(
+            String(data.error ?? "ai_media_approval_failed"),
+          ),
+        );
         return;
       }
       // The server decided; re-read the canonical outputs instead of assuming.
       await loadOutputs();
-      setMessage(status === "approved" ? "Gambar disetujui." : "Gambar ditolak.");
+      setMessage(
+        status === "approved" ? "Gambar disetujui." : "Gambar ditolak.",
+      );
     } catch {
       setOutputsError(aiMediaErrorLabel("ai_media_approval_failed"));
     } finally {
@@ -270,138 +445,196 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
     }
   }
 
-  const completedSources = AI_MEDIA_SOURCE_SLOTS.filter((slot) => Boolean(sources[slot.key])).length;
-  const sourcesComplete = completedSources === AI_MEDIA_SOURCE_SLOTS.length;
-  const regenerationLocked = !isAiMediaRegenerationUnlocked();
+  const completedSources = AI_MEDIA_SOURCE_SLOTS.filter(
+    (slot) => Boolean(sources[slot.key]),
+  ).length;
+  const sourcesComplete =
+    completedSources === AI_MEDIA_SOURCE_SLOTS.length;
+  const generationAvailable =
+    generationCap?.available === true &&
+    sourcesComplete &&
+    !generateBusy;
+  const regenerationLocked = true; // locked for now; never client-controlled.
 
   return (
-    <div className="grid min-w-0 gap-4">
-      {/* 4 SOURCE PHOTOS — private inputs for the AI media foundation. They are
-          additional derived-media inputs: the standard 5 photo slots are
-          untouched and live on their own tab. */}
-      <div className="grid min-w-0 gap-3">
-        <div>
-          <span className="text-sm font-semibold">Foto Sumber AI ({AI_MEDIA_SOURCE_SLOTS.length} slot)</span>
-          <p className="mt-1 text-xs text-black/55">
-            Foto sumber bersifat privat dan hanya untuk membuat gambar AI — bukan sampul Tempat.
-            Format {AI_MEDIA_ACCEPTED_TYPES.join(", ")} — maksimal {Math.round(AI_MEDIA_MAX_BYTES / (1024 * 1024))} MB per foto.
-            File yang kamu unggah disimpan apa adanya.
-          </p>
-        </div>
-        {sourcesLoading && <p className="text-xs text-black/55" role="status">Memuat foto sumber...</p>}
-        {sourcesError && <p className="text-xs font-semibold text-red-700" role="alert">{sourcesError}</p>}
-        {AI_MEDIA_SOURCE_SLOTS.map((slot) => (
-          <AiMediaSourceSlot
-            key={slot.key}
-            label={slot.label}
-            hint={slot.promptHint}
-            state={sources[slot.key] ?? null}
-            busy={Boolean(slotBusy[slot.key])}
-            error={slotError[slot.key] ?? ""}
-            onUpload={(file) => uploadSource(slot.key, file)}
-          />
-        ))}
-      </div>
-
-      {/* GENERATION — locked/unavailable. No provider is integrated and there
-          is no client generation endpoint, so NO active generation control is
-          rendered. "Generate Ulang" stays locked. */}
-      <section className="grid min-w-0 gap-2 rounded-lg border border-dashed border-black/20 bg-brand-cream p-3" aria-label="Pembuatan Gambar AI">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-accent">Pembuatan Gambar AI</p>
-          <span className="text-[11px] font-semibold text-black/50">
-            Foto sumber: {completedSources}/{AI_MEDIA_SOURCE_SLOTS.length}
+    <div className="grid min-w-0 gap-5">
+      {/* 4 SOURCE PHOTOS */}
+      <section className="grid min-w-0 gap-4" aria-label="Foto sumber AI">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">Foto sumber AI</h2>
+            <p className="mt-0.5 text-xs text-black/55">
+              Keempat foto ini adalah bahan baku privat untuk membuat gambar AI.
+              Foto asli yang kamu unggah tidak berubah. Foto ini tidak menggantikan
+              foto Tempat.
+            </p>
+          </div>
+          <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs font-bold">
+            {completedSources}/{AI_MEDIA_SOURCE_SLOTS.length}
           </span>
         </div>
-        <p className="text-xs text-black/55">
-          {sourcesComplete
-            ? "Keempat foto sumber sudah lengkap."
-            : "Lengkapi keempat foto sumber di atas untuk menyiapkan gambar AI."}
-        </p>
-        <p className="text-xs font-semibold text-black/60" role="note">
-          Pembuatan gambar AI belum dapat dijalankan — belum ada penyedia AI yang terhubung. Setelah tersedia,
-          gambar hasil tetap berstatus draft sampai kamu menyetujuinya.
-        </p>
+
+        {sourcesLoading && (
+          <p className="text-xs text-black/55" role="status">
+            Memuat foto sumber...
+          </p>
+        )}
+        {sourcesError && (
+          <p className="text-xs font-semibold text-red-700" role="alert">
+            {sourcesError}
+          </p>
+        )}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          {AI_MEDIA_SOURCE_SLOTS.map((slot) => {
+            const state = sources[slot.key] ?? null;
+            const busy = Boolean(slotBusy[slot.key]);
+            const error = slotError[slot.key] ?? "";
+            return (
+              <AiMediaSourceCard
+                key={slot.key}
+                label={slot.label}
+                hint={slot.promptHint}
+                state={state}
+                busy={busy}
+                error={error}
+                onUpload={(file) => uploadSource(slot.key, file)}
+              />
+            );
+          })}
+        </div>
+      </section>
+
+      {/* BUAT GAMBAR */}
+      <section
+        className={`grid min-w-0 gap-3 rounded-xl border p-4 ${
+          generationAvailable
+            ? "border-brand-accent/30 bg-brand-accent/5"
+            : "border-black/10 bg-brand-cream"
+        }`}
+        aria-label="Buat Gambar AI"
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold">Buat Gambar</h2>
+          <span className="text-[11px] font-semibold text-black/50">
+            Foto sumber: {completedSources}/4
+          </span>
+        </div>
+
+        {generationCapLoading ? (
+          <p className="text-xs text-black/55" role="status">
+            Memeriksa ketersediaan gambar AI...
+          </p>
+        ) : !sourcesComplete ? (
+          <p className="text-xs text-black/60">
+            Lengkapi keempat foto sumber di atas untuk menyelesaikan bahan ini.
+          </p>
+        ) : generationCap?.available === false ? (
+          <>
+            <p className="text-xs text-black/60">
+              Keempat foto sumber sudah lengkap.
+            </p>
+            <p className="text-xs font-semibold text-red-700" role="alert">
+              {generationCap.reason ??
+                "Gambar AI belum dapat dibuat."}
+            </p>
+            {generationCap.provider && (
+              <p className="text-[11px] text-black/45">
+                Penyedia yang terdaftar: {generationCap.provider}.
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-black/60">
+              Siap membuat dua gambar AI dari keempat foto sumber ini.
+            </p>
+            <button
+              type="button"
+              disabled={generateBusy}
+              onClick={createGeneration}
+              className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-ink/90 disabled:opacity-50"
+            >
+              {generateBusy ? "Membuat..." : "Buat Gambar"}
+            </button>
+            {generateError && (
+              <p className="text-xs font-semibold text-red-700" role="alert">
+                {generateError}
+              </p>
+            )}
+          </>
+        )}
+
         {regenerationLocked && (
-          <p className="text-xs text-black/45" role="note">
+          <p className="text-[11px] text-black/45" role="note">
             Generate Ulang terkunci dan tidak dapat dijalankan dari sini.
           </p>
         )}
       </section>
 
-      {/* 2 GENERATED OUTPUTS — exactly Hook Image + Place Story Image. Both are
-          drafts until the Producer approves them through the existing approval
-          API. Nothing is auto-published. */}
-      <div className="grid min-w-0 gap-3">
+      {/* 2 GENERATED OUTPUTS */}
+      <section className="grid min-w-0 gap-4" aria-label="Hasil Gambar AI">
         <div>
-          <span className="text-sm font-semibold">Hasil Gambar AI ({AI_MEDIA_OUTPUT_SLOTS.length})</span>
-          <p className="mt-1 text-xs text-black/55">
-            Kedua gambar berstatus draft sampai kamu menyetujui atau menolaknya. Menyetujui Hook Image dapat
-            memperbarui sampul Tempat melalui jalur persetujuan server; Place Story Image tetap terpisah dari sampul.
+          <h2 className="text-sm font-semibold">Hasil Gambar AI</h2>
+          <p className="mt-0.5 text-xs text-black/55">
+            Kedua gambar berstatus draft sampai kamu menyetujui atau menolaknya.
+            Menyetujui Hook Image dapat memperbarui sampul Tempat melalui jalur
+            persetujuan server; Place Story Image tetap terpisah dari sampul.
           </p>
         </div>
-        {outputsLoading && <p className="text-xs text-black/55" role="status">Memuat gambar AI...</p>}
-        {AI_MEDIA_OUTPUT_SLOTS.map((slot) => {
-          const output = outputs.find((item) => item.outputKey === slot.key) ?? null;
-          const busy = Boolean(decisionBusy[slot.key]);
-          const imageUrl = output?.previewUrl ?? output?.publicUrl ?? null;
-          return (
-            <div className="grid min-w-0 gap-2 rounded-lg border border-black/10 p-3" key={slot.key}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-accent">{slot.label}</p>
-                {output && (
-                  <span className="rounded-full border border-black/10 bg-white px-2 py-0.5 text-[11px] font-bold text-black/60">
-                    {outputStatusLabel(output.status)}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-black/55">{slot.description}</p>
-              {imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={imageUrl}
-                  alt={slot.label}
-                  className={`rounded-lg border border-black/10 object-cover ${
-                    slot.aspect === "portrait" ? "mx-auto h-56 w-full max-w-[200px]" : "h-36 w-full"
-                  }`}
-                />
-              ) : (
-                <div className="grid h-28 place-items-center rounded-lg border border-dashed border-black/15 bg-brand-cream text-xs text-black/45">
-                  {output ? "Pratinjau tidak tersedia." : "Belum ada gambar."}
-                </div>
-              )}
-              {output && output.status === "draft" && (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => decideOutput(slot.key, "approved")}
-                    className="rounded-lg bg-brand-ink px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
-                  >
-                    {busy ? "Menyimpan..." : "Setujui"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => decideOutput(slot.key, "rejected")}
-                    className="rounded-lg border border-black/15 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
-                  >
-                    Tolak
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {outputsError && <p className="text-xs font-semibold text-red-700" role="alert">{outputsError}</p>}
-      </div>
 
-      {message && <p className="text-sm text-black/60" role="status">{message}</p>}
+        {outputsLoading && (
+          <p className="text-xs text-black/55" role="status">
+            Memuat gambar AI...
+          </p>
+        )}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          {AI_MEDIA_OUTPUT_SLOTS.map((slot) => {
+            const output = outputs.find(
+              (item) => item.outputKey === slot.key,
+            ) ?? null;
+            const busy = Boolean(decisionBusy[slot.key]);
+
+            return (
+              <AiMediaOutputCard
+                key={slot.key}
+                label={slot.label}
+                description={slot.description}
+                aspect={slot.aspect}
+                output={output}
+                busy={busy}
+                onApprove={() => decideOutput(slot.key, "approved")}
+                onReject={() => decideOutput(slot.key, "rejected")}
+              />
+            );
+          })}
+        </div>
+
+        {outputsError && (
+          <p className="text-xs font-semibold text-red-700" role="alert">
+            {outputsError}
+          </p>
+        )}
+      </section>
+
+      {message && (
+        <p className="text-sm text-black/60" role="status">
+          {message}
+        </p>
+      )}
     </div>
   );
 }
 
-function AiMediaSourceSlot({ label, hint, state, busy, error, onUpload }: {
+function AiMediaSourceCard({
+  label,
+  hint,
+  state,
+  busy,
+  error,
+  onUpload,
+}: {
   label: string;
   hint: string;
   state: SourceState | null;
@@ -410,62 +643,214 @@ function AiMediaSourceSlot({ label, hint, state, busy, error, onUpload }: {
   onUpload: (file: File) => void;
 }) {
   const [pickerError, setPickerError] = useState("");
-  // A real, clickable button opens the file picker; the hidden input still owns
-  // the file (native accept list, form semantics), matching the standard photo
-  // slots.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const onFileChange = (candidate: File | null) => {
     if (!candidate) return;
     try {
-      // The server re-validates on every write; this only gives instant
-      // feedback so a bad file never costs a round-trip.
       validateAiMediaSourceFile({ type: candidate.type, size: candidate.size });
       setPickerError("");
       onUpload(candidate);
     } catch (caught) {
-      setPickerError(aiMediaErrorLabel(caught instanceof AiMediaError ? caught.code : "ai_media_source_upload_failed"));
+      setPickerError(
+        aiMediaErrorLabel(
+          caught instanceof AiMediaError ? caught.code : "ai_media_source_upload_failed",
+        ),
+      );
     }
     // Allow re-selecting the same file (e.g. after a fix) to fire again.
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
-    <div className="grid min-w-0 gap-2 rounded-lg border border-black/10 p-3">
+    <div className="grid min-w-0 gap-2 rounded-xl border border-black/10 bg-white p-3 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-accent">{label}</p>
-        <span className="text-[11px] font-semibold text-black/50">{state ? "Tersimpan" : "Belum ada"}</span>
+        <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-brand-accent">
+          {label}
+        </span>
+        <span
+          className={`text-[11px] font-semibold ${
+            state ? "text-green-700" : "text-black/40"
+          }`}
+        >
+          {state ? "Tersimpan" : "Belum ada"}
+        </span>
       </div>
+
       <p className="text-xs text-black/55">{hint}</p>
+
       {state?.signedUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={state.signedUrl} alt={label} className="h-36 w-full rounded-lg border border-black/10 object-cover" />
+        <img
+          src={state.signedUrl}
+          alt={label}
+          className="h-32 w-full rounded-lg border border-black/10 object-cover"
+        />
       ) : (
-        <div className="grid h-36 place-items-center rounded-lg border border-dashed border-black/15 bg-brand-cream text-xs text-black/45">
+        <div className="grid h-32 place-items-center rounded-lg border border-dashed border-black/15 bg-brand-cream text-center text-xs text-black/45">
           {state ? "Tersimpan — pratinjau tidak tersedia." : "Belum ada foto sumber."}
         </div>
       )}
-      <div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="sr-only"
-          aria-hidden="true"
-          tabIndex={-1}
-          accept={AI_MEDIA_ACCEPTED_TYPES.join(",")}
-          onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
-        />
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full rounded-lg border border-black/15 bg-white px-3 py-2 text-xs font-bold text-black/70 transition hover:border-brand-accent/60 hover:text-brand-ink disabled:opacity-50"
-        >
-          {busy ? "Mengunggah..." : state ? "Ganti foto sumber" : "Unggah foto sumber"}
-        </button>
+
+      {state?.signedUrl && (
+        <div className="rounded-lg bg-brand-cream/60 px-3 py-2 text-xs">
+          <span className="font-semibold text-black/70">
+            {Math.round(state.byteSize / 1024)} KB
+          </span>
+          <span className="ml-2 text-black/40">
+            {state.mimeType.split("/")[1] ?? ""}
+          </span>
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="sr-only"
+        aria-hidden="true"
+        tabIndex={-1}
+        accept={AI_MEDIA_ACCEPTED_TYPES.join(",")}
+        onChange={(event) =>
+          onFileChange(event.target.files?.[0] ?? null)
+        }
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => fileInputRef.current?.click()}
+        className="w-full rounded-lg border border-black/15 bg-white px-3 py-2 text-xs font-bold text-black/70 transition hover:border-brand-accent/60 hover:text-brand-ink disabled:opacity-50"
+      >
+        {busy
+          ? "Mengunggah..."
+          : state
+            ? "Ganti foto sumber"
+            : "Unggah foto sumber"}
+      </button>
+
+      {pickerError && (
+        <p className="text-xs font-semibold text-red-700" role="alert">
+          {pickerError}
+        </p>
+      )}
+      {error && (
+        <p className="text-xs font-semibold text-red-700" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AiMediaOutputCard({
+  label,
+  description,
+  aspect,
+  output,
+  busy,
+  onApprove,
+  onReject,
+}: {
+  label: string;
+  description: string;
+  aspect: "portrait" | "landscape";
+  output: OutputState | null;
+  busy: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  const imageUrl = output?.previewUrl ?? output?.publicUrl ?? null;
+  const isDraft = output?.status === "draft";
+  const isApproved = output?.status === "approved";
+  const isRejected = output?.status === "rejected";
+
+  return (
+    <div
+      className={`grid min-w-0 gap-2 rounded-xl border p-3 shadow-sm ${
+        isApproved
+          ? "border-green-700/30 bg-green-50"
+          : isRejected
+            ? "border-red-700/25 bg-red-50"
+            : "border-black/10 bg-white"
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-brand-accent">
+          {label}
+        </span>
+        {output && (
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${
+              isApproved
+                ? "border-green-700/40 bg-green-100 text-green-800"
+                : isRejected
+                  ? "border-red-700/30 bg-red-100 text-red-800"
+                  : "border-black/10 bg-white text-black/60"
+            }`}
+          >
+            {outputStatusLabel(output.status)}
+          </span>
+        )}
       </div>
-      {pickerError && <p className="text-xs font-semibold text-red-700" role="alert">{pickerError}</p>}
-      {error && <p className="text-xs font-semibold text-red-700" role="alert">{error}</p>}
+
+      <p className="text-xs text-black/55">{description}</p>
+
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={imageUrl}
+          alt={label}
+          className={`rounded-lg border border-black/10 object-cover ${
+            aspect === "portrait"
+              ? "mx-auto h-44 w-full max-w-[180px]"
+              : "h-32 w-full"
+          }`}
+        />
+      ) : output ? (
+        <div className="grid h-32 place-items-center rounded-lg border border-dashed border-black/15 bg-brand-cream text-xs text-black/45">
+          {isDraft
+            ? "Pratinjau belum tersedia."
+            : isRejected
+              ? "Gambar ditolak."
+              : "Pratinjau tidak tersedia."}
+        </div>
+      ) : (
+        <div className="grid h-32 place-items-center rounded-lg border border-dashed border-black/15 bg-brand-cream text-xs text-black/45">
+          Belum ada gambar.
+        </div>
+      )}
+
+      {isDraft && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onApprove}
+            className="rounded-lg bg-brand-ink px-3 py-1.5 text-xs font-bold text-white transition hover:bg-brand-ink/90 disabled:opacity-50"
+          >
+            {busy ? "Menyimpan..." : "Setujui"}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onReject}
+            className="rounded-lg border border-black/15 px-3 py-1.5 text-xs font-semibold transition hover:border-red-600/50 hover:text-red-700 disabled:opacity-50"
+          >
+            {busy ? "Menyimpan..." : "Tolak"}
+          </button>
+        </div>
+      )}
+
+      {isApproved && (
+        <p className="text-[11px] text-green-800">
+          Disetujui · gambar ini sudah terbaca secara publik.
+        </p>
+      )}
+
+      {isRejected && (
+        <p className="text-[11px] text-red-800">
+          Ditolak · gambar ini tidak digunakan.
+        </p>
+      )}
     </div>
   );
 }
