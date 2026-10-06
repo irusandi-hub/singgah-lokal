@@ -14,6 +14,7 @@ import PlaceLocationPicker from "@/components/place-location-picker";
 import PlaceGeoFields from "@/components/place-geo-fields";
 import { publicationStatusLabel } from "@/lib/status-labels";
 import ExperiencesPanel from "./[placeId]/experiences/ExperiencesPanel";
+import PlaceAiMediaPanel from "./PlaceAiMediaPanel";
 
 type Props = { place?: Place; onSaved?: (place: Place) => void };
 
@@ -67,7 +68,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
   // SAVED Place (the upload API is keyed by the Place id), so it is disabled
   // with an explanation while a NEW entry has no id yet — and becomes active
   // the moment the save succeeds (the parent flips new → edit).
-  const [editorTab, setEditorTab] = useState<"detail" | "experience" | "upload">("detail");
+  const [editorTab, setEditorTab] = useState<"detail" | "experience" | "upload" | "ai-media">("detail");
 
   // MEDIA — standard photo slots (Supabase Storage upload; NO HTTP-URL
   // input). State is restored from the canonical place_photos record on
@@ -218,6 +219,23 @@ export default function PlaceForm({ place, onSaved }: Props) {
         >
           Upload
         </button>
+        {/* AI Media — the 4 locked AI source photos and the 2 draft generated
+            outputs. It needs a SAVED Place (the API is keyed by the id), so it
+            follows the same disabled-until-saved rule as Upload. */}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={editorTab === "ai-media"}
+          disabled={!place}
+          aria-disabled={!place}
+          title={place ? undefined : "Simpan Tempat dulu — AI Media membutuhkan Tempat yang sudah tersimpan."}
+          onClick={() => setEditorTab("ai-media")}
+          className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+            editorTab === "ai-media" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
+          } ${place ? "" : "cursor-not-allowed opacity-50"}`}
+        >
+          AI Media
+        </button>
       </div>
       {!place && (
         <p className="min-w-0 break-words text-xs text-black/55" role="note">
@@ -321,6 +339,15 @@ export default function PlaceForm({ place, onSaved }: Props) {
           );
         })}
       </section>
+      )}
+
+      {/* AI MEDIA — the 4 locked source photos plus the 2 draft generated
+          outputs. Separate from the standard photo slots; reachable only for a
+          SAVED Place. */}
+      {editorTab === "ai-media" && place && (
+        <section className="grid min-w-0 gap-3 rounded-xl border border-black/10 p-4" aria-label="AI Media Tempat">
+          <PlaceAiMediaPanel key={place.id} placeId={place.id} />
+        </section>
       )}
 
       {editorTab === "detail" && (
