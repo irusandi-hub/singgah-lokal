@@ -7,10 +7,12 @@ import {
 } from "@/lib/auth/server";
 import {
   AiMediaError,
+  AI_MEDIA_AUDIT_ACTIONS,
   validateAiMediaSourceFile,
   validateAiMediaSourceKey,
   type AiMediaSourceKey,
 } from "@/lib/ai-media";
+import { recordAiMediaAudit } from "@/lib/ai-media-audit";
 import { removeAiMediaObject, uploadAiMediaSource } from "@/lib/ai-media-storage";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 
@@ -84,6 +86,18 @@ export async function POST(
       }
       throw new Error("ai_media_source_upload_failed");
     }
+
+    // Append-only, attributable trail: the SESSION account that stored this
+    // source. Best-effort — an audit failure never rolls back the stored source.
+    await recordAiMediaAudit({
+      placeId,
+      actorId: actor.userId,
+      producerId: access.producerId,
+      action: AI_MEDIA_AUDIT_ACTIONS.sourceUploaded,
+      targetType: "source",
+      targetKey: sourceKey,
+      detail: { mimeType: file.type, byteSize: file.size },
+    });
 
     return NextResponse.json({
       ok: true,

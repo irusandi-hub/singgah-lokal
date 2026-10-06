@@ -144,6 +144,43 @@ export class AiMediaError extends Error {
   }
 }
 
+/**
+ * Append-only audit vocabulary for AI media actions.
+ *
+ * This is the code-side mirror of the CHECK constraint on
+ * `public.ai_media_audit` (migration 0043). Every action that touches AI media
+ * — a source upload, a server-worker output save, an approve/reject decision, a
+ * regeneration attempt (allowed or blocked), or a fail-closed quota refusal —
+ * is recorded with the authenticated Producer account that performed it, so the
+ * history is attributable and never rewritten.
+ */
+export const AI_MEDIA_AUDIT_ACTIONS = {
+  sourceUploaded: "ai_source_uploaded",
+  sourceRemoved: "ai_source_removed",
+  outputSaved: "ai_output_saved",
+  outputApproved: "ai_output_approved",
+  outputRejected: "ai_output_rejected",
+  regenerationRequested: "ai_regeneration_requested",
+  regenerationBlocked: "ai_regeneration_blocked",
+  generationQuotaBlocked: "ai_generation_quota_blocked",
+} as const;
+
+export type AiMediaAuditAction = (typeof AI_MEDIA_AUDIT_ACTIONS)[keyof typeof AI_MEDIA_AUDIT_ACTIONS];
+
+/** What an audit row is about, when it targets a specific AI media object. */
+export const AI_MEDIA_AUDIT_TARGET_TYPES = ["source", "output", "job", "quota"] as const;
+export type AiMediaAuditTargetType = (typeof AI_MEDIA_AUDIT_TARGET_TYPES)[number];
+
+export function validateAiMediaAuditAction(action: unknown): action is AiMediaAuditAction {
+  if (typeof action !== "string") return false;
+  return (Object.values(AI_MEDIA_AUDIT_ACTIONS) as readonly string[]).includes(action);
+}
+
+export function validateAiMediaAuditTargetType(target: unknown): target is AiMediaAuditTargetType {
+  if (typeof target !== "string") return false;
+  return (AI_MEDIA_AUDIT_TARGET_TYPES as readonly string[]).includes(target);
+}
+
 /** File-type + size gate for AI source photos (server-side; mirrored client-side). */
 export function validateAiMediaSourceFile(file: { type?: unknown; size?: unknown }): void {
   if (typeof file.type !== "string" || !(AI_MEDIA_ACCEPTED_TYPES as readonly string[]).includes(file.type)) {

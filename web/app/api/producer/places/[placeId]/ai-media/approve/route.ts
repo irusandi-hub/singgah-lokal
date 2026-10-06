@@ -5,7 +5,14 @@ import {
   requireAuthenticatedActor,
   requireProducerAccess,
 } from "@/lib/auth/server";
-import { AiMediaError, validateAiMediaOutputKey, validateAiMediaStatus, type AiMediaOutputKey } from "@/lib/ai-media";
+import {
+  AiMediaError,
+  AI_MEDIA_AUDIT_ACTIONS,
+  validateAiMediaOutputKey,
+  validateAiMediaStatus,
+  type AiMediaOutputKey,
+} from "@/lib/ai-media";
+import { recordAiMediaAudit } from "@/lib/ai-media-audit";
 import { promoteAiMediaOutputToPublic, removePromotedAiMediaObject } from "@/lib/ai-media-storage";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 
@@ -97,6 +104,22 @@ export async function POST(
       }
       throw new Error("ai_media_approval_failed");
     }
+
+    // Append-only, attributable trail: WHO approved or rejected WHICH output.
+    // The cover-writing approval is the publication-grade action, so it is
+    // recorded explicitly. Best-effort: never rolls back a valid decision.
+    await recordAiMediaAudit({
+      placeId,
+      actorId: actor.userId,
+      producerId: access.producerId,
+      action:
+        status === "approved"
+          ? AI_MEDIA_AUDIT_ACTIONS.outputApproved
+          : AI_MEDIA_AUDIT_ACTIONS.outputRejected,
+      targetType: "output",
+      targetKey: outputKey,
+      detail: { status, publicUrl: promotedPublicUrl },
+    });
 
     return NextResponse.json({ ok: true, outputKey, status, publicUrl: promotedPublicUrl });
   } catch (error) {

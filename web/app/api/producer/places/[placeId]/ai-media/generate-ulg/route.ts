@@ -7,10 +7,12 @@ import {
 } from "@/lib/auth/server";
 import {
   AiMediaError,
+  AI_MEDIA_AUDIT_ACTIONS,
   isAiMediaRegenerationUnlocked,
   REGENERATION_OUTPUT_KEYS,
   validateAiMediaIdempotencyKey,
 } from "@/lib/ai-media";
+import { recordAiMediaAudit } from "@/lib/ai-media-audit";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 
 /**
@@ -40,6 +42,16 @@ export async function POST(
 
     // Gate 1 — locked-gate check FIRST, before any idempotent insert.
     if (!isAiMediaRegenerationUnlocked()) {
+      // A blocked "Generate Ulang" attempt is recorded: it is exactly the kind
+      // of action that must be explainable later. Best-effort.
+      await recordAiMediaAudit({
+        placeId,
+        actorId: actor.userId,
+        producerId: access.producerId,
+        action: AI_MEDIA_AUDIT_ACTIONS.regenerationBlocked,
+        targetType: "job",
+        detail: { reason: "server_lock" },
+      });
       return NextResponse.json({ error: "ai_media_regeneration_locked" }, { status: 403 });
     }
 
@@ -73,6 +85,16 @@ export async function POST(
       }
       throw new Error("ai_media_generation_failed");
     }
+
+    await recordAiMediaAudit({
+      placeId,
+      actorId: actor.userId,
+      producerId: access.producerId,
+      action: AI_MEDIA_AUDIT_ACTIONS.regenerationRequested,
+      targetType: "job",
+      targetKey: idempotencyKey,
+      detail: { outputs: [...REGENERATION_OUTPUT_KEYS] },
+    });
 
     return NextResponse.json({
       ok: true,
