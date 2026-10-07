@@ -4,22 +4,30 @@ import { readFileSync } from "node:fs";
 
 import {
   AI_MEDIA_ACCEPTED_TYPES,
+  AI_MEDIA_COVER_OUTPUT_KEY,
+  AI_MEDIA_HOOK_HORIZONTAL_OUTPUT_KEY,
   AI_MEDIA_MAX_BYTES,
   AI_MEDIA_OUTPUT_SLOTS,
+  AI_MEDIA_SOURCE_KEYS,
   AI_MEDIA_SOURCE_SLOTS,
 } from "@/lib/ai-media";
+import { PLACE_PHOTO_SLOTS } from "@/lib/place-media";
 
 /**
- * PRODUCER AI PLACE MEDIA UI (locked foundation).
+ * PRODUCER AI PLACE MEDIA UI (locked foundation; MEDIA TEMPAT concept).
  *
- * The Producer surface must:
- *  - offer exactly the 4 locked source slots and the 2 locked outputs;
+ * MEDIA TEMPAT has exactly TWO ALTERNATIVE METHODS: MANUAL and GENERATE AI.
+ * The GENERATE AI method must:
+ *  - offer exactly the 4 locked source slots and exactly the 2 locked outputs
+ *    (COVER and HOOK HORIZONTAL);
  *  - reuse the EXISTING AI media APIs (sources / outputs / approve);
  *  - never expose an active generation action, and keep "Generate Ulang" locked;
  *  - never auto-publish: both outputs are drafts until a Producer decides;
- *  - never write the canonical cover directly (only the server approval path);
+ *  - never write the canonical cover directly (only the server approval path),
+ *    and never let Hook Horizontal touch the cover;
  *  - import no server-only helper into the client bundle and name no AI vendor;
- *  - leave the standard 5 Place photo slots untouched.
+ *  - leave the MANUAL method (the standard 5 Place photo slots) untouched, and
+ *    never merge the two methods.
  */
 
 function read(relativePath: string): string {
@@ -61,14 +69,31 @@ test("the source slots are exactly Tempat / Bahan / Proses Produksi / Hasil", ()
   );
 });
 
-test("the outputs are exactly Hook Image (portrait) and Place Story Image (landscape)", () => {
+test("the outputs are exactly Cover (portrait) and Hook Horizontal (landscape)", () => {
   assert.deepStrictEqual(
     AI_MEDIA_OUTPUT_SLOTS.map((slot) => [slot.key, slot.label, slot.aspect]),
     [
-      ["hook", "Hook Image", "portrait"],
-      ["place_story", "Place Story Image", "landscape"],
+      ["hook", "Cover", "portrait"],
+      ["place_story", "Hook Horizontal", "landscape"],
     ],
   );
+  // The approved concept vocabulary is explicitly bound to the locked
+  // structural keys, so the two can never drift apart.
+  assert.equal(AI_MEDIA_COVER_OUTPUT_KEY, "hook");
+  assert.equal(AI_MEDIA_HOOK_HORIZONTAL_OUTPUT_KEY, "place_story");
+});
+
+test("Hook Horizontal is the production-process sequence, not a generic collage", () => {
+  const hookHorizontal = AI_MEDIA_OUTPUT_SLOTS.find(
+    (slot) => slot.key === AI_MEDIA_HOOK_HORIZONTAL_OUTPUT_KEY,
+  );
+  assert.ok(hookHorizontal, "the horizontal output must exist");
+  assert.match(hookHorizontal.description, /Tempat → Bahan → Proses Produksi → Hasil/);
+  assert.match(hookHorizontal.description, /[Bb]ukan kolase/);
+  // It must never be described as (or become) the Place cover.
+  assert.match(hookHorizontal.description, /tidak mengubah sampul Tempat/);
+  // And the UI copy says the same thing about the approval decision.
+  assert.match(panelCode, /Menyetujui Hook Horizontal tidak mengubah sampul Tempat/);
 });
 
 // ===========================================================================
@@ -188,7 +213,9 @@ test("approval is never automatic", () => {
 test("the UI never writes the canonical cover directly", () => {
   assert.equal(panelCode.includes("cover_image_url"), false);
   assert.equal(panelCode.includes("coverImageUrl"), false);
-  assert.match(panelCode, /Place Story Image tetap terpisah dari sampul/);
+  // The cover stays reachable only through the server approval path, and the
+  // horizontal output is explicitly stated never to touch it.
+  assert.match(panelCode, /Menyetujui Hook Horizontal tidak mengubah sampul Tempat/);
 });
 
 // ===========================================================================
@@ -248,10 +275,10 @@ test("the standard 5 Place photo slots are untouched", () => {
   assert.match(placeFormCode, /\/api\/producer\/places\/\$\{place\.id\}\/photos\/\$\{slotKey\}/);
 });
 
-test("the AI media surface sits on its own tab, reachable only for a saved Place", () => {
+test("the AI method sits inside the single Media tab, reachable only for a saved Place", () => {
   assert.match(placeFormCode, /import PlaceAiMediaPanel from "\.\/PlaceAiMediaPanel"/);
-  assert.match(placeFormCode, />\s*AI Media\s*<\/button>/);
-  assert.match(placeFormCode, /editorTab === "ai-media" && place/);
+  assert.match(placeFormCode, />\s*Media\s*<\/button>/);
+  assert.match(placeFormCode, /editorTab === "media" && place/);
   assert.match(placeFormCode, /<PlaceAiMediaPanel key=\{place\.id\} placeId=\{place\.id\} \/>/);
 });
 
@@ -260,4 +287,51 @@ test("the panel never renders a raw stored enum value", () => {
   assert.equal(panelCode.includes("{output.status}"), false);
   assert.equal(panelCode.includes("{output.provider}"), false);
   assert.match(panelCode, /outputStatusLabel\(output\.status\)/);
+});
+
+// ===========================================================================
+// MEDIA TEMPAT — two alternative methods, never mixed
+// ===========================================================================
+
+test("Media holds exactly the two alternative methods: Manual and Generate AI", () => {
+  assert.match(placeFormCode, /Media Tempat/);
+  assert.match(placeFormCode, /setMediaMethod\("manual"\)/);
+  assert.match(placeFormCode, /setMediaMethod\("generate-ai"\)/);
+  // The method choice is exclusive: each method body is gated on its own
+  // value, so the manual slots and the AI source photos are never rendered as
+  // one combined "5 manual slots + 4 AI slots" surface.
+  assert.match(placeFormCode, /\{mediaMethod === "manual" && \(/);
+  assert.match(placeFormCode, /\{mediaMethod === "generate-ai" && \(/);
+  // ...and nothing media is rendered before a method is chosen.
+  assert.match(placeFormCode, /\{mediaMethod === null && \(/);
+  // There is exactly ONE media surface: the old separate upload / AI tabs are
+  // gone, so no second page looks like the main upload workflow.
+  assert.equal(placeFormCode.includes("setEditorTab(\"upload\")"), false);
+  assert.equal(placeFormCode.includes("setEditorTab(\"ai-media\")"), false);
+  // The AI panel is only reachable inside the Generate AI method.
+  assert.match(
+    placeFormCode,
+    /\{mediaMethod === "generate-ai" && \([\s\S]{0,900}<PlaceAiMediaPanel/,
+  );
+});
+
+test("the two methods never share a workflow: separate APIs, separate state", () => {
+  // The manual method writes through the standard photos API; the AI method
+  // writes through the private AI sources API. A slot saved by one flow can
+  // never be mistaken for the other.
+  assert.match(placeFormCode, /\/api\/producer\/places\/\$\{place\.id\}\/photos\/\$\{slotKey\}/);
+  assert.match(panelCode, /\/api\/producer\/places\/\$\{placeId\}\/ai-media\/sources\/\$\{sourceKey\}/);
+  assert.notEqual("photos", "ai-media/sources");
+  // The Generate AI method names its own 4 inputs only through the locked AI
+  // vocabulary; the manual slot list never enters the AI panel, and the AI
+  // source slots never enter the manual slot list.
+  assert.match(placeFormCode, /PlaceAiMediaPanel/);
+  assert.match(placeFormCode, /PLACE_PHOTO_SLOTS\.map/);
+  assert.equal(placeFormCode.includes("AI_MEDIA_SOURCE_SLOTS"), false);
+  assert.equal(panelCode.includes("PLACE_PHOTO_SLOTS"), false);
+  // The standard slots stay a 5-slot manual vocabulary; the AI method never
+  // adds a 5th input or a 3rd output.
+  assert.equal(PLACE_PHOTO_SLOTS.length, 5);
+  assert.equal(AI_MEDIA_SOURCE_KEYS.length, 4);
+  assert.equal(AI_MEDIA_OUTPUT_SLOTS.length, 2);
 });

@@ -1,8 +1,17 @@
 /**
  * AI PLACE MEDIA — locked contract module (SINGGAH LOKAL).
  *
+ * MEDIA TEMPAT has exactly TWO ALTERNATIVE METHODS (approved concept):
+ *   A. MANUAL      — the Producer manages the standard photo slots themselves.
+ *                    A separate flow (lib/place-media): it never mixes with the
+ *                    AI source photos.
+ *   B. GENERATE AI — exactly 4 source photos in, exactly 2 generated outputs
+ *                    out, reviewed and approved/rejected by the Producer.
+ *
  * Inputs (source photos): place, material, process, result
- * Outputs (generated): hook, place_story
+ * Outputs (generated):
+ *   COVER           (structural key `hook`, portrait)
+ *   HOOK HORIZONTAL (structural key `place_story`, landscape)
  * Source limits: 5 MB, accepted image/jpeg|image/png|image/webp|image/avif
  * Regeneration: initially LOCKED (server gate only, no client bypass)
  *
@@ -18,7 +27,8 @@
  *  - Provider abstraction: provider is a stored enum/config, not a hardcoded
  *    vendor. No provider is invoked by this module.
  *  - "Generate Ulang" exists in the architecture but is LOCKED.
- *  - Regeneration generates BOTH outputs (hook + place_story) when unlocked.
+ *  - Regeneration generates BOTH outputs (cover + hook horizontal) when
+ *    unlocked.
  *  - Source media is never public; signed read only via server RPC.
  */
 
@@ -88,26 +98,43 @@ export const AI_MEDIA_SOURCE_SLOTS: readonly AiMediaSourceSlot[] = [
 ] as const;
 
 /**
- * The 2 generated outputs.
+ * The approved concept maps onto the locked structural keys (0042/0044/0045):
  *
- * - hook: canonical Place cover (portrait). Updates cover_image_url ONLY after
+ *   COVER           → `hook`        (portrait)
+ *   HOOK HORIZONTAL → `place_story` (landscape)
+ *
+ * The keys are the database contract and stay unchanged; these aliases keep the
+ * concept vocabulary explicitly bound to them in ONE place, so the UI, the
+ * prompts and the storage paths can never drift apart.
+ */
+export const AI_MEDIA_COVER_OUTPUT_KEY: AiMediaOutputKey = "hook";
+export const AI_MEDIA_HOOK_HORIZONTAL_OUTPUT_KEY: AiMediaOutputKey = "place_story";
+
+/**
+ * The exactly 2 generated outputs.
+ *
+ * - COVER (`hook`): the canonical Place cover (portrait), grounded in the 4
+ *   source photos. Updates places.cover_image_url ONLY after an explicit
  *   Producer approval via approve_ai_media_output.
- * - place_story: horizontal/landscape story image for Home/Discovery cards that
- *   communicates Tempat → Bahan → Proses → Hasil and is grounded in the 4
- *   source photos (NOT a simple 4-panel collage).
+ * - HOOK HORIZONTAL (`place_story`): a horizontal image that communicates the
+ *   PRODUCTION PROCESS by arranging the four source visuals in the locked
+ *   sequence Tempat → Bahan → Proses Produksi → Hasil. It is NOT a generic
+ *   4-photo collage, and approving it NEVER touches the Place cover.
  */
 export const AI_MEDIA_OUTPUT_SLOTS: readonly AiMediaOutputSlot[] = [
   {
     key: "hook",
-    label: "Hook Image",
-    description: "Sampul Place canonical yang diturunkan dari 4 foto sumber.",
+    label: "Cover",
+    description:
+      "Sampul Place canonical (portrait) dari 4 foto sumber. Sampul diperbarui hanya setelah kamu menyetujuinya.",
     aspect: "portrait",
     sortOrder: 0,
   },
   {
     key: "place_story",
-    label: "Place Story Image",
-    description: "Gambar cerita horizontal untuk Home/Discovery yang menghubungkan Tempat → Bahan → Proses → Hasil, berakar pada 4 foto sumber.",
+    label: "Hook Horizontal",
+    description:
+      "Gambar horizontal yang menyusun Tempat → Bahan → Proses Produksi → Hasil untuk menjelaskan proses produksi. Bukan kolase 4 foto generik, dan tidak mengubah sampul Tempat.",
     aspect: "landscape",
     sortOrder: 1,
   },
@@ -235,7 +262,11 @@ export type AiMediaProviderConfig = {
  */
 export interface AiMediaProvider {
   readonly providerName: string;
-  /** Both outputs must be generated for a regeneration job. */
+  /**
+   * BOTH outputs must be generated: the COVER (`hook`) and the HOOK HORIZONTAL
+   * (`placeStory`). The horizontal output must express the locked sequence
+   * Tempat → Bahan → Proses Produksi → Hasil, not a generic 4-photo collage.
+   */
   generateBoth(
     placeId: string,
     producerId: string,
@@ -244,7 +275,10 @@ export interface AiMediaProvider {
 }
 
 /** Which outputs a regeneration job must produce when eventually unlocked. */
-export const REGENERATION_OUTPUT_KEYS: readonly AiMediaOutputKey[] = ["hook", "place_story"];
+export const REGENERATION_OUTPUT_KEYS: readonly AiMediaOutputKey[] = [
+  AI_MEDIA_COVER_OUTPUT_KEY,
+  AI_MEDIA_HOOK_HORIZONTAL_OUTPUT_KEY,
+];
 
 /**
  * REGENERATION LOCK — LOCKED initially (locked product design).
@@ -340,7 +374,9 @@ export function validateAiMediaIdempotencyKey(key: unknown): string {
 
 /** The prompt revision keys, one per output. Code is the source of truth. */
 export const AI_MEDIA_PROMPT_KEYS = {
+  // COVER (structural key `hook`)
   hook: "place_hook_image",
+  // HOOK HORIZONTAL (structural key `place_story`)
   placeStory: "place_story_image",
 } as const;
 

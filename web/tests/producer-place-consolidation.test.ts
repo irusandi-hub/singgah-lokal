@@ -13,18 +13,20 @@ import { readFileSync } from "node:fs";
  * - the "Tempat yang Kamu Kelola" roster with each Place selectable for management;
  * - "+ Tambahkan Tempat" BELOW the roster, opening the add form IN PLACE
  *   (view "new") — save transitions new → edit/manage with the id preserved
- *   (Upload immediately usable);
- * - the editor reuses the SAME PlaceForm (Informasi | Experience | Upload
- *   tabs; Experience tab reuses the standalone experiences surface).
+ *   (Media immediately usable);
+ * - the editor reuses the SAME PlaceForm (Informasi | Kegiatan | Media tabs;
+ *   Kegiatan reuses the standalone experiences surface, and Media holds the
+ *   two ALTERNATIVE media methods — Manual | Generate AI — one at a time).
  *
  * There is NO second Place list page: /producer/places and /producer/places/new
  * are pure redirects to /producer (backward-compatible hand-offs, no UI, no
  * parallel form). The per-Place deep-link routes stay reachable and render the
  * SAME canonical editor.
  *
- * The Upload tab remains REAL: for a saved Place it drives the existing
- * server-side multipart endpoint (Producer-gated) → Supabase Storage →
- * place_photos, restores slots on reload; for a NEW Place it is disabled with
+ * The Media tab stays REAL: for a saved Place the MANUAL method drives the
+ * existing server-side multipart endpoint (Producer-gated) → Supabase Storage
+ * → place_photos and restores slots on reload, while the GENERATE AI method
+ * drives the existing AI media APIs; for a NEW Place the tab is disabled with
  * the reason shown. PLACE_PHOTO_SLOTS stays the slot source of truth.
  * The dashboard loads Places server-side from the authenticated user's
  * owner/manager memberships via the canonical repository — no new API/auth.
@@ -162,11 +164,15 @@ test("Edit reuses the canonical editor; status, Dari Sini, and Experience stay m
   assert.equal(editPage.includes("function PlaceEditor"), false);
 });
 
-test("Editor tabs are Informasi | Experience | Upload, with Experience reusing the standalone panel", () => {
+test("Editor tabs are Informasi | Kegiatan | Media, with Kegiatan reusing the standalone panel", () => {
   assert.match(formCode, /role="tab"/);
   assert.match(formCode, /Informasi/);
   assert.match(formCode, /setEditorTab\("experience"\)/);
-  assert.match(formCode, /setEditorTab\("upload"\)/);
+  assert.match(formCode, /setEditorTab\("media"\)/);
+  // There is exactly ONE media tab: the old separate Upload / AI Media tabs
+  // are gone, so no second surface looks like the main upload workflow.
+  assert.equal(formCode.includes("setEditorTab(\"upload\")"), false);
+  assert.equal(formCode.includes("setEditorTab(\"ai-media\")"), false);
   // The Experience tab reuses the standalone experiences surface (same API,
   // same links) — no parallel management UI; gated on a saved Place.
   assert.match(formCode, /\{editorTab === "experience" && place && \(/);
@@ -179,16 +185,18 @@ test("Editor tabs are Informasi | Experience | Upload, with Experience reusing t
   assert.match(experiencesPanelCode, /\/producer\/places\/\$\{placeId\}\/experiences\/\$\{experience\.id\}/);
 });
 
-test("The editor carries an actionable Upload tab gated on a saved Place", () => {
-  // Tab "Upload" exists beside "Informasi"/"Experience"...
+test("The editor carries an actionable Media tab gated on a saved Place", () => {
+  // Tab "Media" exists beside "Informasi"/"Kegiatan"...
   assert.match(formCode, /Detail Tempat|Informasi/);
-  assert.match(formCode, /Upload/);
+  assert.match(formCode, /Media Tempat/);
   // ...disabled (with the reason) while the Place has no saved id...
   assert.match(formCode, /disabled=\{!place\}/);
   assert.match(formCode, /aria-disabled=\{!place\}/);
-  assert.match(formCode, /Tab Upload aktif setelah Tempat disimpan/);
-  // ...and the photo slots render only inside the Upload tab.
-  assert.match(formCode, /\{editorTab === "upload" && \(/);
+  assert.match(formCode, /Tab Media aktif setelah Tempat disimpan/);
+  // ...and the MANUAL method's photo slots render only inside the Media tab,
+  // only once the Producer picked that method.
+  assert.match(formCode, /\{editorTab === "media" && place && \(/);
+  assert.match(formCode, /\{mediaMethod === "manual" && \(/);
   assert.match(formCode, /PLACE_PHOTO_SLOTS\.map/);
   // The slot list loads from the canonical place_photos record.
   assert.match(formCode, /\/api\/producer\/places\/\$\{place\.id\}\/photos/);

@@ -63,12 +63,20 @@ export default function PlaceForm({ place, onSaved }: Props) {
       : emptyPlaceForm(),
   );
   const [message, setMessage] = useState("");
-  // Editor tabs (PO, 2026-09-26): "Detail Place" holds the existing Place
-  // fields; "Upload" holds the standard photo slots. The Upload tab needs a
-  // SAVED Place (the upload API is keyed by the Place id), so it is disabled
-  // with an explanation while a NEW entry has no id yet — and becomes active
-  // the moment the save succeeds (the parent flips new → edit).
-  const [editorTab, setEditorTab] = useState<"detail" | "experience" | "upload" | "ai-media">("detail");
+  // Editor tabs (PO, 2026-09-26; Media UX restructure 2026-10-07):
+  //   Informasi  — the existing Place fields;
+  //   Kegiatan   — the experiences surface;
+  //   Media      — MEDIA TEMPAT: the TWO ALTERNATIVE media methods.
+  // The Media tab needs a SAVED Place (both media APIs are keyed by the Place
+  // id), so it is disabled with an explanation while a NEW entry has no id yet
+  // — and becomes active the moment the save succeeds (new → edit).
+  const [editorTab, setEditorTab] = useState<"detail" | "experience" | "media">("detail");
+  // MEDIA METHOD — exactly one of the two alternative methods, chosen by the
+  // Producer. Only the chosen method is rendered and its state is never mixed
+  // with the other one, so the media surface presents one clear workflow
+  // instead of "5 manual slots + 4 AI slots" side by side. The choice is UI
+  // state only: no database field is invented for it.
+  const [mediaMethod, setMediaMethod] = useState<"manual" | "generate-ai" | null>(null);
 
   // MEDIA — standard photo slots (Supabase Storage upload; NO HTTP-URL
   // input). State is restored from the canonical place_photos record on
@@ -205,41 +213,28 @@ export default function PlaceForm({ place, onSaved }: Props) {
         >
           Kegiatan
         </button>
+        {/* Media — MEDIA TEMPAT. ONE media surface holding the two ALTERNATIVE
+            methods (Manual / Generate AI). It needs a SAVED Place (both media
+            APIs are keyed by the id), so it follows the same
+            disabled-until-saved rule as Kegiatan. */}
         <button
           type="button"
           role="tab"
-          aria-selected={editorTab === "upload"}
+          aria-selected={editorTab === "media"}
           disabled={!place}
           aria-disabled={!place}
-          title={place ? undefined : "Simpan Tempat dulu — Upload membutuhkan Tempat yang sudah tersimpan."}
-          onClick={() => setEditorTab("upload")}
+          title={place ? undefined : "Simpan Tempat dulu — Media membutuhkan Tempat yang sudah tersimpan."}
+          onClick={() => setEditorTab("media")}
           className={`rounded-full px-4 py-2 text-xs font-bold transition ${
-            editorTab === "upload" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
+            editorTab === "media" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
           } ${place ? "" : "cursor-not-allowed opacity-50"}`}
         >
-          Upload
-        </button>
-        {/* AI Media — the 4 locked AI source photos and the 2 draft generated
-            outputs. It needs a SAVED Place (the API is keyed by the id), so it
-            follows the same disabled-until-saved rule as Upload. */}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={editorTab === "ai-media"}
-          disabled={!place}
-          aria-disabled={!place}
-          title={place ? undefined : "Simpan Tempat dulu — AI Media membutuhkan Tempat yang sudah tersimpan."}
-          onClick={() => setEditorTab("ai-media")}
-          className={`rounded-full px-4 py-2 text-xs font-bold transition ${
-            editorTab === "ai-media" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
-          } ${place ? "" : "cursor-not-allowed opacity-50"}`}
-        >
-          AI Media
+          Media
         </button>
       </div>
       {!place && (
         <p className="min-w-0 break-words text-xs text-black/55" role="note">
-          Tab Upload aktif setelah Tempat disimpan — Tempat baru harus tersimpan (memiliki ID) terlebih dahulu.
+          Tab Media aktif setelah Tempat disimpan — Tempat baru harus tersimpan (memiliki ID) terlebih dahulu.
         </p>
       )}
 
@@ -282,12 +277,87 @@ export default function PlaceForm({ place, onSaved }: Props) {
         </section>
       )}
 
-      {/* MEDIA — the ≥5 standard photo slots, on the Upload tab. Files go to
-          Supabase Storage through the server-side upload API; the HTTP-URL
-          input was removed as a media mechanism (server-side fail-closed
-          validation). This tab is reachable only for a SAVED Place. */}
-      {editorTab === "upload" && (
-      <section className="grid min-w-0 gap-3 rounded-xl border border-black/10 p-4" aria-label="Foto Tempat">
+      {/* MEDIA TEMPAT — the TWO ALTERNATIVE METHODS (approved concept):
+          MANUAL or GENERATE AI. Exactly one method is rendered at a time, so
+          there is never a second surface that also looks like the main upload
+          workflow, and the manual slots are never combined with the AI source
+          workflow. Reachable only for a SAVED Place. */}
+      {editorTab === "media" && place && (
+      <section className="grid min-w-0 gap-4 rounded-xl border border-black/10 p-4" aria-label="Media Tempat">
+        <div>
+          <h2 className="text-sm font-semibold">Media Tempat</h2>
+          <p className="mt-1 text-xs text-black/55">
+            Pilih salah satu metode media. Manual dan Generate AI adalah dua
+            metode alternatif — pilih satu, bukan keduanya.
+          </p>
+        </div>
+
+        {/* METHOD CHOOSER — the two alternative methods, side by side and
+            explicit. Nothing is uploaded before a method is chosen. */}
+        <div
+          className="grid gap-3 sm:grid-cols-2"
+          role="radiogroup"
+          aria-label="Metode media Tempat"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={mediaMethod === "manual"}
+            onClick={() => setMediaMethod("manual")}
+            className={`grid min-w-0 gap-1 rounded-xl border p-3 text-left transition ${
+              mediaMethod === "manual"
+                ? "border-brand-accent bg-brand-accent/5 shadow-sm"
+                : "border-black/10 bg-white hover:border-brand-accent/50"
+            }`}
+          >
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-brand-accent">Manual</span>
+            <span className="text-sm font-semibold">Kelola foto sendiri</span>
+            <span className="text-xs text-black/55">
+              Kamu mengunggah dan mengelola {PLACE_PHOTO_SLOTS.length} foto
+              Tempat: judul, deskripsi, ganti, dan hapus per slot. Tidak ada
+              gambar buatan AI di metode ini.
+            </span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={mediaMethod === "generate-ai"}
+            onClick={() => setMediaMethod("generate-ai")}
+            className={`grid min-w-0 gap-1 rounded-xl border p-3 text-left transition ${
+              mediaMethod === "generate-ai"
+                ? "border-brand-accent bg-brand-accent/5 shadow-sm"
+                : "border-black/10 bg-white hover:border-brand-accent/50"
+            }`}
+          >
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-brand-accent">Generate AI</span>
+            <span className="text-sm font-semibold">4 foto sumber → 2 gambar</span>
+            <span className="text-xs text-black/55">
+              Siapkan 4 foto sumber (Tempat, Bahan, Proses Produksi, Hasil).
+              AI membuat 2 gambar: Cover dan Hook Horizontal. Kamu tetap
+              menyetujui atau menolaknya.
+            </span>
+          </button>
+        </div>
+
+        {mediaMethod === null && (
+          <p className="text-xs text-black/50" role="note">
+            Pilih salah satu metode di atas untuk mulai mengelola media Tempat.
+          </p>
+        )}
+
+        {/* METHOD A — MANUAL: the standard photo slots. Same locked upload API,
+            same limits, same Storage bucket; nothing here is AI-generated. */}
+        {mediaMethod === "manual" && (
+      <section className="grid min-w-0 gap-3 rounded-xl border border-black/10 bg-white p-4" aria-label="Media manual Tempat">
+        <div>
+          <h3 className="text-sm font-semibold">Metode: Manual</h3>
+          <p className="mt-1 text-xs text-black/55">
+            Foto diunggah ke penyimpanan server melalui API upload yang sama;
+            tidak ada input URL gambar. Slot Hook pada metode ini adalah sampul
+            (cover) Tempat yang tampil di Home. Metode ini terpisah dari metode
+            Generate AI.
+          </p>
+        </div>
         <div>
           <span className="text-sm font-semibold">Foto Tempat ({PLACE_PHOTO_SLOTS.length} slot)</span>
           <p className="mt-1 text-xs text-black/55">
@@ -339,15 +409,26 @@ export default function PlaceForm({ place, onSaved }: Props) {
           );
         })}
       </section>
-      )}
+        )}
 
-      {/* AI MEDIA — the 4 locked source photos plus the 2 draft generated
-          outputs. Separate from the standard photo slots; reachable only for a
-          SAVED Place. */}
-      {editorTab === "ai-media" && place && (
-        <section className="grid min-w-0 gap-3 rounded-xl border border-black/10 p-4" aria-label="AI Media Tempat">
-          <PlaceAiMediaPanel key={place.id} placeId={place.id} />
-        </section>
+        {/* METHOD B — GENERATE AI: exactly 4 private source photos in, exactly
+            2 generated outputs out (Cover + Hook Horizontal). It reuses the
+            existing AI media APIs, approval flow and audit trail, and it is
+            never merged with the manual slots above. */}
+        {mediaMethod === "generate-ai" && (
+      <section className="grid min-w-0 gap-4 rounded-xl border border-black/10 bg-white p-4" aria-label="Media Generate AI Tempat">
+        <div>
+          <h3 className="text-sm font-semibold">Metode: Generate AI</h3>
+          <p className="mt-1 text-xs text-black/55">
+            Empat foto sumber (Tempat, Bahan, Proses Produksi, Hasil) menjadi
+            bahan dua gambar AI: Cover dan Hook Horizontal. Foto sumber ini
+            terpisah dari foto Tempat pada metode Manual.
+          </p>
+        </div>
+        <PlaceAiMediaPanel key={place.id} placeId={place.id} />
+      </section>
+        )}
+      </section>
       )}
 
       {editorTab === "detail" && (

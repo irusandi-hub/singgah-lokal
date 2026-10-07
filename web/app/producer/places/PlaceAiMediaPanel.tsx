@@ -13,28 +13,32 @@ import {
 } from "@/lib/ai-media";
 
 /**
- * AI MEDIA — Producer surface (SINGGAH LOKAL).
+ * MEDIA TEMPAT — method B: GENERATE AI (SINGGAH LOKAL).
  *
- * A Producer-facing panel for the locked AI Place Media flow:
- *  1. Upload the 4 source photos (Tempat / Bahan / Proses Produksi / Hasil).
+ * This panel is ONE of the two alternative media methods (the other is MANUAL,
+ * owned by the standard photo slots in PlaceForm). It is never combined with
+ * manual slots: it has its own private source photos and its own generated
+ * outputs.
+ *
+ * The locked flow:
+ *  1. Prepare EXACTLY 4 source photos (Tempat / Bahan / Proses Produksi /
+ *     Hasil). These private photos are the generation input and stay unchanged.
  *  2. When all 4 are ready and the server says generation is available, press
  *     "Buat Gambar".
- *  3. Review the 2 generated outputs (Hook Image / Place Story Image) — both
- *     stay Draft until the Producer approves or rejects.
+ *  3. Review EXACTLY 2 generated outputs — COVER and HOOK HORIZONTAL. Both stay
+ *     Draft until the Producer approves or rejects them:
+ *       - Cover is the canonical Place cover. It reaches
+ *         places.cover_image_url only through the existing server approval path.
+ *       - Hook Horizontal communicates the production process by arranging the
+ *         four source visuals in the locked sequence Tempat → Bahan → Proses
+ *         Produksi → Hasil. It is NOT a generic 4-photo collage, and approving
+ *         it never changes the Place cover.
  *
- * Source photos are PRIVATE inputs for the AI media flow. They coexist with the
- * standard 5 Place photo slots (different tab, different API, different private
- * bucket) and never replace them. Uploading a source replaces only that slot;
- * the original file the Producer uploaded stays unchanged.
- *
- * Generated media is DERIVED media. Nothing is auto-published. Hook approval may
- * affect the canonical cover only through the existing server approval path;
- * Place Story stays separate.
- *
- * "Buat Gambar" is enabled only when the server says generation is actually
- * possible (provider configured + enabled, 4 sources present, quota available).
- * If no provider is connected, the panel shows that honestly instead of faking a
- * generation. "Generate Ulang" stays locked and is never an active control.
+ * Nothing is auto-published. "Buat Gambar" is enabled only when the server says
+ * generation is actually possible (provider configured + enabled, 4 sources
+ * present, quota available). If no provider is connected the panel says so
+ * honestly instead of faking a generation. "Generate Ulang" stays locked and is
+ * never an active control.
  *
  * The UI mirrors server limits for instant pick-time feedback only; the server
  * re-validates every write and stays the authority.
@@ -371,37 +375,21 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
         );
         return;
       }
-      // A queued job does not instantly create outputs. Re-read outputs so the
-      // panel reflects the canonical state when the worker finishes.
-      await loadOutputs();
+      // A queued job does not instantly create outputs. Re-read the canonical
+      // outputs until the worker saves the drafts — a bounded poll, then the
+      // honest empty state stays if nothing arrived.
       setMessage("Memulai pembuatan gambar AI...");
-      // Keep polling outputs briefly so the UI updates when the worker saves the
-      // drafts. A few seconds is enough for a real provider worker; if nothing
-      // appears, the panel still shows the honest empty state.
-      let polled = 0;
-      const interval = setInterval(async () => {
-        if (polled > 12) {
-          clearInterval(interval);
-          return;
-        }
-        polled += 1;
-        await loadOutputs();
-        const hasAny =
-          outputs.length > 0 ||
-          (await (
-            await fetch(
-              `/api/producer/places/${placeId}/ai-media/outputs`,
-            )
-          ).json()).outputs?.length
-            ? true
-            : false;
-        if (hasAny) {
-          clearInterval(interval);
-        }
-      }, 1000);
-      await new Promise((resolve) => setTimeout(resolve, 12000));
-      clearInterval(interval);
-      await loadOutputs();
+      const maxPolls = 12;
+      for (let polled = 0; polled < maxPolls; polled += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const listResponse = await fetch(
+          `/api/producer/places/${placeId}/ai-media/outputs`,
+        );
+        const listData = await listResponse.json().catch(() => ({}));
+        setOutputs(mapOutputRows((listData.outputs ?? []) as OutputRow[]));
+        if (Array.isArray(listData.outputs) && listData.outputs.length > 0) break;
+      }
+      setOutputsLoading(false);
     } catch {
       setGenerateError(aiMediaErrorLabel("ai_media_generation_failed"));
     } finally {
@@ -458,15 +446,18 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
 
   return (
     <div className="grid min-w-0 gap-5">
-      {/* 4 SOURCE PHOTOS */}
+      {/* STEP 1 — EXACTLY 4 SOURCE PHOTOS */}
       <section className="grid min-w-0 gap-4" aria-label="Foto sumber AI">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
-            <h2 className="text-sm font-semibold">Foto sumber AI</h2>
+            <h3 className="text-sm font-semibold">1. Foto sumber (4)</h3>
             <p className="mt-0.5 text-xs text-black/55">
-              Keempat foto ini adalah bahan baku privat untuk membuat gambar AI.
-              Foto asli yang kamu unggah tidak berubah. Foto ini tidak menggantikan
-              foto Tempat.
+              Empat foto ini adalah bahan baku privat untuk membuat gambar AI:
+              Tempat, Bahan, Proses Produksi, dan Hasil. Foto asli yang kamu
+              unggah tidak berubah dan tidak menggantikan foto Tempat pada
+              metode Manual. Format {AI_MEDIA_ACCEPTED_TYPES.join(", ")} —
+              maksimal {Math.round(AI_MEDIA_MAX_BYTES / (1024 * 1024))} MB per
+              foto.
             </p>
           </div>
           <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs font-bold">
@@ -505,7 +496,7 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
         </div>
       </section>
 
-      {/* BUAT GAMBAR */}
+      {/* STEP 2 — BUAT GAMBAR */}
       <section
         className={`grid min-w-0 gap-3 rounded-xl border p-4 ${
           generationAvailable
@@ -515,11 +506,15 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
         aria-label="Buat Gambar AI"
       >
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold">Buat Gambar</h2>
+          <h3 className="text-sm font-semibold">2. Buat Gambar</h3>
           <span className="text-[11px] font-semibold text-black/50">
             Foto sumber: {completedSources}/4
           </span>
         </div>
+
+        <p className="text-xs text-black/60">
+          AI membuat tepat dua gambar: Cover dan Hook Horizontal.
+        </p>
 
         {generationCapLoading ? (
           <p className="text-xs text-black/55" role="status">
@@ -527,7 +522,7 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
           </p>
         ) : !sourcesComplete ? (
           <p className="text-xs text-black/60">
-            Lengkapi keempat foto sumber di atas untuk menyelesaikan bahan ini.
+            Lengkapi keempat foto sumber di atas sebelum membuat gambar.
           </p>
         ) : generationCap?.available === false ? (
           <>
@@ -546,14 +541,11 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
           </>
         ) : (
           <>
-            <p className="text-xs text-black/60">
-              Siap membuat dua gambar AI dari keempat foto sumber ini.
-            </p>
             <button
               type="button"
               disabled={generateBusy}
               onClick={createGeneration}
-              className="rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-ink/90 disabled:opacity-50"
+              className="justify-self-start rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-ink/90 disabled:opacity-50"
             >
               {generateBusy ? "Membuat..." : "Buat Gambar"}
             </button>
@@ -572,14 +564,14 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
         )}
       </section>
 
-      {/* 2 GENERATED OUTPUTS */}
+      {/* STEP 3 — EXACTLY 2 GENERATED OUTPUTS */}
       <section className="grid min-w-0 gap-4" aria-label="Hasil Gambar AI">
         <div>
-          <h2 className="text-sm font-semibold">Hasil Gambar AI</h2>
+          <h3 className="text-sm font-semibold">3. Hasil (2 gambar)</h3>
           <p className="mt-0.5 text-xs text-black/55">
             Kedua gambar berstatus draft sampai kamu menyetujui atau menolaknya.
-            Menyetujui Hook Image dapat memperbarui sampul Tempat melalui jalur
-            persetujuan server; Place Story Image tetap terpisah dari sampul.
+            Menyetujui Cover memperbarui sampul Tempat melalui jalur persetujuan server.
+            Menyetujui Hook Horizontal tidak mengubah sampul Tempat.
           </p>
         </div>
 
@@ -599,7 +591,7 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
             // The status check is mirrored here for rendering; the server
             // remains the authority on the canonical status.
             const outputStatus = output?.status ?? "";
-            const isDraft = output && output.status === "draft";
+            const isDraft = Boolean(output && output.status === "draft");
 
             return (
               <AiMediaOutputCard
@@ -610,6 +602,7 @@ export default function PlaceAiMediaPanel({ placeId }: { placeId: string }) {
                 output={output}
                 busy={busy}
                 outputStatus={outputStatus}
+                isDraft={isDraft}
                 onApprove={() => decideOutput(slot.key, "approved")}
                 onReject={() => decideOutput(slot.key, "rejected")}
               />
@@ -754,6 +747,7 @@ function AiMediaOutputCard({
   output,
   busy,
   outputStatus,
+  isDraft,
   onApprove,
   onReject,
 }: {
@@ -763,11 +757,11 @@ function AiMediaOutputCard({
   output: OutputState | null;
   busy: boolean;
   outputStatus: string;
+  isDraft: boolean;
   onApprove: () => void;
   onReject: () => void;
 }) {
   const imageUrl = output?.previewUrl ?? output?.publicUrl ?? null;
-  const isDraft = outputStatus === "draft";
   const isApproved = outputStatus === "approved";
   const isRejected = outputStatus === "rejected";
 
