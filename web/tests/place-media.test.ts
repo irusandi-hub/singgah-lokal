@@ -100,14 +100,20 @@ test("Upload sends file + title + description to the server-side multipart endpo
   assert.match(code, /removeSlot/);
 });
 
-test("Mobile form safety: editor tabs wrap and controls follow their parent's width", () => {
-  // PO fix, 2026-09-28: the tab row of the editor never pushes past the
-  // phone frame — it wraps like every other producer action row.
-  assert.match(
-    placeForm,
-    /flex flex-wrap gap-2 border-b border-black\/10 pb-3/,
-    "the editor tablist must wrap",
+test("Mobile form safety: the Place items and controls follow their parent's width", () => {
+  // UI/UX restructure 2026-10-08: the editor's four Place items (Informasi |
+  // Kegiatan | Media | Kelola Proses) are ONE equal-width row — each cell is
+  // min-w-0 and the label wraps inside its own cell, so no item can be pushed
+  // out of the phone frame and no horizontal scroll strip is needed.
+  const placeWorkspace = readFileSync(
+    new URL("../app/producer/places/[placeId]/PlaceWorkspace.tsx", import.meta.url),
+    "utf8",
   );
+  const kit = readFileSync(new URL("../components/ui/kit.tsx", import.meta.url), "utf8");
+  assert.match(placeWorkspace, /tabListClass/, "the Place items must use the shared tab layer");
+  assert.match(kit, /grid min-w-0 grid-cols-4 gap-1 rounded-full border/);
+  assert.match(kit, /min-w-0 rounded-full px-1 py-1\.5 text-center text-\[11px\] font-bold leading-tight/);
+  assert.equal(placeWorkspace.includes("overflow-x-auto"), false, "the Place items must not need a horizontal scroll strip");
   // Native form controls keep a large intrinsic width (~278px), which is
   // wider than the form card on narrow phones. The global stylesheet caps
   // every input/textarea/select at its parent's width, so no control can

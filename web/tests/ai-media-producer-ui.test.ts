@@ -47,6 +47,10 @@ const panel = read("app/producer/places/PlaceAiMediaPanel.tsx");
 const panelCode = stripComments(panel);
 const placeForm = read("app/producer/places/PlaceForm.tsx");
 const placeFormCode = stripComments(placeForm);
+// The tab layer moved to the ONE Place workspace (UI/UX restructure
+// 2026-10-08): Media is one of the four Place items.
+const workspace = read("app/producer/places/[placeId]/PlaceWorkspace.tsx");
+const workspaceCode = stripComments(workspace);
 
 // ===========================================================================
 // The locked slot vocabulary
@@ -277,8 +281,8 @@ test("the standard 5 Place photo slots are untouched", () => {
 
 test("the AI method sits inside the single Media tab, reachable only for a saved Place", () => {
   assert.match(placeFormCode, /import PlaceAiMediaPanel from "\.\/PlaceAiMediaPanel"/);
-  assert.match(placeFormCode, />\s*Media\s*<\/button>/);
-  assert.match(placeFormCode, /editorTab === "media" && place/);
+  assert.match(workspaceCode, /\{ key: "media", label: "Media" \}/);
+  assert.match(workspaceCode, /\{tab === "media" && <PlaceMediaPanel place=\{place\} \/>\}/);
   assert.match(placeFormCode, /<PlaceAiMediaPanel key=\{place\.id\} placeId=\{place\.id\} \/>/);
 });
 
@@ -295,8 +299,9 @@ test("the panel never renders a raw stored enum value", () => {
 
 test("Media holds exactly the two alternative methods: Manual and Generate AI", () => {
   assert.match(placeFormCode, /Media Tempat/);
-  assert.match(placeFormCode, /setMediaMethod\("manual"\)/);
-  assert.match(placeFormCode, /setMediaMethod\("generate-ai"\)/);
+  assert.match(placeFormCode, /\{ key: "manual" as const, label: "Manual" \}/);
+  assert.match(placeFormCode, /\{ key: "generate-ai" as const, label: "Generate AI" \}/);
+  assert.match(placeFormCode, /setMediaMethod\(method\.key\)/);
   // The method choice is exclusive: each method body is gated on its own
   // value, so the manual slots and the AI source photos are never rendered as
   // one combined "5 manual slots + 4 AI slots" surface.

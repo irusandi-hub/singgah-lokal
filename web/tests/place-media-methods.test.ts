@@ -47,6 +47,11 @@ const panel = read("app/producer/places/PlaceAiMediaPanel.tsx");
 const panelCode = stripComments(panel);
 const form = read("app/producer/places/PlaceForm.tsx");
 const formCode = stripComments(form);
+// The tab layer moved to the ONE Place workspace (UI/UX restructure
+// 2026-10-08): Media is one of the four Place items, and the media panel is
+// rendered as that item's work area.
+const workspace = read("app/producer/places/[placeId]/PlaceWorkspace.tsx");
+const workspaceCode = stripComments(workspace);
 
 // ===========================================================================
 // ONE media surface, TWO exclusive methods
@@ -54,7 +59,7 @@ const formCode = stripComments(form);
 
 test("the editor offers one Media tab, not a separate upload page and AI page", () => {
   assert.match(formCode, /Media Tempat/);
-  assert.match(formCode, />\s*Media\s*<\/button>/);
+  assert.match(workspaceCode, /\{ key: "media", label: "Media" \}/);
   // The old two-tab split is gone: nothing sets the editor back to an
   // "upload" or "ai-media" tab, so there is no second surface that also looks
   // like the main upload workflow.
@@ -65,18 +70,19 @@ test("the editor offers one Media tab, not a separate upload page and AI page", 
 });
 
 test("the method choice is explicit and exclusive", () => {
-  // The chooser presents both methods and records exactly one of them.
+  // The chooser (a compact selector, UI/UX restructure 2026-10-08) presents
+  // exactly the two methods and records exactly one of them.
   assert.match(formCode, /role="radiogroup"/);
   assert.match(formCode, /role="radio"/);
-  assert.match(formCode, /setMediaMethod\("manual"\)/);
-  assert.match(formCode, /setMediaMethod\("generate-ai"\)/);
-  assert.match(formCode, /aria-checked=\{mediaMethod === "manual"\}/);
-  assert.match(formCode, /aria-checked=\{mediaMethod === "generate-ai"\}/);
+  assert.match(formCode, /\{ key: "manual" as const, label: "Manual" \}/);
+  assert.match(formCode, /\{ key: "generate-ai" as const, label: "Generate AI" \}/);
+  assert.match(formCode, /setMediaMethod\(method\.key\)/);
+  assert.match(formCode, /aria-checked=\{mediaMethod === method\.key\}/);
   // Each method body renders only for its own value — never both together.
   assert.match(formCode, /\{mediaMethod === "manual" && \(/);
   assert.match(formCode, /\{mediaMethod === "generate-ai" && \(/);
-  // The media surfaces live inside the Media tab only.
-  assert.match(formCode, /\{editorTab === "media" && place && \(/);
+  // The media surfaces live inside the Media item of the Place workspace only.
+  assert.match(workspaceCode, /\{tab === "media" && <PlaceMediaPanel place=\{place\} \/>\}/);
 });
 
 test("the user chooses a method before any media control is rendered", () => {
@@ -96,7 +102,7 @@ test("Manual keeps the standard slots through the existing upload path", () => {
   assert.match(formCode, /PLACE_PHOTO_SLOTS\.map/);
   assert.match(formCode, /Foto Tempat \(\{PLACE_PHOTO_SLOTS\.length\} slot\)/);
   assert.match(formCode, /\/api\/producer\/places\/\$\{place\.id\}\/photos\/\$\{slotKey\}/);
-  assert.match(formCode, /\{editorTab === "media" && place && \(/);
+  assert.match(workspaceCode, /\{tab === "media" && <PlaceMediaPanel place=\{place\} \/>\}/);
   assert.equal(PLACE_PHOTO_SLOTS.length, 5, "the standard 5 slots must remain");
 });
 
