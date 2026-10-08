@@ -79,8 +79,10 @@ test("Sign In shows explicit success feedback after server confirms the session"
 
 test("Kelola Akun gateway only renders areas the account holds, server-side", () => {
   assert.ok(accountPage.includes('export const dynamic = "force-dynamic"'));
-  assert.ok(accountPage.includes("producer_memberships"));
-  assert.ok(accountPage.includes('in("role", ["owner", "manager"])'));
+  // Pengelola authority is resolved by the memberships helper (owner/manager
+  // only) and delegated Live Operator access by the live_operators helper.
+  assert.ok(accountPage.includes("resolvePlaceMemberships"));
+  assert.ok(accountPage.includes("resolveLiveOperatorAssignments"));
   assert.ok(accountPage.includes('platform_role === "platform_moderator"'));
   assert.ok(accountPage.includes("isCreatorEmail"));
   assert.ok(accountPage.includes('/auth?returnTo=%2Faccount'));
@@ -235,15 +237,17 @@ test("Role sections still own their URL namespace", () => {
   assert.equal(getActiveNavSection("/account"), "home");
 });
 
-test("Account Center keeps no Keamanan section and exposes new wiring for username, producer access, and live access", () => {
+test("Account Center keeps no Keamanan section and separates Pengelola from delegated Live Operator access", () => {
   assert.doesNotMatch(accountPage, /<Section title="Keamanan">/);
   assert.doesNotMatch(accountPage, /Keluar dari akun ini lalu masuk kembali dengan email dan password yang sama/);
   assert.ok(accountPage.includes('<AccountProfileClient username={authority.username} />'));
   assert.ok(accountPage.includes('<AccountAccessClient memberships={authority.memberships} />'));
-  assert.ok(accountPage.includes('<AccountLiveAccessClient memberships={authority.memberships} />'));
-  assert.ok(accountPage.includes("AccountProfileClient"));
-  assert.ok(accountPage.includes("AccountAccessClient"));
-  assert.ok(accountPage.includes("AccountLiveAccessClient"));
+  // Operator Live is delegated ONLY: it is fed by active live_operators
+  // assignments, never by Producer membership.
+  assert.ok(accountPage.includes('<AccountLiveAccessClient assignments={authority.liveAssignments} />'));
+  assert.ok(!accountPage.includes('<AccountLiveAccessClient memberships={authority.memberships} />'));
   assert.ok(accountPage.includes("resolvePlaceMemberships"));
-  assert.ok(accountPage.includes('memberships: Array<{ placeId: string; role: "owner" | "manager" }>'));
+  assert.ok(accountPage.includes("resolveLiveOperatorAssignments"));
+  assert.ok(accountPage.includes('memberships: AccountPlaceMembership[]'));
+  assert.ok(accountPage.includes('liveAssignments: AccountLiveOperatorAssignment[]'));
 });

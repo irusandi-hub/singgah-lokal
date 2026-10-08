@@ -71,10 +71,6 @@ export async function POST(request: Request) {
       typeof body.userId === "string" ? body.userId : "";
     const placeId =
       typeof body.placeId === "string" ? body.placeId : "";
-    const producerId =
-      typeof body.producerId === "string"
-        ? body.producerId
-        : userData.user.id;
 
     if (!userId || !placeId) {
       return NextResponse.json(
@@ -98,10 +94,11 @@ export async function POST(request: Request) {
       );
     }
 
+    // granted_by is derived server-side inside the RPC from the granting
+    // owner/manager membership — the client never supplies it.
     const { error } = await supabase.rpc("grant_live_operator_access", {
       p_user_id: userId,
       p_place_id: placeId,
-      p_producer_id: producerId,
     });
 
     if (error) {

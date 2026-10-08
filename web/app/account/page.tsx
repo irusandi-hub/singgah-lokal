@@ -10,10 +10,15 @@ import {
   backLinkClass,
   btn,
   metaTextClass,
-} from "@/components/ui/kit";import AccountProfileClient from "@/components/account/account-profile-client";
+} from "@/components/ui/kit";
+import AccountProfileClient from "@/components/account/account-profile-client";
 import AccountAccessClient from "@/components/account/account-access-client";
 import AccountLiveAccessClient from "@/components/account/account-live-access-client";
-import { resolvePlaceMemberships } from "@/lib/account-memberships";
+import { resolvePlaceMemberships, type AccountPlaceMembership } from "@/lib/account-memberships";
+import {
+  resolveLiveOperatorAssignments,
+  type AccountLiveOperatorAssignment,
+} from "@/lib/account-live-operators";
 
 export const dynamic = "force-dynamic";
 
@@ -21,20 +26,18 @@ export const dynamic = "force-dynamic";
  * Account & Access Center — the single gateway between the main app and every
  * authority area (Authority Master §1–§7).
  *
- * Purpose: show who this account is, then the access it actually holds —
- * Pengelola, Operator Live (when applicable), and any other authority the
- * account genuinely has. Areas the account does not hold are not rendered at
- * all — no dead links, no hints about who holds which authority.
- *
- * The authority probe runs server-side on every request:
- * - Producer  → an owner/manager row in producer_memberships (own resources).
+ * The page shows who this account is, then — in ONE "Akses" section — the
+ * access it actually holds:
+ * - Pengelola  → an owner/manager row in producer_memberships (own resources).
+ * - Operator Live → an ACTIVE delegated assignment in public.live_operators.
+ *   Producer authority never produces an Operator Live card, and a delegated
+ *   operator is never shown as Pengelola.
  * - Platform Admin → public.users.platform_role = 'platform_moderator'.
- * - Creator/Owner/Developer → the Creator-controlled environment allowlist.
+ * - Developer → the Creator-controlled environment allowlist.
  *
- * The page is deliberately compact: one identity block, then one section per
- * access area the account holds. There is NO separate security/logout section
- * here — sign-out already lives in the app-level account menu and its own
- * backend endpoint.
+ * The authority probe runs server-side on every request, and each card shows
+ * the exact canonical Place name — never a raw place id. Areas the account does
+ * not hold are not rendered at all — no dead links.
  */
 
 type AccountAuthority = {
@@ -42,7 +45,8 @@ type AccountAuthority = {
   email: string | null;
   displayName: string | null;
   username: string | null;
-  memberships: Array<{ placeId: string; role: "owner" | "manager" }>;
+  memberships: AccountPlaceMembership[];
+  liveAssignments: AccountLiveOperatorAssignment[];
   isPlatformAdmin: boolean;
   isCreator: boolean;
 };
@@ -54,6 +58,7 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
     displayName: null,
     username: null,
     memberships: [],
+    liveAssignments: [],
     isPlatformAdmin: false,
     isCreator: false,
   };
@@ -63,13 +68,12 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return fallback;
 
-    const [{ data: memberships }, { data: userRow }] = await Promise.all([
-      supabase
-        .from("producer_memberships")
-        .select("place_id, role")
-        .eq("user_id", userData.user.id)
-        .in("role", ["owner", "manager"])
-        .order("created_at", { ascending: true }),
+    // Pengelola authority comes from producer_memberships; Operator Live
+    // authority comes ONLY from active live_operators assignments. They are
+    // resolved separately so neither can ever imply the other.
+    const [memberships, liveAssignments, { data: userRow }] = await Promise.all([
+      resolvePlaceMemberships(),
+      resolveLiveOperatorAssignments(),
       supabase
         .from("users")
         .select("platform_role, display_name, username")
@@ -77,9 +81,6 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
         .maybeSingle(),
     ]);
 
-    // Account & Access Center shows the account’s own public profile
-    // (identity), then the access it actually holds. Display name and username
-    // are OPTIONAL: a missing value is shown as absent, never invented.
     return {
       authenticated: true,
       email: userData.user.email ?? null,
@@ -87,12 +88,9 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
         (userRow as { display_name?: string | null } | null)?.display_name ?? null,
       username:
         (userRow as { username?: string | null } | null)?.username ?? null,
-      memberships: (memberships ?? []).map((row) => ({
-        placeId: String(row.place_id),
-        role: (row.role as "owner" | "manager") ?? "manager",
-      })),
-      isPlatformAdmin:
-        userRow?.platform_role === "platform_moderator",
+      memberships,
+      liveAssignments,
+      isPlatformAdmin: userRow?.platform_role === "platform_moderator",
       isCreator: isCreatorEmail(userData.user.email),
     };
   } catch {
@@ -148,6 +146,11 @@ export default async function AccountPage() {
     });
   }
 
+  const hasProducerAccess = authority.memberships.length > 0;
+  const hasLiveOperatorAccess = authority.liveAssignments.length > 0;
+  const hasAccess =
+    hasProducerAccess || hasLiveOperatorAccess || accessItems.length > 0;
+
   return (
     <PageShell width="narrow">
       <PageHeader
@@ -163,40 +166,45 @@ export default async function AccountPage() {
       <div className="mt-4">
         <Section title="Profil">{profileIdentity}</Section>
 
-        {authority.memberships.length > 0 ? (
-          <Section title="Akses">
-            <AccountAccessClient memberships={authority.memberships} />
-          </Section>
-        ) : accessItems.length === 0 ? (
-          <Section title="Akses">
-            <p className={`text-black/60 ${metaTextClass}`}>
-              Akun ini belum memiliki akses Pengelola, Platform Admin, atau
-              Developer.
-            </p>
-            <div>
-              <Link href="/producer/onboarding" className={btn.primary}>
-                Ajukan menjadi Pengelola
-              </Link>
+        {/* Exactly ONE "Akses" section: every access the account holds is
+            grouped here, so Producer and delegated Operator access are never
+            presented as two competing sections. */}
+        <Section title="Akses">
+          {hasAccess ? (
+            <div className="grid gap-3">
+              {hasProducerAccess ? (
+                <AccountAccessClient memberships={authority.memberships} />
+              ) : null}
+              {hasLiveOperatorAccess ? (
+                <AccountLiveAccessClient assignments={authority.liveAssignments} />
+              ) : null}
+              {accessItems.length > 0 ? (
+                <div className="grid gap-2">
+                  {accessItems.map(({ href, label, description }) => (
+                    <ListRow
+                      key={href}
+                      href={href}
+                      title={label}
+                      meta={description}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
-          </Section>
-        ) : (
-          <Section title="Akses">
-            {accessItems.map(({ href, label, description }) => (
-              <ListRow
-                key={href}
-                href={href}
-                title={label}
-                meta={description}
-              />
-            ))}
-          </Section>
-        )}
-
-        {authority.memberships.length > 0 && (
-          <Section title="Akses">
-            <AccountLiveAccessClient memberships={authority.memberships} />
-          </Section>
-        )}
+          ) : (
+            <div className="grid gap-2">
+              <p className={`text-black/60 ${metaTextClass}`}>
+                Akun ini belum memiliki akses Pengelola, Operator Live, Platform
+                Admin, atau Developer.
+              </p>
+              <div>
+                <Link href="/producer/onboarding" className={btn.primary}>
+                  Ajukan menjadi Pengelola
+                </Link>
+              </div>
+            </div>
+          )}
+        </Section>
       </div>
     </PageShell>
   );

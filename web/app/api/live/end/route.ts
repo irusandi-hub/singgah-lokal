@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { endLiveSession } from "@/lib/live/session-service";
+import { canOperateLiveForPlace } from "@/lib/live/operator-authorization";
 import { ProducerAuthorizationRequiredError } from "@/lib/auth/server";
 
 type EndBody = {
@@ -44,18 +45,14 @@ export async function POST(request: Request) {
       );
     }
 
-    const isOperator = await isLiveOperatorForPlace(
+    // Authorization is derived from the SESSION's Place, not from client input,
+    // so no caller can end a session for a Place they cannot operate.
+    const allowed = await canOperateLiveForPlace(
       supabase,
       userData.user.id,
       session.place_id,
     );
-    const isProducer = await isPlaceOwnerOrManager(
-      supabase,
-      userData.user.id,
-      session.place_id,
-    );
-
-    if (!isProducer && !isOperator) {
+    if (!allowed) {
       throw new ProducerAuthorizationRequiredError();
     }
 
@@ -86,34 +83,4 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: "live_end_unavailable" }, { status: 500 });
   }
-}
-
-async function isLiveOperatorForPlace(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  userId: string,
-  placeId: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("live_operators")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("place_id", placeId)
-    .eq("revoked_at", null)
-    .single();
-  return Boolean(data);
-}
-
-async function isPlaceOwnerOrManager(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  userId: string,
-  placeId: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("producer_memberships")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("place_id", placeId)
-    .in("role", ["owner", "manager"])
-    .single();
-  return Boolean(data);
 }

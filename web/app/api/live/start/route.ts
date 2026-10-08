@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { startLiveSession } from "@/lib/live/session-service";
+import { canOperateLiveForPlace } from "@/lib/live/operator-authorization";
 import { ProducerAuthorizationRequiredError } from "@/lib/auth/server";
 
 type StartBody = {
@@ -33,18 +34,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const isOperator = await isLiveOperatorForPlace(
-      supabase,
-      userData.user.id,
-      placeId,
-    );
-    const isProducer = await isPlaceOwnerOrManager(
-      supabase,
-      userData.user.id,
-      placeId,
-    );
-
-    if (!isProducer && !isOperator) {
+    // Producer owner/manager OR an active delegated operator for this EXACT
+    // Place. A revoked assignment and a Producer of another Place both fail.
+    const allowed = await canOperateLiveForPlace(supabase, userData.user.id, placeId);
+    if (!allowed) {
       throw new ProducerAuthorizationRequiredError();
     }
 
@@ -98,34 +91,4 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: "live_unavailable" }, { status: 500 });
   }
-}
-
-async function isLiveOperatorForPlace(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  userId: string,
-  placeId: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("live_operators")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("place_id", placeId)
-    .eq("revoked_at", null)
-    .single();
-  return Boolean(data);
-}
-
-async function isPlaceOwnerOrManager(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  userId: string,
-  placeId: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("producer_memberships")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("place_id", placeId)
-    .in("role", ["owner", "manager"])
-    .single();
-  return Boolean(data);
 }

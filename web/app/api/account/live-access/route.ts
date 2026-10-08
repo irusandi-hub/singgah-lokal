@@ -9,10 +9,12 @@ export async function GET() {
       return NextResponse.json({ error: "authentication_required" }, { status: 401 });
     }
 
+    // Active delegated assignments ONLY — a revoked assignment is not access.
     const { data: rows, error: rowsError } = await supabase
       .from("live_operators")
       .select("place_id, granted_at, revoked_at")
       .eq("user_id", userData.user.id)
+      .is("revoked_at", null)
       .order("granted_at", { ascending: true });
 
     if (rowsError) {

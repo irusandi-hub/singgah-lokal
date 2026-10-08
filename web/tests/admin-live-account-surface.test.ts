@@ -130,39 +130,42 @@ test("the Account Center cards carry no role-specific heading", () => {
   assert.doesNotMatch(page, /eyebrow/);
   assert.doesNotMatch(page, /<h2 className="text-lg/);
   assert.match(page, /<Section title="Akses">/);
-  assert.match(page, /<ListRow key=\{href\} href=\{href\} title=\{label\} meta=\{description\} \/>/);
+  assert.match(page, /<ListRow\s+key=\{href\}\s+href=\{href\}\s+title=\{label\}\s+meta=\{description\}\s*\/>/);
 
-  // No function is removed: every area the account holds is still offered at
-  // the same href, and the server-side authority probe is untouched.
-  for (const href of ["/producer", "/admin", "/developer"]) {
+  // Platform Admin / Developer are still offered at the same hrefs. Producer
+  // access is its own card (AccountAccessClient → /producer) and is asserted
+  // in the Account Center suite, so a delegated Operator Live assignment can
+  // never be mistaken for Pengelola.
+  for (const href of ["/admin", "/developer"]) {
     assert.match(page, new RegExp(`href: "${href.replace("/", "\\/")}"`));
     assert.match(page, new RegExp(`href=\\{href\\}`));
   }
-  assert.match(page, /authority\.isProducer/);
+  assert.match(page, /authority\.memberships/);
+  assert.match(page, /authority\.liveAssignments/);
   assert.match(page, /authority\.isPlatformAdmin/);
   assert.match(page, /authority\.isCreator/);
   // The account email still shows, as before.
   assert.match(page, /Masuk sebagai/);
   assert.match(page, /authority\.email/);
 
-  // The page title is now Account & Access Center (the Account Center
-  // restructured requested here). The account-menu entry that opens it still
-  // uses the Account Center label, so the test keeps acknowledging that shared
-  // term rather than asserting the new page title as the only allowed form.
+  // The page title is Account & Access Center. The account-menu entry that
+  // opens it still uses the Account Center label, so the test keeps
+  // acknowledging that shared term rather than asserting the new page title as
+  // the only allowed form.
   assert.match(page, /Account & Access Center/);
   assert.doesNotMatch(page, /Area akun/);
   assert.match(page, /Kembali ke Beranda|← Beranda/);
 });
 
-test("the Account Center shows profile identity and security sections", () => {
+test("the Account Center shows profile identity and exactly one access section", () => {
   const page = stripComments(accountPage);
   assert.match(page, /<Section title="Profil">/);
   assert.match(page, /authority\.displayName/);
   assert.match(page, /authority\.username/);
-  assert.match(page, /<Section title="Keamanan">/);
-  // Security keeps existing logout behavior wording; no invented security
-  // feature or second auth surface is added here.
-  assert.match(page, /Keluar dari akun ini lalu masuk kembali dengan email dan password yang sama/);
-  // Missing username is rendered honestly, not invented.
-  assert.match(page, /Belum ada username/);
+  // ONE "Akses" section holds Pengelola + Operator Live + Admin/Developer; the
+  // separate security section was removed (sign-out already lives in the
+  // account menu), so the Account Center no longer claims it.
+  assert.equal((page.match(/<Section title="Akses">/g) ?? []).length, 1, "exactly one Akses section");
+  assert.doesNotMatch(page, /<Section title="Keamanan">/);
+  assert.doesNotMatch(page, /Keluar dari akun ini lalu masuk kembali dengan email dan password yang sama/);
 });

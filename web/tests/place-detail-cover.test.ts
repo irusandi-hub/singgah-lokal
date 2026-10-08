@@ -158,18 +158,22 @@ test("Home filter bar is a single row: LIVE leftmost, Tempat Pilihan beside it, 
 });
 
 test("Account authority probe reads an existing membership column (no id column exists)", () => {
-  const accountPage = readFileSync(new URL("../app/account/page.tsx", import.meta.url), "utf8");
-  const code = stripComments(accountPage);
+  const accountPage = stripComments(readFileSync(new URL("../app/account/page.tsx", import.meta.url), "utf8"));
+  const membershipsLib = stripComments(readFileSync(new URL("../lib/account-memberships.ts", import.meta.url), "utf8"));
+  const accessClient = stripComments(readFileSync(new URL("../components/account/account-access-client.tsx", import.meta.url), "utf8"));
+  // The Pengelola probe moved into the memberships helper; both are checked so
+  // the rule cannot silently regress wherever the query lives.
+  const probe = `${membershipsLib}\n${accountPage}`;
   // The membership probe used select("id") — producer_memberships has NO id
   // column (PK is (user_id, place_id)), so every probe errored and approved
   // Producers were treated as regular users on /account.
-  assert.match(code, /\.select\("role"\)/);
-  assert.doesNotMatch(code, /\.select\("id"\)/);
-  assert.match(code, /\.eq\("user_id", userData\.user\.id\)/);
-  assert.match(code, /\.in\("role", \["owner", "manager"\]\)/);
+  assert.match(probe, /\.select\("place_id, role"\)/);
+  assert.doesNotMatch(probe, /\.select\("id"\)/);
+  assert.match(probe, /\.eq\("user_id", userData\.user\.id\)/);
+  assert.match(probe, /\.in\("role", \["owner", "manager"\]\)/);
   // The Producer entry is driven by that probe and links the dashboard.
-  assert.match(code, /isProducer: Boolean\(membership\)/);
-  assert.match(code, /href: "\/producer"/);
+  assert.match(accountPage, /authority\.memberships/);
+  assert.match(accessClient, /href="\/producer"/);
 });
 
 // --- Auth navigation: the header flips from live session state ---
