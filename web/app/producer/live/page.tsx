@@ -50,7 +50,7 @@ export default async function ProducerLivePage() {
       <PageHeader
         back={
           <Link className={backLinkClass} href="/producer">
-            ← Dashboard Pengelola
+            ← Pengelola
           </Link>
         }
         eyebrow="Pengelola Live"

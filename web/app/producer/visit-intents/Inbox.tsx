@@ -68,7 +68,7 @@ export default function Inbox() {
       <PageHeader
         back={
           <Link className={backLinkClass} href="/producer">
-            ← Dashboard Pengelola
+            ← Pengelola
           </Link>
         }
         title="Permintaan Kunjungan"

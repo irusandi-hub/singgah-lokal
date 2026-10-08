@@ -54,6 +54,24 @@ export const btn = {
 export const backLinkClass =
   "inline-flex items-center gap-1 text-xs font-bold text-brand-accent transition hover:text-brand-primary";
 
+/* ---------------------------------------------------------------------- tabs */
+
+/**
+ * ONE navigation layer for a working surface: a single row of equal-width tab
+ * controls. Four items fit a phone width without horizontal scrolling and
+ * without clipping a label — each item is equal width and its label wraps
+ * inside its own cell rather than being cut off or pushed out of the viewport.
+ */
+export const tabListClass =
+  "grid min-w-0 grid-cols-4 gap-1 rounded-full border border-black/10 bg-white p-1";
+
+export const tabItemClass =
+  "min-w-0 rounded-full px-1 py-1.5 text-center text-[11px] font-bold leading-tight transition sm:text-xs";
+
+export const tabActiveClass = "bg-brand-accent text-white";
+
+export const tabIdleClass = "text-black/60 hover:bg-black/[0.05]";
+
 /* --------------------------------------------------------------------- shell */
 
 const WIDTHS = { narrow: "max-w-xl", default: "max-w-3xl", wide: "max-w-5xl" } as const;

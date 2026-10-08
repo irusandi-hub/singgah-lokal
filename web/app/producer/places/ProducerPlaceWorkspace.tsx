@@ -4,25 +4,31 @@ import Link from "next/link";
 import { useState } from "react";
 import ProducerSubNav from "@/components/producer-sub-nav";
 import { publicationStatusLabel } from "@/lib/status-labels";
-import { EmptyState, Section, StatusBadge, btn, metaTextClass, sectionTitleClass } from "@/components/ui/kit";
-import PlaceForm, { PlaceEditor } from "./PlaceForm";
+import { EmptyState, Section, StatusBadge, btn, metaTextClass } from "@/components/ui/kit";
+import PlaceForm from "./PlaceForm";
 import PlaceClaimPanel from "./PlaceClaimPanel";
+import PlaceWorkspace from "./[placeId]/PlaceWorkspace";
 import type { Place } from "@/lib/places";
 
 /**
  * PLACE MILIKMU (Tempat yang Kamu Kelola) — the Place working surface of the
  * Producer dashboard.
  *
- * One page, one local navigation layer (ProducerSubNav), one work area:
- * - "list": the COMPACT roster of Places I manage;
+ * ONE navigation layer, ONE work area:
+ * - "list": the global Producer menu (this is the Producer area root, so the
+ *   Producer's own functions stay reachable) + the COMPACT roster of Places I
+ *   manage;
  * - "new": the add form, always empty (PlaceForm's NEW branch);
  * - "claim": "Ajukan Pengelolaan Tempat" — asking to manage an EXISTING
  *   unowned Place (PlaceClaimPanel). It never looks like "add Place": it files
  *   a claim and grants nothing until an Admin approves it;
- * - "edit": the chosen Place, loaded by the existing PlaceEditor.
- * The editor itself carries the publication status and its actions exactly
- * once; the roster carries each Place's status exactly once. No second
- * status block, no second list page, no duplicate "Kelola Proses" button.
+ * - "edit": the chosen Place, rendered by the shared PlaceWorkspace.
+ *
+ * The in-place editor IS the Place workspace, so the global menu is not
+ * rendered there (a Place has exactly one navigation layer — its own items) and
+ * the workspace's single "← Pengelola" escape returns to this roster. The
+ * roster carries each Place's status exactly once. No second status block, no
+ * second list page, no duplicate "Kelola Proses" button.
  */
 type ProducerPlaceWorkspaceView =
   | { name: "list" }
@@ -61,7 +67,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
     return (
       <section aria-label="Tambah Tempat" className="grid gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className={sectionTitleClass}>Tambah Tempat</h2>
+          <h2 className="text-[17px] font-semibold leading-snug tracking-tight">Tambah Tempat</h2>
           <button type="button" onClick={() => setView({ name: "list" })} className={btn.compact}>
             Kembali ke Tempat
           </button>
@@ -76,105 +82,103 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
 
   if (view.name === "edit") {
     return (
-      <section aria-label="Kelola Tempat" className="grid gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className={`min-w-0 break-words ${sectionTitleClass}`}>{view.place.name}</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <Link className={btn.solid} href={`/producer/places/${view.place.id}/production`}>
-              Kelola Proses
-            </Link>
-            <button type="button" onClick={() => setView({ name: "list" })} className={btn.compact}>
-              Kembali ke Tempat
-            </button>
-          </div>
-        </div>
-        <ProducerSubNav active="/producer/places" />
-        <PlaceEditor id={view.place.id} onSaved={handleSaved} />
-      </section>
+      <PlaceWorkspace
+        placeId={view.place.id}
+        initialPlace={view.place}
+        onPlaceSaved={handleSaved}
+        onBack={() => setView({ name: "list" })}
+      />
     );
   }
 
   return (
-    <Section title="Tempat yang Kamu Kelola">
-      {places.length === 0 && (
-        <EmptyState
-          title="Belum ada Tempat yang dapat dikelola"
-          description={
-            showOnboardingHint ? (
-              <>
-                Ikuti proses verifikasi untuk menjadi Pengelola — lihat{" "}
-                <Link href="/producer/onboarding" className="font-bold text-brand-accent underline underline-offset-2">
-                  Ajukan menjadi Pengelola
-                </Link>
-                .
-              </>
-            ) : undefined
-          }
-        />
-      )}
+    <div className="grid gap-4">
+      {/* The global Producer menu lives at the area root ONLY. It is never
+          rendered inside a Place workspace, so no screen shows two navigation
+          systems at once. */}
+      <ProducerSubNav active="/producer" />
 
-      <div className="grid gap-2">
-        {places.map((place) => (
+      <Section title="Tempat yang Kamu Kelola">
+        {places.length === 0 && (
+          <EmptyState
+            title="Belum ada Tempat yang dapat dikelola"
+            description={
+              showOnboardingHint ? (
+                <>
+                  Ikuti proses verifikasi untuk menjadi Pengelola — lihat{" "}
+                  <Link href="/producer/onboarding" className="font-bold text-brand-accent underline underline-offset-2">
+                    Ajukan menjadi Pengelola
+                  </Link>
+                  .
+                </>
+              ) : undefined
+            }
+          />
+        )}
+
+        <div className="grid gap-2">
+          {places.map((place) => (
+            <button
+              type="button"
+              key={place.id}
+              onClick={() => setView({ name: "edit", place })}
+              className="flex w-full items-center gap-3 rounded-xl border border-black/10 bg-white px-3 py-2.5 text-left transition hover:bg-black/[0.02]"
+            >
+              {place.coverImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={place.coverImageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-black/10 object-cover" />
+              ) : (
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-black/10 bg-brand-cream text-sm font-bold text-brand-accent">
+                  {place.name.slice(0, 1)}
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block break-words text-sm font-semibold">{place.name}</span>
+                <span className="mt-1 block">
+                  <StatusBadge tone={STATUS_TONE[place.publicationStatus]}>
+                    {publicationStatusLabel(place.publicationStatus)}
+                  </StatusBadge>
+                </span>
+              </span>
+              <span aria-hidden className="text-black/30">›</span>
+            </button>
+          ))}
+
+          {/* The TWO self-service entries sit BELOW the roster in one compact
+              action block: "Tambahkan Tempat" creates a new Place in place, and
+              "Ajukan Pengelolaan Tempat" files a claim for an EXISTING unowned
+              Place — never a second way to create one. */}
           <button
             type="button"
-            key={place.id}
-            onClick={() => setView({ name: "edit", place })}
-            className="flex w-full items-center gap-3 rounded-xl border border-black/10 bg-white px-3 py-2.5 text-left transition hover:bg-black/[0.02]"
+            onClick={() => setView({ name: "new" })}
+            className="mt-1 flex w-full items-center gap-3 rounded-xl border border-dashed border-black/20 bg-white px-3 py-2.5 text-left transition hover:bg-black/[0.02]"
           >
-            {place.coverImageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={place.coverImageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-black/10 object-cover" />
-            ) : (
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-black/10 bg-brand-cream text-sm font-bold text-brand-accent">
-                {place.name.slice(0, 1)}
-              </span>
-            )}
-            <span className="min-w-0 flex-1">
-              <span className="block break-words text-sm font-semibold">{place.name}</span>
-              <span className="mt-1 block">
-                <StatusBadge tone={STATUS_TONE[place.publicationStatus]}>
-                  {publicationStatusLabel(place.publicationStatus)}
-                </StatusBadge>
-              </span>
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-accent text-lg font-bold text-white" aria-hidden>
+              +
             </span>
-            <span aria-hidden className="text-black/30">›</span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">Tambahkan Tempat</span>
+              <span className="mt-0.5 block text-xs text-black/55">Bagikan kegiatan dan proses yang berlangsung di Tempatmu.</span>
+            </span>
           </button>
-        ))}
 
-        {/* The TWO self-service entries sit BELOW the roster in one compact
-            action block: "Tambahkan Tempat" creates a new Place in place, and
-            "Ajukan Pengelolaan Tempat" files a claim for an EXISTING unowned
-            Place — never a second way to create one. */}
-        <button
-          type="button"
-          onClick={() => setView({ name: "new" })}
-          className="mt-1 flex w-full items-center gap-3 rounded-xl border border-dashed border-black/20 bg-white px-3 py-2.5 text-left transition hover:bg-black/[0.02]"
-        >
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-accent text-lg font-bold text-white" aria-hidden>
-            +
-          </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold">Tambahkan Tempat</span>
-            <span className="mt-0.5 block text-xs text-black/55">Bagikan kegiatan dan proses yang berlangsung di Tempatmu.</span>
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setView({ name: "claim" })}
-          className="flex w-full items-center gap-3 rounded-xl border border-dashed border-black/20 bg-white px-3 py-2.5 text-left transition hover:bg-black/[0.02]"
-        >
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-black/15 text-base font-bold text-black/50" aria-hidden>
-            ⚑
-          </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-semibold">Ajukan Pengelolaan Tempat</span>
-            <span className="mt-0.5 block text-xs text-black/55">
-              Ajukan akses untuk mengelola Tempat yang sudah ada di SINGGAH LOKAL.
+          <button
+            type="button"
+            onClick={() => setView({ name: "claim" })}
+            className="flex w-full items-center gap-3 rounded-xl border border-dashed border-black/20 bg-white px-3 py-2.5 text-left transition hover:bg-black/[0.02]"
+          >
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-black/15 text-base font-bold text-black/50" aria-hidden>
+              ⚑
             </span>
-          </span>
-        </button>
-      </div>
-    </Section>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold">Ajukan Pengelolaan Tempat</span>
+              <span className="mt-0.5 block text-xs text-black/55">
+                Ajukan akses untuk mengelola Tempat yang sudah ada di SINGGAH LOKAL.
+              </span>
+            </span>
+          </button>
+        </div>
+      </Section>
+    </div>
   );
 }

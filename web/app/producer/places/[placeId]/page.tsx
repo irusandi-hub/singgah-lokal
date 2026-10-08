@@ -1,43 +1,14 @@
-import Link from "next/link";
-import ProducerSubNav from "@/components/producer-sub-nav";
-import { PageHeader, PageShell, backLinkClass, btn } from "@/components/ui/kit";
-import { PlaceEditor } from "../PlaceForm";
+import PlaceWorkspace from "./PlaceWorkspace";
 
 /**
- * The Place workspace deep link — the same working surface as the dashboard's
- * in-place editor, reached by URL.
+ * The Place workspace deep link (/producer/places/[placeId]).
  *
- * ONE way back (the dashboard), ONE local navigation layer (ProducerSubNav),
- * ONE work area (PlaceEditor: Informasi | Kegiatan | Media). "Kelola Proses"
- * is the single entry into the production-story surface; Kegiatan is already a
- * tab of the editor, so no second button duplicates it.
+ * It renders the SAME workspace component as the dashboard's in-place editor
+ * and the production-story route, so every entry point shows one context, one
+ * navigation layer and one work area. The workspace owns its own back link
+ * ("← Pengelola" → the dashboard).
  */
 export default async function EditPlacePage({ params }: { params: Promise<{ placeId: string }> }) {
-  const { placeId: id } = await params;
-  return (
-    <PageShell>
-      <PageHeader
-        back={
-          <Link className={backLinkClass} href="/producer">
-            ← Dashboard Pengelola
-          </Link>
-        }
-        title="Kelola Tempat"
-        description="Informasi, Kegiatan, dan Media Tempat ini dalam satu tempat."
-        actions={
-          <Link className={btn.solid} href={`/producer/places/${id}/production`}>
-            Kelola Proses
-          </Link>
-        }
-      />
-
-      <div className="mt-4">
-        <ProducerSubNav active="/producer/places" />
-      </div>
-
-      <div className="mt-4">
-        <PlaceEditor id={id} />
-      </div>
-    </PageShell>
-  );
+  const { placeId } = await params;
+  return <PlaceWorkspace placeId={placeId} />;
 }

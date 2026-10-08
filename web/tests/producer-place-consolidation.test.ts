@@ -3,31 +3,31 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 /**
- * PRODUCER PLACE WORKSPACE (PO, mockup work 2026-09-26)
+ * PRODUCER PLACE WORKSPACE — ONE context, ONE navigation layer, ONE work area.
  *
- * The Producer dashboard (/producer) is ONE working page for Place:
- * - header/branding + "Dashboard Producer" (the Visit Intent Inbox and Live
- *   shortcut cards were removed: the dashboard is the main page, so it must not
- *   carry links back into its own menu — those surfaces stay reachable from the
- *   Place detail surfaces through the shared ProducerSubNav);
- * - the "Tempat yang Kamu Kelola" roster with each Place selectable for management;
- * - "+ Tambahkan Tempat" BELOW the roster, opening the add form IN PLACE
- *   (view "new") — save transitions new → edit/manage with the id preserved
- *   (Media immediately usable);
- * - the editor reuses the SAME PlaceForm (Informasi | Kegiatan | Media tabs;
- *   Kegiatan reuses the standalone experiences surface, and Media holds the
- *   two ALTERNATIVE media methods — Manual | Generate AI — one at a time).
+ * UI/UX restructure 2026-10-08 (second pass). The rendered Producer Place area
+ * must stop stacking navigation:
+ *
+ * - /producer is a true landing/workspace page: the global Producer menu (the
+ *   area root, so Dashboard/Tempat/Permintaan Kunjungan/Live stay reachable)
+ *   plus the compact "Tempat yang Kamu Kelola" roster, "+ Tambahkan Tempat" and
+ *   "Ajukan Pengelolaan Tempat". Each Place is ONE compact row.
+ * - a Place is ONE workspace (PlaceWorkspace.tsx): the Place name is the title,
+ *   status appears ONCE in a compact status/action row, and the only navigation
+ *   is the four workspace items — Informasi | Kegiatan | Media | Kelola Proses —
+ *   plus the ONE contextual back link "← Pengelola".
+ * - the Producer global navigation is NEVER rendered inside a Place.
+ * - "Kelola Proses" is the fourth workspace item (the existing "Dari Sini"
+ *   production-story editor), not a large CTA above the navigation, and the
+ *   /production route simply opens the same workspace on that item.
+ * - the editor reuses the SAME PlaceForm (Informasi), the SAME ExperiencesPanel
+ *   (Kegiatan) and the SAME media panel (Media); the MEDIA concept is unchanged
+ *   (Manual OR Generate AI, one at a time).
  *
  * There is NO second Place list page: /producer/places and /producer/places/new
- * are pure redirects to /producer (backward-compatible hand-offs, no UI, no
- * parallel form). The per-Place deep-link routes stay reachable and render the
- * SAME canonical editor.
+ * are pure redirects to /producer. The per-Place deep links stay reachable and
+ * render the SAME canonical workspace.
  *
- * The Media tab stays REAL: for a saved Place the MANUAL method drives the
- * existing server-side multipart endpoint (Producer-gated) → Supabase Storage
- * → place_photos and restores slots on reload, while the GENERATE AI method
- * drives the existing AI media APIs; for a NEW Place the tab is disabled with
- * the reason shown. PLACE_PHOTO_SLOTS stays the slot source of truth.
  * The dashboard loads Places server-side from the authenticated user's
  * owner/manager memberships via the canonical repository — no new API/auth.
  */
@@ -37,7 +37,10 @@ const workspace = readFileSync(new URL("../app/producer/places/ProducerPlaceWork
 const placesPage = readFileSync(new URL("../app/producer/places/page.tsx", import.meta.url), "utf8");
 const newPage = readFileSync(new URL("../app/producer/places/new/page.tsx", import.meta.url), "utf8");
 const placeForm = readFileSync(new URL("../app/producer/places/PlaceForm.tsx", import.meta.url), "utf8");
+const placeWorkspace = readFileSync(new URL("../app/producer/places/[placeId]/PlaceWorkspace.tsx", import.meta.url), "utf8");
 const editPage = readFileSync(new URL("../app/producer/places/[placeId]/page.tsx", import.meta.url), "utf8");
+const productionPage = readFileSync(new URL("../app/producer/places/[placeId]/production/page.tsx", import.meta.url), "utf8");
+const productionPanel = readFileSync(new URL("../app/producer/places/[placeId]/production/ProductionStoryPanel.tsx", import.meta.url), "utf8");
 const experiencesPage = readFileSync(new URL("../app/producer/places/[placeId]/experiences/page.tsx", import.meta.url), "utf8");
 const experiencesPanel = readFileSync(new URL("../app/producer/places/[placeId]/experiences/ExperiencesPanel.tsx", import.meta.url), "utf8");
 const inbox = readFileSync(new URL("../app/producer/visit-intents/Inbox.tsx", import.meta.url), "utf8");
@@ -55,6 +58,9 @@ function stripComments(source: string): string {
 
 const dashboardCode = stripComments(producerDashboard);
 const workspaceCode = stripComments(workspace);
+const placeWorkspaceCode = stripComments(placeWorkspace);
+const productionPageCode = stripComments(productionPage);
+const productionPanelCode = stripComments(productionPanel);
 const placesRedirectCode = stripComments(placesPage); // redirect page checks run comment-free
 const newRedirectCode = stripComments(newPage);
 const formCode = stripComments(placeForm);
@@ -64,27 +70,28 @@ const inboxCode = stripComments(inbox);
 const inboxDetailCode = stripComments(inboxDetail);
 const placesApiCode = stripComments(placesApiRoute);
 
-test("The dashboard is the single working page hosting the Place workspace", () => {
-  // No Places shortcut card / no duplicate entry: the dashboard must not
+test("The dashboard is the single landing/workspace page hosting the Place workspace", () => {
+  // No Places shortcut card / no duplicate entry: the dashboard page must not
   // LINK into any Place route (the workspace import path is not a link).
   assert.equal(dashboardCode.includes('"/producer/places'), false, "dashboard must not link any /producer/places route");
   assert.equal(dashboardCode.includes("Tempat<"), false, "no Tempat shortcut card on the dashboard");
   // The dashboard keeps the header + the in-place Place workspace...
   assert.match(dashboardCode, /Dashboard Pengelola/);
-  // ...and no longer hosts the Permintaan Kunjungan / Live shortcut cards: the
-  // main page must not carry navigation back into its own menu.
-  assert.equal(dashboardCode.includes("/producer/visit-intents"), false, "dashboard must not link the Visit Intent inbox");
-  assert.equal(dashboardCode.includes("/producer/live"), false, "dashboard must not link the Live console");
-  assert.equal(dashboardCode.includes("Area Pengelola"), false, "no shortcut-card section on the dashboard");
   // ...and hosts the "Tempat yang Kamu Kelola" workspace (roster + add + edit) in place.
   assert.match(dashboardCode, /<ProducerPlaceWorkspace initialPlaces=\{places\} showOnboardingHint=\{places\.length === 0\} \/>/);
   assert.match(workspaceCode, /Tempat yang Kamu Kelola/);
   assert.match(workspaceCode, /Tambahkan Tempat/);
 });
 
-test("The dashboard carries no ProducerSubNav — it is a working surface, not a link hub", () => {
-  // FAIL if the sub-nav (Dashboard/Places/... tabs) returns to /producer.
-  assert.equal(dashboardCode.includes("ProducerSubNav"), false, "dashboard must not render the ProducerSubNav tabs");
+test("The global Producer menu lives at the area root, never inside a Place", () => {
+  // The roster view is the Producer area root, so the Producer's own functions
+  // stay reachable from there...
+  assert.match(workspaceCode, /<ProducerSubNav active="\/producer" \/>/);
+  // ...and the Place workspace itself must NOT render a second navigation
+  // system next to its four items.
+  assert.equal(placeWorkspaceCode.includes("ProducerSubNav"), false, "the Place workspace must not render the global menu");
+  assert.equal(placeWorkspaceCode.includes("Permintaan Kunjungan"), false, "the Place workspace must not list the global functions");
+  assert.equal(placeWorkspaceCode.includes("Dashboard"), false, "the Place workspace must not list the global menu tabs");
 });
 
 test("No intermediary Place list page exists — legacy routes are pure redirects", () => {
@@ -120,7 +127,7 @@ test("The Place surface is an explicit list/new/edit state machine", () => {
   assert.equal(workspaceCode.includes('fetch("/api/producer/places")'), false, "roster comes from the server, not a second fetch");
   // The publication status is never shown as a raw database value.
   assert.equal(workspaceCode.includes("{place.publicationStatus}"), false, "no raw publication status in the roster");
-  assert.equal(workspaceCode.includes("{view.place.publicationStatus}"), false, "no raw publication status in the editor header");
+  assert.equal(placeWorkspaceCode.includes("{place.publicationStatus}"), false, "no raw publication status in the workspace");
 });
 
 test("NEW starts empty; a successful submit transitions new → edit/manage with the id preserved", () => {
@@ -151,64 +158,100 @@ test("Tambahkan Tempat sits BELOW the roster and opens the form in place", () =>
   assert.match(workspaceCode, /<PlaceForm onSaved=\{handleSaved\} \/>/);
 });
 
-test("Edit reuses the canonical editor; status, Dari Sini, and Experience stay manageable", () => {
-  // The edit view uses the SAME PlaceEditor (PlaceForm) — no parallel form.
-  assert.match(workspaceCode, /<PlaceEditor id=\{view\.place\.id\} onSaved=\{handleSaved\} \/>/);
-  // PlaceEditor loads the saved record from the canonical GET endpoint.
-  assert.match(formCode, /fetch\(`\/api\/producer\/places\/\$\{id\}`\)/);
+test("Edit reuses the canonical Place workspace; status and every item stay manageable", () => {
+  // The edit view uses the SAME PlaceWorkspace through the shared component —
+  // no parallel editor surface in the dashboard.
+  assert.match(workspaceCode, /<PlaceWorkspace/);
+  assert.match(workspaceCode, /placeId=\{view\.place\.id\}/);
+  assert.match(workspaceCode, /initialPlace=\{view\.place\}/);
+  // The workspace loads the saved record from the canonical GET endpoint.
+  assert.match(placeWorkspaceCode, /fetch\(`\/api\/producer\/places\/\$\{placeId\}`\)/);
   // Publication status stays visible exactly ONCE (UI/UX restructure
   // 2026-10-08): the roster row labels it through the shared dictionary, and
-  // the edit surface shows it once inside the canonical PlaceEditor — never a
-  // second status block in the workspace header on top of the editor's own.
+  // the workspace shows it once in its compact status/action row — never a
+  // second status block in the header on top of it.
   assert.match(workspaceCode, /publicationStatusLabel\(place\.publicationStatus\)/);
-  assert.match(formCode, /publicationStatusLabel\(place\.publicationStatus\)/);
+  assert.match(placeWorkspaceCode, /publicationStatusLabel\(place\.publicationStatus\)/);
   assert.equal(
-    workspaceCode.includes("publicationStatusLabel(view.place.publicationStatus)"),
-    false,
-    "the workspace header must not duplicate the editor's status block",
+    (placeWorkspaceCode.match(/publicationStatusLabel\(place\.publicationStatus\)/g) ?? []).length,
+    1,
+    "the workspace must label the status exactly once",
   );
-  assert.match(workspaceCode, /\/producer\/places\/\$\{view\.place\.id\}\/production/);
-  // The old per-Place edit route stays reachable and renders the same editor.
-  assert.match(editPage, /<PlaceEditor id=\{id\}/);
+  // ...and the old standalone "Status: …" panel markup is gone entirely.
+  assert.equal(
+    placeWorkspaceCode.includes("Status: <"),
+    false,
+    "no second status panel next to the compact status row",
+  );
+  // The Informasi form owns no status at all: the workspace labels it once.
+  assert.equal(formCode.includes("publicationStatusLabel"), false, "the Informasi form must not re-render the status");
+  // The status transitions keep running through the existing publication API.
+  assert.match(placeWorkspaceCode, /\/api\/producer\/places\/\$\{placeId\}\/publication/);
+  // The old per-Place edit route stays reachable and renders the same workspace.
+  assert.match(editPage, /<PlaceWorkspace placeId=\{placeId\}/);
   assert.equal(editPage.includes("function PlaceEditor"), false);
 });
 
-test("Editor tabs are Informasi | Kegiatan | Media, with Kegiatan reusing the standalone panel", () => {
-  assert.match(formCode, /role="tab"/);
-  assert.match(formCode, /Informasi/);
-  assert.match(formCode, /setEditorTab\("experience"\)/);
-  assert.match(formCode, /setEditorTab\("media"\)/);
-  // There is exactly ONE media tab: the old separate Upload / AI Media tabs
-  // are gone, so no second surface looks like the main upload workflow.
-  assert.equal(formCode.includes("setEditorTab(\"upload\")"), false);
-  assert.equal(formCode.includes("setEditorTab(\"ai-media\")"), false);
-  // The Experience tab reuses the standalone experiences surface (same API,
-  // same links) — no parallel management UI; gated on a saved Place.
-  assert.match(formCode, /\{editorTab === "experience" && place && \(/);
-  assert.match(formCode, /<ExperiencesPanel placeId=\{place\.id\} \/>/);
-  // The standalone page itself reuses the SAME panel (no duplicated list).
-  assert.match(experiencesPageCode, /<ExperiencesPanel placeId=\{placeId\} \/>/);
-  assert.equal(experiencesPageCode.includes("experiences.map"), false, "standalone page must not duplicate the panel list");
+test("The Place workspace has exactly ONE navigation layer: the four workspace items", () => {
+  assert.match(placeWorkspaceCode, /type PlaceWorkspaceTab = "detail" \| "experience" \| "media" \| "production"/);
+  for (const label of ["Informasi", "Kegiatan", "Media", "Kelola Proses"]) {
+    assert.ok(placeWorkspaceCode.includes(`label: "${label}"`), `the workspace must offer ${label}`);
+  }
+  // The tab bar is ONE row of four equal cells (compact, never clipped behind
+  // the viewport, never a horizontal scroll strip).
+  assert.match(placeWorkspaceCode, /role="tablist"/);
+  assert.match(placeWorkspaceCode, /tabListClass/);
+  assert.match(placeWorkspaceCode, /role="tab"/);
+  // Exactly one contextual escape: "← Pengelola" back to the dashboard.
+  assert.equal((placeWorkspaceCode.match(/← Pengelola/g) ?? []).length, 2); // link + button branch, mutually exclusive
+  assert.equal(placeWorkspaceCode.includes("← Dashboard Pengelola"), false);
+  assert.equal(placeWorkspaceCode.includes("Kembali ke Tempat"), false);
+  assert.equal(placeWorkspaceCode.includes("Kembali ke Beranda"), false);
+});
+
+test("Kelola Proses is the fourth workspace item, not a CTA above the navigation", () => {
+  // The production story renders as the workspace's own work area...
+  assert.match(placeWorkspaceCode, /\{tab === "production" && <ProductionStoryPanel placeId=\{place\.id\} \/>\}/);
+  assert.match(placeWorkspaceCode, /import ProductionStoryPanel from "\.\/production\/ProductionStoryPanel"/);
+  // ...and the /production route is just that workspace opened on the item —
+  // no second page header, no second back link, no second tab layer.
+  assert.match(productionPageCode, /<PlaceWorkspace placeId=\{placeId\} initialTab="production"/);
+  assert.equal(productionPageCode.includes("PageShell"), false, "the production route must not render its own page shell");
+  assert.equal(productionPageCode.includes("Kembali ke"), false, "the production route must not add a second back link");
+  // The production functionality itself is untouched: same endpoints, same
+  // actions (add, edit, reorder, review, publish, status).
+  assert.match(productionPanelCode, /\/api\/producer\/places\/\$\{placeId\}\/production-story`/);
+  assert.match(productionPanelCode, /\/production-story\/\$\{stage\.id\}/);
+  assert.match(productionPanelCode, /\/production-story\/reorder/);
+  assert.match(productionPanelCode, />Simpan draft</);
+  assert.match(productionPanelCode, /productionStageStatusLabel\(stage\.status\)/);
+});
+
+test("The workspace items reuse the shared panels — no parallel surfaces", () => {
+  // Informasi → the canonical PlaceForm; Kegiatan → the canonical panel;
+  // Media → the canonical media panel.
+  assert.match(placeWorkspaceCode, /\{tab === "detail" && <PlaceForm place=\{place\} onSaved=\{applyPlace\} \/>\}/);
+  assert.match(placeWorkspaceCode, /\{tab === "experience" && <ExperiencesPanel placeId=\{place\.id\} \/>\}/);
+  assert.match(placeWorkspaceCode, /\{tab === "media" && <PlaceMediaPanel place=\{place\} \/>\}/);
+  // The Kegiatan route opens the SAME workspace on the same item.
+  assert.match(experiencesPageCode, /<PlaceWorkspace placeId=\{placeId\} initialTab="experience"/);
+  assert.equal(experiencesPageCode.includes("experiences.map"), false, "the route must not duplicate the panel list");
   // The panel keeps the canonical experiences API + deep links.
   assert.match(experiencesPanelCode, /fetch\(`\/api\/producer\/places\/\$\{placeId\}\/experiences`\)/);
   assert.match(experiencesPanelCode, /\/producer\/places\/\$\{placeId\}\/experiences\/\$\{experience\.id\}/);
 });
 
-test("The editor carries an actionable Media tab gated on a saved Place", () => {
-  // Tab "Media" exists beside "Informasi"/"Kegiatan"...
-  assert.match(formCode, /Detail Tempat|Informasi/);
+test("The editor carries an actionable Media item gated on a saved Place", () => {
+  // Tab "Media" exists beside "Informasi"/"Kegiatan"/"Kelola Proses"...
   assert.match(formCode, /Media Tempat/);
-  // ...disabled (with the reason) while the Place has no saved id...
-  assert.match(formCode, /disabled=\{!place\}/);
-  assert.match(formCode, /aria-disabled=\{!place\}/);
-  assert.match(formCode, /Tab Media aktif setelah Tempat disimpan/);
-  // ...and the MANUAL method's photo slots render only inside the Media tab,
-  // only once the Producer picked that method.
-  assert.match(formCode, /\{editorTab === "media" && place && \(/);
+  assert.match(placeWorkspaceCode, /label: "Media"/);
+  // ...and the workspace only renders it for a loaded (saved) Place.
+  assert.match(placeWorkspaceCode, /\{tab === "media" && <PlaceMediaPanel place=\{place\} \/>\}/);
+  // The manual method's photo slots render only once the Producer picked it.
   assert.match(formCode, /\{mediaMethod === "manual" && \(/);
   assert.match(formCode, /PLACE_PHOTO_SLOTS\.map/);
   // The slot list loads from the canonical place_photos record.
-  assert.match(formCode, /\/api\/producer\/places\/\$\{place\.id\}\/photos/);
+  assert.match(formCode, /\/api\/producer\/places\/\$\{place\.id\}\/photos`/);
 });
 
 test("The photo picker is a real clickable control, not static OS text", () => {
@@ -231,11 +274,11 @@ test("The Producer form never renders a timezone input; the server owns the zone
   // (lib/place-management) before a save is accepted.
   assert.doesNotMatch(formCode, /Timezone/);
   assert.doesNotMatch(formCode, /"timezone"/);
-  // The form grid, the upload area, and the location picker row cannot force
-  // their parents wider than the phone frame: the tracks are pinned to the
-  // container width (minmax(0,1fr)), so wide content widens the item instead.
+  // The form grid and the photo rows cannot force their parents wider than the
+  // phone frame: the form tracks are pinned to the container width
+  // (minmax(0,1fr)), so wide content widens the item instead of the page.
   assert.match(formCode, /grid min-w-0 grid-cols-\[minmax\(0,1fr\)\] gap-4/);
-  assert.match(formCode, /grid min-w-0 gap-2 rounded-lg border border-black\/10 p-3/);
+  assert.match(formCode, /grid min-w-0 gap-2 border-t border-black\/10 pt-3/);
 });
 
 test("Upload/delete failures surface as slot errors (no silent success)", () => {
@@ -282,31 +325,34 @@ test("The Producer never types a Place ID — the system generates it on save", 
 });
 
 test("Producer surfaces share the same cream/light theme (no dark producer page)", () => {
-  // Dashboard, workspace container, inbox, inbox detail, and the standalone
-  // experiences page all render through the ONE shared shell, which owns the
-  // brand-cream palette (UI/UX restructure 2026-10-08) — so the theme is
-  // declared once instead of being repeated per page.
+  // The ONE shared shell owns the brand-cream palette (UI/UX restructure
+  // 2026-10-08) — so the theme is declared once instead of being repeated per
+  // page. Every Producer surface renders through it.
   const shell = readFileSync(new URL("../components/ui/kit.tsx", import.meta.url), "utf8");
   assert.match(shell, /bg-brand-cream/);
   assert.match(shell, /text-brand-ink/);
   for (const [name, code] of [
     ["dashboard", dashboardCode],
-    ["experiences page", experiencesPageCode],
+    ["place workspace", placeWorkspaceCode],
     ["inbox", inboxCode],
     ["inbox detail", inboxDetailCode],
   ] as const) {
     assert.match(code, /PageShell/, `${name} must render through the shared shell`);
   }
+  // The production story is a workspace item now, so its panel carries no
+  // shell of its own — the ONE Place workspace owns the page frame.
+  assert.match(placeWorkspaceCode, /<ProductionStoryPanel/);
+  assert.equal(productionPanelCode.includes("PageShell"), false, "the production item must not declare a page shell");
   // ...the dark window wrappers are GONE from the Visit Intent surfaces...
   assert.equal(inboxCode.includes("bg-brand-ink"), false, "Inbox must not use the dark window");
   assert.equal(inboxDetailCode.includes("bg-brand-ink"), false, "Visit Intent detail must not use the dark window");
   assert.equal(inboxCode.includes("bg-white/10"), false, "Inbox must not use dark-surface cards");
   assert.equal(inboxDetailCode.includes("bg-white/10"), false, "detail must not use dark-surface cards");
   // ...and the embedded components declare no page of their own at all: no
-  // full-screen wrapper (the dashboard owns the theme) and no dark-surface
+  // full-screen wrapper (the workspace owns the theme) and no dark-surface
   // signature (bg-brand-ink + text-brand-cream as a page palette). Button
   // accents in the existing ink color stay untouched.
-  for (const [name, code] of [["workspace", workspaceCode], ["experience panel", experiencesPanelCode], ["editor form", formCode]] as const) {
+  for (const [name, code] of [["workspace", workspaceCode], ["experience panel", experiencesPanelCode], ["editor form", formCode], ["production panel", productionPanelCode]] as const) {
     assert.equal(code.includes("min-h-screen"), false, `${name} must not render its own page background`);
     assert.equal(code.includes("text-brand-cream"), false, `${name} must not switch to the dark palette`);
   }

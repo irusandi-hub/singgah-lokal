@@ -5,17 +5,18 @@ import { readFileSync } from "node:fs";
 /**
  * PRODUCER NAVIGATION CONTRACT (UI structure only).
  *
- * Every page in the Producer area must let the Producer get back to its
- * parent menu, and there must be exactly ONE navigation system:
- * - the main page (/producer) never links back to itself (it is a working
- *   surface, not a link hub);
- * - a Place-related page returns to the dashboard or to that Place detail;
- * - any other page returns to its correct Producer parent menu;
- * - the shared components/producer-sub-nav.tsx owns the Producer menu tabs,
- *   so no page re-declares a second nav list;
- * - the Visit Intent / Live routes stay reachable from the Place detail
- *   surfaces (the dashboard cards that used to point at them are gone) while
- *   the routes themselves stay untouched.
+ * ONE page → ONE context → ONE navigation layer → ONE work area. Concretely:
+ * - the global Producer menu (components/producer-sub-nav.tsx) is declared
+ *   once and rendered at the Producer area root (the roster view of the
+ *   dashboard), plus on the other top-level Producer functions (Permintaan
+ *   Kunjungan, Live);
+ * - a Place is a Place workspace: its ONE navigation layer is its four items
+ *   (Informasi | Kegiatan | Media | Kelola Proses) and its ONE escape is
+ *   "← Pengelola" to /producer — the global menu is never rendered inside it;
+ * - /producer itself never links back to itself, but keeps the standard way
+ *   back to the public home;
+ * - each nested Producer surface keeps exactly ONE contextual back link;
+ * - the legacy Place list/add routes stay pure redirects.
  */
 
 function read(relativePath: string): string {
@@ -32,39 +33,40 @@ function stripComments(source: string): string {
 
 const dashboard = stripComments(read("app/producer/page.tsx"));
 const workspace = stripComments(read("app/producer/places/ProducerPlaceWorkspace.tsx"));
+const placeWorkspace = stripComments(read("app/producer/places/[placeId]/PlaceWorkspace.tsx"));
 const livePage = stripComments(read("app/producer/live/page.tsx"));
 const inbox = stripComments(read("app/producer/visit-intents/Inbox.tsx"));
 const inboxDetail = stripComments(read("app/producer/visit-intents/[id]/VisitIntentDetail.tsx"));
-const placeDetail = stripComments(read("app/producer/places/[placeId]/page.tsx"));
-const experiences = stripComments(read("app/producer/places/[placeId]/experiences/page.tsx"));
+const placeDetailRoute = stripComments(read("app/producer/places/[placeId]/page.tsx"));
+const experiencesRoute = stripComments(read("app/producer/places/[placeId]/experiences/page.tsx"));
 const newExperience = stripComments(read("app/producer/places/[placeId]/experiences/new/page.tsx"));
 const editExperience = stripComments(
   read("app/producer/places/[placeId]/experiences/[experienceId]/page.tsx"),
 );
-const production = stripComments(read("app/producer/places/[placeId]/production/page.tsx"));
+const productionRoute = stripComments(read("app/producer/places/[placeId]/production/page.tsx"));
 const placesRedirect = stripComments(read("app/producer/places/page.tsx"));
 const newPlaceRedirect = stripComments(read("app/producer/places/new/page.tsx"));
 const onboarding = stripComments(read("app/producer/onboarding/page.tsx"));
 const subNav = read("components/producer-sub-nav.tsx");
 
 test("The main Producer page has no navigation back to itself", () => {
-  // No sub-nav (it would list "Dashboard" as a self-entry) and no shortcut
-  // cards left behind.
-  assert.equal(dashboard.includes("ProducerSubNav"), false, "dashboard must not render the ProducerSubNav tabs");
+  // No sub-nav markup of its own (the shared menu is rendered by the roster
+  // view of the workspace, not by the dashboard page) and no shortcut cards.
+  assert.equal(dashboard.includes("ProducerSubNav"), false, "dashboard must not render the ProducerSubNav tabs itself");
   assert.equal(dashboard.includes("←"), false, "dashboard must not carry a back link to itself");
-  // PO fix 2026-09-28: the working dashboard is still never a dead end —
-  // it offers the standard way back to the public home (arrow-free, because
-  // a "←" on this page would read as a self-link).
-  assert.match(dashboard, /href="\/"/, "dashboard keeps a way back to the public home");
+  // The working dashboard is still never a dead end — it offers the standard
+  // way back to the public home (arrow-free, because a "←" on this page would
+  // read as a self-link).
+  assert.match(dashboard, /href="\//, "dashboard keeps a way back to the public home");
   assert.match(dashboard, /Kembali ke Beranda/, "the way back is labelled as a way back");
   assert.equal(dashboard.includes("Area Pengelola"), false, "the shortcut-card section is gone");
 });
 
-test("The Producer menu is owned by the shared sub-nav component only", () => {
+test("The global Producer menu is owned by one component and rendered at the area root", () => {
   assert.match(subNav, /aria-label="Navigasi Pengelola"/);
   // The shared nav is a PURE menu: it carries no escape link of its own, so
-  // the way out is owned once by the page you are on (UI/UX restructure
-  // 2026-10-08) instead of being repeated on every Producer screen.
+  // the way out is owned once by the page you are on instead of being repeated
+  // on every Producer screen.
   assert.equal(
     subNav.includes("Kembali ke beranda"),
     false,
@@ -73,12 +75,10 @@ test("The Producer menu is owned by the shared sub-nav component only", () => {
   for (const [name, code] of [
     ["dashboard", dashboard],
     ["workspace", workspace],
+    ["place workspace", placeWorkspace],
     ["live", livePage],
     ["inbox", inbox],
     ["inbox detail", inboxDetail],
-    ["place detail", placeDetail],
-    ["experiences", experiences],
-    ["production", production],
   ] as const) {
     assert.equal(
       code.includes("Navigasi Pengelola"),
@@ -86,101 +86,99 @@ test("The Producer menu is owned by the shared sub-nav component only", () => {
       `${name} must not re-declare the Producer menu markup`,
     );
   }
-  // Every page that shows the menu imports the SAME component (no duplicate).
+  // The pages that show the global menu reuse the SAME component.
   for (const [name, code] of [
+    ["workspace roster", workspace],
     ["live", livePage],
     ["inbox", inbox],
-    ["place detail", placeDetail],
-    ["workspace", workspace],
   ] as const) {
     assert.match(code, /from "@\/components\/producer-sub-nav"/, `${name} must reuse the shared sub-nav`);
+    assert.match(code, /<ProducerSubNav active="\/producer(\/(visit-intents|live))?" \/>/, `${name} must render the shared menu`);
   }
+  // A Place workspace never renders the global menu: its ONE navigation layer
+  // is its own four items.
+  assert.equal(placeWorkspace.includes("ProducerSubNav"), false, "a Place must not render the global menu");
 });
 
-test("Visit Intent and Live stay reachable from the Place detail surfaces", () => {
-  // The dashboard no longer links them; the Place detail surfaces do, through
-  // the shared menu — the routes themselves are untouched.
+test("Visit Intent and Live stay reachable from the Producer area root", () => {
+  // The dashboard page itself no longer links them; the shared menu rendered at
+  // the area root does, and the routes themselves are untouched.
   assert.equal(dashboard.includes("/producer/visit-intents"), false);
   assert.equal(dashboard.includes("/producer/live"), false);
-  for (const [name, code] of [
-    ["place detail", placeDetail],
-    ["workspace Place detail", workspace],
-    ["live", livePage],
-    ["inbox", inbox],
-  ] as const) {
-    assert.match(code, /<ProducerSubNav active="\/producer\/(places|visit-intents|live)" \/>/, `${name} must show the Producer menu`);
+  assert.match(subNav, /href: "\/producer\/visit-intents"/);
+  assert.match(subNav, /href: "\/producer\/live"/);
+  // The global menu is rendered before the roster (it is the area menu, not a
+  // second system beside it), and only once.
+  assert.equal((workspace.match(/<ProducerSubNav/g) ?? []).length, 1);
+  assert.ok(
+    workspace.indexOf("<ProducerSubNav") < workspace.indexOf("Tempat yang Kamu Kelola"),
+    "the area menu belongs above the roster",
+  );
+  // Inside a Place, the Producer's global functions are NOT listed.
+  for (const label of ["Permintaan Kunjungan", "Live"]) {
+    assert.ok(
+      !placeWorkspace.includes(`label: "${label}"`),
+      `the Place workspace must not list ${label} as a Place item`,
+    );
   }
 });
 
-test("Top-level Producer pages return to the dashboard", () => {
-  assert.match(livePage, /href="\/producer"/);
-  assert.match(livePage, /← Dashboard Pengelola/);
-  assert.match(inbox, /href="\/producer"/);
-  assert.match(inbox, /← Dashboard Pengelola/);
-});
-
-test("Every Producer page below the dashboard has exactly ONE contextual back link", () => {
-  // UI/UX restructure 2026-10-08: a page no longer stacks a dashboard link on
-  // top of a parent link. It carries the ONE link that is actually useful for
-  // its context — the dashboard for a top-level Producer function, the parent
-  // Place/Kegiatan list for a nested surface — so no page is stranded and no
-  // screen shows two "Kembali" links at once.
-  // The back-link vocabulary of the Producer area: the accordion-free
-  // "← Dashboard Pengelola" label for top-level functions, and one
-  // "Kembali ke …" label for every contextual parent.
-  const backLinkCount = (code: string) =>
-    (code.match(/Kembali ke|← Dashboard Pengelola/g) ?? []).length;
-
-  const oneLinkHome = [
+test("Top-level Producer pages return to the dashboard with one label", () => {
+  for (const [name, code] of [
     ["live", livePage],
     ["permintaan kunjungan", inbox],
-    ["place detail", placeDetail],
-  ] as const;
-  for (const [name, code] of oneLinkHome) {
+  ] as const) {
     assert.match(code, /href="\/producer"/, `${name} must link back to the dashboard`);
-    assert.match(code, /← Dashboard Pengelola/, `${name} must show a back link to the dashboard`);
-    assert.equal(backLinkCount(code), 1, `${name} must carry exactly one back link`);
+    assert.match(code, /← Pengelola/, `${name} must show the one contextual back link`);
+    assert.equal(
+      (code.match(/← /g) ?? []).length,
+      1,
+      `${name} must carry exactly one back link`,
+    );
   }
-
-  const oneLinkParent = [
-    ["permintaan kunjungan detail", inboxDetail, "← Kembali ke Permintaan Kunjungan"],
-    ["experiences", experiences, "← Kembali ke Tempat"],
-    ["new experience", newExperience, "← Kembali ke Kegiatan"],
-    ["edit experience", editExperience, "← Kembali ke Kegiatan"],
-    ["production", production, "← Kembali ke Tempat"],
-    ["onboarding", onboarding, "← Kembali ke beranda"],
-  ] as const;
-  for (const [name, code, label] of oneLinkParent) {
-    assert.ok(code.includes(label), `${name} must show its contextual back link`);
-    assert.equal(backLinkCount(code), 1, `${name} must carry exactly one back link`);
-  }
-
-  // ...and the dashboard itself never links back to itself.
-  assert.equal(dashboard.includes('href="/producer"'), false, "the dashboard must not link to itself");
 });
 
-test("Place-related pages return to the dashboard or that Place detail", () => {
-  // Place detail (/producer/places/[placeId]) is the dashboard's Place detail
-  // route, so it goes back to the dashboard — NOT to the redirect-only
-  // /producer/places route.
-  assert.match(placeDetail, /href="\/producer"/);
-  assert.equal(placeDetail.includes('href="/producer/places"'), false, "Place detail must not link the redirect-only list route");
-  // Place children go back to that Place detail.
-  assert.match(experiences, /← Kembali ke Tempat/);
-  assert.match(experiences, /`\/producer\/places\/\$\{placeId\}`/);
-  assert.match(production, /← Kembali ke Tempat/);
-  assert.match(production, /href=\{`\/producer\/places\/\$\{placeId\}`\}/);
-  // The dashboard's in-page Place editor returns to the roster.
+test("The Place workspace has ONE escape route and ONE navigation layer", () => {
+  // One contextual escape ("← Pengelola" → /producer)...
+  assert.match(placeWorkspace, /href="\/producer"/);
+  assert.match(placeWorkspace, /← Pengelola/);
+  assert.equal(
+    (placeWorkspace.match(/← /g) ?? []).length,
+    2, // the link branch + the dashboard's in-place button branch, mutually exclusive
+    "the workspace must carry exactly one back action",
+  );
+  // ...and one navigation layer: the four Place items, nothing else.
+  for (const label of ["Informasi", "Kegiatan", "Media", "Kelola Proses"]) {
+    assert.ok(placeWorkspace.includes(`label: "${label}"`), `the workspace must offer ${label}`);
+  }
+  assert.equal(placeWorkspace.includes("Kembali ke Tempat"), false);
+  assert.equal(placeWorkspace.includes("← Dashboard Pengelola"), false);
+  // Every Place entry route renders the SAME workspace (one context, no
+  // stacked navigation layers).
+  assert.match(placeDetailRoute, /<PlaceWorkspace placeId=\{placeId\} \/>/);
+  assert.match(experiencesRoute, /<PlaceWorkspace placeId=\{placeId\} initialTab="experience" \/>/);
+  assert.match(productionRoute, /<PlaceWorkspace placeId=\{placeId\} initialTab="production" \/>/);
+  for (const [name, code] of [["place detail", placeDetailRoute], ["experiences route", experiencesRoute], ["production route", productionRoute]] as const) {
+    assert.equal(code.includes("PageShell"), false, `${name} must not declare a second shell`);
+    assert.equal(code.includes("Kembali ke"), false, `${name} must not add a second back link`);
+  }
+});
+
+test("The dashboard's in-place Place editor returns to the roster", () => {
+  // The in-place editor uses the SAME workspace and hands the ONE escape back
+  // to the roster instead of a route.
+  assert.match(workspace, /onBack=\{\(\) => setView\(\{ name: "list" \}\)\}/);
   assert.match(workspace, /Kembali ke Tempat/);
 });
 
-test("Kegiatan pages return to the Kegiatan list of the same Place", () => {
+test("Kegiatan pages return to the Kegiatan item of the same Place", () => {
   for (const [name, code] of [
     ["new experience", newExperience],
     ["edit experience", editExperience],
   ] as const) {
     assert.match(code, /← Kembali ke Kegiatan/, name);
     assert.match(code, /`\/producer\/places\/\$\{placeId\}\/experiences`/);
+    assert.equal(code.includes("← Dashboard Pengelola"), false, `${name} must not stack a second back link`);
   }
 });
 
@@ -202,8 +200,6 @@ test("Legacy Place list/add routes stay pure redirects (no page, no nav)", () =>
 test("The Producer application page stays on the user-area navigation", () => {
   // Onboarding runs before any membership exists, so it keeps the public home
   // as its parent and reuses the shared SiteNav rather than the Producer menu.
-  // Its parent is the public home only — no second "Dashboard Pengelola" link
-  // into an area the account does not hold yet.
   assert.match(onboarding, /<SiteNav \/>/);
   assert.match(onboarding, /← Kembali ke beranda/);
   assert.equal(onboarding.includes("ProducerSubNav"), false);

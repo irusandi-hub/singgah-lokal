@@ -44,10 +44,15 @@ const workspace = read("app/producer/places/ProducerPlaceWorkspace.tsx");
 const placeForm = read("app/producer/places/PlaceForm.tsx");
 const claimPanel = read("app/producer/places/PlaceClaimPanel.tsx");
 const placeDetail = read("app/producer/places/[placeId]/page.tsx");
+// The Place workspace owns the rendered Place surface (UI/UX restructure
+// 2026-10-08): the Place name, the one status row and the four items live here.
+const placeWorkspace = read("app/producer/places/[placeId]/PlaceWorkspace.tsx");
 const experiences = read("app/producer/places/[placeId]/experiences/page.tsx");
 const experiencePanel = read("app/producer/places/[placeId]/experiences/ExperiencesPanel.tsx");
 const experienceForm = read("app/producer/places/[placeId]/experiences/ExperienceForm.tsx");
-const production = read("app/producer/places/[placeId]/production/page.tsx");
+// "Dari Sini" is now the fourth item of the Place workspace; its rendered
+// surface is the panel, and the route is a thin workspace entry point.
+const production = read("app/producer/places/[placeId]/production/ProductionStoryPanel.tsx");
 const livePage = read("app/producer/live/page.tsx");
 const liveConsole = read("app/producer/live/LiveConsole.tsx");
 const inbox = read("app/producer/visit-intents/Inbox.tsx");
@@ -61,6 +66,7 @@ const producerSurfaces: Array<[string, string]> = [
   ["place form", placeForm],
   ["claim panel", claimPanel],
   ["place detail", placeDetail],
+  ["place workspace", placeWorkspace],
   ["experiences page", experiences],
   ["experiences panel", experiencePanel],
   ["experience form", experienceForm],
@@ -111,15 +117,11 @@ test("The final Producer copy pass is applied and its old wording is gone", () =
   assert.equal(subNav.includes("Kembali ke beranda"), false);
   assert.equal(subNav.includes("← Area user"), false);
 
-  for (const [name, code] of [
-    ["workspace", workspace],
-    ["place detail", placeDetail],
-  ] as const) {
-    assert.match(code, /Kelola Proses/, `${name} must offer "Kelola Proses"`);
-    assert.equal(code.includes("Kelola Dari Sini"), false, `${name} must not say "Kelola Dari Sini"`);
-  }
-  assert.match(workspace, /Kelola Proses/);
-  assert.match(placeDetail, /Kelola Proses/);
+  // "Kelola Proses" is the fourth item of the Place workspace, labelled once.
+  assert.match(placeWorkspace, /label: "Kelola Proses"/);
+  assert.equal(placeWorkspace.includes("Kelola Dari Sini"), false, "must not say \"Kelola Dari Sini\"");
+  // The public terminology of the surface itself stays "Dari Sini".
+  assert.match(production, /Dari Sini/);
 
   for (const [name, code] of [
     ["workspace", workspace],
@@ -149,7 +151,7 @@ test("The retired dictionary wording is gone from the Producer area", () => {
 test("No raw database status ever reaches the Producer UI", () => {
   // Every rendered status goes through the shared label module.
   assert.match(workspace, /publicationStatusLabel\(place\.publicationStatus\)/);
-  assert.match(placeForm, /publicationStatusLabel\(place\.publicationStatus\)/);
+  assert.match(placeWorkspace, /publicationStatusLabel\(place\.publicationStatus\)/);
   assert.match(experiencePanel, /experienceStatusLabel\(experience\.status\)/);
   assert.match(experienceForm, /experienceStatusLabel\(experience\.status\)/);
   assert.match(production, /productionStageStatusLabel\(stage\.status\)/);
@@ -161,6 +163,7 @@ test("No raw database status ever reaches the Producer UI", () => {
     ["workspace", "{place.publicationStatus}"],
     ["workspace", "{view.place.publicationStatus}"],
     ["place form", "{place.publicationStatus}"],
+    ["place workspace", "{place.publicationStatus}"],
     ["experiences panel", "{experience.status}"],
     ["experience form", "{experience.status}"],
     ["production", "{stage.status}"],
@@ -171,6 +174,7 @@ test("No raw database status ever reaches the Producer UI", () => {
   const sources: Record<string, string> = {
     workspace,
     "place form": placeForm,
+    "place workspace": placeWorkspace,
     "experiences panel": experiencePanel,
     "experience form": experienceForm,
     production,
@@ -195,7 +199,7 @@ test("No stored role or membership jargon reaches the Producer UI", () => {
 
 test("Common product words stay untranslated", () => {
   // Dashboard, Live, Draft and Status are already natural — keep them.
-  assert.match(placeForm, /Status: /);
+  assert.match(production, /Status: /);
   assert.match(production, />Simpan draft</);
   assert.match(livePage, /Pengelola Live/);
   assert.match(liveConsole, /Mulai Live/);
@@ -261,8 +265,8 @@ test("The display formatters are safe for any stored value", () => {
 test("The kept terms survive across the Producer area", () => {
   // Live, Dashboard and Draft are common product words.
   assert.match(liveConsole, /Mulai Live/);
-  assert.match(placeDetail, /← Dashboard Pengelola/);
-  assert.match(placeForm, /Status: /);
+  assert.match(placeWorkspace, /← Pengelola/);
+  assert.match(production, /Status: /);
   assert.match(production, />Simpan draft</);
   // "User" never reaches the Producer UI.
   for (const [name, code] of producerSurfaces) {
