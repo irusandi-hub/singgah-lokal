@@ -7,22 +7,28 @@ import { ListRow, PageHeader, PageShell, Section, backLinkClass, btn, metaTextCl
 export const dynamic = "force-dynamic";
 
 /**
- * Account Center — the single gateway between the main app and every authority
- * area (Authority Master §1–§7).
+ * Account & Access Center — the single gateway between the main app and every
+ * authority area (Authority Master §1–§7).
+ *
+ * Purpose: show who this account is, then the access it actually holds —
+ * Pengelola, Operator Live (when applicable), and any other authority the
+ * account genuinely has. Areas the account does not hold are not rendered at
+ * all — no dead links, no hints about who holds which authority.
  *
  * The authority probe runs server-side on every request:
  * - Producer  → an owner/manager row in producer_memberships (own resources).
  * - Platform Admin → public.users.platform_role = 'platform_moderator'.
  * - Creator/Owner/Developer → the Creator-controlled environment allowlist.
  *
- * Areas the account does not hold are not rendered at all — no dead links, no
- * hints about who holds which authority. The page is deliberately tiny: one
- * identity line, then the areas that actually open for this account.
+ * The page is deliberately compact: one identity block, then one section per
+ * access area the account holds.
  */
 
 type AccountAuthority = {
   authenticated: boolean;
   email: string | null;
+  displayName: string | null;
+  username: string | null;
   isProducer: boolean;
   isPlatformAdmin: boolean;
   isCreator: boolean;
@@ -32,6 +38,8 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
   const fallback: AccountAuthority = {
     authenticated: false,
     email: null,
+    displayName: null,
+    username: null,
     isProducer: false,
     isPlatformAdmin: false,
     isCreator: false,
@@ -52,12 +60,21 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
         .in("role", ["owner", "manager"])
         .limit(1)
         .maybeSingle(),
-      supabase.from("users").select("platform_role").eq("id", userData.user.id).maybeSingle(),
+      supabase
+        .from("users")
+        .select("platform_role, display_name, username")
+        .eq("id", userData.user.id)
+        .maybeSingle(),
     ]);
 
+    // Account & Access Center shows the account’s own public profile
+    // (identity), then the access it actually holds. Display name and username
+    // are OPTIONAL: a missing value is shown as absent, never invented.
     return {
       authenticated: true,
       email: userData.user.email ?? null,
+      displayName: (userRow as { display_name?: string | null } | null)?.display_name ?? null,
+      username: (userRow as { username?: string | null } | null)?.username ?? null,
       isProducer: Boolean(membership),
       isPlatformAdmin: userRow?.platform_role === "platform_moderator",
       isCreator: isCreatorEmail(userData.user.email),
@@ -74,16 +91,50 @@ export default async function AccountPage() {
     redirect("/auth?returnTo=%2Faccount");
   }
 
+  const profileIdentity = (
+    <div className="grid gap-2">
+      {authority.email ? (
+        <p className="text-sm font-semibold">
+          Masuk sebagai <strong className="font-bold text-brand-ink">{authority.email}</strong>
+        </p>
+      ) : (
+        <p className="text-sm font-semibold text-black/55">Akun tidak dikenali.</p>
+      )}
+      {authority.displayName ? (
+        <p className="text-xs text-black/55">Nama tampilan: {authority.displayName}</p>
+      ) : null}
+      {authority.username ? (
+        <p className="text-xs text-black/55">Username: {authority.username}</p>
+      ) : (
+        <p className="text-xs text-black/45">Belum ada username.</p>
+      )}
+    </div>
+  );
+
   const entries: Array<{ href: string; label: string; description: string }> = [];
 
   if (authority.isProducer) {
-    entries.push({ href: "/producer", label: "Pengelola", description: "Kelola Tempat, Kegiatan, Kunjungan, dan Live milikmu." });
+    entries.push({
+      href: "/producer",
+      label: "Pengelola",
+      description: "Kelola Tempat, Kegiatan, Kunjungan, dan Live milikmu.",
+    });
   }
+
   if (authority.isPlatformAdmin) {
-    entries.push({ href: "/admin", label: "Platform Admin", description: "Pengelolaan operasional platform." });
+    entries.push({
+      href: "/admin",
+      label: "Platform Admin",
+      description: "Pengelolaan operasional platform.",
+    });
   }
+
   if (authority.isCreator) {
-    entries.push({ href: "/developer", label: "Developer", description: "Kewenangan Creator: kelola Platform Admin." });
+    entries.push({
+      href: "/developer",
+      label: "Developer",
+      description: "Kewenangan Creator: kelola Platform Admin.",
+    });
   }
 
   return (
@@ -94,15 +145,17 @@ export default async function AccountPage() {
             ← Beranda
           </Link>
         }
-        title="Account Center"
-        description={authority.email ? <>Masuk sebagai <strong className="font-bold text-brand-ink">{authority.email}</strong></> : "Area di bawah mengikuti kewenangan akunmu."}
+        title="Account & Access Center"
+        description="Lihat profil dan akses yang tersedia untuk akun ini."
       />
 
       <div className="mt-4">
-        {entries.length === 0 ? (
-          <Section title="Available areas">
+        <Section title="Profil">{profileIdentity}</Section>
+
+        {entries.length === 0 && authority.authenticated ? (
+          <Section title="Akses">
             <p className={`text-black/60 ${metaTextClass}`}>
-              Akunmu adalah akun user: discovery, Tempat, Kegiatan, SINGGAH/Kunjungan, dan Live.
+              Akun ini belum memiliki akses Pengelola, Platform Admin, atau Developer.
             </p>
             <div>
               <Link href="/producer/onboarding" className={btn.primary}>
@@ -110,13 +163,21 @@ export default async function AccountPage() {
               </Link>
             </div>
           </Section>
-        ) : (
-          <Section title="Available areas">
+        ) : entries.length > 0 ? (
+          <Section title="Akses">
             {entries.map(({ href, label, description }) => (
               <ListRow key={href} href={href} title={label} meta={description} />
             ))}
           </Section>
-        )}
+        ) : null}
+      </div>
+
+      <div className="mt-4">
+        <Section title="Keamanan">
+          <p className={`text-black/60 ${metaTextClass}`}>
+            Keluar dari akun ini lalu masuk kembali dengan email dan password yang sama.
+          </p>
+        </Section>
       </div>
     </PageShell>
   );
