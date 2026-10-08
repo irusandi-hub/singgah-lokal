@@ -2,7 +2,18 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isCreatorEmail } from "@/lib/auth/creator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { ListRow, PageHeader, PageShell, Section, backLinkClass, btn, metaTextClass } from "@/components/ui/kit";
+import {
+  ListRow,
+  PageHeader,
+  PageShell,
+  Section,
+  backLinkClass,
+  btn,
+  metaTextClass,
+} from "@/components/ui/kit";import AccountProfileClient from "@/components/account/account-profile-client";
+import AccountAccessClient from "@/components/account/account-access-client";
+import AccountLiveAccessClient from "@/components/account/account-live-access-client";
+import { resolvePlaceMemberships } from "@/lib/account-memberships";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +32,9 @@ export const dynamic = "force-dynamic";
  * - Creator/Owner/Developer → the Creator-controlled environment allowlist.
  *
  * The page is deliberately compact: one identity block, then one section per
- * access area the account holds.
+ * access area the account holds. There is NO separate security/logout section
+ * here — sign-out already lives in the app-level account menu and its own
+ * backend endpoint.
  */
 
 type AccountAuthority = {
@@ -29,7 +42,7 @@ type AccountAuthority = {
   email: string | null;
   displayName: string | null;
   username: string | null;
-  isProducer: boolean;
+  memberships: Array<{ placeId: string; role: "owner" | "manager" }>;
   isPlatformAdmin: boolean;
   isCreator: boolean;
 };
@@ -40,7 +53,7 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
     email: null,
     displayName: null,
     username: null,
-    isProducer: false,
+    memberships: [],
     isPlatformAdmin: false,
     isCreator: false,
   };
@@ -50,16 +63,13 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return fallback;
 
-    const [{ data: membership }, { data: userRow }] = await Promise.all([
+    const [{ data: memberships }, { data: userRow }] = await Promise.all([
       supabase
         .from("producer_memberships")
-        // producer_memberships has NO id column (PK is (user_id, place_id),
-        // 0001) — probe an existing column so the read cannot fail.
-        .select("role")
+        .select("place_id, role")
         .eq("user_id", userData.user.id)
         .in("role", ["owner", "manager"])
-        .limit(1)
-        .maybeSingle(),
+        .order("created_at", { ascending: true }),
       supabase
         .from("users")
         .select("platform_role, display_name, username")
@@ -73,10 +83,16 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
     return {
       authenticated: true,
       email: userData.user.email ?? null,
-      displayName: (userRow as { display_name?: string | null } | null)?.display_name ?? null,
-      username: (userRow as { username?: string | null } | null)?.username ?? null,
-      isProducer: Boolean(membership),
-      isPlatformAdmin: userRow?.platform_role === "platform_moderator",
+      displayName:
+        (userRow as { display_name?: string | null } | null)?.display_name ?? null,
+      username:
+        (userRow as { username?: string | null } | null)?.username ?? null,
+      memberships: (memberships ?? []).map((row) => ({
+        placeId: String(row.place_id),
+        role: (row.role as "owner" | "manager") ?? "manager",
+      })),
+      isPlatformAdmin:
+        userRow?.platform_role === "platform_moderator",
       isCreator: isCreatorEmail(userData.user.email),
     };
   } catch {
@@ -95,34 +111,29 @@ export default async function AccountPage() {
     <div className="grid gap-2">
       {authority.email ? (
         <p className="text-sm font-semibold">
-          Masuk sebagai <strong className="font-bold text-brand-ink">{authority.email}</strong>
+          Masuk sebagai{" "}
+          <strong className="font-bold text-brand-ink">{authority.email}</strong>
         </p>
       ) : (
         <p className="text-sm font-semibold text-black/55">Akun tidak dikenali.</p>
       )}
       {authority.displayName ? (
-        <p className="text-xs text-black/55">Nama tampilan: {authority.displayName}</p>
+        <p className="text-xs text-black/55">
+          Nama tampilan: {authority.displayName}
+        </p>
       ) : null}
-      {authority.username ? (
-        <p className="text-xs text-black/55">Username: {authority.username}</p>
-      ) : (
-        <p className="text-xs text-black/45">Belum ada username.</p>
-      )}
+      <AccountProfileClient username={authority.username} />
     </div>
   );
 
-  const entries: Array<{ href: string; label: string; description: string }> = [];
-
-  if (authority.isProducer) {
-    entries.push({
-      href: "/producer",
-      label: "Pengelola",
-      description: "Kelola Tempat, Kegiatan, Kunjungan, dan Live milikmu.",
-    });
-  }
+  const accessItems: Array<{
+    href: string;
+    label: string;
+    description: string;
+  }> = [];
 
   if (authority.isPlatformAdmin) {
-    entries.push({
+    accessItems.push({
       href: "/admin",
       label: "Platform Admin",
       description: "Pengelolaan operasional platform.",
@@ -130,7 +141,7 @@ export default async function AccountPage() {
   }
 
   if (authority.isCreator) {
-    entries.push({
+    accessItems.push({
       href: "/developer",
       label: "Developer",
       description: "Kewenangan Creator: kelola Platform Admin.",
@@ -152,10 +163,15 @@ export default async function AccountPage() {
       <div className="mt-4">
         <Section title="Profil">{profileIdentity}</Section>
 
-        {entries.length === 0 && authority.authenticated ? (
+        {authority.memberships.length > 0 ? (
+          <Section title="Akses">
+            <AccountAccessClient memberships={authority.memberships} />
+          </Section>
+        ) : accessItems.length === 0 ? (
           <Section title="Akses">
             <p className={`text-black/60 ${metaTextClass}`}>
-              Akun ini belum memiliki akses Pengelola, Platform Admin, atau Developer.
+              Akun ini belum memiliki akses Pengelola, Platform Admin, atau
+              Developer.
             </p>
             <div>
               <Link href="/producer/onboarding" className={btn.primary}>
@@ -163,21 +179,24 @@ export default async function AccountPage() {
               </Link>
             </div>
           </Section>
-        ) : entries.length > 0 ? (
+        ) : (
           <Section title="Akses">
-            {entries.map(({ href, label, description }) => (
-              <ListRow key={href} href={href} title={label} meta={description} />
+            {accessItems.map(({ href, label, description }) => (
+              <ListRow
+                key={href}
+                href={href}
+                title={label}
+                meta={description}
+              />
             ))}
           </Section>
-        ) : null}
-      </div>
+        )}
 
-      <div className="mt-4">
-        <Section title="Keamanan">
-          <p className={`text-black/60 ${metaTextClass}`}>
-            Keluar dari akun ini lalu masuk kembali dengan email dan password yang sama.
-          </p>
-        </Section>
+        {authority.memberships.length > 0 && (
+          <Section title="Akses">
+            <AccountLiveAccessClient memberships={authority.memberships} />
+          </Section>
+        )}
       </div>
     </PageShell>
   );

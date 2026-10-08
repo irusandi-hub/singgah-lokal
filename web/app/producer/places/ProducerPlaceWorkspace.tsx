@@ -125,7 +125,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             Kembali ke Beranda
           </Link>
         }
-        title="Dashboard Pengelola"
+        title="Pengelola"
         description="Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live."
       />
 
@@ -135,7 +135,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             systems at once. */}
         <ProducerSubNav active="/producer" />
 
-        <Section title="Tempat yang Kamu Kelola">
+        <Section title="Tempat yang Kamu Kelola" accountCenterVocabulary>
           {places.length === 0 && (
             <EmptyState
               title="Belum ada Tempat yang dapat dikelola"

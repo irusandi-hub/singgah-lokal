@@ -158,7 +158,7 @@ test("every dashboard state renders exactly ONE shell and ONE header", () => {
   const roster = workspace.slice(workspace.lastIndexOf("<PageShell>"));
   assert.equal(count(roster, /<PageShell/g), 1);
   assert.equal(count(roster, /<PageHeader/g), 1);
-  assert.match(roster, /title="Dashboard Pengelola"/);
+  assert.match(roster, /title="Pengelola"/);
   assert.match(roster, /<ProducerSubNav active="\/producer" \/>/);
   assert.match(roster, /Tempat yang Kamu Kelola/);
 });

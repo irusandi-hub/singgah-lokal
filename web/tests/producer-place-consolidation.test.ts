@@ -77,7 +77,7 @@ test("The dashboard is the single landing/workspace page hosting the Place works
   assert.equal(dashboardCode.includes("Tempat<"), false, "no Tempat shortcut card on the dashboard");
   // The page is a THIN loader: the header lives in the workspace it renders
   // (UI/perf pass 2026-10-08), which keeps exactly one shell per state.
-  assert.match(workspaceCode, /Dashboard Pengelola/);
+  assert.match(workspaceCode, /Pengelola/);
   assert.equal(dashboardCode.includes("PageShell"), false, "the page must not add a shell around the workspace");
   // ...and hosts the "Tempat yang Kamu Kelola" workspace (roster + add + edit) in place.
   assert.match(dashboardCode, /<ProducerPlaceWorkspace initialPlaces=\{places\} showOnboardingHint=\{places\.length === 0\} \/>/);
