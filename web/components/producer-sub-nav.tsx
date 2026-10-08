@@ -3,15 +3,14 @@ import Link from "next/link";
 /**
  * The ONE local navigation layer of the Producer area.
  *
- * It switches between the Producer's own functions (Dashboard, Tempat,
- * Permintaan Kunjungan, Live). The way back to the public home is NOT here:
- * every page owns exactly ONE contextual back link, so the escape path is not
- * repeated on every screen. Active state is URL-derived, so it stays correct
- * on refresh and direct URLs.
+ * It switches between the Producer's own functions (Dashboard, Permintaan
+ * Kunjungan, Live). The way back to the public home is NOT here: every page
+ * owns exactly ONE contextual back link, so the escape path is not repeated on
+ * every screen. Active state is URL-derived, so it stays correct on refresh and
+ * direct URLs.
  */
 const links = [
   { href: "/producer", label: "Dashboard" },
-  { href: "/producer/places", label: "Tempat" },
   { href: "/producer/visit-intents", label: "Permintaan Kunjungan" },
   { href: "/producer/live", label: "Live" },
 ];
