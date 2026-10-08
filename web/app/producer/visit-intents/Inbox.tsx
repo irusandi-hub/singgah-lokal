@@ -38,29 +38,55 @@ export default function Inbox() {
   const [placeId, setPlaceId] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  // The Tempat filter list is a convenience, so its failure is reported in
+  // place next to the filter instead of replacing the inbox — but it is never
+  // swallowed silently.
+  const [placesError, setPlacesError] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/producer/places").then(async (response) => {
-      if (response.ok) setPlaces(await response.json());
-    });
+    let cancelled = false;
+    fetch("/api/producer/places")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("places unavailable");
+        if (!cancelled) setPlaces(await response.json());
+      })
+      .catch(() => {
+        if (!cancelled) setPlacesError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     const query = new URLSearchParams();
     if (placeId) query.set("placeId", placeId);
     if (status) query.set("status", status);
-    fetch(`/api/producer/visit-intents${query.size ? `?${query}` : ""}`).then(async (response) => {
-      const data = await response.json();
-      // Session expired mid-session: route through login and come back here.
-      if (response.status === 401) {
-        router.push("/auth?returnTo=%2Fproducer%2Fvisit-intents");
-        return;
-      }
-      if (response.ok) { setRecords(data); setError(""); }
-      else setError(data.error ?? "Kunjungan tidak dapat dimuat");
-      setLoading(false);
-    });
+    let cancelled = false;
+    fetch(`/api/producer/visit-intents${query.size ? `?${query}` : ""}`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (cancelled) return;
+        // Session expired mid-session: route through login and come back here.
+        if (response.status === 401) {
+          router.push("/auth?returnTo=%2Fproducer%2Fvisit-intents");
+          return;
+        }
+        if (response.ok) { setRecords(data); setError(""); }
+        else setError(data.error ?? "Kunjungan tidak dapat dimuat");
+        setLoading(false);
+      })
+      .catch(() => {
+        // A network failure must end the loading state with a message, never
+        // leave "Memuat permintaan..." on screen forever.
+        if (cancelled) return;
+        setError("Kunjungan tidak dapat dimuat. Periksa koneksi lalu muat ulang.");
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [placeId, status, router]);
 
   return (
@@ -95,6 +121,12 @@ export default function Inbox() {
           </select>
         </label>
       </section>
+
+      {placesError ? (
+        <p className={`mt-2 text-black/55 ${metaTextClass}`} role="status">
+          Daftar Tempat untuk filter tidak dapat dimuat.
+        </p>
+      ) : null}
 
       <div className="mt-4">
         {error ? (

@@ -88,7 +88,11 @@ export default function PlaceWorkspace({
         if (response.ok) setPlace(data);
         else setError(data.error ?? "Tempat tidak dapat dimuat");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // Never swallow a network failure: without this the surface would sit
+        // on "Memuat Tempat..." forever with no way to tell why.
+        if (!cancelled) setError("Tempat tidak dapat dimuat. Periksa koneksi lalu muat ulang.");
+      });
     return () => {
       cancelled = true;
     };

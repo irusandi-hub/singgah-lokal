@@ -24,7 +24,10 @@ export default function ExperiencesPanel({ placeId }: { placeId: string }) {
         if (response.ok) { setExperiences(await response.json()); return; }
         setError((await response.json().catch(() => ({}))).error ?? "Kegiatan tidak dapat dimuat");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // A failed load must not read as "Belum ada Kegiatan".
+        if (!cancelled) setError("Kegiatan tidak dapat dimuat. Periksa koneksi lalu muat ulang.");
+      });
     return () => {
       cancelled = true;
     };

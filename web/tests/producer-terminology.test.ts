@@ -109,8 +109,10 @@ test("The dictionary is applied across the Producer area", () => {
 });
 
 test("The final Producer copy pass is applied and its old wording is gone", () => {
-  assert.match(dashboard, /Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live\./);
-  assert.equal(dashboard.includes("Kelola Tempat, Kegiatan, Kunjungan, dan Live"), false);
+  // The roster state owns the page header (UI/perf pass 2026-10-08: the
+  // dashboard page is a thin loader and declares no chrome of its own).
+  assert.match(workspace, /Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live\./);
+  assert.equal(workspace.includes("Kelola Tempat, Kegiatan, Kunjungan, dan Live"), false);
 
   // The shared nav is a pure menu: the escape link lives on the page, once
   // (UI/UX restructure 2026-10-08).

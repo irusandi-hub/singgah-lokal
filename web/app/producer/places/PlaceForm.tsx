@@ -179,6 +179,9 @@ export function PlaceMediaPanel({ place }: { place: Place }) {
   const [slots, setSlots] = useState<Record<string, SlotState>>({});
   const [slotBusy, setSlotBusy] = useState<Record<string, boolean>>({});
   const [slotError, setSlotError] = useState<Record<string, string>>({});
+  // A failed load must not look like "no photo saved yet": the saved photos are
+  // reported as unavailable instead of silently rendering empty slots.
+  const [loadError, setLoadError] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -190,8 +193,11 @@ export function PlaceMediaPanel({ place }: { place: Place }) {
         const byKey: Record<string, SlotState> = {};
         for (const slot of payload.slots ?? []) byKey[slot.slotKey] = slot;
         setSlots(byKey);
+        setLoadError("");
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setLoadError("Foto Tempat tidak dapat dimuat. Periksa koneksi lalu muat ulang.");
+      });
     return () => {
       cancelled = true;
     };
@@ -286,6 +292,7 @@ export function PlaceMediaPanel({ place }: { place: Place }) {
               Slot Hook adalah sampul (cover) Tempat yang tampil di Home.
             </p>
           </div>
+          {loadError ? <p className="text-xs font-semibold text-red-700" role="alert">{loadError}</p> : null}
           {PLACE_PHOTO_SLOTS.map((slot) => {
             const state = slots[slot.key];
             const photo = state?.filled ? state.photo : null;
@@ -297,7 +304,13 @@ export function PlaceMediaPanel({ place }: { place: Place }) {
                 <p className={`text-black/55 ${metaTextClass}`}>{slot.titlePrompt} — {slot.descriptionPrompt}</p>
                 {photo?.url && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={photo.url} alt={`${slot.label}: ${photo.title}`} className="h-36 w-full rounded-lg border border-black/10 object-cover" />
+                  <img
+                    src={photo.url}
+                    alt={`${slot.label}: ${photo.title}`}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-36 w-full rounded-lg border border-black/10 object-cover"
+                  />
                 )}
                 {photo && (
                   <div className={`rounded-lg bg-brand-cream px-3 py-2 ${metaTextClass}`}>

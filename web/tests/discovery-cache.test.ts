@@ -88,7 +88,14 @@ test("/api/live/discovery is sessionless and cached without privileged writes", 
   assert.match(code, /getPublicPlaceExperienceRepository/);
   assert.match(code, /getPublicProductionStoryRepository/);
   assert.match(code, /getPublishedPlaceById\(row\.place_id\)/);
-  assert.match(code, /if \(!place\) continue;/);
+  // Fail-closed visibility, in its parallel form (PERF pass 2026-10-08): the
+  // sequential `continue` skip became an explicit null entry that is filtered
+  // out, so a session whose Place is unpublished is still never listed, while
+  // the two reads per session now resolve concurrently instead of one row at a
+  // time. Amended here because the requested change is exactly that switch; the
+  // guarantee it locked is unchanged and still asserted.
+  assert.match(code, /if \(!place\) return null;/);
+  assert.match(code, /filter\(\(entry\): entry is LiveDiscoveryEntry => entry !== null\)/);
 });
 
 test("The public Production Story repository is backed by the public client", () => {
