@@ -75,8 +75,10 @@ test("The dashboard is the single landing/workspace page hosting the Place works
   // LINK into any Place route (the workspace import path is not a link).
   assert.equal(dashboardCode.includes('"/producer/places'), false, "dashboard must not link any /producer/places route");
   assert.equal(dashboardCode.includes("Tempat<"), false, "no Tempat shortcut card on the dashboard");
-  // The dashboard keeps the header + the in-place Place workspace...
-  assert.match(dashboardCode, /Dashboard Pengelola/);
+  // The page is a THIN loader: the header lives in the workspace it renders
+  // (UI/perf pass 2026-10-08), which keeps exactly one shell per state.
+  assert.match(workspaceCode, /Dashboard Pengelola/);
+  assert.equal(dashboardCode.includes("PageShell"), false, "the page must not add a shell around the workspace");
   // ...and hosts the "Tempat yang Kamu Kelola" workspace (roster + add + edit) in place.
   assert.match(dashboardCode, /<ProducerPlaceWorkspace initialPlaces=\{places\} showOnboardingHint=\{places\.length === 0\} \/>/);
   assert.match(workspaceCode, /Tempat yang Kamu Kelola/);
@@ -332,13 +334,17 @@ test("Producer surfaces share the same cream/light theme (no dark producer page)
   assert.match(shell, /bg-brand-cream/);
   assert.match(shell, /text-brand-ink/);
   for (const [name, code] of [
-    ["dashboard", dashboardCode],
+    ["area root", workspaceCode],
     ["place workspace", placeWorkspaceCode],
     ["inbox", inboxCode],
     ["inbox detail", inboxDetailCode],
   ] as const) {
     assert.match(code, /PageShell/, `${name} must render through the shared shell`);
   }
+  // ...and the dashboard page itself renders NO shell: the workspace it mounts
+  // owns the single one, so the in-place editor can never nest a second shell.
+  assert.equal(dashboardCode.includes("PageShell"), false);
+  assert.equal(dashboardCode.includes("PageHeader"), false);
   // The production story is a workspace item now, so its panel carries no
   // shell of its own — the ONE Place workspace owns the page frame.
   assert.match(placeWorkspaceCode, /<ProductionStoryPanel/);

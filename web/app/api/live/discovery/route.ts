@@ -24,6 +24,21 @@ type LiveRow = {
   viewer_peak: number;
 };
 
+/** The public discovery entry for ONE active Live session (payload unchanged). */
+type LiveDiscoveryEntry = {
+  sessionId: string;
+  placeId: string;
+  placeName: string;
+  placeArea: string;
+  stageId: string;
+  processTitle: string | null;
+  startedAt: string;
+  viewerPeak: number;
+  position: null;
+  latitude: number | null;
+  longitude: number | null;
+};
+
 // Map-first discovery feed (tech §9): canonical live_sessions of published
 // Places, joined with Place metadata + Process titles from the existing
 // repositories. Derived data only — never a cache/search index (AGENTS.md).
@@ -58,26 +73,34 @@ export async function GET() {
     const placeRepository = await getPublicPlaceExperienceRepository();
     const stageRepository = await getPublicProductionStoryRepository();
 
-    const live = [];
-    for (const row of activeRows) {
-      const place = await placeRepository.getPublishedPlaceById(row.place_id);
-      if (!place) continue; // unpublished Place: never shown (fail-closed visibility)
-      const stage = await stageRepository.getById(row.place_id, row.stage_id, true);
-
-      live.push({
-        sessionId: row.id,
-        placeId: place.id,
-        placeName: place.name,
-        placeArea: place.area,
-        stageId: row.stage_id,
-        processTitle: stage?.title ?? null,
-        startedAt: row.started_at,
-        viewerPeak: row.viewer_peak,
-        position: null,
-        latitude: place.latitude ?? null,
-        longitude: place.longitude ?? null,
-      });
-    }
+    // PERFORMANCE (2026-10-08): the two reads per active session are
+    // independent, so all sessions resolve concurrently instead of two
+    // sequential awaits per row. `Promise.all` preserves the row order and the
+    // same fail-closed skip (an unpublished or missing Place yields null and is
+    // dropped), so the response payload and its order are identical. Nothing
+    // else about the route changes — same repositories, same visibility rules,
+    // same no-write budget.
+    const resolved = await Promise.all(
+      activeRows.map(async (row): Promise<LiveDiscoveryEntry | null> => {
+        const place = await placeRepository.getPublishedPlaceById(row.place_id);
+        if (!place) return null; // unpublished Place: never shown (fail-closed visibility)
+        const stage = await stageRepository.getById(row.place_id, row.stage_id, true);
+        return {
+          sessionId: row.id,
+          placeId: place.id,
+          placeName: place.name,
+          placeArea: place.area,
+          stageId: row.stage_id,
+          processTitle: stage?.title ?? null,
+          startedAt: row.started_at,
+          viewerPeak: row.viewer_peak,
+          position: null,
+          latitude: place.latitude ?? null,
+          longitude: place.longitude ?? null,
+        };
+      }),
+    );
+    const live = resolved.filter((entry): entry is LiveDiscoveryEntry => entry !== null);
 
     return NextResponse.json({ live });
   } catch {

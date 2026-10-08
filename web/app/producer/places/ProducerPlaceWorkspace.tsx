@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useState } from "react";
 import ProducerSubNav from "@/components/producer-sub-nav";
 import { publicationStatusLabel } from "@/lib/status-labels";
-import { EmptyState, Section, StatusBadge, btn, metaTextClass } from "@/components/ui/kit";
+import {
+  EmptyState,
+  PageHeader,
+  PageShell,
+  Section,
+  StatusBadge,
+  backLinkClass,
+} from "@/components/ui/kit";
 import PlaceForm from "./PlaceForm";
 import PlaceClaimPanel from "./PlaceClaimPanel";
 import PlaceWorkspace from "./[placeId]/PlaceWorkspace";
@@ -13,6 +20,13 @@ import type { Place } from "@/lib/places";
 /**
  * PLACE MILIKMU (Tempat yang Kamu Kelola) — the Place working surface of the
  * Producer dashboard.
+ *
+ * This component ALSO owns the dashboard's page chrome: the single PageShell,
+ * the single PageHeader (its title/back change per state) and the single
+ * contextual back link. That is deliberate (UI/perf pass 2026-10-08): when the
+ * in-place editor rendered its own shell inside a shell wrapped by the page,
+ * one screen had two nested shells and two headers. Each state below now
+ * returns exactly ONE shell with ONE context and ONE back.
  *
  * ONE navigation layer, ONE work area:
  * - "list": the global Producer menu (this is the Producer area root, so the
@@ -60,27 +74,39 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
   }
 
   if (view.name === "claim") {
-    return <PlaceClaimPanel onBack={() => setView({ name: "list" })} />;
+    // PlaceClaimPanel is self-contained: it owns the ONE heading and the ONE
+    // "Kembali ke Tempat" action of this state, so it is only wrapped in the
+    // single shell — never in a second header.
+    return (
+      <PageShell>
+        <PlaceClaimPanel onBack={() => setView({ name: "list" })} />
+      </PageShell>
+    );
   }
 
   if (view.name === "new") {
     return (
-      <section aria-label="Tambah Tempat" className="grid gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[17px] font-semibold leading-snug tracking-tight">Tambah Tempat</h2>
-          <button type="button" onClick={() => setView({ name: "list" })} className={btn.compact}>
-            Kembali ke Tempat
-          </button>
+      <PageShell>
+        <PageHeader
+          back={
+            <button type="button" onClick={() => setView({ name: "list" })} className={backLinkClass}>
+              ← Kembali ke Tempat
+            </button>
+          }
+          title="Tambah Tempat"
+          description="Lengkapi informasi Tempat. Setelah disimpan, kamu dapat menambahkan foto, Kegiatan, dan mengelola Tempat."
+        />
+
+        <div className="mt-4">
+          <PlaceForm onSaved={handleSaved} />
         </div>
-        <p className={`text-black/55 ${metaTextClass}`}>
-          Lengkapi informasi Tempat. Setelah disimpan, kamu dapat menambahkan foto, Kegiatan, dan mengelola Tempat.
-        </p>
-        <PlaceForm onSaved={handleSaved} />
-      </section>
+      </PageShell>
     );
   }
 
   if (view.name === "edit") {
+    // PlaceWorkspace brings its OWN single shell + header (the Place name as
+    // the context) — so the dashboard must not wrap it in a second one.
     return (
       <PlaceWorkspace
         placeId={view.place.id}
@@ -92,31 +118,42 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
   }
 
   return (
-    <div className="grid gap-4">
-      {/* The global Producer menu lives at the area root ONLY. It is never
-          rendered inside a Place workspace, so no screen shows two navigation
-          systems at once. */}
-      <ProducerSubNav active="/producer" />
+    <PageShell>
+      <PageHeader
+        back={
+          <Link className={backLinkClass} href="/">
+            Kembali ke Beranda
+          </Link>
+        }
+        title="Dashboard Pengelola"
+        description="Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live."
+      />
 
-      <Section title="Tempat yang Kamu Kelola">
-        {places.length === 0 && (
-          <EmptyState
-            title="Belum ada Tempat yang dapat dikelola"
-            description={
-              showOnboardingHint ? (
-                <>
-                  Ikuti proses verifikasi untuk menjadi Pengelola — lihat{" "}
-                  <Link href="/producer/onboarding" className="font-bold text-brand-accent underline underline-offset-2">
-                    Ajukan menjadi Pengelola
-                  </Link>
-                  .
-                </>
-              ) : undefined
-            }
-          />
-        )}
+      <div className="mt-5 grid gap-4">
+        {/* The global Producer menu lives at the area root ONLY. It is never
+            rendered inside a Place workspace, so no screen shows two navigation
+            systems at once. */}
+        <ProducerSubNav active="/producer" />
 
-        <div className="grid gap-2">
+        <Section title="Tempat yang Kamu Kelola">
+          {places.length === 0 && (
+            <EmptyState
+              title="Belum ada Tempat yang dapat dikelola"
+              description={
+                showOnboardingHint ? (
+                  <>
+                    Ikuti proses verifikasi untuk menjadi Pengelola — lihat{" "}
+                    <Link href="/producer/onboarding" className="font-bold text-brand-accent underline underline-offset-2">
+                      Ajukan menjadi Pengelola
+                    </Link>
+                    .
+                  </>
+                ) : undefined
+              }
+            />
+          )}
+
+          <div className="grid gap-2">
           {places.map((place) => (
             <button
               type="button"
@@ -126,7 +163,15 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             >
               {place.coverImageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={place.coverImageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-black/10 object-cover" />
+                <img
+                  src={place.coverImageUrl}
+                  alt=""
+                  width={40}
+                  height={40}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-10 w-10 shrink-0 rounded-lg border border-black/10 object-cover"
+                />
               ) : (
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg border border-black/10 bg-brand-cream text-sm font-bold text-brand-accent">
                   {place.name.slice(0, 1)}
@@ -177,8 +222,10 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
               </span>
             </span>
           </button>
-        </div>
-      </Section>
-    </div>
+          </div>
+        </Section>
+      </div>
+    </PageShell>
   );
 }
+

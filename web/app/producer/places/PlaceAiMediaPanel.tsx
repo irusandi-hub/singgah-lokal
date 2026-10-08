@@ -683,6 +683,8 @@ function AiMediaSourceCard({
         <img
           src={state.signedUrl}
           alt={label}
+          loading="lazy"
+          decoding="async"
           className="h-32 w-full rounded-lg border border-black/10 object-cover"
         />
       ) : (
@@ -801,6 +803,8 @@ function AiMediaOutputCard({
         <img
           src={imageUrl}
           alt={label}
+          loading="lazy"
+          decoding="async"
           className={`rounded-lg border border-black/10 object-cover ${
             aspect === "portrait"
               ? "mx-auto h-44 w-full max-w-[180px]"

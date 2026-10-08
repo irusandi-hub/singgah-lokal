@@ -50,16 +50,20 @@ const onboarding = stripComments(read("app/producer/onboarding/page.tsx"));
 const subNav = read("components/producer-sub-nav.tsx");
 
 test("The main Producer page has no navigation back to itself", () => {
-  // No sub-nav markup of its own (the shared menu is rendered by the roster
-  // view of the workspace, not by the dashboard page) and no shortcut cards.
+  // PERF/UX pass 2026-10-08: the dashboard page is a thin data loader and owns
+  // NO chrome, so all of its presentation assertions moved to the workspace
+  // component that actually renders them.
   assert.equal(dashboard.includes("ProducerSubNav"), false, "dashboard must not render the ProducerSubNav tabs itself");
-  assert.equal(dashboard.includes("←"), false, "dashboard must not carry a back link to itself");
-  // The working dashboard is still never a dead end — it offers the standard
-  // way back to the public home (arrow-free, because a "←" on this page would
-  // read as a self-link).
-  assert.match(dashboard, /href="\//, "dashboard keeps a way back to the public home");
-  assert.match(dashboard, /Kembali ke Beranda/, "the way back is labelled as a way back");
-  assert.equal(dashboard.includes("Area Pengelola"), false, "the shortcut-card section is gone");
+  assert.equal(dashboard.includes("PageShell"), false, "the dashboard page must not declare a second shell");
+  assert.equal(dashboard.includes("PageHeader"), false, "the dashboard page must not declare a second header");
+  // The roster state (the Producer area root) is never a dead end — it offers
+  // the standard way back to the public home (arrow-free, because a "←" on
+  // this page would read as a self-link).
+  assert.match(workspace, /href="\//, "the area root keeps a way back to the public home");
+  assert.match(workspace, /Kembali ke Beranda/, "the way back is labelled as a way back");
+  assert.equal(workspace.includes("Area Pengelola"), false, "the shortcut-card section is gone");
+  // ...and the dashboard never links back to itself.
+  assert.equal(workspace.includes('href="/producer"'), false, "the area root must not link to itself");
 });
 
 test("The global Producer menu is owned by one component and rendered at the area root", () => {

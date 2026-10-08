@@ -29,7 +29,10 @@ export default function ProductionStoryPanel({ placeId }: { placeId: string }) {
       if (cancelled) return;
       if (response.ok) setStages(data);
       else setMessage(data.error ?? "Daftar tahap tidak dapat dimuat");
-    }).catch(() => undefined);
+    }).catch(() => {
+      // A failed load must not read as "Belum ada tahap".
+      if (!cancelled) setMessage("Daftar tahap tidak dapat dimuat. Periksa koneksi lalu muat ulang.");
+    });
     return () => {
       cancelled = true;
     };

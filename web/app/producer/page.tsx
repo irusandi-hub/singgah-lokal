@@ -1,24 +1,23 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
 import ProducerPlaceWorkspace from "@/app/producer/places/ProducerPlaceWorkspace";
-import { PageHeader, PageShell, backLinkClass } from "@/components/ui/kit";
 import type { Place } from "@/lib/places";
 
 export const dynamic = "force-dynamic";
 
-// The Producer dashboard is ONE working page: a compact header, then the
-// "Tempat yang Kamu Kelola" workspace — roster + in-page add/edit via the
-// shared PlaceForm/PlaceEditor. No ProducerSubNav here (the dashboard is the
-// working surface itself, not a hub of links) and NO second Place list page.
-// Its single escape path is back to the public home; the dashboard never
-// links to itself. Place data is loaded server-side from the authenticated
-// user's owner/manager memberships via the canonical repository — no new
-// auth, no new API.
+// The Producer dashboard owns NO page chrome of its own: the single shell, the
+// single header (title per state) and the ONE contextual back link belong to
+// ProducerPlaceWorkspace, which decides them per view. That is what keeps every
+// state (roster / add / claim / edit) at exactly ONE shell, ONE context, ONE
+// back and ONE navigation layer instead of nesting a second shell inside the
+// dashboard's own.
+//
+// Place data is loaded server-side from the authenticated user's owner/manager
+// memberships via the canonical repository — no new auth, no new API.
 export default async function ProducerDashboardPage() {
-  const places: Place[] = [];
+  let places: Place[] = [];
 
   try {
     const actor = await requireAuthenticatedActor(new Request("http://localhost/producer"));
@@ -29,10 +28,16 @@ export default async function ProducerDashboardPage() {
       .eq("user_id", actor.userId)
       .in("role", ["owner", "manager"]);
     const placeRepository = await getServerPlaceManagementRepository();
-    for (const membership of memberships ?? []) {
-      const place = await placeRepository.getById(String(membership.place_id));
-      if (place) places.push(place);
-    }
+    // PERFORMANCE (2026-10-08): the per-membership lookups are independent, so
+    // they run as ONE parallel batch instead of a sequential `await` loop.
+    // `Promise.all` preserves the memberships order and the same falsy
+    // filtering, so the roster content AND its order are identical to the
+    // sequential version. The authorization predicate (owner/manager
+    // memberships), the repository behaviour and the schema are unchanged.
+    const resolved = await Promise.all(
+      (memberships ?? []).map((membership) => placeRepository.getById(String(membership.place_id))),
+    );
+    places = resolved.filter((place): place is Place => Boolean(place));
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
       redirect("/auth?returnTo=%2Fproducer");
@@ -40,21 +45,5 @@ export default async function ProducerDashboardPage() {
     throw error;
   }
 
-  return (
-    <PageShell>
-      <PageHeader
-        back={
-          <Link className={backLinkClass} href="/">
-            Kembali ke Beranda
-          </Link>
-        }
-        title="Dashboard Pengelola"
-        description="Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live."
-      />
-
-      <div className="mt-5">
-        <ProducerPlaceWorkspace initialPlaces={places} showOnboardingHint={places.length === 0} />
-      </div>
-    </PageShell>
-  );
+  return <ProducerPlaceWorkspace initialPlaces={places} showOnboardingHint={places.length === 0} />;
 }
