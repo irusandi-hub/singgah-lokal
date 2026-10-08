@@ -2,20 +2,22 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
+import { EmptyState, PageHeader, PageShell, StatusBadge, btn, metaTextClass } from "@/components/ui/kit";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
+import { visitIntentStatusLabel } from "@/lib/status-labels";
 import { listUserVisitIntents, type UserVisitIntentRecord } from "@/lib/visit-intent-service";
 import type { VisitIntentStatus } from "@/lib/visit-intents";
 
 // Session data is read per request — never cached across users.
 export const dynamic = "force-dynamic";
 
-const statusStyles: Record<VisitIntentStatus, string> = {
-  pending: "bg-brand-accent/40 text-[#5a431f]",
-  accepted: "bg-green-700/15 text-green-800",
-  declined: "bg-red-900/10 text-red-800",
-  requires_confirmation: "bg-blue-900/10 text-blue-800",
-  cancelled: "bg-black/10 text-black/60",
-  expired: "bg-black/10 text-black/60",
+const STATUS_TONE: Record<VisitIntentStatus, "warning" | "positive" | "negative" | "accent" | "neutral"> = {
+  pending: "warning",
+  accepted: "positive",
+  declined: "negative",
+  requires_confirmation: "accent",
+  cancelled: "neutral",
+  expired: "neutral",
 };
 
 function formatVisitIntentDate(date: string): string {
@@ -44,83 +46,67 @@ export default async function VisitIntentsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-brand-cream text-brand-ink">
+    <>
       <SiteNav />
-
-      <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Kunjungan Saya</h1>
-        <p className="mt-2 text-sm text-black/55">
-          Niat berkunjungmu ke Tempat. Status diperbarui setelah Pengelola merespons.
-        </p>
+      <PageShell>
+        <PageHeader
+          title="Kunjungan Saya"
+          description="Niat berkunjungmu ke Tempat. Status diperbarui setelah Pengelola merespons."
+        />
 
         {records.length === 0 ? (
-          <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
-            <p className="text-sm font-bold">Belum ada Kunjungan</p>
-            <p className="mt-1 text-xs text-black/55">
-              Ajukan niat berkunjung dari halaman Kegiatan pada sebuah Tempat.
-            </p>
-            <Link href="/" className="mt-4 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white">
-              Jelajahi Tempat
-            </Link>
+          <div className="mt-4">
+            <EmptyState
+              title="Belum ada Kunjungan"
+              description="Ajukan niat berkunjung dari halaman Kegiatan pada sebuah Tempat."
+              action={
+                <Link href="/" className={btn.primary}>
+                  Jelajahi Tempat
+                </Link>
+              }
+            />
           </div>
         ) : (
-          <div className="mt-6 grid gap-3">
+          <div className="mt-4 grid gap-2">
             {records.map(({ intent, place, experience }) => (
-              <article key={intent.id} className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-brand-accent">
+              <article key={intent.id} className="grid gap-2 rounded-xl border border-black/10 bg-white px-3 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-brand-accent">
                       {place.name} • {place.area}
                     </p>
-                    <h2 className="mt-1 text-lg font-semibold">{experience.title}</h2>
+                    <h2 className="mt-0.5 break-words text-sm font-semibold">{experience.title}</h2>
                   </div>
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[intent.status] ?? statusStyles.expired}`}>
-                    {intent.status}
-                  </span>
+                  <StatusBadge tone={STATUS_TONE[intent.status]}>
+                    {visitIntentStatusLabel(intent.status)}
+                  </StatusBadge>
                 </div>
 
-                <dl className="mt-4 grid gap-2 text-sm text-black/70 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Tanggal</dt>
-                    <dd>{formatVisitIntentDate(intent.requestedDate)}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Waktu ({intent.timezone})</dt>
-                    <dd>
-                      {intent.requestedStartTime}–{intent.requestedEndTime}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Jumlah orang</dt>
-                    <dd>{intent.partySize} orang</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] font-bold uppercase tracking-wide text-black/40">Referensi</dt>
-                    <dd className="font-mono text-xs">{intent.id}</dd>
-                  </div>
-                </dl>
+                <p className={metaTextClass}>
+                  {formatVisitIntentDate(intent.requestedDate)} · {intent.requestedStartTime}–{intent.requestedEndTime} · {intent.partySize} orang
+                </p>
 
-                {intent.optionalNote && (
-                  <p className="mt-3 border-t border-black/5 pt-3 text-sm text-black/60">Catatan: {intent.optionalNote}</p>
-                )}
+                {intent.optionalNote ? (
+                  <p className={`border-t border-black/5 pt-2 text-black/60 ${metaTextClass}`}>Catatan: {intent.optionalNote}</p>
+                ) : null}
 
-                {intent.producerResponseNote && (
-                  <p className="mt-3 rounded-xl bg-[#fffaf0] p-3 text-sm text-black/70">
+                {intent.producerResponseNote ? (
+                  <p className={`rounded-xl bg-[#fffaf0] px-3 py-2 text-black/70 ${metaTextClass}`}>
                     <span className="font-bold">Respons Pengelola:</span> {intent.producerResponseNote}
                   </p>
-                )}
+                ) : null}
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2">
                   <VisitedLink
                     href={`/places/${place.id}`}
-                    className="rounded-full bg-brand-primary px-4 py-2 text-xs font-bold text-white"
-                    visitedClassName="bg-[#4a4d44]"
+                    className={btn.compact}
+                    visitedClassName="border-brand-accent/35 bg-[#faf6ee]"
                   >
                     Kembali ke Tempat
                   </VisitedLink>
                   <VisitedLink
                     href={`/places/${place.id}/experiences/${experience.id}`}
-                    className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-bold text-black/70"
+                    className={btn.compact}
                     visitedClassName="border-brand-accent/35 bg-[#faf6ee]"
                   >
                     Lihat Kegiatan
@@ -130,7 +116,7 @@ export default async function VisitIntentsPage() {
             ))}
           </div>
         )}
-      </section>
-    </main>
+      </PageShell>
+    </>
   );
 }

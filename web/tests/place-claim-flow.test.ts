@@ -217,7 +217,7 @@ test("claiming never creates a Place and never changes the canonical category", 
   // The claim entry point is clearly separate from "add Place".
   assert.match(placeWorkspace, /Ajukan Pengelolaan Tempat/);
   assert.match(placeWorkspace, /\{ name: "claim" \}/);
-  assert.match(placeWorkspace, /Tambahkan Place baru/);
+  assert.match(placeWorkspace, /Tambahkan Tempat/);
 });
 
 // --- 12 / 13 — existing flows and authorization are untouched -----------

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHeader, PageShell, backLinkClass } from "@/components/ui/kit";
 
 /**
  * About surface — product identity only (2026-09-27 decision on the Account
@@ -12,56 +13,52 @@ import Link from "next/link";
  */
 export default function AboutPage() {
   return (
-    <main className="min-h-screen bg-brand-cream px-5 py-10 text-brand-ink sm:px-8">
-      <div className="mx-auto max-w-2xl">
-        <Link href="/" className="text-sm font-bold text-brand-accent">
-          ← Beranda
-        </Link>
+    <PageShell width="narrow">
+      <PageHeader
+        back={
+          <Link className={backLinkClass} href="/">
+            ← Beranda
+          </Link>
+        }
+        title="Tentang SINGGAH LOKAL"
+        description="Platform discovery yang berpusat pada Tempat — tempat cerita di balik produk dan pengalaman lokal diceritakan."
+      />
 
-        <header className="mt-8 border-b border-black/10 pb-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Tentang</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Tentang SINGGAH LOKAL</h1>
-          <p className="mt-3 text-sm leading-6 text-black/60">
-            Platform discovery yang berpusat pada Tempat — tempat cerita di balik produk
-            dan pengalaman lokal diceritakan.
-          </p>
-        </header>
-
-        <div className="mt-8 grid gap-3">
-          <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Alur inti</h2>
-            <p className="mt-3 text-sm leading-6 text-black/60">
+      <div className="mt-4 grid gap-4">
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">Alur inti</h2>
+            <p className="mt-1.5 text-sm leading-6 text-black/60">
               Map/Discovery → Tempat → Story/Production → Kegiatan → SINGGAH → Kunjungan →
               Pengelola.
             </p>
           </section>
 
-          <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">SINGGAH adalah visit intent</h2>
-            <p className="mt-3 text-sm leading-6 text-black/60">
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">SINGGAH adalah visit intent</h2>
+            <p className="mt-1.5 text-sm leading-6 text-black/60">
               SINGGAH mengekspresikan niat berkunjung ke sebuah Tempat. Harga dan tiket yang tampil
               bersifat informasional dari Pengelola.
             </p>
           </section>
 
-          <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Live MVP</h2>
-            <p className="mt-3 text-sm leading-6 text-black/60">
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">Live MVP</h2>
+            <p className="mt-1.5 text-sm leading-6 text-black/60">
               Live di SINGGAH LOKAL bersifat real-time: tidak direkam dan tidak memiliki tayangan
               ulang.
             </p>
           </section>
 
-          <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Pasar &amp; bahasa</h2>
-            <p className="mt-3 text-sm leading-6 text-black/60">
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">Pasar &amp; bahasa</h2>
+            <p className="mt-1.5 text-sm leading-6 text-black/60">
               Pasar awal: Indonesia. Bahasa utama: Bahasa Indonesia.
             </p>
           </section>
 
-          <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Kebijakan</h2>
-            <p className="mt-3 text-sm leading-6 text-black/60">
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">Kebijakan</h2>
+            <p className="mt-1.5 text-sm leading-6 text-black/60">
               Retensi arsip klaim Tempat (30 hari), sifat privat bukti kepemilikan, dan
               batas tanggung jawab platform terhadap sengketa kepemilikan dirangkum di{" "}
               <Link href="/policy" className="font-bold text-brand-primary underline underline-offset-2">
@@ -70,8 +67,7 @@ export default function AboutPage() {
               .
             </p>
           </section>
-        </div>
       </div>
-    </main>
+    </PageShell>
   );
 }

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import SiteNav from "@/components/site-nav";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getProducerApplicationStatus } from "@/lib/producer/application";
+import { PageHeader, PageShell, Panel, Section, backLinkClass, btn, metaTextClass } from "@/components/ui/kit";
 import ProducerApplicationClient from "./producer-application-client";
 
 export const dynamic = "force-dynamic";
@@ -16,13 +17,16 @@ export const metadata = {
  *
  * The application is bound to the signed-in account — there is no separate
  * Producer email/password/identity. An unauthenticated visitor is sent to
- * sign-in with returnTo back here; a signed-in user sees the account that
- * is applying, taken from the authenticated session (never typed freely).
+ * sign-in with returnTo back here; a signed-in user sees the account that is
+ * applying, taken from the authenticated session (never typed freely).
  *
  * PRODUCER GATE: an account that already holds an active owner/manager
  * membership never sees the application form again — it is redirected to
  * /producer. The check is server-side per request (force-dynamic), so the
  * decision stays correct after login, refresh, and logout/login again.
+ *
+ * This page runs BEFORE any membership exists, so it keeps the public area
+ * navigation (SiteNav) and its single way back is the public home.
  */
 export default async function ProducerOnboardingPage() {
   // Fail-soft session probe: an unconfigured runtime must render the page
@@ -63,99 +67,89 @@ export default async function ProducerOnboardingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-brand-cream text-brand-ink">
+    <>
       <SiteNav />
+      <PageShell>
+        <Link className={backLinkClass} href="/">
+          ← Kembali ke beranda
+        </Link>
 
-      <section className="mx-auto max-w-3xl px-5 pb-14 pt-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">
-          Untuk pemilik &amp; pengelola Tempat
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Ajukan menjadi Pengelola</h1>
-        <p className="mt-3 max-w-xl text-sm leading-6 text-black/60">
-          Pengelola mengelola Tempat, Kegiatan, Kunjungan, dan menayangkan proses produksi
-          secara Live di SINGGAH LOKAL. Pengajuan memakai akun SINGGAH LOKAL-mu — email dan
-          password Pengelola sama dengan akun ini, tidak ada akun terpisah.
-        </p>
-
-        {!user ? (
-          <div className="mt-8 rounded-2xl border border-brand-accent/25 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">Masuk dulu untuk mengajukan</h2>
-            <p className="mt-2 text-sm leading-6 text-black/65">
-              Pengajuan Pengelola terikat ke akun SINGGAH LOKAL yang sedang masuk. Masuk atau daftar
-              dulu, lalu kamu kembali ke halaman ini untuk mengajukan.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <Link
-                href="/auth?returnTo=%2Fproducer%2Fonboarding"
-                className="rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-primary-deep"
-              >
-                Masuk untuk mengajukan
-              </Link>
-              <Link
-                href="/auth/sign-up?returnTo=%2Fproducer%2Fonboarding"
-                className="rounded-full border border-black/10 bg-white px-5 py-2.5 text-sm font-bold text-black/70 hover:bg-black/5"
-              >
-                Daftar akun
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-8 rounded-2xl border border-brand-accent/25 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">Mengajukan dengan akun ini</h2>
-            <p className="mt-2 text-sm leading-6 text-black/65">
-              Anda mengajukan sebagai Pengelola menggunakan akun:
-            </p>
-            <p className="mt-2 rounded-xl bg-brand-cream px-4 py-3 text-sm font-bold text-brand-ink">
-              {user.email ?? "Akun SINGGAH LOKAL"}
-            </p>
-            <p className="mt-3 text-xs leading-5 text-black/50">
-              Ingin memakai email berbeda? Keluar, lalu masuk dengan akun yang dimaksud terlebih
-              dahulu — pengajuan selalu mengikuti akun yang sedang masuk. Tidak ada email atau
-              password Pengelola terpisah.
-            </p>
-            <ProducerApplicationClient
-              initialStatus={application?.status ?? "none"}
-              serviceAvailable={application !== null}
-            />
-          </div>
-        )}
-
-        <ol className="mt-8 grid gap-4">
-          <li className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-accent">Langkah 1</p>
-            <h2 className="mt-1 text-lg font-semibold">Ajukan dari akun ini</h2>
-            <p className="mt-1 text-sm leading-6 text-black/65">
-              Kirim pengajuan. Pengajuan tercatat atas akun SINGGAH LOKAL yang sedang masuk.
-            </p>
-          </li>
-          <li className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-accent">Langkah 2</p>
-            <h2 className="mt-1 text-lg font-semibold">Admin memverifikasi</h2>
-            <p className="mt-1 text-sm leading-6 text-black/65">
-              Admin platform memverifikasi Tempat dan bukti pengelolaan, lalu mengaktifkan
-              hak akses Pengelola untuk akun yang mengaju.
-            </p>
-          </li>
-          <li className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-brand-accent">Langkah 3</p>
-            <h2 className="mt-1 text-lg font-semibold">Masuk dengan email &amp; password yang sama</h2>
-            <p className="mt-1 text-sm leading-6 text-black/65">
-              Begitu aksesnya aktif, masuk kembali dengan akun yang sama dan area Pengelola
-              terbuka otomatis: Dashboard, Tempat, Permintaan Kunjungan, dan Live. Tidak ada akun
-              atau password Pengelola kedua.
-            </p>
-          </li>
-        </ol>
-
-        <div className="mt-6 flex flex-wrap items-center gap-4">
-          <Link href="/producer" className="text-sm font-bold text-brand-accent">
-            ← Dashboard Pengelola
-          </Link>
-          <Link href="/" className="text-sm font-bold text-brand-accent">
-            ← Kembali ke beranda
-          </Link>
+        <div className="mt-3">
+          <PageHeader
+            eyebrow="Untuk pemilik & pengelola Tempat"
+            title="Ajukan menjadi Pengelola"
+            description="Pengelola mengelola Tempat, Kegiatan, Kunjungan, dan menayangkan proses produksi secara Live di SINGGAH LOKAL. Pengajuan memakai akun SINGGAH LOKAL-mu — email dan password Pengelola sama dengan akun ini, tidak ada akun terpisah."
+          />
         </div>
-      </section>
-    </main>
+
+        <div className="mt-5 grid gap-5">
+          {!user ? (
+            <Panel>
+              <p className="text-sm font-semibold">Masuk dulu untuk mengajukan</p>
+              <p className={`mt-1 text-black/65 ${metaTextClass}`}>
+                Pengajuan Pengelola terikat ke akun SINGGAH LOKAL yang sedang masuk. Masuk atau daftar
+                dulu, lalu kamu kembali ke halaman ini untuk mengajukan.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link href="/auth?returnTo=%2Fproducer%2Fonboarding" className={btn.primary}>
+                  Masuk untuk mengajukan
+                </Link>
+                <Link href="/auth/sign-up?returnTo=%2Fproducer%2Fonboarding" className={btn.secondary}>
+                  Daftar akun
+                </Link>
+              </div>
+            </Panel>
+          ) : (
+            <Panel>
+              <p className="text-sm font-semibold">Mengajukan dengan akun ini</p>
+              <p className={`mt-1 text-black/65 ${metaTextClass}`}>Anda mengajukan sebagai Pengelola menggunakan akun:</p>
+              <p className="mt-2 rounded-xl bg-brand-cream px-3 py-2 text-sm font-bold text-brand-ink">
+                {user.email ?? "Akun SINGGAH LOKAL"}
+              </p>
+              <p className={`mt-2 text-black/50 ${metaTextClass}`}>
+                Ingin memakai email berbeda? Keluar, lalu masuk dengan akun yang dimaksud terlebih
+                dahulu — pengajuan selalu mengikuti akun yang sedang masuk. Tidak ada email atau
+                password Pengelola terpisah.
+              </p>
+              <ProducerApplicationClient
+                initialStatus={application?.status ?? "none"}
+                serviceAvailable={application !== null}
+              />
+            </Panel>
+          )}
+
+          <Section title="Alur pengajuan">
+            <ol className="grid gap-2">
+              {/* The three application steps. The copy lives here, in the
+                  rendered surface, exactly as the Master states it. */}
+              {[
+                {
+                  title: "Ajukan dari akun ini",
+                  body: "Kirim pengajuan. Pengajuan tercatat atas akun SINGGAH LOKAL yang sedang masuk.",
+                },
+                {
+                  title: "Admin memverifikasi",
+                  body: "Admin platform memverifikasi Tempat dan bukti pengelolaan, lalu mengaktifkan hak akses Pengelola untuk akun yang mengaju.",
+                },
+                {
+                  title: "Masuk dengan email & password yang sama",
+                  body: "Begitu aksesnya aktif, masuk kembali dengan akun yang sama dan area Pengelola terbuka otomatis: Dashboard, Tempat, Permintaan Kunjungan, dan Live. Tidak ada akun atau password Pengelola kedua.",
+                },
+              ].map((step, index) => (
+                <li key={step.title} className="flex gap-3 rounded-xl border border-black/10 bg-white px-3 py-2.5">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand-accent/15 text-xs font-bold text-brand-accent" aria-hidden>
+                    {index + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">{step.title}</span>
+                    <span className={`mt-0.5 block text-black/60 ${metaTextClass}`}>{step.body}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </Section>
+        </div>
+      </PageShell>
+    </>
   );
 }

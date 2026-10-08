@@ -6,6 +6,17 @@ import type { CanonicalProducerVisitIntent } from "@/lib/visit-intent-service";
 import type { VisitIntentStatus } from "@/lib/visit-intents";
 import { visitIntentStatusLabel } from "@/lib/status-labels";
 import { formatPlaceDate, timezoneLabel } from "@/lib/display-format";
+import {
+  PageHeader,
+  PageShell,
+  Panel,
+  Section,
+  StatusBadge,
+  StatusMessage,
+  backLinkClass,
+  btn,
+  metaTextClass,
+} from "@/components/ui/kit";
 
 const responseStatuses: Extract<VisitIntentStatus, "accepted" | "declined" | "requires_confirmation">[] = ["accepted", "declined", "requires_confirmation"];
 
@@ -30,8 +41,90 @@ export default function VisitIntentDetail({ id }: { id: string }) {
     else setMessage(data.error ?? "Respons tidak dapat disimpan");
   }
 
-  if (!record) return <main className="min-h-screen bg-brand-cream px-5 py-8 text-brand-ink"><div className="mx-auto max-w-2xl"><div className="flex flex-wrap items-center gap-4"><Link className="text-sm font-bold text-brand-accent" href="/producer">← Dashboard Pengelola</Link><Link className="text-sm font-bold text-brand-accent" href="/producer/visit-intents">← Kembali ke Permintaan Kunjungan</Link></div><p className="mt-8 rounded-xl border border-black/10 bg-white p-4 text-sm text-black/70">{message}</p></div></main>;
-  const { intent, place, experience } = record;
+  // One shell, one contextual way back, for BOTH the loading and the loaded
+  // state — the page never grows a second back link.
+  const back = (
+    <Link className={backLinkClass} href="/producer/visit-intents">
+      ← Kembali ke Permintaan Kunjungan
+    </Link>
+  );
+
+  if (!record) {
+    return (
+      <PageShell width="narrow">
+        <PageHeader back={back} title="Permintaan Kunjungan" />
+        <p className={`mt-4 text-black/70 ${metaTextClass}`} role="status">{message}</p>
+      </PageShell>
+    );
+  }
+
+  const intent = record.intent;
+  const place = record.place;
+  const experience = record.experience;
   const canRespond = intent.status === "pending" || intent.status === "requires_confirmation";
-  return <main className="min-h-screen bg-brand-cream px-5 py-8 text-brand-ink"><div className="mx-auto max-w-2xl"><div className="flex flex-wrap items-center gap-4"><Link className="text-sm font-bold text-brand-accent" href="/producer">← Dashboard Pengelola</Link><Link className="text-sm font-bold text-brand-accent" href="/producer/visit-intents">← Kembali ke Permintaan Kunjungan</Link></div><header className="mt-6 border-b border-black/10 pb-5"><p className="text-xs font-bold uppercase tracking-[0.16em] text-brand-accent">{place.name}</p><h1 className="mt-2 text-3xl font-semibold">{experience.title}</h1><span className="mt-3 inline-block rounded-full bg-brand-accent px-3 py-1 text-xs font-semibold text-white">{visitIntentStatusLabel(intent.status)}</span></header><dl className="mt-6 grid gap-4 rounded-2xl border border-black/10 bg-white p-5 text-sm shadow-sm sm:grid-cols-2"><div><dt className="text-black/45">Tanggal</dt><dd className="mt-1 font-bold">{formatPlaceDate(intent.requestedDate)}</dd></div><div><dt className="text-black/45">Waktu</dt><dd className="mt-1 font-bold">{intent.requestedStartTime}–{intent.requestedEndTime}</dd></div><div><dt className="text-black/45">Jumlah peserta</dt><dd className="mt-1 font-bold">{intent.partySize} peserta</dd></div><div><dt className="text-black/45">Timezone</dt><dd className="mt-1 font-bold">Waktu di {timezoneLabel(intent.timezone)}</dd></div></dl>{intent.optionalNote && <section className="mt-4 rounded-2xl border border-black/10 bg-white p-5"><h2 className="font-semibold">Catatan Pengunjung</h2><p className="mt-2 text-sm leading-6 text-black/70">{intent.optionalNote}</p></section>}<section className="mt-4 rounded-2xl border border-black/10 bg-white p-5"><label className="grid gap-2 text-sm font-semibold">Catatan Pengelola<textarea maxLength={1000} rows={4} value={note} onChange={(event) => setNote(event.target.value)} /></label>{canRespond && <div className="mt-4 flex flex-wrap gap-2">{responseStatuses.map((status) => <button className="rounded-lg bg-brand-accent px-3 py-2 text-sm font-semibold text-white" type="button" key={status} onClick={() => respond(status)}>{status === "requires_confirmation" ? "Minta konfirmasi" : status === "accepted" ? "Terima" : "Tolak"}</button>)}</div>}<p className="mt-3 text-sm text-black/60" role="status">{message}</p></section></div></main>;
+
+  return (
+    <PageShell width="narrow">
+      <PageHeader
+        back={back}
+        eyebrow={place.name}
+        title={experience.title}
+        actions={<StatusBadge tone={intent.status === "accepted" ? "positive" : intent.status === "declined" ? "negative" : "accent"}>{visitIntentStatusLabel(intent.status)}</StatusBadge>}
+      />
+
+      <div className="mt-4 grid gap-4">
+        <Panel>
+          <dl className={`grid gap-3 sm:grid-cols-2 ${metaTextClass}`}>
+            <div>
+              <dt className="text-black/45">Tanggal</dt>
+              <dd className="mt-0.5 text-sm font-bold text-brand-ink">{formatPlaceDate(intent.requestedDate)}</dd>
+            </div>
+            <div>
+              <dt className="text-black/45">Waktu</dt>
+              <dd className="mt-0.5 text-sm font-bold text-brand-ink">{intent.requestedStartTime}–{intent.requestedEndTime}</dd>
+            </div>
+            <div>
+              <dt className="text-black/45">Jumlah peserta</dt>
+              <dd className="mt-0.5 text-sm font-bold text-brand-ink">{intent.partySize} peserta</dd>
+            </div>
+            <div>
+              <dt className="text-black/45">Timezone</dt>
+              <dd className="mt-0.5 text-sm font-bold text-brand-ink">Waktu di {timezoneLabel(intent.timezone)}</dd>
+            </div>
+          </dl>
+        </Panel>
+
+        {intent.optionalNote ? (
+          <Panel>
+            <p className="text-sm font-semibold">Catatan Pengunjung</p>
+            <p className={`mt-1 text-black/70 ${metaTextClass}`}>{intent.optionalNote}</p>
+          </Panel>
+        ) : null}
+
+        <Section title="Catatan Pengelola">
+          <Panel className="grid gap-3">
+            <label className={`grid gap-1 font-semibold ${metaTextClass}`}>
+              Catatan
+              <textarea maxLength={1000} rows={4} value={note} onChange={(event) => setNote(event.target.value)} />
+            </label>
+            {canRespond ? (
+              <div className="flex flex-wrap gap-2">
+                {responseStatuses.map((status) => (
+                  <button
+                    className={status === "accepted" ? btn.primary : btn.compact}
+                    type="button"
+                    key={status}
+                    onClick={() => respond(status)}
+                  >
+                    {status === "requires_confirmation" ? "Minta konfirmasi" : status === "accepted" ? "Terima" : "Tolak"}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {message ? <StatusMessage message={message} /> : null}
+          </Panel>
+        </Section>
+      </div>
+    </PageShell>
+  );
 }

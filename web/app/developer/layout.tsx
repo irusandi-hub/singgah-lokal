@@ -72,10 +72,10 @@ export default async function DeveloperLayout({ children }: { children: React.Re
   if (guard.kind === "forbidden") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-brand-cream px-5 text-brand-ink">
-        <div className="w-full max-w-md rounded-2xl border border-brand-ink/10 bg-white p-8 text-center">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-primary">403</p>
+        <div className="w-full max-w-md rounded-2xl border border-brand-ink/10 bg-white p-6 text-center">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-primary">403</p>
           <h1 className="mt-2 font-brand text-2xl font-semibold">Akses ditolak</h1>
-          <p className="mt-3 text-sm leading-6 text-black/60">
+          <p className="mt-2 text-sm leading-6 text-black/60">
             Area ini hanya untuk Creator / Owner / Developer.
           </p>
           <Link
@@ -91,27 +91,25 @@ export default async function DeveloperLayout({ children }: { children: React.Re
 
   return (
     <div className="min-h-screen bg-brand-cream font-brand text-brand-ink">
-      <header className="border-b border-brand-ink/10">
-        <div className="mx-auto max-w-4xl px-5 py-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-primary">SINGGAH LOKAL</p>
-              <h1 className="text-xl font-semibold tracking-tight">Developer Center</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="hidden text-xs font-semibold text-brand-ink/60 sm:block">{guard.email}</span>
-              <Link
-                href="/"
-                className="rounded-full border border-brand-ink/15 bg-white px-4 py-2 text-xs font-bold text-brand-ink/80 transition hover:bg-brand-primary hover:text-white"
-              >
-                Home
-              </Link>
-            </div>
+      <header className="sticky top-0 z-30 border-b border-brand-ink/10 bg-brand-cream/95 backdrop-blur">
+        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+          <h1 className="text-[15px] font-semibold tracking-tight">
+            Developer Center
+            <span className="ml-2 text-[11px] font-bold uppercase tracking-[0.16em] text-brand-primary">SINGGAH LOKAL</span>
+          </h1>
+          <div className="flex items-center gap-2">
+            <span className="hidden text-xs font-semibold text-brand-ink/60 sm:block">{guard.email}</span>
+            <Link
+              href="/"
+              className="rounded-full border border-brand-ink/15 bg-white px-3 py-1.5 text-xs font-bold text-brand-ink/80 transition hover:bg-brand-primary hover:text-white"
+            >
+              Home
+            </Link>
           </div>
         </div>
       </header>
       <CreatorLeaseHeartbeat />
-      <main className="mx-auto max-w-4xl px-5 py-8">{children}</main>
+      <main className="mx-auto max-w-4xl px-4 py-5">{children}</main>
     </div>
   );
 }

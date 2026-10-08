@@ -4,6 +4,7 @@ import SiteNav from "@/components/site-nav";
 import NotificationSettingsForm from "@/components/notification-settings-form";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
 import { readUserNotificationPreferences } from "@/lib/notification-service";
+import { PageHeader, PageShell, metaTextClass } from "@/components/ui/kit";
 
 // Session data is read per request — never cached across users.
 export const dynamic = "force-dynamic";
@@ -33,16 +34,15 @@ export default async function NotificationSettingsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-brand-cream text-brand-ink">
+    <>
       <SiteNav />
-
-      <section className="mx-auto max-w-2xl px-5 pb-12 pt-6">
-        <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Setting</p>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Notification Settings</h1>
-        <p className="mt-2 text-sm text-black/55">
-          Pilih kategori notifikasi yang ingin kamu terima di dalam aplikasi.
-        </p>
-        <p className="mt-1 text-xs text-black/45">
+      <PageShell width="narrow">
+        <PageHeader
+          eyebrow="Setting"
+          title="Notification Settings"
+          description="Pilih kategori notifikasi yang ingin kamu terima di dalam aplikasi."
+        />
+        <p className={`mt-2 text-black/45 ${metaTextClass}`}>
           Daftar notifikasi ada di{" "}
           <Link className="font-bold text-brand-accent underline-offset-2 hover:underline" href="/notifications">
             Notifikasi
@@ -50,8 +50,10 @@ export default async function NotificationSettingsPage() {
           .
         </p>
 
-        <NotificationSettingsForm preferences={preferences} />
-      </section>
-    </main>
+        <div className="mt-4">
+          <NotificationSettingsForm preferences={preferences} />
+        </div>
+      </PageShell>
+    </>
   );
 }

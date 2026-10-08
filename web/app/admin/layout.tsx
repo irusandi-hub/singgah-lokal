@@ -15,6 +15,10 @@ export const dynamic = "force-dynamic";
  * - Only public.users.platform_role = 'platform_moderator' passes, verified
  *   server-side on every request (fail closed).
  *
+ * The shell is ONE compact layer: the area title, the tab row, and the single
+ * exit back to the app. Section pages add their own one-line parent link
+ * (AdminBackToAdminCenter) — hierarchy up, not a second navigation system.
+ *
  * The guard runs first and resolves to a state; JSX renders outside try/catch.
  */
 type AdminGuard =
@@ -51,15 +55,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (guard.kind === "forbidden") {
     return (
       <main className="flex min-h-screen items-center justify-center bg-brand-cream px-5 text-brand-ink">
-        <div className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-8 text-center">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">403</p>
+        <div className="w-full max-w-md rounded-2xl border border-black/10 bg-white p-6 text-center">
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-brand-accent">403</p>
           <h1 className="mt-2 text-2xl font-semibold">Akses ditolak</h1>
-          <p className="mt-3 text-sm leading-6 text-black/60">
+          <p className="mt-2 text-sm leading-6 text-black/60">
             Area ini hanya untuk Platform Admin operasional.
           </p>
           <Link
             href="/"
-            className="mt-6 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-primary-deep"
+            className="mt-5 inline-block rounded-full bg-brand-primary px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-primary-deep"
           >
             Kembali ke beranda
           </Link>
@@ -70,24 +74,23 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-screen bg-brand-cream text-brand-ink">
-      <header className="border-b border-black/5 bg-white">
-        <div className="mx-auto max-w-6xl px-5 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">SINGGAH LOKAL</p>
-              <h1 className="text-xl font-semibold tracking-tight">Admin Center</h1>
-            </div>
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1 rounded-full border border-black/10 px-4 py-2 text-xs font-bold text-brand-primary hover:bg-brand-primary/10"
-            >
-              <span aria-hidden>←</span> Kembali ke Beranda
-            </Link>
-          </div>
+      <header className="sticky top-0 z-30 border-b border-black/5 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 pt-3">
+          <h1 className="text-[15px] font-semibold tracking-tight">
+            Admin Center
+            <span className="ml-2 text-[11px] font-bold uppercase tracking-[0.16em] text-brand-accent">SINGGAH LOKAL</span>
+          </h1>
+          <Link href="/" className="text-xs font-bold text-brand-accent transition hover:text-brand-primary">
+            ← Kembali ke Beranda
+          </Link>
+        </div>
+        <div className="mx-auto max-w-5xl px-4 pb-2">
           <AdminNav />
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-5 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-5xl px-4 py-4">
+        <div className="grid gap-4">{children}</div>
+      </main>
     </div>
   );
 }

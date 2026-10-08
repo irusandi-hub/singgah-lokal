@@ -2,10 +2,33 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { PageHeader, PageShell, Panel, backLinkClass } from "@/components/ui/kit";
 import ExperienceForm from "../ExperienceForm";
 
 export default function NewExperiencePage({ params }: { params: Promise<{ placeId: string }> }) {
-  const [placeId, setPlaceId] = useState(""); const [timezone, setTimezone] = useState("");
-  useEffect(() => { params.then(({ placeId: id }) => { setPlaceId(id); fetch(`/api/producer/places/${id}`).then((response) => response.json()).then((place) => setTimezone(place.timezone)); }); }, [params]);
-  return <main className="min-h-screen bg-brand-cream px-5 py-8 text-brand-ink sm:px-8"><div className="mx-auto max-w-2xl"><div className="flex flex-wrap items-center gap-4"><Link className="text-sm font-bold text-brand-accent" href="/producer">← Dashboard Pengelola</Link><Link className="text-sm font-bold text-brand-accent" href={`/producer/places/${placeId}/experiences`}>← Kembali ke Kegiatan</Link></div><h1 className="mt-6 text-3xl font-semibold">Tambah Kegiatan</h1><section className="mt-6 rounded-xl border border-black/10 bg-white p-5"><ExperienceForm placeId={placeId} placeTimezone={timezone || "Asia/Jakarta"} /></section></div></main>;
+  const [placeId, setPlaceId] = useState("");
+  const [timezone, setTimezone] = useState("");
+  useEffect(() => {
+    params.then(({ placeId: id }) => {
+      setPlaceId(id);
+      fetch(`/api/producer/places/${id}`).then((response) => response.json()).then((place) => setTimezone(place.timezone));
+    });
+  }, [params]);
+  return (
+    <PageShell width="narrow">
+      <PageHeader
+        back={
+          <Link className={backLinkClass} href={`/producer/places/${placeId}/experiences`}>
+            ← Kembali ke Kegiatan
+          </Link>
+        }
+        title="Tambah Kegiatan"
+      />
+      <div className="mt-4">
+        <Panel>
+          <ExperienceForm placeId={placeId} placeTimezone={timezone || "Asia/Jakarta"} />
+        </Panel>
+      </div>
+    </PageShell>
+  );
 }

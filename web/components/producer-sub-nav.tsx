@@ -1,5 +1,14 @@
 import Link from "next/link";
 
+/**
+ * The ONE local navigation layer of the Producer area.
+ *
+ * It switches between the Producer's own functions (Dashboard, Tempat,
+ * Permintaan Kunjungan, Live). The way back to the public home is NOT here:
+ * every page owns exactly ONE contextual back link, so the escape path is not
+ * repeated on every screen. Active state is URL-derived, so it stays correct
+ * on refresh and direct URLs.
+ */
 const links = [
   { href: "/producer", label: "Dashboard" },
   { href: "/producer/places", label: "Tempat" },
@@ -7,14 +16,11 @@ const links = [
   { href: "/producer/live", label: "Live" },
 ];
 
-// Producer sub-navigation. Active state is URL-derived (route prop), so it
-// stays correct on refresh and direct URLs. `dark` adapts it to the dark
-// Producer surfaces (inbox).
-export default function ProducerSubNav({ active, dark = false }: { active: string; dark?: boolean }) {
+export default function ProducerSubNav({ active }: { active: string }) {
   return (
     <nav
       aria-label="Navigasi Pengelola"
-      className={`flex flex-wrap items-center gap-2 border-b pb-4 ${dark ? "border-white/15" : "border-black/10"}`}
+      className="-mx-1 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
       {links.map(({ href, label }) => {
         const isActive = active === href;
@@ -23,28 +29,16 @@ export default function ProducerSubNav({ active, dark = false }: { active: strin
             key={href}
             href={href}
             aria-current={isActive ? "page" : undefined}
-            className={`rounded-full px-4 py-2 text-xs font-bold transition ${
+            className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
               isActive
-                ? dark
-                  ? "bg-brand-accent text-brand-ink"
-                  : "bg-brand-accent text-white"
-                : dark
-                  ? "border border-white/20 bg-white/10 text-white/70 hover:bg-white/20"
-                  : "border border-black/10 bg-white text-black/60 hover:bg-black/5"
+                ? "bg-brand-accent text-white"
+                : "border border-black/10 bg-white text-black/60 hover:bg-black/[0.04]"
             }`}
           >
             {label}
           </Link>
         );
       })}
-      <Link
-        href="/"
-        className={`ml-auto rounded-full px-4 py-2 text-xs font-bold hover:bg-black/5 ${
-          dark ? "text-brand-accent" : "text-brand-accent"
-        }`}
-      >
-        ← Kembali ke beranda
-      </Link>
     </nav>
   );
 }

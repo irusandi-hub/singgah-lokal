@@ -124,11 +124,13 @@ test("the Account Center cards carry no role-specific heading", () => {
   for (const heading of ["Pengelola Dashboard", "Admin Center", "Developer Center"]) {
     assert.equal(page.includes(heading), false, `${heading} must not be a card heading`);
   }
-  // A card is a short description plus the link — nothing else.
+  // The surface is deliberately tiny (UI/UX restructure 2026-10-08): ONE
+  // identity header, then a compact row per authorized area — no eyebrow
+  // duplicating the title, no card heading, no badge/role block.
   assert.doesNotMatch(page, /eyebrow/);
   assert.doesNotMatch(page, /<h2 className="text-lg/);
-  assert.match(page, /<p className="text-sm leading-6 text-black\/70">\{description\}<\/p>/);
-  assert.match(page, /group-hover:translate-x-0\.5/);
+  assert.match(page, /<Section title="Available areas">/);
+  assert.match(page, /<ListRow key=\{href\} href=\{href\} title=\{label\} meta=\{description\} \/>/);
 
   // No function is removed: every area the account holds is still offered at
   // the same href, and the server-side authority probe is untouched.

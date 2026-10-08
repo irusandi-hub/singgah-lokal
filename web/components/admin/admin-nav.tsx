@@ -37,6 +37,7 @@ const SECTIONS = [
 
 const IDLE = "border border-black/10 bg-white text-black/60 hover:bg-brand-accent/10 hover:text-brand-accent";
 const ACTIVE = "border-brand-primary bg-brand-primary text-white";
+const TAB = "shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition";
 
 export default function AdminNav() {
   const pathname = usePathname();
@@ -61,7 +62,7 @@ export default function AdminNav() {
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={`rounded-full border px-3.5 py-1.5 text-xs font-bold transition ${active ? ACTIVE : IDLE}`}
+            className={`${TAB} ${active ? ACTIVE : IDLE}`}
           >
             {label}
           </Link>

@@ -88,7 +88,7 @@ const RETIRED = {
 
 test("The dictionary is applied across the Producer area", () => {
   assert.match(subNav, /label: "Permintaan Kunjungan"/);
-  assert.match(inbox, />Permintaan Kunjungan</);
+  assert.match(inbox, /title="Permintaan Kunjungan"|>Permintaan Kunjungan</);
   assert.match(inboxDetail, /← Kembali ke Permintaan Kunjungan/);
   assert.match(onboarding, /Dashboard, Tempat, Permintaan Kunjungan, dan Live/);
 
@@ -106,7 +106,9 @@ test("The final Producer copy pass is applied and its old wording is gone", () =
   assert.match(dashboard, /Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live\./);
   assert.equal(dashboard.includes("Kelola Tempat, Kegiatan, Kunjungan, dan Live"), false);
 
-  assert.match(subNav, /← Kembali ke beranda/);
+  // The shared nav is a pure menu: the escape link lives on the page, once
+  // (UI/UX restructure 2026-10-08).
+  assert.equal(subNav.includes("Kembali ke beranda"), false);
   assert.equal(subNav.includes("← Area user"), false);
 
   for (const [name, code] of [

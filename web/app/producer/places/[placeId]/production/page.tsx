@@ -4,6 +4,18 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ProductionStage, ProductionStageStatus } from "@/lib/production-story";
 import { productionStageStatusLabel } from "@/lib/status-labels";
+import {
+  EmptyState,
+  PageHeader,
+  PageShell,
+  Panel,
+  Section,
+  StatusBadge,
+  StatusMessage,
+  backLinkClass,
+  btn,
+  metaTextClass,
+} from "@/components/ui/kit";
 
 type StageDraft = Pick<ProductionStage, "title" | "description" | "experienceIds">;
 
@@ -31,10 +43,11 @@ export default function ProductionStoryPage({ params }: { params: Promise<{ plac
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: draft.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), ...draft }),
     });
-    const data = await response.json();      if (!response.ok) { setMessage(data.error ?? "Tahap tidak dapat dibuat"); return; }
-      setStages((current) => [...current, data]);
-      setDraft({ title: "", description: "", experienceIds: [] });
-      setMessage(`Tahap disimpan — Status: ${productionStageStatusLabel(data.status)}`);
+    const data = await response.json();
+    if (!response.ok) { setMessage(data.error ?? "Tahap tidak dapat dibuat"); return; }
+    setStages((current) => [...current, data]);
+    setDraft({ title: "", description: "", experienceIds: [] });
+    setMessage(`Tahap disimpan — Status: ${productionStageStatusLabel(data.status)}`);
   }
 
   async function updateStage(stage: ProductionStage, changes: StageDraft) {
@@ -71,15 +84,107 @@ export default function ProductionStoryPage({ params }: { params: Promise<{ plac
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ stageIds: next.map((stage) => stage.id) }),
     });
-    const data = await response.json();      if (!response.ok) { setMessage(data.error ?? "Urutan tahap tidak dapat diubah"); return; }
+    const data = await response.json();
+    if (!response.ok) { setMessage(data.error ?? "Urutan tahap tidak dapat diubah"); return; }
     setStages(data);
   }
 
-  return <main className="min-h-screen bg-brand-cream px-5 py-8 text-brand-ink sm:px-8"><div className="mx-auto max-w-3xl"><div className="flex flex-wrap items-center gap-4"><Link className="text-sm font-bold text-brand-accent" href="/producer">← Dashboard Pengelola</Link><Link className="text-sm font-bold text-brand-accent" href={`/producer/places/${placeId}`}>← Kembali ke Tempat</Link></div><header className="mt-6 border-b border-black/10 pb-5"><p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Pengelola App</p><h1 className="mt-2 text-3xl font-semibold">Dari Sini</h1><p className="mt-2 text-sm text-black/60">Susun cerita produksi Tempat berdasarkan tahap yang benar-benar terjadi.</p></header>{message && <p className="mt-5 rounded-lg bg-white p-3 text-sm" role="status">{message}</p>}<form className="mt-6 grid gap-3 rounded-xl border border-black/10 bg-white p-5" onSubmit={createStage}><h2 className="font-semibold">Tambah tahap</h2><input required placeholder="ID dibuat dari judul" value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} aria-label="Judul tahap" /><textarea required rows={3} placeholder="Deskripsi berdasarkan fakta Pengelola" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} aria-label="Deskripsi tahap" /><button className="w-fit rounded-lg bg-brand-ink px-4 py-2 text-sm font-bold text-white" type="submit">Simpan draft</button></form><div className="mt-6 grid gap-4">{stages.map((stage, index) => <StageCard key={stage.id} stage={stage} onSave={updateStage} onStatus={changeStatus} onMove={moveStage} index={index} />)}{stages.length === 0 && <p className="text-sm text-black/60">Belum ada tahap.</p>}</div></div></main>;
+  return (
+    <PageShell>
+      <PageHeader
+        back={
+          <Link className={backLinkClass} href={`/producer/places/${placeId}`}>
+            ← Kembali ke Tempat
+          </Link>
+        }
+        title="Dari Sini"
+        description="Susun cerita produksi Tempat berdasarkan tahap yang benar-benar terjadi."
+      />
+
+      {message ? (
+        <div className="mt-3">
+          <StatusMessage message={message} />
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-5">
+        <Section title="Tambah tahap">
+          <Panel>
+            <form className="grid gap-3" onSubmit={createStage}>
+              <input
+                required
+                placeholder="Judul tahap"
+                value={draft.title}
+                onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+                aria-label="Judul tahap"
+              />
+              <textarea
+                required
+                rows={3}
+                placeholder="Deskripsi berdasarkan fakta Pengelola"
+                value={draft.description}
+                onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+                aria-label="Deskripsi tahap"
+              />
+              <button className={`w-fit ${btn.solid}`} type="submit">Simpan draft</button>
+            </form>
+          </Panel>
+        </Section>
+
+        <Section title="Tahap proses">
+          {stages.length === 0 ? (
+            <EmptyState title="Belum ada tahap." />
+          ) : (
+            <div className="grid gap-2">
+              {stages.map((stage, index) => (
+                <StageRow key={stage.id} stage={stage} index={index} onSave={updateStage} onStatus={changeStatus} onMove={moveStage} />
+              ))}
+            </div>
+          )}
+        </Section>
+      </div>
+    </PageShell>
+  );
 }
 
-function StageCard({ stage, onSave, onStatus, onMove, index }: { stage: ProductionStage; onSave: (stage: ProductionStage, draft: StageDraft) => void; onStatus: (stage: ProductionStage, status: ProductionStageStatus) => void; onMove: (index: number, direction: -1 | 1) => void; index: number }) {
+function StageRow({ stage, onSave, onStatus, onMove, index }: { stage: ProductionStage; onSave: (stage: ProductionStage, draft: StageDraft) => void; onStatus: (stage: ProductionStage, status: ProductionStageStatus) => void; onMove: (index: number, direction: -1 | 1) => void; index: number }) {
   const [title, setTitle] = useState(stage.title);
   const [description, setDescription] = useState(stage.description);
-  return <article className="rounded-xl border border-black/10 bg-white p-5"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-brand-accent">Urutan {stage.sortOrder + 1}</p><h2 className="mt-1 break-words text-xl font-semibold">{stage.title}</h2></div><span className="text-xs font-bold uppercase text-brand-accent">{productionStageStatusLabel(stage.status)}</span></div><div className="mt-4 grid gap-3"><input value={title} onChange={(event) => setTitle(event.target.value)} aria-label={`Judul tahap ${stage.id}`} /><textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} aria-label={`Deskripsi tahap ${stage.id}`} /><div className="flex flex-wrap gap-2"><button className="rounded border border-black/15 px-3 py-1 text-sm font-semibold" type="button" onClick={() => onSave(stage, { title, description, experienceIds: stage.experienceIds })}>Simpan</button><button className="rounded border border-black/15 px-3 py-1 text-sm font-semibold" type="button" disabled={index === 0} onClick={() => onMove(index, -1)}>Naik</button><button className="rounded border border-black/15 px-3 py-1 text-sm font-semibold" type="button" disabled={index < 0} onClick={() => onMove(index, 1)}>Turun</button><button className="rounded border border-black/15 px-3 py-1 text-sm font-semibold" type="button" onClick={() => onStatus(stage, "review")}>Ajukan peninjauan</button><button className="rounded border border-black/15 px-3 py-1 text-sm font-semibold" type="button" onClick={() => onStatus(stage, "published")}>Tayangkan</button></div></div></article>;
+  return (
+    <Panel className="grid gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className={metaTextClass}>
+          Urutan {stage.sortOrder + 1}
+        </p>
+        <StatusBadge tone={stage.status === "published" ? "positive" : stage.status === "review" ? "warning" : "neutral"}>
+          {productionStageStatusLabel(stage.status)}
+        </StatusBadge>
+      </div>
+      <label className="grid gap-1 text-xs font-semibold">
+        Judul tahap
+        <input value={title} onChange={(event) => setTitle(event.target.value)} aria-label={`Judul tahap ${stage.id}`} />
+      </label>
+      <label className="grid gap-1 text-xs font-semibold">
+        Deskripsi
+        <textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} aria-label={`Deskripsi tahap ${stage.id}`} />
+      </label>
+      <div className="flex flex-wrap gap-2">
+        <button className={btn.secondary} type="button" onClick={() => onSave(stage, { title, description, experienceIds: stage.experienceIds })}>
+          Simpan
+        </button>
+        <button className={btn.compact} type="button" disabled={index === 0} onClick={() => onMove(index, -1)}>
+          Naik
+        </button>
+        <button className={btn.compact} type="button" disabled={index < 0} onClick={() => onMove(index, 1)}>
+          Turun
+        </button>
+        <button className={btn.compact} type="button" onClick={() => onStatus(stage, "review")}>
+          Ajukan peninjauan
+        </button>
+        <button className={btn.compact} type="button" onClick={() => onStatus(stage, "published")}>
+          Tayangkan
+        </button>
+      </div>
+    </Panel>
+  );
 }

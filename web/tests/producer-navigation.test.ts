@@ -62,8 +62,14 @@ test("The main Producer page has no navigation back to itself", () => {
 
 test("The Producer menu is owned by the shared sub-nav component only", () => {
   assert.match(subNav, /aria-label="Navigasi Pengelola"/);
-  // The sub-nav's exit points back to the public home.
-  assert.match(subNav, /← Kembali ke beranda/);
+  // The shared nav is a PURE menu: it carries no escape link of its own, so
+  // the way out is owned once by the page you are on (UI/UX restructure
+  // 2026-10-08) instead of being repeated on every Producer screen.
+  assert.equal(
+    subNav.includes("Kembali ke beranda"),
+    false,
+    "the shared nav must not carry a second escape link",
+  );
   for (const [name, code] of [
     ["dashboard", dashboard],
     ["workspace", workspace],
@@ -113,24 +119,42 @@ test("Top-level Producer pages return to the dashboard", () => {
   assert.match(inbox, /← Dashboard Pengelola/);
 });
 
-test("Every Producer page below the dashboard can return to the dashboard", () => {
-  // Every descendant page carries its own "← Dashboard Pengelola" link, so no
-  // page is ever stranded: a Place page returns to the dashboard (and to that
-  // Place detail), any other page returns to its own Producer parent.
-  for (const [name, code] of [
+test("Every Producer page below the dashboard has exactly ONE contextual back link", () => {
+  // UI/UX restructure 2026-10-08: a page no longer stacks a dashboard link on
+  // top of a parent link. It carries the ONE link that is actually useful for
+  // its context — the dashboard for a top-level Producer function, the parent
+  // Place/Kegiatan list for a nested surface — so no page is stranded and no
+  // screen shows two "Kembali" links at once.
+  // The back-link vocabulary of the Producer area: the accordion-free
+  // "← Dashboard Pengelola" label for top-level functions, and one
+  // "Kembali ke …" label for every contextual parent.
+  const backLinkCount = (code: string) =>
+    (code.match(/Kembali ke|← Dashboard Pengelola/g) ?? []).length;
+
+  const oneLinkHome = [
     ["live", livePage],
     ["permintaan kunjungan", inbox],
-    ["permintaan kunjungan detail", inboxDetail],
     ["place detail", placeDetail],
-    ["experiences", experiences],
-    ["new experience", newExperience],
-    ["edit experience", editExperience],
-    ["production", production],
-    ["onboarding", onboarding],
-  ] as const) {
+  ] as const;
+  for (const [name, code] of oneLinkHome) {
     assert.match(code, /href="\/producer"/, `${name} must link back to the dashboard`);
     assert.match(code, /← Dashboard Pengelola/, `${name} must show a back link to the dashboard`);
+    assert.equal(backLinkCount(code), 1, `${name} must carry exactly one back link`);
   }
+
+  const oneLinkParent = [
+    ["permintaan kunjungan detail", inboxDetail, "← Kembali ke Permintaan Kunjungan"],
+    ["experiences", experiences, "← Kembali ke Tempat"],
+    ["new experience", newExperience, "← Kembali ke Kegiatan"],
+    ["edit experience", editExperience, "← Kembali ke Kegiatan"],
+    ["production", production, "← Kembali ke Tempat"],
+    ["onboarding", onboarding, "← Kembali ke beranda"],
+  ] as const;
+  for (const [name, code, label] of oneLinkParent) {
+    assert.ok(code.includes(label), `${name} must show its contextual back link`);
+    assert.equal(backLinkCount(code), 1, `${name} must carry exactly one back link`);
+  }
+
   // ...and the dashboard itself never links back to itself.
   assert.equal(dashboard.includes('href="/producer"'), false, "the dashboard must not link to itself");
 });
@@ -178,7 +202,10 @@ test("Legacy Place list/add routes stay pure redirects (no page, no nav)", () =>
 test("The Producer application page stays on the user-area navigation", () => {
   // Onboarding runs before any membership exists, so it keeps the public home
   // as its parent and reuses the shared SiteNav rather than the Producer menu.
+  // Its parent is the public home only — no second "Dashboard Pengelola" link
+  // into an area the account does not hold yet.
   assert.match(onboarding, /<SiteNav \/>/);
   assert.match(onboarding, /← Kembali ke beranda/);
   assert.equal(onboarding.includes("ProducerSubNav"), false);
+  assert.equal(onboarding.includes("← Dashboard Pengelola"), false);
 });

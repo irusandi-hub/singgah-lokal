@@ -156,8 +156,17 @@ test("Edit reuses the canonical editor; status, Dari Sini, and Experience stay m
   assert.match(workspaceCode, /<PlaceEditor id=\{view\.place\.id\} onSaved=\{handleSaved\} \/>/);
   // PlaceEditor loads the saved record from the canonical GET endpoint.
   assert.match(formCode, /fetch\(`\/api\/producer\/places\/\$\{id\}`\)/);
-  // Publication status stays visible in the edit surface; Dari Sini stays reachable.
-  assert.match(workspaceCode, /publicationStatusLabel\(view\.place\.publicationStatus\)/);
+  // Publication status stays visible exactly ONCE (UI/UX restructure
+  // 2026-10-08): the roster row labels it through the shared dictionary, and
+  // the edit surface shows it once inside the canonical PlaceEditor — never a
+  // second status block in the workspace header on top of the editor's own.
+  assert.match(workspaceCode, /publicationStatusLabel\(place\.publicationStatus\)/);
+  assert.match(formCode, /publicationStatusLabel\(place\.publicationStatus\)/);
+  assert.equal(
+    workspaceCode.includes("publicationStatusLabel(view.place.publicationStatus)"),
+    false,
+    "the workspace header must not duplicate the editor's status block",
+  );
   assert.match(workspaceCode, /\/producer\/places\/\$\{view\.place\.id\}\/production/);
   // The old per-Place edit route stays reachable and renders the same editor.
   assert.match(editPage, /<PlaceEditor id=\{id\}/);
@@ -274,13 +283,20 @@ test("The Producer never types a Place ID — the system generates it on save", 
 
 test("Producer surfaces share the same cream/light theme (no dark producer page)", () => {
   // Dashboard, workspace container, inbox, inbox detail, and the standalone
-  // experiences page use the existing brand-cream theme...
-  assert.match(dashboardCode, /bg-brand-cream/);
-  assert.match(dashboardCode, /text-brand-ink/);
-  assert.match(experiencesPageCode, /bg-brand-cream/);
-  assert.match(inboxCode, /bg-brand-cream/);
-  assert.match(inboxCode, /text-brand-ink/);
-  assert.match(inboxDetailCode, /bg-brand-cream/);
+  // experiences page all render through the ONE shared shell, which owns the
+  // brand-cream palette (UI/UX restructure 2026-10-08) — so the theme is
+  // declared once instead of being repeated per page.
+  const shell = readFileSync(new URL("../components/ui/kit.tsx", import.meta.url), "utf8");
+  assert.match(shell, /bg-brand-cream/);
+  assert.match(shell, /text-brand-ink/);
+  for (const [name, code] of [
+    ["dashboard", dashboardCode],
+    ["experiences page", experiencesPageCode],
+    ["inbox", inboxCode],
+    ["inbox detail", inboxDetailCode],
+  ] as const) {
+    assert.match(code, /PageShell/, `${name} must render through the shared shell`);
+  }
   // ...the dark window wrappers are GONE from the Visit Intent surfaces...
   assert.equal(inboxCode.includes("bg-brand-ink"), false, "Inbox must not use the dark window");
   assert.equal(inboxDetailCode.includes("bg-brand-ink"), false, "Visit Intent detail must not use the dark window");

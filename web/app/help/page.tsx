@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHeader, PageShell, backLinkClass, metaTextClass } from "@/components/ui/kit";
 
 /**
  * Help surface — pointer-only (2026-09-27 decision on the Account Menu audit).
@@ -13,25 +14,21 @@ import Link from "next/link";
  */
 export default function HelpPage() {
   return (
-    <main className="min-h-screen bg-brand-cream px-5 py-10 text-brand-ink sm:px-8">
-      <div className="mx-auto max-w-2xl">
-        <Link href="/" className="text-sm font-bold text-brand-accent">
-          ← Beranda
-        </Link>
+    <PageShell width="narrow">
+      <PageHeader
+        back={
+          <Link className={backLinkClass} href="/">
+            ← Beranda
+          </Link>
+        }
+        title="Pusat bantuan"
+        description="Panduan singkat untuk fitur yang sudah tersedia. Setiap tautan mengarah ke area yang benar-benar ada di aplikasi."
+      />
 
-        <header className="mt-8 border-b border-black/10 pb-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Help</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Pusat bantuan</h1>
-          <p className="mt-3 text-sm leading-6 text-black/60">
-            Panduan singkat untuk fitur yang sudah tersedia. Setiap tautan mengarah ke area yang
-            benar-benar ada di aplikasi.
-          </p>
-        </header>
-
-        <div className="mt-8 grid gap-3">
-          <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Menonton Live</h2>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-black/60">
+      <div className="mt-4 grid gap-4">
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">Menonton Live</h2>
+            <ul className="mt-1.5 grid gap-1.5 text-sm leading-6 text-black/60">
               <li>Live disiarkan real-time — tidak ada rekaman dan tidak ada tayangan ulang.</li>
               <li>
                 Akses Live dan komentar melewati admission gate server-side: akun dengan email
@@ -44,9 +41,9 @@ export default function HelpPage() {
             </ul>
           </section>
 
-          <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Notifikasi</h2>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-black/60">
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">Notifikasi</h2>
+            <ul className="mt-1.5 grid gap-1.5 text-sm leading-6 text-black/60">
               <li>
                 Inbox notifikasi tersedia melalui ikon lonceng di header.
               </li>
@@ -60,9 +57,9 @@ export default function HelpPage() {
             </ul>
           </section>
 
-          <section className="rounded-2xl border border-black/10 bg-white p-6">
-            <h2 className="text-lg font-semibold tracking-tight">Menjadi Pengelola</h2>
-            <ul className="mt-3 space-y-2 text-sm leading-6 text-black/60">
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">Menjadi Pengelola</h2>
+            <ul className="mt-1.5 grid gap-1.5 text-sm leading-6 text-black/60">
               <li>
                 Ingin menyiarkan Live dan mengelola Tempat milikmu? Ajukan melalui halaman{" "}
                 <Link href="/producer/onboarding" className="font-semibold text-brand-accent">
@@ -74,10 +71,9 @@ export default function HelpPage() {
           </section>
         </div>
 
-        <p className="mt-8 text-xs leading-5 text-black/45">
-          SINGGAH LOKAL MVP — hanya area yang tercantum di halaman ini yang tersedia saat ini.
-        </p>
-      </div>
-    </main>
+      <p className={`mt-5 text-black/45 ${metaTextClass}`}>
+        SINGGAH LOKAL MVP — hanya area yang tercantum di halaman ini yang tersedia saat ini.
+      </p>
+    </PageShell>
   );
 }

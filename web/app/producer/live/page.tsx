@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
 import ProducerSubNav from "@/components/producer-sub-nav";
+import { EmptyState, PageHeader, PageShell, backLinkClass } from "@/components/ui/kit";
 import { LiveConsole } from "./LiveConsole";
 
 export const dynamic = "force-dynamic";
@@ -45,42 +46,32 @@ export default async function ProducerLivePage() {
   }
 
   return (
-    <main className="min-h-screen bg-brand-cream px-5 py-6 text-brand-ink sm:px-8">
-      <div className="mx-auto max-w-3xl">
-        <Link className="text-sm font-bold text-brand-accent" href="/producer">
-          ← Dashboard Pengelola
-        </Link>
+    <PageShell>
+      <PageHeader
+        back={
+          <Link className={backLinkClass} href="/producer">
+            ← Dashboard Pengelola
+          </Link>
+        }
+        eyebrow="Pengelola Live"
+        title="Tampilkan Proses Secara Langsung"
+        description="Tampilkan proses yang sedang berlangsung secara langsung. 1 kamera statis, 720p/30fps, maksimal 100 penonton secara bersamaan, durasi maksimal 60 menit. Live tidak direkam dan tidak memuat monetisasi."
+      />
 
-        <div className="mt-4">
-          <ProducerSubNav active="/producer/live" />
-        </div>
-
-        <header className="mt-6">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Pengelola Live</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Tampilkan Proses Secara Langsung</h1>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-black/60">
-            Tampilkan proses yang sedang berlangsung secara langsung. 1 kamera statis, 720p/30fps,
-            maksimal 100 penonton secara bersamaan, durasi maksimal 60 menit. Live tidak direkam dan
-            tidak memuat monetisasi.
-          </p>
-        </header>
-
-        <div className="mt-8">
-          {places.length === 0 ? (
-            <section className="rounded-2xl border border-black/10 bg-white p-6 shadow-sm">
-              <p className="text-sm text-black/65">
-                Kamu belum memiliki Tempat dengan hak akses Pengelola. Live hanya dapat dimulai dari
-                Tempat yang kamu kelola.
-              </p>
-              <Link className="mt-4 inline-flex rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white" href="/producer">
-                Buka Dashboard Pengelola
-              </Link>
-            </section>
-          ) : (
-            <LiveConsole places={places} />
-          )}
-        </div>
+      <div className="mt-4">
+        <ProducerSubNav active="/producer/live" />
       </div>
-    </main>
+
+      <div className="mt-4">
+        {places.length === 0 ? (
+          <EmptyState
+            title="Belum ada Tempat dengan hak akses Pengelola"
+            description="Live hanya dapat dimulai dari Tempat yang kamu kelola."
+          />
+        ) : (
+          <LiveConsole places={places} />
+        )}
+      </div>
+    </PageShell>
   );
 }

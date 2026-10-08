@@ -15,6 +15,7 @@ import PlaceGeoFields from "@/components/place-geo-fields";
 import { publicationStatusLabel } from "@/lib/status-labels";
 import ExperiencesPanel from "./[placeId]/experiences/ExperiencesPanel";
 import PlaceAiMediaPanel from "./PlaceAiMediaPanel";
+import { btn } from "@/components/ui/kit";
 
 type Props = { place?: Place; onSaved?: (place: Place) => void };
 
@@ -31,6 +32,11 @@ type SlotState = {
   filled: boolean;
   photo: SlotPhoto | null;
 };
+
+const formLegend = "text-[13px] font-bold uppercase tracking-[0.12em] text-black/45";
+const tabBase = "rounded-full px-3.5 py-1.5 text-xs font-bold transition";
+const tabActive = "bg-brand-accent text-white";
+const tabIdle = "border border-black/10 bg-white text-black/60 hover:bg-black/[0.04]";
 
 function emptyPlaceForm(): Record<string, string> {
   return {
@@ -193,9 +199,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           role="tab"
           aria-selected={editorTab === "detail"}
           onClick={() => setEditorTab("detail")}
-          className={`rounded-full px-4 py-2 text-xs font-bold transition ${
-            editorTab === "detail" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
-          }`}
+          className={`${tabBase} ${editorTab === "detail" ? tabActive : tabIdle}`}
         >
           Informasi
         </button>
@@ -207,9 +211,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           aria-disabled={!place}
           title={place ? undefined : "Simpan Tempat dulu — Kegiatan membutuhkan Tempat yang sudah tersimpan."}
           onClick={() => setEditorTab("experience")}
-          className={`rounded-full px-4 py-2 text-xs font-bold transition ${
-            editorTab === "experience" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
-          } ${place ? "" : "cursor-not-allowed opacity-50"}`}
+          className={`${tabBase} ${editorTab === "experience" ? tabActive : tabIdle} ${place ? "" : "cursor-not-allowed opacity-50"}`}
         >
           Kegiatan
         </button>
@@ -225,9 +227,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
           aria-disabled={!place}
           title={place ? undefined : "Simpan Tempat dulu — Media membutuhkan Tempat yang sudah tersimpan."}
           onClick={() => setEditorTab("media")}
-          className={`rounded-full px-4 py-2 text-xs font-bold transition ${
-            editorTab === "media" ? "bg-brand-accent text-white" : "border border-black/10 bg-white text-black/60"
-          } ${place ? "" : "cursor-not-allowed opacity-50"}`}
+          className={`${tabBase} ${editorTab === "media" ? tabActive : tabIdle} ${place ? "" : "cursor-not-allowed opacity-50"}`}
         >
           Media
         </button>
@@ -240,9 +240,14 @@ export default function PlaceForm({ place, onSaved }: Props) {
 
       {editorTab === "detail" && (
         <>
+      <fieldset className="grid min-w-0 gap-3">
+        <legend className={formLegend}>Identitas Tempat</legend>
       {      [["name", "Nama Tempat"], ["shortDescription", "Deskripsi singkat"], ["area", "Area"], ["address", "Alamat"], ["contactInformation", "Kontak"]].map(([key, label]) => (
         <label className="grid gap-1 text-sm font-semibold" key={key}>{label}<input required={key !== "contactInformation"} value={form[key]} onChange={(event) => update(key, event.target.value)} /></label>
       ))}
+      </fieldset>
+      <fieldset className="grid min-w-0 gap-3">
+        <legend className={formLegend}>Lokasi &amp; klasifikasi</legend>
       <div className="grid min-w-0 gap-2">
         <span className="text-sm font-semibold">Lokasi Tempat</span>
         <PlaceLocationPicker
@@ -265,6 +270,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
         <label className="grid gap-1 text-sm font-semibold">Tipe<select value={form.type} onChange={(event) => update("type", event.target.value)}><option value="production">Produksi</option><option value="experience">Kegiatan</option></select></label>
       </div>
       <label className="grid gap-1 text-sm font-semibold">Currency<select value={form.currency} onChange={(event) => update("currency", event.target.value)}>{APPLICATION_CURRENCIES.map((currency) => (<option key={currency} value={currency}>{PLACE_CURRENCY_LABELS[currency]}</option>))}</select></label>
+      </fieldset>
         </>
       )}
 
@@ -283,9 +289,9 @@ export default function PlaceForm({ place, onSaved }: Props) {
           workflow, and the manual slots are never combined with the AI source
           workflow. Reachable only for a SAVED Place. */}
       {editorTab === "media" && place && (
-      <section className="grid min-w-0 gap-4 rounded-xl border border-black/10 p-4" aria-label="Media Tempat">
+      <section className="grid min-w-0 gap-4" aria-label="Media Tempat">
         <div>
-          <h2 className="text-sm font-semibold">Media Tempat</h2>
+          <h2 className="text-[17px] font-semibold leading-snug tracking-tight">Media Tempat</h2>
           <p className="mt-1 text-xs text-black/55">
             Pilih salah satu metode media. Manual dan Generate AI adalah dua
             metode alternatif — pilih satu, bukan keduanya.
@@ -350,7 +356,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
         {mediaMethod === "manual" && (
       <section className="grid min-w-0 gap-3 rounded-xl border border-black/10 bg-white p-4" aria-label="Media manual Tempat">
         <div>
-          <h3 className="text-sm font-semibold">Metode: Manual</h3>
+          <h3 className="text-[15px] font-semibold">Metode: Manual</h3>
           <p className="mt-1 text-xs text-black/55">
             Foto diunggah ke penyimpanan server melalui API upload yang sama;
             tidak ada input URL gambar. Slot Hook pada metode ini adalah sampul
@@ -418,7 +424,7 @@ export default function PlaceForm({ place, onSaved }: Props) {
         {mediaMethod === "generate-ai" && (
       <section className="grid min-w-0 gap-4 rounded-xl border border-black/10 bg-white p-4" aria-label="Media Generate AI Tempat">
         <div>
-          <h3 className="text-sm font-semibold">Metode: Generate AI</h3>
+          <h3 className="text-[15px] font-semibold">Metode: Generate AI</h3>
           <p className="mt-1 text-xs text-black/55">
             Empat foto sumber (Tempat, Bahan, Proses Produksi, Hasil) menjadi
             bahan dua gambar AI: Cover dan Hook Horizontal. Foto sumber ini
@@ -557,5 +563,5 @@ export function PlaceEditor({ id, onSaved }: { id: string; onSaved?: (place: Pla
     const data = await response.json();
     if (response.ok) setPlace(data); else setError(data.error ?? "Status tidak dapat diubah");
   }
-  return <><div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-black/60">Status: <strong>{publicationStatusLabel(place.publicationStatus)}</strong><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus(place.publicationStatus === "published" ? "paused" : "published")} type="button">{place.publicationStatus === "published" ? "Jeda" : "Tayangkan"}</button><button className="rounded border border-black/15 px-3 py-1 font-semibold" onClick={() => changeStatus("archived")} type="button">Arsipkan</button></div><PlaceForm place={place} onSaved={(saved) => { setPlace(saved); onSaved?.(saved); }} /></>;
+  return <><div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-black/10 bg-white px-3 py-2 text-xs text-black/60">Status: <strong>{publicationStatusLabel(place.publicationStatus)}</strong><span className="ml-auto flex flex-wrap gap-2"><button className={btn.compact} onClick={() => changeStatus(place.publicationStatus === "published" ? "paused" : "published")} type="button">{place.publicationStatus === "published" ? "Jeda" : "Tayangkan"}</button><button className={btn.compact} onClick={() => changeStatus("archived")} type="button">Arsipkan</button></span></div><PlaceForm place={place} onSaved={(saved) => { setPlace(saved); onSaved?.(saved); }} /></>;
 }

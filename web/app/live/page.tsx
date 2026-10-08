@@ -1,6 +1,7 @@
 import Link from "next/link";
 import SiteNav from "@/components/site-nav";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PageHeader, PageShell, btn, metaTextClass } from "@/components/ui/kit";
 
 // The header resolves auth state itself (session probe) — Masuk/Daftar vs
 // [email · Kelola Akun · Keluar]. Producer entry lives in /account, not the
@@ -36,49 +37,49 @@ export default async function LiveIndexPage() {
   }
 
   return (
-    <main className="min-h-screen bg-brand-cream text-brand-ink">
+    <>
       <SiteNav />
-      <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Live Sekarang</h1>
-        <p className="mt-2 text-sm text-black/55">
-          Proses produksi yang sedang berjalan dari Tempat terverifikasi. Live tidak direkam.
-        </p>
+      <PageShell width="wide">
+        <PageHeader
+          title="Live Sekarang"
+          description="Proses produksi yang sedang berjalan dari Tempat terverifikasi. Live tidak direkam."
+        />
 
         {loadError ? (
-          <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
-            <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
-            <p className="mt-1 text-xs text-black/55">
+          <div className="mt-4 rounded-2xl border border-dashed border-black/15 bg-white px-4 py-5">
+            <p className="text-sm font-semibold">Saat ini belum ada Live yang sedang berlangsung.</p>
+            <p className={`mt-1 text-black/55 ${metaTextClass}`}>
               Coba lagi nanti atau jelajahi Tempat lain.
             </p>
-            <Link href="/" className="mt-4 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white">
+            <Link href="/" className={`mt-3 ${btn.secondary}`}>
               Kembali ke Beranda
             </Link>
           </div>
         ) : liveItems.length === 0 ? (
-          <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
-            <p className="text-sm font-bold">Saat ini belum ada Live yang sedang berlangsung.</p>
-            <p className="mt-1 text-xs text-black/55">
+          <div className="mt-4 rounded-2xl border border-dashed border-black/15 bg-white px-4 py-5">
+            <p className="text-sm font-semibold">Saat ini belum ada Live yang sedang berlangsung.</p>
+            <p className={`mt-1 text-black/55 ${metaTextClass}`}>
               Ketika sebuah Tempat memulai Live, proses produksinya otomatis muncul di sini.
             </p>
-            <Link href="/" className="mt-4 inline-block rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white">
+            <Link href="/" className={`mt-3 ${btn.secondary}`}>
               Kembali ke Beranda
             </Link>
           </div>
         ) : (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
             {liveItems.map((item) => (
-              <Link key={item.sessionId} href={`/live/${item.sessionId}`} className="rounded-2xl border border-live/30 bg-white p-5 shadow-sm transition hover:shadow-md">
+              <Link key={item.sessionId} href={`/live/${item.sessionId}`} className="rounded-xl border border-live/30 bg-white px-3 py-2.5 transition hover:bg-black/[0.02]">
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-live px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-white">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
                   Live Sekarang
                 </span>
-                <p className="mt-3 text-sm font-semibold">{item.processTitle ?? "Proses produksi"}</p>
-                <p className="mt-0.5 text-xs text-black/55">{item.placeName}</p>
+                <p className="mt-2 text-sm font-semibold">{item.processTitle ?? "Proses produksi"}</p>
+                <p className={`mt-0.5 text-black/55 ${metaTextClass}`}>{item.placeName}</p>
               </Link>
             ))}
           </div>
         )}
-      </section>
-    </main>
+      </PageShell>
+    </>
   );
 }

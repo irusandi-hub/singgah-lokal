@@ -4,6 +4,7 @@ import SiteNav from "@/components/site-nav";
 import NotificationInboxItem from "@/components/notification-inbox-item";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
 import { listUserNotifications } from "@/lib/notification-service";
+import { PageHeader, PageShell, StatusBadge, metaTextClass } from "@/components/ui/kit";
 
 // Session data is read per request — never cached across users.
 export const dynamic = "force-dynamic";
@@ -38,20 +39,19 @@ export default async function NotificationsPage() {
   const unreadCount = notifications.filter((notification) => notification.readAt === null).length;
 
   return (
-    <main className="min-h-screen bg-brand-cream text-brand-ink">
+    <>
       <SiteNav />
-
-      <section className="mx-auto max-w-4xl px-5 pb-12 pt-6">
-        <div className="flex items-end justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Notifikasi</h1>
-          <span className="text-xs font-bold text-black/45">
-            {unreadCount > 0 ? `${unreadCount} belum dibaca` : "Semua sudah dibaca"}
-          </span>
-        </div>
-        <p className="mt-2 text-sm text-black/55">
-          Kabaran penting untuk akunmu, terbaru lebih dulu.
-        </p>
-        <p className="mt-1 text-xs text-black/45">
+      <PageShell width="wide">
+        <PageHeader
+          title="Notifikasi"
+          description="Kabaran penting untuk akunmu, terbaru lebih dulu."
+          actions={
+            <StatusBadge tone={unreadCount > 0 ? "accent" : "neutral"}>
+              {unreadCount > 0 ? `${unreadCount} belum dibaca` : "Semua sudah dibaca"}
+            </StatusBadge>
+          }
+        />
+        <p className={`mt-2 text-black/45 ${metaTextClass}`}>
           Atur kategori notifikasi di{" "}
           <Link className="font-bold text-brand-accent underline-offset-2 hover:underline" href="/account/notifications">
             Notification Settings
@@ -60,20 +60,20 @@ export default async function NotificationsPage() {
         </p>
 
         {notifications.length === 0 ? (
-          <div className="mt-8 rounded-2xl border border-black/10 bg-white p-8 text-center">
-            <p className="text-sm font-bold">Belum ada notifikasi</p>
-            <p className="mt-1 text-xs text-black/55">
+          <div className="mt-4 rounded-2xl border border-dashed border-black/15 bg-white px-4 py-5">
+            <p className="text-sm font-semibold">Belum ada notifikasi</p>
+            <p className={`mt-1 text-black/55 ${metaTextClass}`}>
               Ikuti sebuah Tempat agar kabaran Live-nya sampai ke sini.
             </p>
           </div>
         ) : (
-          <div className="mt-6 space-y-3">
+          <div className="mt-4 grid gap-2">
             {notifications.map((notification) => (
               <NotificationInboxItem key={notification.id} notification={notification} />
             ))}
           </div>
         )}
-      </section>
-    </main>
+      </PageShell>
+    </>
   );
 }

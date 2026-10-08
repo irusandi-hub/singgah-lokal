@@ -27,20 +27,20 @@ export function AdminBackToAdminCenter(): ReactNode {
 
 export function AdminPageHeader({ title, description }: { title: string; description: string }) {
   return (
-    <header className="border-b border-black/10 pb-5">
-      <h2 className="text-2xl font-semibold tracking-tight">{title}</h2>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-black/60">{description}</p>
+    <header className="border-b border-black/10 pb-3">
+      <h2 className="text-[19px] font-semibold leading-snug tracking-tight">{title}</h2>
+      <p className="mt-1 max-w-2xl text-xs leading-5 text-black/55">{description}</p>
     </header>
   );
 }
 
 export function AdminStatCards({ stats }: { stats: Array<{ label: string; value: number }> }) {
   return (
-    <section aria-label="Statistik operasional" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <section aria-label="Statistik operasional" className="grid grid-cols-2 gap-2 sm:grid-cols-5">
       {stats.map(({ label, value }) => (
-        <div key={label} className="rounded-2xl border border-black/10 bg-white p-4">
-          <div className="text-2xl font-semibold tabular-nums">{value}</div>
-          <div className="mt-1 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">{label}</div>
+        <div key={label} className="rounded-xl border border-black/10 bg-white px-3 py-2.5">
+          <div className="text-xl font-semibold tabular-nums">{value}</div>
+          <div className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-black/45">{label}</div>
         </div>
       ))}
     </section>
@@ -78,19 +78,19 @@ export function AdminDataTable<Row>({ columns, rows, emptyMessage }: {
 }) {
   if (rows.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-black/15 bg-white p-6 text-sm text-black/55">
+      <p className="rounded-xl border border-dashed border-black/15 bg-white px-4 py-5 text-sm text-black/55">
         {emptyMessage}
       </p>
     );
   }
 
   return (
-    <div className="max-h-[75vh] max-w-full overflow-auto rounded-2xl border border-black/10 bg-white">
+    <div className="max-h-[75vh] max-w-full overflow-auto rounded-xl border border-black/10 bg-white">
       <table className="w-full text-left text-sm">
         <thead className="sticky top-0 z-10 bg-white">
           <tr className="border-b border-black/10">
             {columns.map(({ key, header }) => (
-              <th key={key} scope="col" className="border-b border-black/10 bg-black/[0.02] px-4 py-3 text-[11px] font-bold uppercase tracking-[0.12em] text-black/45">
+              <th key={key} scope="col" className="border-b border-black/10 bg-black/[0.02] px-3.5 py-2.5 text-[11px] font-bold uppercase tracking-[0.12em] text-black/45">
                 {header}
               </th>
             ))}
@@ -100,7 +100,7 @@ export function AdminDataTable<Row>({ columns, rows, emptyMessage }: {
           {rows.map((row, index) => (
             <tr key={index} className="border-b border-black/5 last:border-b-0">
               {columns.map(({ key, render }) => (
-                <td key={key} className="min-w-0 max-w-[16rem] px-4 py-3 align-top text-black/75 lg:max-w-xs">
+                <td key={key} className="min-w-0 max-w-[16rem] px-3.5 py-2.5 align-top text-black/75 lg:max-w-xs">
                   <span className="block min-w-0 break-words">{render(row)}</span>
                 </td>
               ))}
@@ -114,7 +114,7 @@ export function AdminDataTable<Row>({ columns, rows, emptyMessage }: {
 
 export function AdminErrorState({ message }: { message: string }) {
   return (
-    <p className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-800" role="alert">
+    <p className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-sm font-semibold text-red-800" role="alert">
       {message}
     </p>
   );

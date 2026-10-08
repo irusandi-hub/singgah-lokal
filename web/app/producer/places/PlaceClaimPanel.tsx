@@ -9,6 +9,7 @@ import {
   placeClaimErrorMessage,
 } from "@/lib/place-claim";
 import { placeTypeLabel } from "@/lib/status-labels";
+import { EmptyState, ErrorState, Panel, StatusBadge, StatusMessage, btn, metaTextClass, sectionTitleClass } from "@/components/ui/kit";
 
 /**
  * AJUKAN PENGELOLAAN TEMPAT — the Producer claim surface.
@@ -27,12 +28,6 @@ import { placeTypeLabel } from "@/lib/status-labels";
  * server, which already excludes every Place that has an owner.
  */
 type Feedback = { kind: "ok" | "error"; message: string } | null;
-
-const STATUS_TONE: Record<PlaceClaimSummary["status"], string> = {
-  pending: "bg-amber-500",
-  approved: "bg-green-600",
-  rejected: "bg-red-800",
-};
 
 const STATUS_LABEL: Record<PlaceClaimSummary["status"], string> = {
   pending: "Menunggu penilaian Admin",
@@ -146,80 +141,69 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <section aria-label="Ajukan Pengelolaan Tempat" className="mt-8">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="break-words text-sm font-bold uppercase tracking-[0.14em] text-black/45">
-            Ajukan Pengelolaan Tempat
-          </h2>
-          <p className="mt-1 text-xs text-black/55">
-            Hanya Tempat yang belum memiliki Pengelola yang dapat diajukan. Pengajuan tidak membuat
-            atau mengubah data Tempat. Bukti kepemilikan tersimpan privat dan diarsipkan maksimal
-            30 hari untuk kebutuhan operasional — lihat{" "}
-            <a
-              href="/policy"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-bold text-brand-primary underline underline-offset-2"
-            >
-              Kebijakan
-            </a>
-            .
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="rounded-lg border border-black/15 px-4 py-2 text-sm font-bold"
-        >
+    <section aria-label="Ajukan Pengelolaan Tempat" className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className={sectionTitleClass}>Ajukan Pengelolaan Tempat</h2>
+        <button type="button" onClick={onBack} className={btn.compact}>
           Kembali ke Tempat
         </button>
       </div>
+      <p className={`text-black/55 ${metaTextClass}`}>
+        Hanya Tempat yang belum memiliki Pengelola yang dapat diajukan. Pengajuan tidak membuat
+        atau mengubah data Tempat. Bukti kepemilikan tersimpan privat dan diarsipkan maksimal
+        30 hari untuk kebutuhan operasional — lihat{" "}
+        <a
+          href="/policy"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-bold text-brand-primary underline underline-offset-2"
+        >
+          Kebijakan
+        </a>
+        .
+      </p>
 
       {claims.length > 0 && (
-        <div className="mb-5 rounded-2xl border border-black/10 bg-white p-4">
-          <h3 className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">Status pengajuanmu</h3>
-          <ul className="mt-2 divide-y divide-black/5">
+        <Panel>
+          <h3 className="text-sm font-semibold">Status pengajuanmu</h3>
+          <ul className="mt-1 divide-y divide-black/5">
             {claims.map((claim) => (
               <li key={claim.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold">{claim.placeName}</span>
-                  <span className="text-xs text-black/50">
+                  <span className={`text-black/50 ${metaTextClass}`}>
                     {claim.category} · {placeTypeLabel(claim.type)} · diajukan {new Date(claim.createdAt).toLocaleDateString("id-ID")}
                   </span>
                 </span>
-                <span className="flex items-center gap-2 text-xs font-bold">
-                  <span className={`inline-block h-2 w-2 rounded-full ${STATUS_TONE[claim.status]}`} aria-hidden />
+                <StatusBadge tone={claim.status === "approved" ? "positive" : claim.status === "rejected" ? "negative" : "warning"}>
                   {STATUS_LABEL[claim.status]}
-                </span>
+                </StatusBadge>
               </li>
             ))}
           </ul>
-        </div>
+        </Panel>
       )}
 
       {placesFailed ? (
-        <p className="rounded-2xl border border-red-800/20 bg-white p-4 text-sm font-semibold text-red-800" role="alert">
-          Daftar Tempat tidak dapat dimuat. Coba muat ulang halaman.
-        </p>
+        <ErrorState message="Daftar Tempat tidak dapat dimuat. Coba muat ulang halaman." />
       ) : places === null ? (
-        <p className="text-sm text-black/60" role="status">
-          Memuat…
-        </p>
+        <StatusMessage message="Memuat…" />
       ) : places.length === 0 ? (
-        <p className="text-sm text-black/60" role="status">
-          Tidak ada Tempat tanpa Pengelola saat ini. Tempat yang sudah dikelola Pengelola lain tidak dapat diajukan.
-        </p>
+        <EmptyState
+          title="Tidak ada Tempat tanpa Pengelola saat ini."
+          description="Tempat yang sudah dikelola Pengelola lain tidak dapat diajukan."
+        />
       ) : (
-        <form onSubmit={submit} className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <label htmlFor="claim-place" className="block text-sm font-bold">
+        <Panel>
+        <form onSubmit={submit} className="grid gap-3">
+          <label htmlFor="claim-place" className="block text-sm font-semibold">
             Tempat yang ingin kamu kelola
           </label>
           <select
             id="claim-place"
             value={selectedId}
             onChange={(event) => setSelectedId(event.target.value)}
-            className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
           >
             <option value="">Pilih Tempat…</option>
             {places.map((place) => (
@@ -230,20 +214,20 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
           </select>
 
           {selected && (
-            <div className="mt-4 rounded-xl border border-black/10 bg-brand-cream/40 p-4">
-              <p className="text-sm font-bold">{selected.name}</p>
-              <p className="mt-1 text-xs leading-5 text-black/60">{selected.shortDescription}</p>
-              <p className="mt-2 text-xs text-black/60">
+            <div className="rounded-xl bg-brand-cream/60 p-3">
+              <p className="text-sm font-semibold">{selected.name}</p>
+              <p className={`mt-1 text-black/60 ${metaTextClass}`}>{selected.shortDescription}</p>
+              <p className={`mt-1 text-black/60 ${metaTextClass}`}>
                 Kategori: <strong>{selected.category}</strong> · Tipe: <strong>{placeTypeLabel(selected.type)}</strong> · Area:{" "}
                 <strong>{selected.area}</strong>
               </p>
-              <p className="mt-2 text-xs text-black/50">
+              <p className={`mt-1 text-black/50 ${metaTextClass}`}>
                 Kategori dan tipe mengikuti Tempat yang ada dan tidak dapat diubah lewat pengajuan.
               </p>
             </div>
           )}
 
-          <label htmlFor="claim-evidence" className="mt-4 block text-sm font-bold">
+          <label htmlFor="claim-evidence" className="block text-sm font-semibold">
             Bukti kepemilikan <span className="font-normal text-black/55">(wajib)</span>
           </label>
           <input
@@ -252,15 +236,15 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
             required
             accept={PLACE_CLAIM_EVIDENCE_ACCEPTED_TYPES.join(",")}
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            className="mt-2 block w-full text-sm"
+            className="block w-full text-sm"
           />
-          <p className="mt-1 text-xs text-black/50">
+          <p className={`text-black/50 ${metaTextClass}`}>
             Maksimal {Math.round(PLACE_CLAIM_EVIDENCE_MAX_BYTES / (1024 * 1024))} MB, format{" "}
             {PLACE_CLAIM_EVIDENCE_ACCEPTED_TYPES.map((type) => type.split("/")[1].toUpperCase()).join(", ")}.
             Bukti disimpan secara privat dan hanya dapat dinilai Admin.
           </p>
 
-          <label htmlFor="claim-note" className="mt-4 block text-sm font-bold">
+          <label htmlFor="claim-note" className="block text-sm font-semibold">
             Catatan <span className="font-normal text-black/55">(opsional)</span>
           </label>
           <textarea
@@ -269,22 +253,19 @@ export default function PlaceClaimPanel({ onBack }: { onBack: () => void }) {
             onChange={(event) => setNote(event.target.value)}
             rows={3}
             maxLength={1000}
-            className="mt-2 w-full rounded-xl border border-black/10 px-3 py-2 text-sm"
+            className="w-full rounded-xl border border-black/10 px-3 py-2 text-sm"
           />
 
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-4 rounded-xl bg-brand-primary px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-primary-deep disabled:opacity-50"
-          >
+          <button type="submit" disabled={busy} className={`w-fit ${btn.primary}`}>
             {busy ? "Mengirim…" : "Kirim pengajuan"}
           </button>
         </form>
+        </Panel>
       )}
 
       {feedback ? (
         <p
-          className={`mt-3 rounded-xl border px-3 py-2 text-xs font-semibold ${
+          className={`rounded-xl border px-3 py-2 text-xs font-semibold ${
             feedback.kind === "ok"
               ? "border-brand-primary/30 bg-brand-primary/10 text-brand-primary"
               : "border-red-800/30 bg-red-800/10 text-red-800"
