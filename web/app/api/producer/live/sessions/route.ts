@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requireProducerAccess } from "@/lib/auth/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 import { sweepOrphanLiveInputs } from "@/lib/live/session-service-cap";
 import { endLiveSession, LiveValidationError, startLiveSession } from "@/lib/live/session-service";
+import { canOperateLiveForPlace } from "@/lib/live/operator-authorization";
 
 type StartLiveBody = {
   placeId?: unknown;
@@ -82,6 +84,38 @@ export async function DELETE(request: Request) {
         { error: "session_id_idempotency_required" },
         { status: 400 },
       );
+    }
+
+    // Ending a Live is authorized against the SESSION's own Place, derived
+    // server-side — never a client-supplied place. Both authorities that may
+    // operate the Place are accepted (owner/manager OR an active delegated
+    // Operator Live); everyone else fails closed. Without this, the endpoint
+    // would end any session from a bare session id.
+    const supabase = await createSupabaseServerClient();
+    const { data: userData, error: authError } = await supabase.auth.getUser();
+    if (authError || !userData?.user) {
+      throw new AuthenticationRequiredError();
+    }
+
+    const { data: session, error: sessionError } = await supabase
+      .from("live_sessions")
+      .select("place_id")
+      .eq("id", sessionId)
+      .single();
+    if (sessionError || !session) {
+      return NextResponse.json(
+        { error: "live_session_not_found" },
+        { status: 404 },
+      );
+    }
+
+    const allowed = await canOperateLiveForPlace(
+      supabase,
+      userData.user.id,
+      String(session.place_id),
+    );
+    if (!allowed) {
+      throw new ProducerAuthorizationRequiredError();
     }
 
     await endLiveSession({

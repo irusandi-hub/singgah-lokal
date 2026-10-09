@@ -359,3 +359,193 @@ test("authenticated sessions cannot write live_operators directly", async () => 
 
   await db.close();
 });
+
+// ---------------------------------------------------------------------------
+// D. Privacy-safe account resolution (owner/manager delegation lookup)
+// ---------------------------------------------------------------------------
+
+test("resolve_account_by_username is owner/manager-only and EXACT-match only", async () => {
+  const db = await createDb();
+  await seedUser(db, OWNER);
+  await seedUser(db, OPERATOR);
+  await seedUser(db, OUTSIDER);
+  await seedOwnership(db);
+
+  // The operator owns its public username, as its own row (self-only update).
+  await setAuthUid(db, OPERATOR);
+  await db.query(`update public.users set username = 'operator-live' where id = '${OPERATOR}'`);
+
+  // An account with no membership may not look anything up: this is not a
+  // public directory.
+  await setAuthUid(db, OUTSIDER);
+  await assert.rejects(
+    () => db.query(`select * from public.resolve_account_by_username('operator-live')`),
+    /account_lookup_not_allowed/,
+    "a user with no Place authority must not resolve accounts",
+  );
+
+  // An owner/manager resolves the canonical username.
+  await setAuthUid(db, OWNER);
+  const exact = await rows(
+    db,
+    `select user_id, username from public.resolve_account_by_username('operator-live')`,
+  );
+  assert.deepEqual(exact.map((row) => row.user_id), [OPERATOR]);
+  assert.equal(exact[0]?.username, "operator-live");
+
+  // No pattern, prefix, or wildcard search — a partial value finds nothing, so
+  // the endpoint can never be used to enumerate accounts.
+  for (const probe of ["operator", "OPERATOR-LIVE", "%", "operator-live%", "_"]) {
+    const partial = await rows(
+      db,
+      `select user_id from public.resolve_account_by_username('${probe}')`,
+    );
+    assert.equal(partial.length, 0, `'${probe}' must not resolve an account`);
+  }
+
+  await db.close();
+});
+
+// ---------------------------------------------------------------------------
+// E. Operator listing is scoped to the caller's exact Place
+// ---------------------------------------------------------------------------
+
+test("list_place_live_operators is owner/manager-only, exact-Place, and keeps history", async () => {
+  const db = await createDb();
+  await seedUser(db, OWNER);
+  await seedUser(db, OPERATOR);
+  await seedUser(db, OUTSIDER);
+  await seedOwnership(db);
+
+  await setAuthUid(db, OPERATOR);
+  await db.query(`update public.users set username = 'operator-live' where id = '${OPERATOR}'`);
+
+  await setAuthUid(db, OWNER);
+  await db.query(`select public.grant_live_operator_access('${OPERATOR}', '${PLACE_ID}')`);
+
+  // No membership for the Place ⇒ no listing.
+  await setAuthUid(db, OUTSIDER);
+  await assert.rejects(
+    () => db.query(`select * from public.list_place_live_operators('${PLACE_ID}')`),
+    /live_operator_list_not_allowed/,
+    "an unrelated account must not list a Place's operators",
+  );
+
+  // An operator manages nothing: it cannot list either (Pengelola ≠ Operator).
+  await setAuthUid(db, OPERATOR);
+  await assert.rejects(
+    () => db.query(`select * from public.list_place_live_operators('${PLACE_ID}')`),
+    /live_operator_list_not_allowed/,
+    "being an operator must not grant management of the Place",
+  );
+
+  // The owner sees the assignment with the operator's public label.
+  await setAuthUid(db, OWNER);
+  const listed = await rows(
+    db,
+    `select user_id, username, granted_at, revoked_at from public.list_place_live_operators('${PLACE_ID}')`,
+  );
+  assert.equal(listed.length, 1, "exactly the one assignment is listed");
+  assert.equal(listed[0]?.user_id, OPERATOR);
+  assert.equal(listed[0]?.username, "operator-live", "the list carries the public username label");
+  assert.equal(listed[0]?.revoked_at, null);
+
+  // A revoked assignment stays visible as history, marked as revoked.
+  await db.query(`select public.revoke_live_operator_access('${OPERATOR}', '${PLACE_ID}')`);
+  const afterRevoke = await rows(
+    db,
+    `select revoked_at from public.list_place_live_operators('${PLACE_ID}')`,
+  );
+  assert.equal(afterRevoke.length, 1, "history is kept after revocation");
+  assert.notEqual(afterRevoke[0]?.revoked_at, null);
+
+  await db.close();
+});
+
+// ---------------------------------------------------------------------------
+// F. The operator's Live reads are read-only and withdraw on revocation
+// ---------------------------------------------------------------------------
+
+test("an active operator reads the Place's PUBLISHED stages and live session, and can write neither", async () => {
+  const db = await createDb();
+  await seedUser(db, OWNER);
+  await seedUser(db, OPERATOR);
+  await seedOwnership(db);
+
+  // One published and one draft stage, owned by the Place's owner.
+  await setAuthUid(db, OWNER);
+  await db.query(
+    `insert into public.production_stages (id, place_id, title, description, sort_order, status)
+     values ('stg-pub', '${PLACE_ID}', 'Tahap Tayang', 'x', 0, 'published')`,
+  );
+  await db.query(
+    `insert into public.production_stages (id, place_id, title, description, sort_order, status)
+     values ('stg-draft', '${PLACE_ID}', 'Tahap Draft', 'x', 1, 'draft')`,
+  );
+
+  // A live session for the Place. Live writes are RPC-only, so it is seeded as
+  // the table owner. The Place is taken out of public view so ONLY the
+  // operator-read policies can resolve these rows.
+  await db.exec("reset role;");
+  await db.exec(
+    `insert into public.live_sessions (id, place_id, producer_id, stage_id, idempotency_key)
+     values ('live_test_1', '${PLACE_ID}', 'p-owner', 'stg-pub', 'seed-key-1');`,
+  );
+  await db.exec(`update public.places set publication_status = 'draft' where id = '${PLACE_ID}';`);
+
+  // No assignment yet ⇒ no read.
+  await setAuthUid(db, OPERATOR);
+  const before = await rows(
+    db,
+    `select id from public.production_stages where place_id = '${PLACE_ID}'`,
+  );
+  assert.equal(before.length, 0, "without an assignment the operator reads no stage");
+
+  await setAuthUid(db, OWNER);
+  await db.query(`select public.grant_live_operator_access('${OPERATOR}', '${PLACE_ID}')`);
+
+  await setAuthUid(db, OPERATOR);
+  const visible = await rows(
+    db,
+    `select id from public.production_stages where place_id = '${PLACE_ID}' order by id`,
+  );
+  assert.deepEqual(
+    visible.map((row) => row.id),
+    ["stg-pub"],
+    "an operator reads the PUBLISHED stage only — never a draft",
+  );
+  const session = await rows(db, `select id from public.live_sessions where id = 'live_test_1'`);
+  assert.equal(session.length, 1, "the operator reads the live session of the assigned Place");
+
+  // Read-only: an operator cannot publish, insert, or otherwise write a stage.
+  const published = await rows(
+    db,
+    `update public.production_stages set status = 'published' where id = 'stg-draft' returning id`,
+  );
+  assert.equal(published.length, 0, "an operator cannot publish a stage");
+  await assert.rejects(
+    () => db.query(
+      `insert into public.production_stages (id, place_id, title, description, sort_order, status)
+       values ('stg-new', '${PLACE_ID}', 'Baru', 'x', 2, 'draft')`,
+    ),
+    /row-level security|permission denied/i,
+    "an operator cannot create a stage (no Production Story authority)",
+  );
+
+  // Revocation withdraws every read it granted, including the session.
+  await setAuthUid(db, OWNER);
+  await db.query(`select public.revoke_live_operator_access('${OPERATOR}', '${PLACE_ID}')`);
+  await setAuthUid(db, OPERATOR);
+  const afterRevoke = await rows(
+    db,
+    `select id from public.production_stages where place_id = '${PLACE_ID}'`,
+  );
+  assert.equal(afterRevoke.length, 0, "revocation withdraws the stage read");
+  const sessionAfterRevoke = await rows(
+    db,
+    `select id from public.live_sessions where id = 'live_test_1'`,
+  );
+  assert.equal(sessionAfterRevoke.length, 0, "revocation withdraws the session read");
+
+  await db.close();
+});

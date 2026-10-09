@@ -14,6 +14,7 @@ import {
 import AccountProfileClient from "@/components/account/account-profile-client";
 import AccountAccessClient from "@/components/account/account-access-client";
 import AccountLiveAccessClient from "@/components/account/account-live-access-client";
+import AccountLiveOperatorManager from "@/components/account/account-live-operator-manager";
 import { resolvePlaceMemberships, type AccountPlaceMembership } from "@/lib/account-memberships";
 import {
   resolveLiveOperatorAssignments,
@@ -29,6 +30,8 @@ export const dynamic = "force-dynamic";
  * The page shows who this account is, then — in ONE "Akses" section — the
  * access it actually holds:
  * - Pengelola  → an owner/manager row in producer_memberships (own resources).
+ *   An owner/manager also gets "Kelola Akses Live" here, because delegating
+ *   Live operation IS a Pengelola capability over their own Places.
  * - Operator Live → an ACTIVE delegated assignment in public.live_operators.
  *   Producer authority never produces an Operator Live card, and a delegated
  *   operator is never shown as Pengelola.
@@ -38,12 +41,16 @@ export const dynamic = "force-dynamic";
  * The authority probe runs server-side on every request, and each card shows
  * the exact canonical Place name — never a raw place id. Areas the account does
  * not hold are not rendered at all — no dead links.
+ *
+ * NOTE (canonical schema): public.users carries exactly id, created_at,
+ * platform_role and (since 0047) username. It has NO display_name column, so
+ * the Profil section does not pretend to edit one — a fake editable field is
+ * worse than an absent one.
  */
 
 type AccountAuthority = {
   authenticated: boolean;
   email: string | null;
-  displayName: string | null;
   username: string | null;
   memberships: AccountPlaceMembership[];
   liveAssignments: AccountLiveOperatorAssignment[];
@@ -55,7 +62,6 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
   const fallback: AccountAuthority = {
     authenticated: false,
     email: null,
-    displayName: null,
     username: null,
     memberships: [],
     liveAssignments: [],
@@ -70,13 +76,14 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
 
     // Pengelola authority comes from producer_memberships; Operator Live
     // authority comes ONLY from active live_operators assignments. They are
-    // resolved separately so neither can ever imply the other.
+    // resolved separately so neither can ever imply the other. Only columns
+    // that exist on public.users are selected.
     const [memberships, liveAssignments, { data: userRow }] = await Promise.all([
       resolvePlaceMemberships(),
       resolveLiveOperatorAssignments(),
       supabase
         .from("users")
-        .select("platform_role, display_name, username")
+        .select("platform_role, username")
         .eq("id", userData.user.id)
         .maybeSingle(),
     ]);
@@ -84,8 +91,6 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
     return {
       authenticated: true,
       email: userData.user.email ?? null,
-      displayName:
-        (userRow as { display_name?: string | null } | null)?.display_name ?? null,
       username:
         (userRow as { username?: string | null } | null)?.username ?? null,
       memberships,
@@ -115,11 +120,6 @@ export default async function AccountPage() {
       ) : (
         <p className="text-sm font-semibold text-black/55">Akun tidak dikenali.</p>
       )}
-      {authority.displayName ? (
-        <p className="text-xs text-black/55">
-          Nama tampilan: {authority.displayName}
-        </p>
-      ) : null}
       <AccountProfileClient username={authority.username} />
     </div>
   );
@@ -174,6 +174,9 @@ export default async function AccountPage() {
             <div className="grid gap-3">
               {hasProducerAccess ? (
                 <AccountAccessClient memberships={authority.memberships} />
+              ) : null}
+              {hasProducerAccess ? (
+                <AccountLiveOperatorManager places={authority.memberships} />
               ) : null}
               {hasLiveOperatorAccess ? (
                 <AccountLiveAccessClient assignments={authority.liveAssignments} />

@@ -160,6 +160,42 @@ create policy places_live_operator_read
     )
   );
 
+-- A delegated operator must be able to pick the Proses to broadcast, so they
+-- may READ the PUBLISHED stages of a Place they hold an ACTIVE assignment on.
+-- Read-only and published-only: they still cannot create, change, publish, or
+-- delete any stage (no INSERT/UPDATE/DELETE policy is added, and none of the
+-- producer_memberships write policies apply to them).
+drop policy if exists production_stages_live_operator_read on public.production_stages;
+create policy production_stages_live_operator_read
+  on public.production_stages for select
+  using (
+    status = 'published'
+    and exists (
+      select 1
+      from public.live_operators lo
+      where lo.user_id = auth.uid()
+        and lo.place_id = production_stages.place_id
+        and lo.revoked_at is null
+    )
+  );
+
+-- A delegated operator must be able to END the Live they started, which means
+-- reading the session's own Place. Read-only and scoped to an ACTIVE
+-- assignment on that EXACT Place — an operator gains no other session access
+-- and no write path.
+drop policy if exists live_sessions_live_operator_read on public.live_sessions;
+create policy live_sessions_live_operator_read
+  on public.live_sessions for select
+  using (
+    exists (
+      select 1
+      from public.live_operators lo
+      where lo.user_id = auth.uid()
+        and lo.place_id = live_sessions.place_id
+        and lo.revoked_at is null
+    )
+  );
+
 -- ---------------------------------------------------------------------------
 -- 4. Audited grant/revoke RPCs — the ONLY write path
 -- ---------------------------------------------------------------------------
@@ -245,10 +281,93 @@ $$;
 revoke all on function public.revoke_live_operator_access(uuid, text) from public, anon, authenticated;
 grant execute on function public.revoke_live_operator_access(uuid, text) to authenticated;
 
+-- ---------------------------------------------------------------------------
+-- 5. Privacy-safe account resolution for delegated-operator management
+-- ---------------------------------------------------------------------------
+--
+-- An owner/manager must be able to NAME the existing account they delegate to,
+-- but a public user directory is prohibited (MASTER AUTHORITY §5/§6: no
+-- Producer reaches another Producer, and User data is never browsable). So
+-- there is NO listing, NO email lookup, and NO way to enumerate accounts.
+-- These two SECURITY DEFINER functions expose the minimum an owner/manager
+-- needs, and only to a caller who already holds an owner/manager membership:
+--
+--  * resolve_account_by_username — an EXACT match on the account's own public
+--    username label (the field 0047 adds), returning at most ONE row.
+--  * list_place_live_operators  — the operator rows of ONE Place the caller
+--    owner/manages, labelled with the operator's public username.
+--
+-- Both are read-only: neither grants authority, and neither can widen the
+-- caller's own access. The authorization is re-checked inside each function
+-- server-side, never taken from the client.
+
+create or replace function public.resolve_account_by_username(
+  p_username text
+) returns table (user_id uuid, username text)
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if not exists (
+    select 1
+    from public.producer_memberships m
+    where m.user_id = auth.uid()
+      and m.role in ('owner', 'manager')
+  ) then
+    raise exception 'account_lookup_not_allowed' using errcode = 'P0001';
+  end if;
+
+  -- EXACT match only — no pattern, no prefix, no partial search.
+  return query
+    select u.id, u.username
+    from public.users u
+    where u.username is not null
+      and u.username = p_username
+    limit 1;
+end;
+$$;
+
+revoke all on function public.resolve_account_by_username(text) from public, anon, authenticated;
+grant execute on function public.resolve_account_by_username(text) to authenticated;
+
+create or replace function public.list_place_live_operators(
+  p_place_id text
+) returns table (
+  user_id    uuid,
+  username   text,
+  granted_at timestamptz,
+  revoked_at timestamptz
+)
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  if not exists (
+    select 1
+    from public.producer_memberships m
+    where m.user_id = auth.uid()
+      and m.place_id = p_place_id
+      and m.role in ('owner', 'manager')
+  ) then
+    raise exception 'live_operator_list_not_allowed' using errcode = 'P0001';
+  end if;
+
+  return query
+    select lo.user_id, u.username, lo.granted_at, lo.revoked_at
+    from public.live_operators lo
+    left join public.users u on u.id = lo.user_id
+    where lo.place_id = p_place_id
+    order by lo.granted_at asc;
+end;
+$$;
+
+revoke all on function public.list_place_live_operators(text) from public, anon, authenticated;
+grant execute on function public.list_place_live_operators(text) to authenticated;
+
 commit;
 
 -- ---------------------------------------------------------------------------
--- 5. Migration notes (DEV apply only, not a production change instruction)
+-- 6. Migration notes (DEV apply only, not a production change instruction)
 -- ---------------------------------------------------------------------------
 -- DEV apply checklist item: run this migration against the Supabase
 -- DEVELOPMENT project only. It changes public.users and adds
@@ -264,6 +383,9 @@ commit;
 --    write, and both RPCs deny a caller who is not the Place owner/manager
 --  * a delegated operator reads the exact Place name for an active
 --    assignment; a revoked assignment grants nothing
+--  * resolve_account_by_username resolves an EXACT username for an
+--    owner/manager and lists nothing else; list_place_live_operators returns
+--    only the operator rows of a Place the caller owner/manages
 --
 -- Do not apply this migration to production without an explicit product
 -- decision and the corresponding Supabase production apply step.

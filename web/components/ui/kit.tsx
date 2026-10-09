@@ -132,14 +132,12 @@ export function Section({
   action,
   className = "",
   children,
-  accountCenterVocabulary,
 }: {
   title?: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
   className?: string;
   children: ReactNode;
-  accountCenterVocabulary?: boolean;
 }) {
   return (
     <section className={`grid gap-3 ${className}`}>
@@ -153,15 +151,6 @@ export function Section({
       {children}
     </section>
   );
-}
-
-/**
- * Internal hook seam for future account-center label parity. The Producer surface
- * may pass the marker today; the parity layer that uses it is intentionally outside
- * this file so Section stays presentation-only.
- */
-export function useAccountCenterVocabulary(marker?: boolean): boolean {
-  return Boolean(marker);
 }
 
 

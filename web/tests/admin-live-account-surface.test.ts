@@ -160,8 +160,14 @@ test("the Account Center cards carry no role-specific heading", () => {
 test("the Account Center shows profile identity and exactly one access section", () => {
   const page = stripComments(accountPage);
   assert.match(page, /<Section title="Profil">/);
-  assert.match(page, /authority\.displayName/);
   assert.match(page, /authority\.username/);
+  // CANONICAL SCHEMA (2026-10-08 audit): public.users carries exactly id,
+  // created_at, platform_role and (since 0047) username. It has NO
+  // display_name column, so the authority probe must not select one — an
+  // unknown column makes the whole probe fail (username lost, Platform Admin
+  // card lost) and the Profil section must not offer a fake editable field.
+  assert.doesNotMatch(page, /display_name/);
+  assert.doesNotMatch(page, /displayName/);
   // ONE "Akses" section holds Pengelola + Operator Live + Admin/Developer; the
   // separate security section was removed (sign-out already lives in the
   // account menu), so the Account Center no longer claims it.

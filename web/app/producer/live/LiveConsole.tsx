@@ -143,7 +143,11 @@ export function LiveConsole({ places }: Props) {
     setError(null);
     const idempotencyKey = nextIdempotencyKey();
     try {
-      const response = await fetch("/api/producer/live/sessions", {
+      // The console posts to the authority-aware Live endpoint: it accepts the
+      // Place's owner/manager AND a delegated Operator Live assigned to this
+      // EXACT Place, and rejects anyone else server-side. A membership is not
+      // required, and a revoked assignment is not access.
+      const response = await fetch("/api/live/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ placeId, stageId: effectiveStageId, idempotencyKey }),
@@ -250,8 +254,11 @@ export function LiveConsole({ places }: Props) {
         endIdempotencyKeyRef.current ?? nextEndIdempotencyKey();
       endIdempotencyKeyRef.current = endIdempotencyKey;
 
-      const response = await fetch("/api/producer/live/sessions", {
-        method: "DELETE",
+      // Ending is authorized against the SESSION's own Place (never a
+      // client-supplied place), so an operator can end only the Live of the
+      // Place they are assigned to.
+      const response = await fetch("/api/live/end", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sessionId: activeSessionId,

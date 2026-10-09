@@ -23,23 +23,36 @@ const USERNAME_ERROR_LABELS: Readonly<
     "Tidak dapat menyimpan username saat ini.",
 };
 
-export default function AccountProfileClient({
-  username: initialUsername,
-}: Props) {
+/**
+ * Profil — self-service editing of the ONE profile field the canonical schema
+ * actually supports: `public.users.username`.
+ *
+ * The value is pre-filled from the server row, so "read existing values" and
+ * "edit existing values" are the same control instead of a read-only label you
+ * could never change. Email and password are NOT part of this surface and are
+ * not editable here. The row that gets written is decided server-side
+ * (`/api/account/username` updates only the caller's own id), and username
+ * uniqueness is enforced by the database's partial unique index.
+ */
+export default function AccountProfileClient({ username }: Props) {
   const router = useRouter();
-  const [status, setStatus] = useState<
-    "idle" | "loading" | "success" | "error"
-  >("idle");
-  const [errorKey, setErrorKey] = useState<AccountProfileError | null>(
-    null,
+  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">(
+    "idle",
   );
-  const [pending, setPending] = useState(initialUsername ?? "");
+  const [errorKey, setErrorKey] = useState<AccountProfileError | null>(null);
+  const [pending, setPending] = useState(username ?? "");
+  const [saved, setSaved] = useState(username ?? "");
 
   async function save() {
     const trimmed = pending.trim();
     const validation = validateUsername(trimmed);
     if (validation) {
       setErrorKey(validation);
+      return;
+    }
+    if (trimmed === saved) {
+      setStatus("success");
+      setErrorKey(null);
       return;
     }
     setStatus("loading");
@@ -60,21 +73,16 @@ export default function AccountProfileClient({
           (payload.error as AccountProfileError) ??
             "username_update_unavailable",
         );
-        setPending(trimmed);
         return;
       }
+      setSaved(payload.username ?? trimmed);
+      setPending(payload.username ?? trimmed);
       setStatus("success");
       router.refresh();
     } catch {
       setStatus("error");
       setErrorKey("username_update_unavailable");
     }
-  }
-
-  if (initialUsername) {
-    return (
-      <p className="text-xs text-black/55">Username: {initialUsername}</p>
-    );
   }
 
   return (
@@ -105,6 +113,9 @@ export default function AccountProfileClient({
             {status === "loading" ? "Menyimpan…" : "Simpan"}
           </button>
         </div>
+        <p className="text-[11px] text-black/45">
+          Username adalah label publik akun ini dan dapat diubah kapan saja.
+        </p>
       </div>
 
       {status === "success" ? (

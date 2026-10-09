@@ -35,17 +35,29 @@ export async function GET(request: Request) {
       );
     }
 
-    const { data: rows } = await supabase
-      .from("live_operators")
-      .select("user_id, place_id, granted_by, granted_at, revoked_at")
-      .eq("place_id", placeId)
-      .order("granted_at", { ascending: true });
+    // The operator rows (with the operator's public username label) come from
+    // the SECURITY DEFINER RPC, which re-checks the owner/manager authorization
+    // for this exact Place and exposes only that Place's assignments. Reading
+    // the raw table here would show opaque user ids, and the users table is
+    // self-scoped by RLS, so the label could not be resolved.
+    const { data, error } = await supabase.rpc("list_place_live_operators", {
+      p_place_id: placeId,
+    });
+
+    if (error) {
+      return NextResponse.json(
+        { error: "live_operator_list_unavailable" },
+        { status: 503 },
+      );
+    }
+
+    const rows = Array.isArray(data) ? data : [];
 
     return NextResponse.json({
-      operators: (rows ?? []).map((row) => ({
+      operators: rows.map((row) => ({
         userId: String(row.user_id),
-        placeId: String(row.place_id),
-        grantedBy: String(row.granted_by),
+        username: row.username ? String(row.username) : null,
+        placeId,
         grantedAt: String(row.granted_at),
         revokedAt: row.revoked_at ? String(row.revoked_at) : null,
       })),

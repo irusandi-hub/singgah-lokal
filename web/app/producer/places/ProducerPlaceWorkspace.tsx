@@ -121,9 +121,18 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
     <PageShell>
       <PageHeader
         back={
-          <Link className={backLinkClass} href="/">
-            Kembali ke Beranda
-          </Link>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {/* The compact way to the Account & Access Center sits beside the
+                standard way home. It is a LINK, not a Producer function, so the
+                Producer menu above owns the working surfaces and this only
+                points at where this account's access is managed. */}
+            <Link className={backLinkClass} href="/account">
+              ← Akun & Akses
+            </Link>
+            <Link className={backLinkClass} href="/">
+              Kembali ke Beranda
+            </Link>
+          </div>
         }
         title="Pengelola"
         description="Kelola Tempat dan kegiatanmu, tanggapi Permintaan Kunjungan, dan kelola Live."
@@ -135,7 +144,7 @@ export default function ProducerPlaceWorkspace({ initialPlaces, showOnboardingHi
             systems at once. */}
         <ProducerSubNav active="/producer" />
 
-        <Section title="Tempat yang Kamu Kelola" accountCenterVocabulary>
+        <Section title="Tempat yang Kamu Kelola">
           {places.length === 0 && (
             <EmptyState
               title="Belum ada Tempat yang dapat dikelola"
