@@ -47,7 +47,7 @@ test("Signed-in header collapses to a single account/application menu", () => {
   assert.doesNotMatch(authedBlock, /Kelola Akun/);
   assert.doesNotMatch(authedBlock, /SignOutButton/);
   const menuCode = readFileSync(new URL("../components/account-menu.tsx", import.meta.url), "utf8");
-  for (const expected of ["Account Center", "Sign Out", "Setting", "Navigation", "App Language", "Video Setting", "Help", "Tentang", "/account"]) {
+  for (const expected of ["Akun & Akses", "Keluar", "Pengaturan", "Navigasi", "Bahasa Aplikasi", "Pengaturan Video", "Bantuan", "Tentang", "/account"]) {
     assert.ok(menuCode.includes(expected), `account menu must contain ${expected}`);
   }
   assert.ok(menuCode.includes("SignOutButton"));
@@ -240,7 +240,10 @@ test("Role sections still own their URL namespace", () => {
 test("Account Center keeps no Keamanan section and separates Pengelola from delegated Live Operator access", () => {
   assert.doesNotMatch(accountPage, /<Section title="Keamanan">/);
   assert.doesNotMatch(accountPage, /Keluar dari akun ini lalu masuk kembali dengan email dan password yang sama/);
-  assert.ok(accountPage.includes('<AccountProfileClient username={authority.username} />'));
+  assert.match(
+    accountPage,
+    /<AccountProfileClient\s+username=\{authority\.username\}\s+email=\{authority\.email\}\s*\/>/,
+  );
   assert.ok(accountPage.includes('<AccountAccessClient memberships={authority.memberships} />'));
   // Operator Live is delegated ONLY: it is fed by active live_operators
   // assignments, never by Producer membership.

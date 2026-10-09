@@ -11,10 +11,11 @@ import { usePathname } from "next/navigation";
  * this component every tab rendered identical and a nested route — the Place
  * workspace, a Producer detail — showed no tab at all. `usePathname` fixes
  * both: the exact match is active, and a nested path falls back to the
- * longest matching section, so `/admin/places/[placeId]` lights up "Data Place".
+ * longest matching section, so `/admin/places/[placeId]` lights up "Data Tempat".
  *
- * The list is the MVP tab set (PO, 2026-09-29): Overview, Data Pengguna, Data
- * Pengelola, Data Place, Data Live, Live Moderation, Riwayat & Arsip. The
+ * The list is the MVP tab set (PO, 2026-09-29), with the Indonesian labels of
+ * the UI terminology standard: Ringkasan, Data Pengguna, Data Pengelola,
+ * Data Tempat, Data Live, Moderasi Live, Riwayat & Arsip. The
  * former standalone "Pengelola" tab is GONE — its data lives in Data
  * Pengelola, which shows the Pengelola ↔ Place relations. "Kegiatan" and
  * "Kunjungan" are NOT MVP Admin tabs and stay out of the navigation; their
@@ -24,14 +25,17 @@ import { usePathname } from "next/navigation";
  * "Riwayat & Arsip" is the ONE deliberate archive search surface (PO,
  * 2026-09-29): the claim archive stays out of every operational page, and is
  * reachable only here, behind the same moderator guard as every other tab.
+ *
+ * Labels are short Indonesian and match each destination page title
+ * (UI terminology standard, docs/UI_TERMINOLOGY_STANDARD.md).
  */
 const SECTIONS = [
-  { href: "/admin", label: "Overview", exact: true },
+  { href: "/admin", label: "Ringkasan", exact: true },
   { href: "/admin/users", label: "Data Pengguna", exact: false },
   { href: "/admin/producer-membership", label: "Data Pengelola", exact: false },
-  { href: "/admin/places", label: "Data Place", exact: false },
+  { href: "/admin/places", label: "Data Tempat", exact: false },
   { href: "/admin/live", label: "Data Live", exact: false },
-  { href: "/admin/moderation", label: "Live Moderation", exact: false },
+  { href: "/admin/moderation", label: "Moderasi Live", exact: false },
   { href: "/admin/archives", label: "Riwayat & Arsip", exact: false },
 ] as const;
 

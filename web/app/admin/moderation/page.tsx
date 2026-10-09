@@ -27,8 +27,8 @@ export default async function AdminModerationPage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Live Moderation" description="Live Report masuk dan jejak audit Live." />
-        <AdminErrorState message="Data Live Moderation tidak dapat dimuat." />
+        <AdminPageHeader title="Moderasi Live" description="Laporan Live masuk dan jejak audit Live." />
+        <AdminErrorState message="Data moderasi Live tidak dapat dimuat." />
       </div>
     );
   }
@@ -37,18 +37,18 @@ export default async function AdminModerationPage() {
     <div className="space-y-8">
       <AdminBackToAdminCenter />
       <AdminPageHeader
-        title="Live Moderation"
-        description="Live Report masuk dan jejak audit Live terbaru. Tindakan enforcement tetap melalui jalur RPC yang sudah diaudit."
+        title="Moderasi Live"
+        description="Laporan Live masuk dan jejak audit Live terbaru. Tindakan pembatasan tetap melalui jalur RPC yang sudah diaudit."
       />
 
-      <section aria-label="Live Reports" className="space-y-3">
-        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Live Reports</h3>
+      <section aria-label="Laporan Live" className="space-y-3">
+        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Laporan Live</h3>
         <AdminDataTable<AdminLiveReportRow>
           rows={reports}
-          emptyMessage="Belum ada Live Report. Semua Live aman sejauh ini."
+          emptyMessage="Belum ada Laporan Live. Semua Live aman sejauh ini."
           columns={[
             { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-            { key: "session", header: "Live Session", render: (row) => <span className="font-mono text-xs">{formatShortId(row.liveSessionId)}</span> },
+            { key: "session", header: "Sesi Live", render: (row) => <span className="font-mono text-xs">{formatShortId(row.liveSessionId)}</span> },
             { key: "category", header: "Kategori", render: (row) => <AdminStatusBadge value={row.category} tone={row.category === "other" ? "neutral" : "warning"} /> },
             { key: "note", header: "Catatan", render: (row) => (row.note ? <span className="max-w-xs break-words">{row.note}</span> : <span className="text-black/40">—</span>) },
             { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },

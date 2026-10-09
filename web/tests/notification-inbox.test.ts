@@ -98,12 +98,12 @@ test("the header keeps its existing shape: logo, nav links, and account menu unc
 
 // --- Account menu: settings entry, not a second inbox ---------------------
 
-test("Setting → Notification Settings opens the settings page, not the inbox", () => {
-  assert.match(accountMenu, /\{ label: "Notification Settings", href: "\/account\/notifications" \}/);
+test("Pengaturan → Pengaturan Notifikasi opens the settings page, not the inbox", () => {
+  assert.match(accountMenu, /\{ label: "Pengaturan Notifikasi", href: "\/account\/notifications" \}/);
   assert.doesNotMatch(accountMenu, /href: "\/notifications"/, "no second inbox entry in the menu");
   assert.match(accountMenu, /role="menuitem"/, "the item is a real menu item (keyboard reachable)");
   // Existing setting items stay inert (no dead links invented).
-  for (const label of ["Navigation", "App Language", "Video Setting"]) {
+  for (const label of ["Navigasi", "Bahasa Aplikasi", "Pengaturan Video"]) {
     assert.match(accountMenu, new RegExp(`\\{ label: "${label}" \\}`));
   }
 });

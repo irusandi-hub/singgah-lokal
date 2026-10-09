@@ -2,10 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { isCreatorEmail } from "@/lib/auth/creator";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import SiteNav from "@/components/site-nav";
 import {
   ListRow,
   PageHeader,
   PageShell,
+  Panel,
   Section,
   backLinkClass,
   btn,
@@ -15,6 +17,8 @@ import AccountProfileClient from "@/components/account/account-profile-client";
 import AccountAccessClient from "@/components/account/account-access-client";
 import AccountLiveAccessClient from "@/components/account/account-live-access-client";
 import AccountLiveOperatorManager from "@/components/account/account-live-operator-manager";
+import { AdminIcon, DeveloperIcon } from "@/components/account/account-icons";
+import SignOutButton from "@/components/sign-out-button";
 import { resolvePlaceMemberships, type AccountPlaceMembership } from "@/lib/account-memberships";
 import {
   resolveLiveOperatorAssignments,
@@ -24,28 +28,32 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * Account & Access Center — the single gateway between the main app and every
- * authority area (Authority Master §1–§7).
+ * AKUN & AKSES — the single gateway between the main app and every authority
+ * area (Authority Master §1–§7).
  *
- * The page shows who this account is, then — in ONE "Akses" section — the
- * access it actually holds:
+ * Layout (UI/UX pass, 2026-10-09): the page sits on the app's cream
+ * background, the profile header is ONE rounded white panel (initials avatar,
+ * real username, authenticated email, "Edit Profil"), and below it ONE grouped
+ * "Akses" list where every row is an actual destination the account is
+ * authorized to use:
  * - Pengelola  → an owner/manager row in producer_memberships (own resources).
  *   An owner/manager also gets "Kelola Akses Live" here, because delegating
  *   Live operation IS a Pengelola capability over their own Places.
  * - Operator Live → an ACTIVE delegated assignment in public.live_operators.
- *   Producer authority never produces an Operator Live card, and a delegated
+ *   Producer authority never produces an Operator Live row, and a delegated
  *   operator is never shown as Pengelola.
  * - Platform Admin → public.users.platform_role = 'platform_moderator'.
  * - Developer → the Creator-controlled environment allowlist.
  *
- * The authority probe runs server-side on every request, and each card shows
- * the exact canonical Place name — never a raw place id. Areas the account does
- * not hold are not rendered at all — no dead links.
+ * The authority probe runs server-side on every request, and each Operator
+ * Live row shows the exact canonical Place name — never a raw place id. Areas
+ * the account does not hold are not rendered at all — no dead links. The only
+ * sign-out on the page reuses the existing SignOutButton (one implementation).
  *
  * NOTE (canonical schema): public.users carries exactly id, created_at,
  * platform_role and (since 0047) username. It has NO display_name column, so
- * the Profil section does not pretend to edit one — a fake editable field is
- * worse than an absent one.
+ * the Profil Saya panel does not pretend to edit one — a fake editable field
+ * is worse than an absent one.
  */
 
 type AccountAuthority = {
@@ -110,24 +118,11 @@ export default async function AccountPage() {
     redirect("/auth?returnTo=%2Faccount");
   }
 
-  const profileIdentity = (
-    <div className="grid gap-2">
-      {authority.email ? (
-        <p className="text-sm font-semibold">
-          Masuk sebagai{" "}
-          <strong className="font-bold text-brand-ink">{authority.email}</strong>
-        </p>
-      ) : (
-        <p className="text-sm font-semibold text-black/55">Akun tidak dikenali.</p>
-      )}
-      <AccountProfileClient username={authority.username} />
-    </div>
-  );
-
   const accessItems: Array<{
     href: string;
     label: string;
     description: string;
+    icon: "admin" | "developer";
   }> = [];
 
   if (authority.isPlatformAdmin) {
@@ -135,6 +130,7 @@ export default async function AccountPage() {
       href: "/admin",
       label: "Platform Admin",
       description: "Pengelolaan operasional platform.",
+      icon: "admin",
     });
   }
 
@@ -142,7 +138,8 @@ export default async function AccountPage() {
     accessItems.push({
       href: "/developer",
       label: "Developer",
-      description: "Kewenangan Creator: kelola Platform Admin.",
+      description: "Kelola akun Platform Admin.",
+      icon: "developer",
     });
   }
 
@@ -152,63 +149,86 @@ export default async function AccountPage() {
     hasProducerAccess || hasLiveOperatorAccess || accessItems.length > 0;
 
   return (
-    <PageShell width="narrow">
-      <PageHeader
-        back={
-          <Link className={backLinkClass} href="/">
-            ← Beranda
-          </Link>
-        }
-        title="Account & Access Center"
-        description="Lihat profil dan akses yang tersedia untuk akun ini."
-      />
+    <>
+      <SiteNav />
+      <PageShell width="narrow">
+        <PageHeader
+          back={
+            <Link className={backLinkClass} href="/">
+              ← Beranda
+            </Link>
+          }
+          title="Akun & Akses"
+          description="Profil akun ini dan seluruh akses yang dimilikinya."
+        />
 
-      <div className="mt-4">
-        <Section title="Profil">{profileIdentity}</Section>
+        <div className="mt-4 grid gap-5">
+          {/* Profile header — ONE rounded white panel: initials avatar, the
+              real username, the authenticated email, and "Edit Profil"
+              aligned with them (the client owns the editing state). */}
+          <Section title="Profil Saya">
+            <Panel>
+              <AccountProfileClient
+                username={authority.username}
+                email={authority.email}
+              />
+            </Panel>
+          </Section>
 
-        {/* Exactly ONE "Akses" section: every access the account holds is
-            grouped here, so Producer and delegated Operator access are never
-            presented as two competing sections. */}
-        <Section title="Akses">
-          {hasAccess ? (
-            <div className="grid gap-3">
-              {hasProducerAccess ? (
-                <AccountAccessClient memberships={authority.memberships} />
-              ) : null}
-              {hasProducerAccess ? (
-                <AccountLiveOperatorManager places={authority.memberships} />
-              ) : null}
-              {hasLiveOperatorAccess ? (
-                <AccountLiveAccessClient assignments={authority.liveAssignments} />
-              ) : null}
-              {accessItems.length > 0 ? (
-                <div className="grid gap-2">
-                  {accessItems.map(({ href, label, description }) => (
-                    <ListRow
-                      key={href}
-                      href={href}
-                      title={label}
-                      meta={description}
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              <p className={`text-black/60 ${metaTextClass}`}>
-                Akun ini belum memiliki akses Pengelola, Operator Live, Platform
-                Admin, atau Developer.
-              </p>
-              <div>
-                <Link href="/producer/onboarding" className={btn.primary}>
-                  Ajukan menjadi Pengelola
-                </Link>
+          {/* Exactly ONE "Akses" group: every access the account holds is
+              listed here, so Producer and delegated Operator access are never
+              presented as two competing sections. Each destination row carries
+              an icon, a short label, and the shared right-facing chevron. */}
+          <Section title="Akses">
+            {hasAccess ? (
+              <div className="grid gap-3">
+                {hasProducerAccess ? (
+                  <AccountAccessClient memberships={authority.memberships} />
+                ) : null}
+                {hasProducerAccess ? (
+                  <AccountLiveOperatorManager places={authority.memberships} />
+                ) : null}
+                {hasLiveOperatorAccess ? (
+                  <AccountLiveAccessClient assignments={authority.liveAssignments} />
+                ) : null}
+                {accessItems.length > 0 ? (
+                  <div className="grid gap-2">
+                    {accessItems.map(({ href, label, description, icon }) => (
+                      <ListRow
+                        key={href}
+                        href={href}
+                        leading={
+                          icon === "admin" ? <AdminIcon /> : <DeveloperIcon />
+                        }
+                        title={label}
+                        meta={description}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            </div>
-          )}
-        </Section>
-      </div>
-    </PageShell>
+            ) : (
+              <div className="grid gap-2">
+                <p className={`text-black/60 ${metaTextClass}`}>
+                  Akun ini belum memiliki akses Pengelola, Operator Live,
+                  Platform Admin, atau Developer.
+                </p>
+                <div>
+                  <Link href="/producer/onboarding" className={btn.primary}>
+                    Ajukan menjadi Pengelola
+                  </Link>
+                </div>
+              </div>
+            )}
+          </Section>
+
+          {/* The ONE sign-out on this page reuses the existing working action —
+              no second sign-out implementation. */}
+          <div className="flex justify-center border-t border-black/10 pt-4">
+            <SignOutButton variant="header" />
+          </div>
+        </div>
+      </PageShell>
+    </>
   );
 }

@@ -130,7 +130,7 @@ export default function SiteNav({
                   : "text-black/60 hover:bg-black/5"
               }`}
             >
-              Home
+              Beranda
             </Link>
             <Link
               href="/live"

@@ -45,11 +45,11 @@ test("the Place workspace shows that Place's Live sessions and reports, read-onl
 
   const page = stripComments(placeWorkspacePage);
   assert.match(page, /aria-label="Live"/);
-  assert.match(page, /Live Session/);
-  assert.match(page, /Live Report/);
+  assert.match(page, /Sesi Live/);
+  assert.match(page, /Laporan Live/);
   assert.match(page, /formatAdminTimestamp\(session\.startedAt\)/);
   assert.match(page, /formatAdminTimestamp\(report\.createdAt\)/);
-  assert.match(page, /proses \(stage\)/);
+  assert.match(page, /proses \(tahap\)/);
 
   // Read-only: the workspace renders Live, it never acts on it. No Live
   // mutation route, RPC, or start/end control is added anywhere.
@@ -63,7 +63,7 @@ test("the Admin Overview has no Live Session or Live Report cards", () => {
   assert.doesNotMatch(page, /Live Reports?/);
   assert.doesNotMatch(page, /liveSession|recentLiveSession|recentLiveReport/);
   // The Overview keeps the platform counts it is for.
-  assert.match(page, /label: "Data Place"/);
+  assert.match(page, /label: "Data Tempat"/);
   // And the query no longer computes what the page must not show.
   const queries = stripComments(adminQueries);
   assert.doesNotMatch(queries, /recentLiveSessions|recentLiveReports/);
@@ -107,7 +107,7 @@ test("/admin/live is a read-only report queue outside the Place workspace", () =
   // What remains: the read-only reports, and the eligibility table the
   // existing RPC-gated grant / revoke flow depends on.
   assert.match(page, /listAdminLiveReports/);
-  assert.match(page, /aria-label="Live Report"/);
+  assert.match(page, /aria-label="Laporan Live"/);
   assert.match(page, /listAdminEligibility/);
   // Observing, not mutating.
   assert.doesNotMatch(page, /fetch\(|start_live_session|end_live_session|moderate_live/);
@@ -130,7 +130,7 @@ test("the Account Center cards carry no role-specific heading", () => {
   assert.doesNotMatch(page, /eyebrow/);
   assert.doesNotMatch(page, /<h2 className="text-lg/);
   assert.match(page, /<Section title="Akses">/);
-  assert.match(page, /<ListRow\s+key=\{href\}\s+href=\{href\}\s+title=\{label\}\s+meta=\{description\}\s*\/>/);
+  assert.match(page, /<ListRow\s+key=\{href\}\s+href=\{href\}\s+leading=\{[^}]+\}\s+title=\{label\}\s+meta=\{description\}\s*\/>/);
 
   // Platform Admin / Developer are still offered at the same hrefs. Producer
   // access is its own card (AccountAccessClient → /producer) and is asserted
@@ -144,22 +144,23 @@ test("the Account Center cards carry no role-specific heading", () => {
   assert.match(page, /authority\.liveAssignments/);
   assert.match(page, /authority\.isPlatformAdmin/);
   assert.match(page, /authority\.isCreator/);
-  // The account email still shows, as before.
-  assert.match(page, /Masuk sebagai/);
+  // The account email still shows, passed into the profile header panel.
+  assert.match(page, /email=\{authority\.email\}/);
   assert.match(page, /authority\.email/);
 
-  // The page title is Account & Access Center. The account-menu entry that
-  // opens it still uses the Account Center label, so the test keeps
-  // acknowledging that shared term rather than asserting the new page title as
-  // the only allowed form.
-  assert.match(page, /Account & Access Center/);
+  // The page title is the Indonesian "Akun & Akses", matching the account
+  // menu entry that opens it (docs/UI_TERMINOLOGY_STANDARD.md).
+  assert.match(page, /Akun & Akses/);
+  assert.doesNotMatch(page, /Account & Access Center/);
   assert.doesNotMatch(page, /Area akun/);
   assert.match(page, /Kembali ke Beranda|← Beranda/);
 });
 
 test("the Account Center shows profile identity and exactly one access section", () => {
   const page = stripComments(accountPage);
-  assert.match(page, /<Section title="Profil">/);
+  assert.match(page, /<Section title="Profil Saya">/);
+  assert.match(page, /<Panel>/, "the profile header sits on ONE rounded white panel");
+  assert.match(page, /<SignOutButton variant="header" \/>/, "sign-out is reused from the existing implementation");
   assert.match(page, /authority\.username/);
   // CANONICAL SCHEMA (2026-10-08 audit): public.users carries exactly id,
   // created_at, platform_role and (since 0047) username. It has NO

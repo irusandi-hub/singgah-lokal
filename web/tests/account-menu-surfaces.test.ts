@@ -43,25 +43,25 @@ function menuHrefs(): string[] {
 
 // --- A. Setting ------------------------------------------------------------
 
-test("Setting keeps exactly the four audited items in the locked order", () => {
+test("Pengaturan keeps exactly the four audited items in the locked order", () => {
   const settingBlock = menu.slice(menu.indexOf('id: "setting"'), menu.indexOf("];", menu.indexOf('id: "setting"')));
-  for (const label of ["Navigation", "App Language", "Video Setting", "Notification Settings"]) {
-    assert.ok(settingBlock.includes(label), `Setting must keep ${label}`);
+  for (const label of ["Navigasi", "Bahasa Aplikasi", "Pengaturan Video", "Pengaturan Notifikasi"]) {
+    assert.ok(settingBlock.includes(label), `Pengaturan must keep ${label}`);
   }
-  const order = ["Navigation", "App Language", "Video Setting", "Notification Settings"].map((label) =>
+  const order = ["Navigasi", "Bahasa Aplikasi", "Pengaturan Video", "Pengaturan Notifikasi"].map((label) =>
     settingBlock.indexOf(label),
   );
   assert.deepEqual(order, [...order].sort((a, b) => a - b), "Setting item order is unchanged");
 });
 
-test("Notification Settings is the ONLY implemented Setting route — the rest stay inert", () => {
+test("Pengaturan Notifikasi is the ONLY implemented route — the rest stay inert", () => {
   // No source-of-truth exists for the other three, so they must NOT have
   // become links to invented surfaces (an inert item is the project's honest
   // pattern for a missing surface, not a dead link).
   const settingBlock = menu.slice(menu.indexOf('id: "setting"'), menu.indexOf("];", menu.indexOf('id: "setting"')));
   const linked = [...settingBlock.matchAll(/href: "([^"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(linked, ["/account/notifications"], "Notification Settings is the only linked Setting item");
-  for (const label of ["Navigation", "App Language", "Video Setting"]) {
+  assert.deepEqual(linked, ["/account/notifications"], "Pengaturan Notifikasi is the only linked item");
+  for (const label of ["Navigasi", "Bahasa Aplikasi", "Pengaturan Video"]) {
     assert.match(
       settingBlock,
       new RegExp(`\\{ label: "${label}" \\}`),
@@ -114,15 +114,18 @@ test("About is a real product-identity page; no legal surface is invented", () =
 
 // --- D. Menu structure / no duplicates -------------------------------------
 
-test("menu structure stays: Account, Setting, Help, About & Terms — no duplicate entries", () => {
+test("menu structure stays: Kelola Akun, Pengaturan, Bantuan, Tentang — no duplicate entries", () => {
   assert.match(menu, /label: "Kelola Akun"/);
-  assert.match(menu, /label: "Setting"/);
-  for (const expected of ["Account Center", "Sign Out", "Setting", "Help", "Tentang"]) {
+  assert.match(menu, /label: "Pengaturan"/);
+  for (const expected of ["Akun & Akses", "Keluar", "Pengaturan", "Bantuan", "Tentang"]) {
     assert.ok(menu.includes(expected), `menu must contain ${expected}`);
   }
+  // The entry label matches the destination page title (UI terminology
+  // standard) and the old English labels are gone.
+  assert.doesNotMatch(menu, /Account Center|Sign Out|Notification Settings/);
   // No second notification entry: the menu links the settings page only.
   const hrefs = menuHrefs();
-  assert.equal(hrefs.filter((href) => href === "/account/notifications").length, 1, "exactly one Notification Settings entry");
+  assert.equal(hrefs.filter((href) => href === "/account/notifications").length, 1, "exactly one Pengaturan Notifikasi entry");
   assert.equal(hrefs.filter((href) => href === "/notifications").length, 0, "no inbox entry inside the menu (the bell owns it)");
 });
 
@@ -130,7 +133,8 @@ test("menu structure stays: Account, Setting, Help, About & Terms — no duplica
 
 test("Notification implementation is untouched: bell = inbox, menu = preferences", () => {
   assert.match(bell, /href="\/notifications"/, "the bell is the single inbox entry point");
-  assert.match(settingsPage, /Notification Settings/);
+  assert.match(settingsPage, /Pengaturan Notifikasi/);
+  assert.doesNotMatch(settingsPage, /Notification Settings/);
   assert.match(settingsPage, /readUserNotificationPreferences/);
   assert.match(inboxPage, /requireAuthenticatedActor/, "inbox stays authenticated-only");
   assert.match(siteNav, /<NotificationBell \/>/, "bell still mounted in the header");

@@ -33,7 +33,7 @@ test("Account Center has exactly ONE Akses section and no Keamanan section", () 
   assert.equal(occurrences(accountPage, '<Section title="Akses">'), 1, "exactly one Akses section");
   assert.doesNotMatch(accountPage, /<Section title="Keamanan">/);
   assert.doesNotMatch(accountPage, /<Section title="Akses"[^>]*>\s*<AccountAccessClient[\s\S]*<Section title="Akses">/);
-  assert.match(accountPage, /<Section title="Profil">/);
+  assert.match(accountPage, /<Section title="Profil Saya">/);
 });
 
 test("Pengelola comes from producer memberships, Operator Live from live_operators", () => {
@@ -76,13 +76,23 @@ test("an account with no access at all gets the honest empty state", () => {
 });
 
 test("Account Center wires username self-edit through a client component", () => {
-  assert.ok(accountPage.includes('<AccountProfileClient username={authority.username} />'));
+  assert.match(
+    accountPage,
+    /<AccountProfileClient\s+username=\{authority\.username\}\s+email=\{authority\.email\}\s*\/>/,
+    "the profile header receives the real username and the authenticated email",
+  );
   assert.ok(profileClient.includes('type Props = {'));
   assert.ok(profileClient.includes('username: string | null'));
   assert.ok(profileClient.includes('validateUsername'));
   assert.ok(profileClient.includes('/api/account/username'));
   assert.ok(profileClient.includes('role="alert"'));
   assert.ok(profileClient.includes('role="status"'));
+  assert.ok(profileClient.includes('"Edit Profil"'), "the profile action is Edit Profil");
+  assert.ok(profileClient.includes('"Simpan"'), "the save action is Simpan");
+  assert.ok(profileClient.includes('"Batal"'), "the cancel action is Batal");
+  assert.ok(profileClient.includes('setEditing(false)'), "a save closes the editing state");
+  assert.ok(profileClient.includes('initialsFor'), "the avatar shows initials — no invented photo");
+  assert.doesNotMatch(profileClient, /display_name|displayName/, "no unsupported profile field");
 });
 
 test("Username route is a server POST that validates and enforces ownership only", () => {
