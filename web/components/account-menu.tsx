@@ -24,20 +24,21 @@ const MENU_GROUPS: MenuGroup[] = [
     id: "account",
     label: "Kelola Akun",
     items: [
-      { label: "Account Center", href: "/account" },
-      { label: "Sign Out" }, // rendered with the existing SignOutButton
+      // Label matches the destination page title (Akun & Akses).
+      { label: "Akun & Akses", href: "/account" },
+      { label: "Keluar" }, // rendered with the existing SignOutButton
     ],
   },
   {
     id: "setting",
-    label: "Setting",
+    label: "Pengaturan",
     items: [
-      { label: "Navigation" },
-      { label: "App Language" },
-      { label: "Video Setting" },
-      // Notification Settings — the preferences surface. This is NOT a second
+      { label: "Navigasi" },
+      { label: "Bahasa Aplikasi" },
+      { label: "Pengaturan Video" },
+      // Pengaturan Notifikasi — the preferences surface. This is NOT a second
       // inbox entry point: the inbox lives behind the header bell only.
-      { label: "Notification Settings", href: "/account/notifications" },
+      { label: "Pengaturan Notifikasi", href: "/account/notifications" },
     ],
   },
 ];
@@ -124,16 +125,16 @@ export default function AccountMenu() {
               className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
               onClick={closeMenu}
             >
-              Account Center
+              Akun & Akses
             </Link>
             <div className="rounded-xl px-1 hover:bg-brand-cream" onClick={closeMenu}>
               <SignOutButton variant="menu-item" />
             </div>
           </MenuGroupBlock>
 
-          {/* Setting */}
+          {/* Pengaturan */}
           <MenuGroupBlock
-            label="Setting"
+            label="Pengaturan"
             expanded={expanded.setting === true}
             onToggle={() => toggleGroup("setting")}
           >
@@ -171,7 +172,7 @@ export default function AccountMenu() {
             className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
             onClick={closeMenu}
           >
-            Help
+            Bantuan
           </Link>
 
           {/* Tentang — product identity from locked Master facts only.

@@ -10,7 +10,7 @@ import { PageHeader, PageShell, metaTextClass } from "@/components/ui/kit";
 export const dynamic = "force-dynamic";
 
 /**
- * Notification Settings — communication preferences for the signed-in User
+ * Pengaturan Notifikasi — communication preferences for the signed-in User
  * (MASTER 10 §10: optional categories are user-controlled and stored
  * server-side).
  *
@@ -38,8 +38,8 @@ export default async function NotificationSettingsPage() {
       <SiteNav />
       <PageShell width="narrow">
         <PageHeader
-          eyebrow="Setting"
-          title="Notification Settings"
+          eyebrow="Pengaturan"
+          title="Pengaturan Notifikasi"
           description="Pilih kategori notifikasi yang ingin kamu terima di dalam aplikasi."
         />
         <p className={`mt-2 text-black/45 ${metaTextClass}`}>

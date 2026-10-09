@@ -29,8 +29,8 @@ export default async function AdminOverviewPage() {
     }
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Overview" description="Ringkasan operasional platform." />
-        <AdminErrorState message="Data overview tidak dapat dimuat. Tidak ada data yang ditampilkan agar tidak menyesatkan." />
+        <AdminPageHeader title="Ringkasan" description="Ringkasan operasional platform." />
+        <AdminErrorState message="Data ringkasan tidak dapat dimuat. Tidak ada data yang ditampilkan agar tidak menyesatkan." />
       </div>
     );
   }
@@ -41,22 +41,22 @@ export default async function AdminOverviewPage() {
     <div className="space-y-8">
       <AdminBackToAdminCenter />
       <AdminPageHeader
-        title="Overview"
-        description="Ringkasan operasional platform dari data canonical Supabase. Angka dihitung langsung dari database saat halaman dimuat."
+        title="Ringkasan"
+        description="Ringkasan operasional platform. Angka dihitung langsung dari database saat halaman dimuat."
       />
 
       <AdminStatCards
         stats={[
           { label: "Data Pengguna", value: totals.users },
           { label: "Pengelola", value: totals.producers },
-          { label: "Memberships", value: totals.producerMemberships },
-          { label: "Data Place", value: totals.places },
+          { label: "Keanggotaan", value: totals.producerMemberships },
+          { label: "Data Tempat", value: totals.places },
           { label: "Kegiatan", value: totals.experiences },
         ]}
       />
 
       <p className="text-sm text-black/55">
-        Rincian data ada di tab masing-masing: Data Pengguna, Data Pengelola, Data Place, Data Live, dan Live Moderation.
+        Rincian data ada di tab masing-masing: Data Pengguna, Data Pengelola, Data Tempat, Data Live, dan Moderasi Live.
       </p>
     </div>
   );

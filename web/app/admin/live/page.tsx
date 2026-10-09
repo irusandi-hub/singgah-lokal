@@ -34,7 +34,7 @@ export default async function AdminLivePage() {
     if (error instanceof PlatformModeratorRequiredError) throw error;
     return (
       <div className="space-y-8">
-        <AdminPageHeader title="Data Live" description="Live Report dan eligibility Pengelola." />
+        <AdminPageHeader title="Data Live" description="Laporan Live dan kelayakan Pengelola." />
         <AdminErrorState message="Data Live tidak dapat dimuat." />
       </div>
     );
@@ -45,17 +45,17 @@ export default async function AdminLivePage() {
       <AdminBackToAdminCenter />
       <AdminPageHeader
         title="Data Live"
-        description="Laporan Live dan eligibility Pengelola, dibaca saja. Data Live Session milik sebuah Place ditampilkan di workspace Place tersebut. Batas terkunci: global 5 aktif, 1 per Place, 100 penonton, 60 menit."
+        description="Laporan Live dan kelayakan Pengelola, dibaca saja. Data sesi Live milik sebuah Tempat ditampilkan di workspace Tempat tersebut. Batas terkunci: global 5 aktif, 1 per Tempat, 100 penonton, 60 menit."
       />
 
-      <section aria-label="Live Report" className="space-y-3">
-        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Live Report</h3>
+      <section aria-label="Laporan Live" className="space-y-3">
+        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Laporan Live</h3>
         <AdminDataTable
           rows={reports}
-          emptyMessage="Belum ada Live Report."
+          emptyMessage="Belum ada Laporan Live."
           columns={[
             { key: "id", header: "ID", render: (row) => <span className="font-mono text-xs">{formatShortId(row.id)}</span> },
-            { key: "session", header: "Live Session", render: (row) => <span className="font-mono text-xs">{formatShortId(row.liveSessionId)}</span> },
+            { key: "session", header: "Sesi Live", render: (row) => <span className="font-mono text-xs">{formatShortId(row.liveSessionId)}</span> },
             { key: "category", header: "Kategori", render: (row) => <AdminStatusBadge value={row.category} tone={row.category === "other" ? "neutral" : "warning"} /> },
             { key: "note", header: "Keterangan", render: (row) => row.note ?? <span className="text-black/40">—</span> },
             { key: "created", header: "Dibuat", render: (row) => formatAdminTimestamp(row.createdAt) },
@@ -63,10 +63,10 @@ export default async function AdminLivePage() {
         />
       </section>
 
-      <section aria-label="Live Eligibility" className="space-y-3">
-        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Eligibility Pengelola</h3>
+      <section aria-label="Kelayakan Pengelola" className="space-y-3">
+        <h3 className="text-sm font-bold uppercase tracking-[0.14em] text-black/45">Kelayakan Pengelola</h3>
         <p className="text-sm text-black/55">
-          Pemberian dan pencabutan eligibility tetap melalui jalur audited yang sudah ada (RPC{' '}
+          Pemberian dan pencabutan kelayakan tetap melalui jalur yang sudah diaudit (RPC{' '}
           <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs">grant_live_eligibility</code> /{' '}
           <code className="rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs">revoke_live_eligibility</code>).
         </p>

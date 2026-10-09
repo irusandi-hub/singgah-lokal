@@ -51,7 +51,7 @@ export default function SignOutButton({ variant = "header" }: { variant?: "heade
         aria-live="polite"
         className="w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-brand-ink hover:bg-brand-cream disabled:opacity-50"
       >
-        {pending ? "Keluar…" : success ? "Berhasil keluar." : "Sign Out"}
+        {pending ? "Keluar…" : success ? "Berhasil keluar." : "Keluar"}
       </button>
     );
   }

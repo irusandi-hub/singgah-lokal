@@ -43,11 +43,12 @@ test("the Admin nav marks the active tab, including a nested route's parent", ()
   // (/admin/places/[placeId] → Tempat).
   assert.match(nav, /exact: true/);
   assert.match(nav, /pathname\.startsWith\(`\$\{href\}\/`/);
-  // The MVP tab set (PO, 2026-09-29): Overview, Data Pengguna, Data Pengelola,
-  // Data Place, Data Live, Live Moderation, Riwayat & Arsip. The standalone
-  // "Pengelola" tab is gone; "Kegiatan" and "Kunjungan" stay out of the Admin
-  // navigation.
-  for (const label of ["Overview", "Data Pengguna", "Data Pengelola", "Data Place", "Data Live", "Live Moderation", "Riwayat & Arsip"]) {
+  // The MVP tab set (PO, 2026-09-29), with the Indonesian labels of the UI
+  // terminology standard (docs/UI_TERMINOLOGY_STANDARD.md): Ringkasan, Data
+  // Pengguna, Data Pengelola, Data Tempat, Data Live, Moderasi Live, Riwayat &
+  // Arsip. The standalone "Pengelola" tab is gone; "Kegiatan" and
+  // "Kunjungan" stay out of the Admin navigation.
+  for (const label of ["Ringkasan", "Data Pengguna", "Data Pengelola", "Data Tempat", "Data Live", "Moderasi Live", "Riwayat & Arsip"]) {
     assert.match(nav, new RegExp(`label: "${label}"`));
   }
   assert.doesNotMatch(nav, /label: "Kegiatan"/);

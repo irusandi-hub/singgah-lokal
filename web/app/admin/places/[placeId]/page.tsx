@@ -252,9 +252,9 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
           yang sudah ada.
         </p>
 
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Live Session</h4>
+        <h4 className="text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Sesi Live</h4>
         {liveSessions.length === 0 ? (
-          <p className="mt-1 text-sm text-black/60">Belum ada Live Session untuk Tempat ini.</p>
+          <p className="mt-1 text-sm text-black/60">Belum ada Sesi Live untuk Tempat ini.</p>
         ) : (
           <ul className="mt-1 divide-y divide-black/5">
             {liveSessions.map((session) => (
@@ -269,16 +269,16 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
                   selesai {session.endedAt ? formatAdminTimestamp(session.endedAt) : "—"}
                   {session.endedReason ? ` · ${session.endedReason}` : ""}
                 </span>
-                <span className="text-black/50">proses (stage) {session.stageId}</span>
+                <span className="text-black/50">proses (tahap) {session.stageId}</span>
                 <span className="text-black/50">puncak {session.viewerPeak}</span>
               </li>
             ))}
           </ul>
         )}
 
-        <h4 className="mt-4 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Live Report</h4>
+        <h4 className="mt-4 text-[11px] font-bold uppercase tracking-[0.14em] text-black/45">Laporan Live</h4>
         {liveReports.length === 0 ? (
-          <p className="mt-1 text-sm text-black/60">Belum ada Live Report untuk Tempat ini.</p>
+          <p className="mt-1 text-sm text-black/60">Belum ada Laporan Live untuk Tempat ini.</p>
         ) : (
           <ul className="mt-1 divide-y divide-black/5">
             {liveReports.map((report) => (
