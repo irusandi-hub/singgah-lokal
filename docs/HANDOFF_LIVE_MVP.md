@@ -1669,3 +1669,68 @@ local placeholder.
   placeholders and 0 broken, and the Place hero uses the same canonical URL;
   full runnable suite 1091/1091; tsc clean; eslint 0 errors / 10 pre-existing
   warnings; `next build` clean.
+
+## 29. LIVE OPERATOR INVITATION LIFECYCLE (branch `feat/live-operator-invitations`)
+
+Backend-only feature on top of migration 0047. 0047 shipped delegated Operator
+Live access (`public.live_operators`) with a DIRECT grant/revoke RPC and a
+USERNAME lookup — it has no invitation entity, nothing is pending, nothing
+expires, and the invitee is bypassed. This change adds the invitation lifecycle.
+
+### 29.1 What exists
+
+- Migration `0048_live_operator_invitations.sql`: `public.live_operator_invitations`
+  (one row per invitation), a DB-enforced state machine
+  (`pending → accepted|rejected|cancelled|expired`, `accepted → revoked`;
+  terminal = rejected/cancelled/expired/revoked), a partial unique index for one
+  PENDING invitation per (Place, user), a partial unique index for at most ONE
+  ACTIVE operator per Place, RLS (authenticated SELECT only; no anon grant, RLS
+  stays on), and seven SECURITY DEFINER RPCs (`invite`, `accept`, `reject`,
+  `cancel`, `revoke`, `list_place_…`, `list_my_…`) plus a lazy-expiry sweep.
+- Invitations notify through the EXISTING infrastructure (0025/0026/0029): a
+  trigger on the invitation table calls the shared `notify_recipient` writer, so
+  the preference gate, the dedup key and the realtime unread signal all apply.
+- Endpoints: manager `POST/GET /api/account/live-operators/invitations`,
+  `…/[invitationId]/cancel`, `…/[invitationId]/revoke`; invitee
+  `GET /api/live-operator-invitations`, `…/[invitationId]/accept`,
+  `…/[invitationId]/reject`.
+- The single Live authorization helper (`lib/live/operator-authorization.ts`) is
+  used by Live start, Live end, and every invitation endpoint.
+- Lookup is by REGISTERED EMAIL inside the SECURITY DEFINER invite RPC, which
+  returns the SAME success whether or not the email exists and never creates an
+  account (anti-enumeration); the invite endpoint is additionally rate limited
+  per inviter (`lib/live/operator-invitation-core.ts`).
+
+### 29.2 Policy Gaps (not defined by any Master — recorded, not invented as policy)
+
+1. **Operator Live invitations are undefined in the Masters.** Neither
+   `MASTER_LIVE_POLICY_v1.0.md` nor `MASTER_LIVE_TECH_v1.0.md` defines an
+   invitation, and `MASTER 10 §6` has no operator event. 0047's direct
+   delegation is itself absent from this handoff. The lifecycle here implements
+   exactly the task specification and adds no rule beyond it.
+2. **Invitation expiry duration.** No Master value. Single configured constant:
+   `LIVE_OPERATOR_INVITATION_TTL_DAYS = 7` in
+   `lib/live/operator-invitations-model.ts`, mirrored by the migration default.
+   No scheduler exists, so expiry is swept lazily by the list RPCs; the sweep
+   function is reachable by the service role for a future cron.
+3. **Replacement semantics.** The task allows "revoke the old operator first, or
+   revoke it explicitly in the same flow"; no Master prefers one. Implemented:
+   accepting a new invitation revokes any other ACTIVE operator for that Place in
+   the SAME transaction, under a per-Place advisory lock, and marks the previous
+   accepted invitation `revoked`.
+4. **Lookup key.** The task specifies EMAIL; 0047's helper is username-based.
+   Email lookup is implemented only inside the invitation RPC (no client-visible
+   email→account RPC is exposed), so the endpoint cannot enumerate accounts.
+5. **Notification category for operator access events.** Not in `MASTER 10 §6`.
+   Invitee-facing access changes use the mandatory `safety_account` category (so
+   they cannot be switched off); manager-facing outcomes use `system`.
+
+### 29.3 DEV / production status
+
+Migration 0048 is validated on a real Postgres engine (PGlite) and is a DEV-only
+apply candidate; it has NOT been applied to DEV (no DEV credentials/CLI in this
+workspace) and MUST NOT be applied to production without an explicit product
+decision. Before a DEV apply, run the duplicate-active check in the migration's
+§8 note; if a Place already has more than one ACTIVE operator, revoke the extras
+deliberately first — the migration never silently mutates assignment data.
+Migration 0046 is untouched (out of scope).
