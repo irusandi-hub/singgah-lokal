@@ -244,6 +244,15 @@ test("0048 applies cleanly and is idempotent; no grant reaches anon", async () =
   assert.match(String(activeIdx[0]?.indexdef), /unique/i);
   assert.match(String(activeIdx[0]?.indexdef), /revoked_at is null/i);
 
+  // The same max-one-active rule holds on the invitation lifecycle itself.
+  const acceptedIdx = await rows(
+    db,
+    `select indexdef from pg_indexes where schemaname='public' and indexname='live_operator_invitations_active_unique_idx'`,
+  );
+  assert.equal(acceptedIdx.length, 1, "the accepted-invitation unique index must exist");
+  assert.match(String(acceptedIdx[0]?.indexdef), /unique/i);
+  assert.match(String(acceptedIdx[0]?.indexdef), /status = 'accepted'/i);
+
   // The email-enumeration RPC must not be exposed (no direct email lookup RPC).
   const lookup = await rows(db, `select proname from pg_proc where proname = 'resolve_account_by_email'`);
   assert.equal(lookup.length, 0, "no email→account RPC may be exposed to clients");

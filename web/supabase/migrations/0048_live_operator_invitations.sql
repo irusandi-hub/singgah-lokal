@@ -93,6 +93,15 @@ create unique index if not exists live_operators_one_active_per_place_idx
   on public.live_operators (place_id)
   where revoked_at is null;
 
+-- The SAME "max 1 active operator per Place" rule, enforced on the invitation
+-- lifecycle itself: at most ONE `accepted` invitation per Place. The accept RPC
+-- moves any previous accepted invitation to `revoked` earlier in the same
+-- transaction, so this index is a hard backstop (a manual/buggy second accepted
+-- row is impossible), independent of the assignment-table index above.
+create unique index if not exists live_operator_invitations_active_unique_idx
+  on public.live_operator_invitations (place_id)
+  where status = 'accepted';
+
 -- ---------------------------------------------------------------------------
 -- 3. State machine + immutability — enforced in the DATABASE, not only in code
 -- ---------------------------------------------------------------------------

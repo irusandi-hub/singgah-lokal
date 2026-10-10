@@ -1684,7 +1684,9 @@ expires, and the invitee is bypassed. This change adds the invitation lifecycle.
   (`pending → accepted|rejected|cancelled|expired`, `accepted → revoked`;
   terminal = rejected/cancelled/expired/revoked), a partial unique index for one
   PENDING invitation per (Place, user), a partial unique index for at most ONE
-  ACTIVE operator per Place, RLS (authenticated SELECT only; no anon grant, RLS
+  ACTIVE operator per Place, the SAME "max one operator per Place" bound as a
+  hard DB backstop on the invitation lifecycle itself (at most one `accepted`
+  invitation per Place), RLS (authenticated SELECT only; no anon grant, RLS
   stays on), and seven SECURITY DEFINER RPCs (`invite`, `accept`, `reject`,
   `cancel`, `revoke`, `list_place_…`, `list_my_…`) plus a lazy-expiry sweep.
 - Invitations notify through the EXISTING infrastructure (0025/0026/0029): a
@@ -1725,12 +1727,62 @@ expires, and the invitee is bypassed. This change adds the invitation lifecycle.
    Invitee-facing access changes use the mandatory `safety_account` category (so
    they cannot be switched off); manager-facing outcomes use `system`.
 
-### 29.3 DEV / production status
+### 29.3 Delegated operator authority inside the Live RPCs (migration 0049)
 
-Migration 0048 is validated on a real Postgres engine (PGlite) and is a DEV-only
-apply candidate; it has NOT been applied to DEV (no DEV credentials/CLI in this
-workspace) and MUST NOT be applied to production without an explicit product
-decision. Before a DEV apply, run the duplicate-active check in the migration's
-§8 note; if a Place already has more than one ACTIVE operator, revoke the extras
+0047/0048 authorize a delegated operator at the ROUTE
+(`lib/live/operator-authorization.ts` `canOperateLiveForPlace`), but the two Live
+CORE RPCs still accepted only a `producer_memberships` owner/manager:
+
+- `start_live_session` (0008) raised `producer_authorization_required`;
+- `end_live_session` (0012) raised it for `producer_ended`.
+
+So the route allowed an operator the RPC then refused. `0049_live_operator_authority.sql`
+(forward-only) closes that gap by adding ONE internal SQL predicate
+(`public.can_operate_live_for_place(uuid, text)` — the mirror of the server
+helper) and replacing the authorization branch of each RPC with it:
+
+- **Owner/manager path untouched** — it is a strict superset
+  (`producer_memberships` owner/manager **OR** an ACTIVE `live_operators` row).
+- **Authorization is INSIDE the RPC**, not only at the route, and nothing is
+  cached, so a **revoke denies the operator's very next** start/end call.
+- **Least privilege:** the predicate is `SECURITY DEFINER` with EXECUTE revoked
+  from PUBLIC/anon/authenticated (the definer RPCs call it; a client can never
+  probe it). Both RPCs stay `authenticated`-only; `anon` gets nothing new.
+- **Derived, never client-supplied:** an operator session's `producer_id` is
+  `live_operators.granted_by` (else the caller's own membership), so a client
+  cannot choose the producing Producer.
+- **Nothing else changed:** idempotency, the eligibility gate, the
+  published-stage gate, the global (5) / per-Place (1) caps, the 60-minute cap,
+  the end reasons and the realtime end signal are byte-for-byte 0008/0012
+  behaviour.
+- **0008, 0012 and 0046 are untouched** — 0049 replaces two function BODIES
+  only; it creates/alts no table and deletes no data.
+
+Regression coverage (new, both run in the normal suite):
+`web/tests/live-operator-authority-migration.test.ts` (9 tests — owner/manager
+unchanged; active operator can start/end with the granting Producer; revoke
+denies the very next start and end; Place-A operator refused for Place B;
+unrelated account and editor refused; anon has no EXECUTE; predicate not
+client-callable; 0008/0012 unchanged) and
+`web/tests/db-regression/live-operator-invitations-access.sql` (the manual DEV
+access script, executed end-to-end on a real Postgres engine by the same test).
+
+### 29.4 DEV / production status
+
+**Migrations 0048 and 0049: VALIDATED, NOT APPLIED to DEV.** Both are validated
+on a real Postgres engine (PGlite) against the full 0001→0049 chain, including a
+whole-file re-run (SQL-Editor paste) proving 0049 is idempotent, and the manual
+access script passes end to end. Neither has been applied to the Supabase DEV
+project — no DEV credentials/CLI exist in this workspace — and neither may be
+applied to production without an explicit product decision.
+
+Exact manual DEV steps (order is mandatory: 0048 depends on 0047; 0049 reads
+`public.live_operators`, so it must come after 0047 and 0048) are in
+`docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §2.5–§2.6, followed by the
+runnable access script `web/tests/db-regression/live-operator-invitations-access.sql`
+(manager, delegated operator, revoked operator, operator of another Place,
+editor, unrelated account, anon — all inside one transaction that ROLLS BACK).
+Before the 0048 apply, run the duplicate-active check in the migration's §8 note;
+if a Place already has more than one ACTIVE operator, revoke the extras
 deliberately first — the migration never silently mutates assignment data.
 Migration 0046 is untouched (out of scope).
