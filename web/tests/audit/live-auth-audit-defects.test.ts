@@ -37,30 +37,30 @@ function sqlFunctionBody(sql: string, name: string): string {
 const live0008 = readMigration("0008_live_sessions.sql");
 const cap0027 = readMigration("0027_live_viewer_cap_race_guard.sql");
 
-// --- A-01 ------------------------------------------------------------------
+// --- A-01 (FIXED 2026-10-11, Tahap B/LIVE-B) --------------------------------
+// The audit originally found the confirmation link landing on /auth, which
+// never exchanges `code` (A-01, HIGH). The sign-up route now targets the
+// existing /auth/callback handler with a sanitized `next`. These assertions
+// were FLIPPED from the original defect characterization: they now lock the
+// FIX, so a regression back to /auth fails loudly.
 
-test("KNOWN DEFECT A-01: the sign-up email-confirmation redirect target has no code-exchange handler", () => {
+test("A-01 FIXED: the sign-up email-confirmation target is the code-exchange handler", () => {
   const signUpRoute = read("../../app/api/auth/sign-up/route.ts");
   const callbackRoute = read("../../app/auth/callback/route.ts");
-  const authForm = read("../../app/auth/auth-form.tsx");
 
-  // The confirmation link is told to return to /auth ...
+  // The confirmation link returns to /auth/callback (the only exchange
+  // handler), carrying an internal `next` destination.
   assert.match(
     signUpRoute,
-    /emailRedirectTo: `\$\{new URL\(request\.url\)\.origin\}\/auth`/,
-    "sign-up still redirects confirmation to /auth",
+    /emailRedirectTo: `\$\{new URL\(request\.url\)\.origin\}\/auth\/callback\?next=\/auth`/,
+    "A-01 regression: confirmation must land on /auth/callback, not /auth",
   );
 
-  // ... but the ONLY code-exchange handler in the app is /auth/callback ...
+  // The target swaps the code for a session with the project's SSR client,
+  // and the `next` destination is re-sanitized (no open redirect).
   assert.match(callbackRoute, /exchangeCodeForSession\(code\)/);
-  assert.doesNotMatch(authForm, /exchangeCodeForSession/);
-
-  // ... and /auth never reads the `code` parameter it is handed.
-  assert.doesNotMatch(
-    authForm,
-    /searchParams\.get\("code"\)/,
-    "if /auth starts handling `code`, A-01 may be fixed — update the audit document",
-  );
+  assert.match(callbackRoute, /sanitizeReturnTo\(searchParams\.get\("next"\)\)/);
+  assert.match(callbackRoute, /NextResponse\.redirect\(new URL\(next, origin\)\)/);
 });
 
 // --- A-02 ------------------------------------------------------------------
