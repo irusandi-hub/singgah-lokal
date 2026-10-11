@@ -264,8 +264,8 @@ Bukti tidak langsung dari repo bahwa migrasi Live belum diapply ke DEV: runbook
   `auth-sign-up-validation.test.ts`, `auth-claims`→`auth-return-to.test.ts`,
   `account-profile-{model,surface,phone-migration}.test.ts`, `db-regression/*.sql`.
 - **Tidak ada** (celah bukti untuk temuan di dokumen ini):
-  - tidak ada tes yang menjalankan alur sign-up → `auth.users` → `public.users` (trigger `handle_new_user`) atau menegaskan tujuan `emailRedirectTo` cocok dengan handler callback (A-01, S-01);
-  - tidak ada tes yang menegaskan kolom mana yang terbaca `anon` dari `live_sessions` (A-02);
+  - yang **ada** di area sign-up hanya sumber-level + unit: `auth-sign-up-validation.test.ts` (validator murni) dan `auth-google-oauth.test.ts` (route menolak `role`/`producer_id` dari klien; badan trigger `handle_new_user` hanya `insert into public.users (id)`). Yang **tidak ada**: tes yang menjalankan `POST /api/auth/sign-up` end-to-end (`auth.signUp` → `auth.users` → trigger → `public.users`), tes semantik kegagalan parsial/retry email yang sama, dan tes yang menegaskan tujuan `emailRedirectTo` cocok dengan handler callback (A-01, S-01).
+  - tidak ada tes yang menegaskan kolom mana yang terbaca `anon` dari `live_sessions` (A-02); **catatan Tahap C:** `live-privileges.test.ts` justru **mengunci** grant tingkat-tabel `grant select on public.live_sessions to anon, authenticated;` sebagai perilaku yang diinginkan, jadi perbaikan A-02 harus memperbarui tes itu secara eksplisit;
   - tidak ada tes otorisasi untuk `release_live_input`/`list_ended_live_inputs` (A-03);
   - tidak ada tes untuk semantik jendela kapasitas >5 menit (A-04);
   - tidak ada tes/e2e yang mengukur `scrollWidth <= clientWidth` di viewport nyata dan tidak ada tes runtime untuk admission/realtime (butuh DEV).
@@ -288,6 +288,7 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Bukti: `web/supabase/migrations/0008_live_sessions.sql` → `grant select on public.live_sessions to anon, authenticated;` + policy `live_sessions_public_read` (`status='live'` dan Place `published`). RLS adalah pembatasan **baris**, bukan kolom, sehingga seluruh kolom — termasuk `live_input_id` (UID input Cloudflare) dan `idempotency_key` — terbaca oleh siapa pun yang memegang anon key.
 - Dampak: membocorkan identifier provider dan kunci idempotensi produser ke publik/anon; bertentangan dengan `MASTER_LIVE_TECH_v1.0.md` §1.2/§5 ("`live_input_id` … server-side only", "Stream credentials are server-side only"). Bukan eskalasi langsung: URL publish hanya bisa di-fetch dengan token API server (`lib/live/cloudflare.ts` `getLiveInputPublishUrl`) dan playback menuntut token bertanda tangan, jadi nilainya bersifat recon/pelanggaran kebijakan.
 - Perbaikan: cabut `select` tingkat-tabel lalu berikan GRANT kolom eksplisit **tanpa** `live_input_id`/`idempotency_key` (atau ekspos lewat view/RPC khusus), dan batasi `select *` di route aplikasi ke daftar kolom.
+- Catatan Tahap C: `web/tests/live-privileges.test.ts` mengunci grant tingkat-tabel ini sebagai perilaku yang diinginkan, jadi perbaikan harus memperbarui tes tersebut, bukan hanya migrasi baru.
 - Tes pembuktian: ditambahkan sebagai tes karakterisasi (A-02).
 
 ### A-03 — `release_live_input` dan `list_ended_live_inputs` tidak memeriksa otoritas pemanggil · MEDIUM · Tahap B/C · tanpa keputusan kebijakan
