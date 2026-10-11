@@ -2,13 +2,15 @@
 
 Scope: applying the Live migrations (`0008_live_sessions.sql`, then
 `0047_account_center_live_operator.sql`, `0048_live_operator_invitations.sql`,
-`0049_live_operator_authority.sql`) to the **Supabase DEVELOPMENT project only**.
+`0049_live_operator_authority.sql`, then `0050_profile_phone_verification.sql`)
+to the **Supabase DEVELOPMENT project only**.
 Never run any step of this checklist against production. No Cloudflare configuration is part of this checklist (B4 stays a separate, explicit step).
 
 Sections §0–§4 cover `0008`. §5–§6 cover the delegated Operator Live migrations
 `0047` → `0048` → `0049` in that mandatory order (`0048` depends on `0047`; `0049`
 reads `public.live_operators`), and the runnable access script that proves the
-result on the DEV project.
+result on the DEV project. §7 covers `0050_profile_phone_verification.sql` (the
+profile + phone OTP foundation), which depends on `0047` only.
 
 ## 0. Preconditions
 
@@ -156,8 +158,100 @@ The same rules are covered automatically in the normal suite by
 `web/tests/live-operator-authority-migration.test.ts` (which also executes this
 access script on a real Postgres engine).
 
-## 7. Out of scope (explicitly NOT here)
+## 7. Profile, phone OTP and verification foundation — apply 0050 (DEV)
 
+Applies to `web/supabase/migrations/0050_profile_phone_verification.sql`.
+Forward-only and idempotent; paste the WHOLE FILE in one run. It depends on
+`0047` (the self-update RLS policy and the username rules it reuses) and on
+nothing from `0048`/`0049` — it never reads `live_operators` or
+`live_operator_invitations`. Migration `0046` is untouched.
+
+- [ ] Target re-confirmed: the Supabase **DEVELOPMENT** project ref (never
+  production).
+- [ ] `git pull` on the feature branch so the committed file is applied, never a
+  local edit.
+- [ ] `0047` reported as applied (`select to_regclass('public.live_operators')`
+  is not null).
+
+### 7.1 Pre-apply checks (read-only, run first)
+
+```sql
+-- 0050 objects must not exist yet:
+select column_name from information_schema.columns
+ where table_schema='public' and table_name='users'
+   and column_name in ('full_name','date_of_birth','phone_e164','phone_verified_at','avatar_path');
+-- expect 0 rows
+select to_regclass('public.phone_otp_challenges');                 -- expect null
+select to_regproc('public.record_phone_otp_verification');         -- expect null
+select to_regclass('storage.buckets');  -- must exist (Supabase Storage)
+```
+
+### 7.2 Apply 0050
+
+- [ ] Paste the full contents of `0050_profile_phone_verification.sql` and run it
+  once. Expect success with no partial-commit errors.
+- [ ] Confirm the shape:
+
+```sql
+select column_name from information_schema.columns
+ where table_schema='public' and table_name='users'
+   and column_name in ('full_name','date_of_birth','phone_e164','phone_verified_at','avatar_path')
+ order by 1;   -- expect the 5 columns
+select conname from pg_constraint
+ where conrelid='public.users'::regclass
+   and conname in ('full_name_length','phone_e164_format','phone_verified_requires_number','avatar_path_format');
+select indexdef from pg_indexes
+ where tablename='users' and indexname='users_phone_verified_unique_idx';  -- partial, verified only
+select rowsecurity from pg_tables
+ where schemaname='public' and tablename='phone_otp_challenges';           -- expect true
+select count(*) from pg_policies
+ where schemaname='public' and tablename='phone_otp_challenges';           -- expect 0
+select id, public from storage.buckets where id='account-avatars';         -- expect public = false
+```
+
+- [ ] Confirm the privilege posture (a client can never write the verification
+  column, and the RPC is authenticated-only):
+
+```sql
+select has_column_privilege('authenticated','public.users','phone_verified_at','UPDATE');  -- false
+select has_column_privilege('authenticated','public.users','phone_e164','UPDATE');         -- true
+select has_function_privilege('anon',
+  'public.record_phone_otp_verification(uuid,text)','EXECUTE');                            -- false
+select has_function_privilege('authenticated',
+  'public.record_phone_otp_verification(uuid,text)','EXECUTE');                            -- true
+select has_table_privilege('authenticated','public.phone_otp_challenges','SELECT');        -- false
+```
+
+### 7.3 Access verification on DEV
+
+- [ ] Run `web/tests/db-regression/profile-phone-otp-access.sql` on the same
+  DEVELOPMENT target (SQL Editor paste, or
+  `psql "$SUPABASE_DEV_DB_URL" -f tests/db-regression/profile-phone-otp-access.sql`).
+- [ ] The file is one transaction ending in `rollback;` — it creates its own
+  fixtures, switches role to `authenticated`/`anon` per check, and **leaves no
+  data behind**.
+- [ ] Expected output: one `PROFILE-OTP-ACCESS PASS` line per check
+  (`profile_self_update`, `foreign_profile_blocked`,
+  `verification_column_locked`, `otp_verify_happy_path`,
+  `otp_wrong_and_bounded`, `number_change_resets`,
+  `taken_number_answers_uniformly`, `anon_locked_out`) ending with
+  `PROFILE OTP ACCESS: ALL CHECKS PASSED`.
+- [ ] Any `PROFILE-OTP-ACCESS FAIL` or a raised `PROFILE OTP ACCESS CHECK FAILED`
+  — stop. Fix the migration in the repo and re-apply on a fresh target. Do not
+  "fix forward" in the database.
+- [ ] The OTP SEND path cannot be verified on DEV until a provider is wired
+  (blocker **B5**) and `PHONE_OTP_HASH_SECRET` is set (blocker **B6**): with no
+  provider the endpoint answers `phone_otp_provider_not_configured` (503) and
+  creates no challenge. The verification RPC itself IS covered by the script
+  above, which creates challenges directly as the service role.
+
+The same rules are covered automatically in the normal suite by
+`web/tests/account-profile-phone-migration.test.ts` (which also executes this
+access script on a real Postgres engine).
+
+## 8. Out of scope (explicitly NOT here)
+
+- No SMS/OTP provider and no vendor credential (B5 blocker stays open until the product owner supplies a provider; `PHONE_OTP_HASH_SECRET` / B6 is the matching server-side secret).
 - No Cloudflare account/credential configuration (B4 blocker stays open until the PO supplies `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` server-side).
-- No age-verification vendor or mechanism (B1 stays fail-closed DENY, Phase 2.1).
+- No age-verification vendor or mechanism (B1 stays fail-closed DENY, Phase 2.1). The profile date of birth is NOT that mechanism: MASTER_LIVE_POLICY §12.1 item 3 states a self-declared date of birth does not satisfy the viewer gate.
 - No production apply, no production env changes, no scope/payment/monetization additions.

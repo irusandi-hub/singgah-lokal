@@ -1786,3 +1786,144 @@ Before the 0048 apply, run the duplicate-active check in the migration's §8 not
 if a Place already has more than one ACTIVE operator, revoke the extras
 deliberately first — the migration never silently mutates assignment data.
 Migration 0046 is untouched (out of scope).
+
+## 30. PROFILE, PHONE OTP & VERIFICATION FOUNDATION (2026-10-11, migration 0050)
+
+Backend-only foundation: profile fields on the existing account row, E.164 phone
+normalization, an OTP verification flow, and a server-side age computation.
+No UI work (the Edit Profil surface and the mobile layout are Tahap 3) and no
+change to any Live policy.
+
+### 30.1 What exists
+
+- Migration `0050_profile_phone_verification.sql` (forward-only, DEV-scoped).
+  It extends the EXISTING `public.users` row — no second profile table — with
+  `full_name`, `date_of_birth` (a plain `date`), `phone_e164`,
+  `phone_verified_at` and `avatar_path`, plus `full_name_length`,
+  `phone_e164_format`, `phone_verified_requires_number` and
+  `avatar_path_format` CHECKs and the partial unique index
+  `users_phone_verified_unique_idx`.
+- The self-read RLS policy (`users_self_access`), the self-update policy
+  (`users_username_self_update`, 0047), the username rules (`lib/username.ts`)
+  and the `auth.users` cascade trigger are all REUSED. 0050 only replaces the
+  column-level `UPDATE` grant with the self-owned column set.
+- `phone_verified_at` is protected three ways: it is absent from the client
+  column GRANT, a `BEFORE INSERT OR UPDATE` guard
+  (`public.guard_profile_write`) rejects any change outside the audited RPC, and
+  changing `phone_e164` always resets the verification. A new row is never born
+  verified. Filled ≠ verified.
+- `public.phone_otp_challenges` stores the challenge HASH only (no plaintext
+  code), with a short expiry, an attempt counter, single use, and at most one
+  outstanding challenge per account (partial unique index). RLS is ON with ZERO
+  policies and no grant to `anon`/`authenticated`: only server code touches it.
+- `public.record_phone_otp_verification(uuid, text)` is the ONLY path that may
+  set `phone_verified_at`. `SECURITY DEFINER` with `search_path` pinned, EXECUTE
+  revoked from PUBLIC/anon, actor re-derived from `auth.uid()`. It enforces the
+  expiry, the 5-attempt bound and single use, and it answers a number already
+  VERIFIED on another account EXACTLY like a wrong code.
+- Server code: `lib/account/phone.ts` (E.164 normalize/validate/mask),
+  `lib/account/age.ts` (server-side age + DOB sanity),
+  `lib/account/phone-otp.ts` + `-provider.ts` + `-result.ts` + `-service.ts`,
+  `lib/account/profile.ts` (PATCH validation + verification summary),
+  `lib/account/avatar.ts` (pure validation) and `avatar-storage.ts`
+  (server-only, private bucket + signed URL).
+- Endpoints: `GET/PATCH /api/account/profile` (self-only; email READ-ONLY; the
+  server-derived age is returned, never stored),
+  `POST /api/account/phone/otp`,
+  `POST /api/account/phone/otp/verify`,
+  `POST /api/account/profile/avatar`.
+- Rate limits are enforced on BOTH send dimensions (per account AND per number,
+  3 requests / 15 minutes each) and the attempt bound is 5 per challenge; a
+  response never reveals whether a number is used by another account.
+- Avatar storage: the PRIVATE bucket `account-avatars` (jpeg/png/webp, 2 MB),
+  per-user object paths (`avatars/<user id>/…`), no `storage.objects` policy, no
+  public URL and no listing; the server writes with the service role and reads
+  through a 1-hour signed URL.
+
+### 30.2 Policy Gaps (not defined by any Master — recorded, not invented as policy)
+
+1. **Profile phone / OTP / date of birth do not exist in any Master.** Neither
+   MASTER 01 nor MASTER_LIVE_POLICY/TECH defines a profile phone field, an OTP
+   flow, or a date of birth. 0050 implements exactly the task specification.
+2. **Minimum ACCOUNT age is undefined.** `MASTER_LIVE_POLICY` §12.1 item 3
+   defines an 18+ LIVE VIEWER gate whose mechanism is deferred to Phase 2.1, and
+   it states that a SELF-DECLARED date of birth does NOT satisfy that gate. No
+   `MIN_ACCOUNT_AGE_YEARS` constant is therefore invented: only the age
+   computation and the sanity bounds (not in the future, not more than 120 years
+   back — `MAX_ACCOUNT_AGE_YEARS`) are implemented, and no age-derived status is
+   granted.
+3. **Account age reference timezone is undefined.** One constant:
+   `ACCOUNT_AGE_TIMEZONE = 'Asia/Jakarta'` in `lib/account/age.ts`. It is NOT the
+   locked per-Place schedule timezone rule.
+4. **OTP politics are undefined.** Single documented constants:
+   `OTP_TTL_SECONDS = 600`, `OTP_MAX_ATTEMPTS = 5`,
+   `OTP_REQUEST_WINDOW_SECONDS = 900`, `OTP_MAX_REQUESTS_PER_USER = 3`,
+   `OTP_MAX_REQUESTS_PER_PHONE = 3` (`lib/account/phone-otp.ts`), mirrored by the
+   migration default (`max_attempts`).
+5. **One VERIFIED phone number per active account** is not defined by any
+   Master. Applied as a technical integrity rule (partial unique index); an
+   UNVERIFIED self-reported number is deliberately NOT unique, because nothing
+   is claimed while unverified.
+6. **The non-enumeration trade-off.** To keep the send response
+   shape-identical, a number already VERIFIED on another account is answered
+   exactly like a successful send (`phone_otp_sent`) but is NEVER texted, and
+   verifying it answers exactly like a wrong code. This is a deliberate privacy
+   rule from the task, and it is why the locked message stays `phone_otp_sent`
+   in that edge case.
+7. **Phone verification is NOT identity, manager, or Place verification.**
+   MASTER AUTHORITY STRUCTURE defines no verification LEVELS for an account, so
+   none are invented: the profile API returns only the two stored facts (email
+   from Supabase Auth, phone from `phone_verified_at`) and nothing ties them to
+   `producers.claim_status` or `places.claim_status`.
+
+### 30.3 Manual blockers (exact actions required)
+
+- **B5 — no OTP provider is configured.** There is no SMS/OTP vendor in this
+  project and no Master names one. `lib/account/phone-otp-provider.ts` is a
+  neutral seam with NO default provider: with none registered, requesting a code
+  answers `phone_otp_provider_not_configured` (503) and NO challenge is created.
+  Wiring is one `setPhoneOtpProvider(...)` call in a server-only bootstrap; the
+  intended candidates are the existing Supabase Auth phone channel
+  (`supabase.auth.signInWithOtp({ phone })`, which needs an SMS provider
+  registered in the Supabase project) or an SMS vendor reached with a
+  server-side API key the product owner supplies. No key or credential is
+  requested in source, and none is committed.
+- **B6 — `PHONE_OTP_HASH_SECRET` is not configured.** The OTP code is stored as
+  an HMAC-SHA256 hex digest keyed by this server-side secret; without it the flow
+  fails closed (`phone_otp_unavailable`, 503) rather than falling back to a
+  weaker hash. Set it in the server runtime environment (Supabase/Vercel), never
+  in the repository.
+- **DEV apply.** 0050 is validated but NOT applied to the Supabase DEVELOPMENT
+  project (no DEV database credentials/CLI exist in this workspace). Exact steps
+  are in `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §7, followed by the
+  runnable access script
+  `web/tests/db-regression/profile-phone-otp-access.sql`.
+- **Production.** Not applied, and not to be applied without an explicit product
+  decision.
+
+### 30.4 Verification status (no e2e/browser claim)
+
+Automated, all run in the normal suite on a real Postgres engine (PGlite):
+`web/tests/account-profile-phone-migration.test.ts` (15 tests — shape,
+self-only writes, the locked verification column, the reset-on-change rule, DOB
+sanity, the full OTP matrix, the one-verified-number rule, anon lockout, the
+concept-separation guard, plus the DEV access script itself),
+`web/tests/account-profile-model.test.ts` (20 tests — normalization, masking,
+age/timezone/leap days, PATCH validation, email read-only, verification summary,
+OTP hashing/expiry/rate-limit predicates, provider fail-closed, avatar
+validation) and `web/tests/account-profile-surface.test.ts` (10 tests — route
+wiring, masked phone, no logging, private storage, forward-only migration, the
+locked Indonesian message table). No browser/e2e run was performed and none is
+claimed: no DEV credentials exist here and the preview does not hydrate in this
+sandbox.
+
+### 30.5 The three SEPARATE verification concepts (unchanged)
+
+1. Account contact/identity verification (email, phone) — this PR adds ONLY the
+   phone fact, next to the existing email fact.
+2. Producer/manager verification (`producers.claim_status`).
+3. Place verification (`places.claim_status`).
+
+A verified phone never creates, implies, or displays a verified manager or a
+verified Place; there is no badge, no identity-document check and no new
+eligibility criterion anywhere in this change.
