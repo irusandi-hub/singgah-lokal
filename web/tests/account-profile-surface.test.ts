@@ -180,7 +180,23 @@ test("the Indonesian messages are the locked table (no divergent copy)", () => {
     "Username sudah digunakan akun lain.",
     "the existing Account Center wording is reused verbatim",
   );
-  assert.equal(profileClient.includes('"Username sudah digunakan akun lain."'), true);
+  // Tahap 3: the editable profile moved to its own screen, so the locked
+  // message table is what BOTH surfaces render — the read-only panel carries no
+  // error copy at all, and the editing screen never reintroduces its own.
+  assert.equal(
+    profileClient.includes("Username sudah digunakan akun lain."),
+    false,
+    "the read-only panel duplicates no error copy",
+  );
+  const profileEditClient = read("../components/account/account-profile-edit-client.tsx");
+  assert.ok(profileEditClient.includes("profileErrorMessage"), "profile failures use the locked table");
+  assert.ok(profileEditClient.includes("phoneOtpMessage"), "OTP results use the locked table");
+  assert.ok(profileEditClient.includes("avatarMessage"), "avatar failures use the locked table");
+  assert.doesNotMatch(
+    profileEditClient,
+    /"Username sudah digunakan akun lain\."/,
+    "the screen never re-declares a message the server owns",
+  );
   assert.equal(PHONE_OTP_MESSAGES.phone_otp_invalid, "Kode verifikasi salah.");
   assert.equal(
     PHONE_OTP_MESSAGES.phone_otp_expired,

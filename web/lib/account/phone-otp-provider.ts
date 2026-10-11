@@ -20,6 +20,8 @@
  * the Supabase project) or an SMS vendor reached with a server-side API key.
  */
 
+import { resolveOtpHashSecret } from "@/lib/account/phone-otp";
+
 export type PhoneOtpDelivery = {
   /** E.164 number the code was generated for. */
   phoneE164: string;
@@ -51,4 +53,18 @@ export function isPhoneOtpProviderConfigured(): boolean {
 export function getPhoneOtpProvider(): PhoneOtpProvider {
   if (!provider) throw new PhoneOtpProviderNotConfiguredError();
   return provider;
+}
+
+/**
+ * Can this server actually run the phone verification flow RIGHT NOW?
+ *
+ * BOTH halves must be in place — a registered delivery provider and the hash
+ * secret the challenge is stored with. This is a capability probe for the UI
+ * only: it lets the Edit Profil screen say "verifikasi nomor belum tersedia"
+ * and hide the send-code control instead of offering a button that is certain
+ * to fail. It grants nothing and changes no OTP rule; when the provider and
+ * secret are configured the same screen re-renders with the flow enabled.
+ */
+export function isPhoneVerificationAvailable(): boolean {
+  return provider !== null && resolveOtpHashSecret() !== null;
 }

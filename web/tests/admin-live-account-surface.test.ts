@@ -161,7 +161,7 @@ test("the Account Center shows profile identity and exactly one access section",
   assert.match(page, /<Section title="Profil Saya">/);
   assert.match(page, /<Panel>/, "the profile header sits on ONE rounded white panel");
   assert.match(page, /<SignOutButton variant="header" \/>/, "sign-out is reused from the existing implementation");
-  assert.match(page, /authority\.username/);
+  assert.match(page, /profile\.username/, "the panel is fed the server profile");
   // CANONICAL SCHEMA (2026-10-08 audit): public.users carries exactly id,
   // created_at, platform_role and (since 0047) username. It has NO
   // display_name column, so the authority probe must not select one — an

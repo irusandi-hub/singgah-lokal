@@ -1,233 +1,120 @@
-"use client";
+import Link from "next/link";
+import type { AccountVerificationSummary } from "@/lib/account/profile";
+import {
+  accountProfileDisplayName,
+  accountProfileInitials,
+  verificationStatusLabel,
+  verificationStatusTone,
+} from "@/lib/account/profile-view";
+import { StatusBadge, btn, metaTextClass } from "@/components/ui/kit";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { UsernameValidationError, validateUsername } from "@/lib/username";
-import { btn, metaTextClass } from "@/components/ui/kit";
+/**
+ * PROFIL SAYA — the identity SUMMARY panel of the Account & Access Center.
+ *
+ * Read-only on purpose (task decision, Tahap 3): this panel shows the photo or
+ * initials, the name, the username and the VERIFICATION SUMMARY, and its only
+ * action is "Edit Profil", a link to the separate /account/profile screen. There
+ * is no editable field here, so the main account page can never save a
+ * half-filled form or show an input that is not backed by a real profile column.
+ *
+ * Every value comes from the server (see lib/account/profile-read.ts): the
+ * initials are a FALLBACK for a missing photo, never a fabricated image, and a
+ * verification status is derived ONLY from the two stored facts the server
+ * returns — email from Supabase Auth and phone from `phone_verified_at`.
+ *
+ * Verification stays SEPARATE: this panel reports account contact facts only. It
+ * never implies a verified manager or a verified Place, and it renders no badge
+ * for either.
+ */
 
 type Props = {
+  fullName: string | null;
   username: string | null;
   email: string | null;
+  avatarUrl: string | null;
+  verification: AccountVerificationSummary;
 };
 
-type AccountProfileError =
-  | UsernameValidationError
-  | "username_update_unavailable";
-
-const USERNAME_ERROR_LABELS: Readonly<
-  Record<AccountProfileError, string>
-> = {
-  username_required: "Username wajib diisi.",
-  username_invalid:
-    "Username hanya boleh huruf, angka, dan tanda hubung, dan harus antara 3 hingga 30 karakter.",
-  username_taken: "Username sudah digunakan akun lain.",
-  username_update_unavailable:
-    "Tidak dapat menyimpan username saat ini. Coba lagi sebentar lagi.",
-};
-
-/**
- * Initials for the circular avatar. No avatar image is supported by the
- * canonical schema, so the avatar is the account's own initials — never an
- * invented photo. Falls back from username → email local part → a single
- * neutral glyph.
- */
-function initialsFor(username: string | null, email: string | null): string {
-  const source = (username ?? "").trim() || (email ?? "").split("@")[0] || "";
-  const segments = source.split(/[^a-zA-Z0-9]+/).filter(Boolean);
-  if (segments.length === 0) return "?";
-  const letters = segments
-    .slice(0, 2)
-    .map((segment) => segment.slice(0, 2))
-    .join("");
-  return letters.toUpperCase() || "?";
+function VerificationRow({
+  label,
+  value,
+  status,
+}: {
+  label: string;
+  value: string | null;
+  status: { verified: boolean };
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-1.5">
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs font-semibold text-black/70">{label}</span>
+        <span className={`block break-words text-black/55 ${metaTextClass}`}>
+          {value?.trim() ? value : "Belum ada"}
+        </span>
+      </span>
+      <StatusBadge tone={verificationStatusTone(value, status.verified)}>
+        {verificationStatusLabel(value, status.verified)}
+      </StatusBadge>
+    </div>
+  );
 }
 
-/**
- * PROFIL SAYA — the profile header of the Account & Access Center, with
- * self-service editing of the ONE profile field the canonical schema actually
- * supports: `public.users.username`.
- *
- * Read and edit are the SAME control: the input is pre-filled from the server
- * row, "Edit Profil" opens it, "Simpan" saves through the existing
- * `/api/account/username` route (which updates only the caller's own row) and
- * "Batal" restores the saved value. Email is displayed, never editable here —
- * it is the authenticated identity, not a profile field. Validation, saving,
- * success, and error states are all explicit.
- */
-export default function AccountProfileClient({ username, email }: Props) {
-  const router = useRouter();
-  const [editing, setEditing] = useState(false);
-  const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">(
-    "idle",
-  );
-  const [errorKey, setErrorKey] = useState<AccountProfileError | null>(null);
-  const [pending, setPending] = useState(username ?? "");
-  const [saved, setSaved] = useState(username ?? "");
+export default function AccountProfileClient({
+  fullName,
+  username,
+  email,
+  avatarUrl,
+  verification,
+}: Props) {
+  const displayName = accountProfileDisplayName({ fullName, username, email });
+  const initials = accountProfileInitials({ fullName, username, email });
 
-  const profileName = saved.trim() || email?.trim() || "Akun SINGGAH LOKAL";
-
-  function startEditing() {
-    setPending(saved);
-    setErrorKey(null);
-    setStatus("idle");
-    setEditing(true);
-  }
-
-  function cancelEditing() {
-    setPending(saved);
-    setErrorKey(null);
-    setStatus("idle");
-    setEditing(false);
-  }
-
-  async function save() {
-    const trimmed = pending.trim();
-    const validation = validateUsername(trimmed);
-    if (validation) {
-      setStatus("error");
-      setErrorKey(validation);
-      return;
-    }
-    if (trimmed === saved) {
-      setEditing(false);
-      setErrorKey(null);
-      setStatus("idle");
-      return;
-    }
-    setStatus("loading");
-    setErrorKey(null);
-    try {
-      const response = await fetch("/api/account/username", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: trimmed }),
-      });
-      const payload = (await response.json()) as {
-        error?: string;
-        username?: string;
-      };
-      if (!response.ok) {
-        setStatus("error");
-        setErrorKey(
-          (payload.error as AccountProfileError) ??
-            "username_update_unavailable",
-        );
-        return;
-      }
-      setSaved(payload.username ?? trimmed);
-      setPending(payload.username ?? trimmed);
-      setStatus("success");
-      setEditing(false);
-      router.refresh();
-    } catch {
-      setStatus("error");
-      setErrorKey("username_update_unavailable");
-    }
-  }
-
-  if (!editing) {
-    return (
-      <div className="grid gap-2">
-        <div className="flex items-center gap-3.5">
+  return (
+    <div className="grid gap-3.5">
+      <div className="flex items-center gap-3.5">
+        {avatarUrl ? (
+          /* Signed, short-lived URL for this account's own avatar. A plain
+             <img> is used because the URL is a private-bucket signed URL whose
+             host is not (and must not be) statically allowlisted for
+             next/image. Same rationale and pattern as the Place hero. */
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={avatarUrl}
+            alt="Foto profil"
+            className="h-12 w-12 shrink-0 rounded-full border border-black/10 object-cover"
+          />
+        ) : (
           <span
             className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-brand-accent text-base font-bold text-white"
             aria-hidden
           >
-            {initialsFor(saved, email)}
+            {initials}
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="block break-words text-sm font-bold text-brand-ink">
-              {profileName}
-            </span>
-            {email && saved.trim() ? (
-              <span className={`mt-0.5 block break-words text-black/55 ${metaTextClass}`}>
-                {email}
-              </span>
-            ) : null}
-          </span>
-          <button
-            type="button"
-            onClick={startEditing}
-            className={`shrink-0 ${btn.secondary}`}
-          >
-            Edit Profil
-          </button>
-        </div>
-
-        {status === "success" ? (
-          <p className="text-xs font-semibold text-brand-primary" role="status">
-            Username berhasil disimpan.
-          </p>
-        ) : null}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-3">
-      <div className="flex items-center gap-3.5">
-        <span
-          className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-brand-accent text-base font-bold text-white"
-          aria-hidden
-        >
-          {initialsFor(saved, email)}
-        </span>
+        )}
         <span className="min-w-0 flex-1">
-          <span className="block break-words text-sm font-bold text-brand-ink">              {profileName}
-            </span>
-            {email ? (
+          <span className="block break-words text-sm font-bold text-brand-ink">
+            {displayName}
+          </span>
+          {username?.trim() ? (
             <span className={`mt-0.5 block break-words text-black/55 ${metaTextClass}`}>
-              {email}
+              @{username.trim()}
             </span>
           ) : null}
         </span>
       </div>
 
-      <div className="grid gap-1.5">
-        <label
-          className="text-xs font-semibold text-black/70"
-          htmlFor="account-username"
-        >
-          Username
-        </label>
-        <input
-          id="account-username"
-          type="text"
-          value={pending}
-          onChange={(event) => setPending(event.target.value)}
-          disabled={status === "loading"}
-          className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm text-black/90 placeholder:text-black/30 focus:border-brand-accent focus:outline-none"
-          placeholder="pilih-username"
+      <div className="grid gap-2.5 border-t border-black/10 pt-3.5">
+        <VerificationRow label="Email" value={email} status={verification.email} />
+        <VerificationRow
+          label="Nomor telepon"
+          value={verification.phone.value}
+          status={verification.phone}
         />
-        <p className="text-[11px] text-black/45">
-          Username adalah label publik akun ini dan dapat diubah kapan saja.
-        </p>
       </div>
 
-      {status === "error" && errorKey ? (
-        <p className="text-xs font-semibold text-red-800" role="alert">
-          {USERNAME_ERROR_LABELS[errorKey ?? "username_update_unavailable"]}
-        </p>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={save}
-          disabled={status === "loading" || !pending.trim()}
-          className={btn.primary}
-        >
-          {status === "loading" ? "Menyimpan…" : "Simpan"}
-        </button>
-        <button
-          type="button"
-          onClick={cancelEditing}
-          disabled={status === "loading"}
-          className={btn.secondary}
-        >
-          Batal
-        </button>
-      </div>
+      <Link href="/account/profile" className={`${btn.secondary} w-full`}>
+        Edit Profil
+      </Link>
     </div>
   );
 }
