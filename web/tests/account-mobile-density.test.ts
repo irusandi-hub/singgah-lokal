@@ -34,6 +34,10 @@ const SURFACES: Readonly<Record<string, string>> = {
   "Undangan Operator Live": read("../components/account/operator-invitation-inbox.tsx"),
   "Notifikasi page": read("../app/notifications/page.tsx"),
   "Account menu": read("../components/account-menu.tsx"),
+  // Every surface this pass TOUCHED is in the scan set, so a re-trim of a row
+  // cannot silently reintroduce a fixed width or a forced scroller.
+  "Operator Live rows": read("../components/account/account-live-access-client.tsx"),
+  "Account icons": read("../components/account/account-icons.tsx"),
 };
 
 /** Every literal className value (static string or interpolation-free template). */
