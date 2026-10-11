@@ -88,30 +88,38 @@ test("KNOWN DEFECT A-02: anon/authenticated SELECT on live_sessions is row-scope
   );
 });
 
-// --- A-03 ------------------------------------------------------------------
+// --- A-03 (FIXED 2026-10-11, Tahap B/LIVE-B) --------------------------------
+// Original defect: release_live_input / list_ended_live_inputs verified only
+// the SESSION STATE and were EXECUTE-granted to every authenticated account,
+// so any signed-in user could null another tenant's live_input_id and
+// enumerate ended sessions' provider input UIDs. Migration 0051 locks both
+// RPCs to the service role (the only callers are the server cleanup paths),
+// and the callers now open a service connection.
 
-test("KNOWN DEFECT A-03: release_live_input and list_ended_live_inputs are authenticated-only by grant but have no caller-authority check", () => {
-  const release = sqlFunctionBody(live0008, "release_live_input");
-  const list = sqlFunctionBody(live0008, "list_ended_live_inputs");
+test("A-03 FIXED: the cleanup RPCs are service-role only and every caller is server-side", () => {
+  const migration0051 = readMigration("0051_live_auth_integrity.sql");
 
-  // The only precondition is the session state — never who is calling.
-  assert.match(release, /where id = p_session_id and status = 'ended'/);
-  for (const [name, body] of [
-    ["release_live_input", release],
-    ["list_ended_live_inputs", list],
-  ] as const) {
-    assert.doesNotMatch(body, /can_operate_live_for_place/, `${name} has no Place predicate`);
-    assert.doesNotMatch(body, /producer_memberships/, `${name} has no membership predicate`);
-    assert.doesNotMatch(body, /auth\.uid\(\)/, `${name} never inspects the caller`);
-  }
+  // EXECUTE is revoked from every client-reachable grantee and granted only
+  // to the infrastructure role.
+  assert.match(
+    migration0051,
+    /revoke execute on function public\.release_live_input\(text\) from public, anon, authenticated;/,
+  );
+  assert.match(
+    migration0051,
+    /revoke execute on function public\.list_ended_live_inputs\(\) from public, anon, authenticated;/,
+  );
+  assert.match(migration0051, /grant execute on function public\.release_live_input\(text\) to service_role;/);
+  assert.match(migration0051, /grant execute on function public\.list_ended_live_inputs\(\) to service_role;/);
+  assert.doesNotMatch(migration0051, /grant execute[^;]* to (anon|authenticated|public)/);
 
-  // The grant that makes them reachable by any signed-in account.
-  assert.match(live0008, /grant execute on function public\.release_live_input\(text\) to authenticated;/);
-  assert.match(live0008, /grant execute on function public\.list_ended_live_inputs\(\) to authenticated;/);
-
-  // list_ended_live_inputs is SECURITY DEFINER, so it reads across tenants
-  // regardless of the live_sessions RLS policies.
-  assert.match(list, /security definer set search_path = public/);
+  // The only code callers open a service-role connection for these two RPCs.
+  const service = read("../../lib/live/session-service.ts");
+  const cap = read("../../lib/live/session-service-cap.ts");
+  assert.match(service, /createSupabaseServiceClient\(\)\.rpc\("release_live_input"/);
+  assert.match(cap, /const supabase = createSupabaseServiceClient\(\);/);
+  assert.match(cap, /supabase\.rpc\("list_ended_live_inputs"\)/);
+  assert.match(cap, /supabase\.rpc\("release_live_input"/);
 });
 
 // --- A-04 ------------------------------------------------------------------

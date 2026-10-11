@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   deleteLiveInput,
@@ -71,7 +72,10 @@ export async function sweepOrphanLiveInputs(): Promise<number> {
  * from the backlog).
  */
 export async function sweepEndedLiveInputs(): Promise<number> {
-  const supabase = await createSupabaseServerClient();
+  // A-03: both cleanup RPCs are service-role only (server infrastructure,
+  // never a client-callable surface), so the sweep opens a service connection
+  // instead of riding a viewer's session.
+  const supabase = createSupabaseServiceClient();
   const { data, error } = await supabase.rpc("list_ended_live_inputs");
   if (error || !Array.isArray(data)) {
     return 0;
