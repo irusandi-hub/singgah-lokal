@@ -65,7 +65,13 @@ test("an Operator Live card shows the exact Place name", () => {
   assert.doesNotMatch(liveAccessClient, /Operator Live — \{placeId\}/, "a raw place id must never be the label");
   // The id may only appear inside the link target, never as visible copy.
   assert.ok(liveAccessClient.includes("/producer/live?place="));
-  assert.ok(liveAccessClient.includes("Operasi Live hanya untuk Tempat ini."));
+  // One PER-ROW fact, not the same sentence repeated under every Place.
+  assert.ok(liveAccessClient.includes("Diberikan ${formatWhen(grantedAt)}"));
+  assert.equal(
+    liveAccessClient.includes("Operasi Live hanya untuk Tempat ini."),
+    false,
+    "a repeated description is not repeated per row",
+  );
 });
 
 test("an account with no access at all gets the honest empty state", () => {
@@ -75,24 +81,30 @@ test("an account with no access at all gets the honest empty state", () => {
   assert.ok(accountPage.includes('href="/producer/onboarding"'));
 });
 
-test("Account Center wires username self-edit through a client component", () => {
+test("the Account Center profile panel is a READ-ONLY summary with an Edit Profil destination", () => {
+  // Tahap 3 (2026-10-11): the main account page never hosts an editable form —
+  // it shows the identity summary, the verification summary, and ONE action.
   assert.match(
     accountPage,
-    /<AccountProfileClient\s+username=\{authority\.username\}\s+email=\{authority\.email\}\s*\/>/,
-    "the profile header receives the real username and the authenticated email",
+    /<AccountProfileClient\s+fullName=\{profile\.fullName\}\s+username=\{profile\.username\}\s+email=\{authority\.email\}\s+avatarUrl=\{profile\.avatarUrl\}\s+verification=\{profile\.verification\}\s*\/>/,
+    "the panel is fed the server profile and the authenticated email",
   );
   assert.ok(profileClient.includes('type Props = {'));
-  assert.ok(profileClient.includes('username: string | null'));
-  assert.ok(profileClient.includes('validateUsername'));
-  assert.ok(profileClient.includes('/api/account/username'));
-  assert.ok(profileClient.includes('role="alert"'));
-  assert.ok(profileClient.includes('role="status"'));
+  assert.ok(profileClient.includes('fullName: string | null'));
+  assert.ok(profileClient.includes('verification: AccountVerificationSummary'));
+  // No editable control of any kind on the summary panel.
+  assert.doesNotMatch(profileClient, /<input|<form|useState|onChange/);
+  assert.ok(profileClient.includes('href="/account/profile"'), "the only action opens the Edit Profil screen");
   assert.ok(profileClient.includes('"Edit Profil"'), "the profile action is Edit Profil");
-  assert.ok(profileClient.includes('"Simpan"'), "the save action is Simpan");
-  assert.ok(profileClient.includes('"Batal"'), "the cancel action is Batal");
-  assert.ok(profileClient.includes('setEditing(false)'), "a save closes the editing state");
-  assert.ok(profileClient.includes('initialsFor'), "the avatar shows initials — no invented photo");
-  assert.doesNotMatch(profileClient, /display_name|displayName/, "no unsupported profile field");
+  assert.ok(profileClient.includes("accountProfileInitials"), "the avatar falls back to initials — no invented photo");
+  // The verification summary comes from the server payload only.
+  assert.ok(profileClient.includes("verification.email"));
+  assert.ok(profileClient.includes("verification.phone"));
+  assert.doesNotMatch(profileClient, /display_name/, "no unsupported profile column");
+  assert.ok(
+    profileClient.includes("accountProfileDisplayName"),
+    "the label comes from the named full name, never a fabricated profile field",
+  );
 });
 
 test("Username route is a server POST that validates and enforces ownership only", () => {

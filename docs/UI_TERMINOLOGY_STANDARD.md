@@ -55,6 +55,15 @@ business rule.
 | Header home link | Beranda | Home |
 | Notification preferences page | Pengaturan Notifikasi | Notification Settings |
 | Admin tabs | Ringkasan, Data Tempat, Moderasi Live | Overview, Data Place, Live Moderation |
+| Edit Profil screen | Edit Profil | Edit Profile |
+| Edit Profil groups | Informasi Pribadi, Kontak, Verifikasi | Personal Information, Contact, Verification |
+| Profile photo field | Foto profil | Profile Picture |
+| Verification status | Terverifikasi / Belum terverifikasi / Belum ada | Verified / Unverified |
+| Inbox link to preferences | Pengaturan Notifikasi | Notification Settings |
+| Live Operator invitations | Undangan Operator Live | Live Operator Invitations |
+| Invitation actions | Undang lewat email, Kirim undangan, Batalkan, Undang pengganti, Terima, Tolak | Invite by Email, Send Invite, Cancel, Invite Replacement, Accept, Reject |
+| Operator revocation | Cabut akses (behind a confirmation dialog: "Ya, cabut akses") | Revoke Access |
+| Invitation statuses | Menunggu, Diterima, Ditolak, Dibatalkan, Dicabut, Kedaluwarsa | Pending, Accepted, Rejected, Cancelled, Revoked, Expired |
 | Admin Live tables/headings | Sesi Live, Laporan Live, Kelayakan Pengelola | Live Session, Live Report, Eligibility Pengelola |
 
 ## 4. Structural rules (Android-inspired settings organization)
@@ -72,7 +81,24 @@ business rule.
 - Every list row that navigates carries an icon, a short Indonesian label,
   and the shared right-facing chevron.
 
-## 5. Scope of the 2026-10-09 audit
+## 5. Mobile pass of 2026-10-11 (Account, Profile, Notifications, Live Operator)
+
+- The Account & Access Center shows a READ-ONLY "Profil Saya" panel (photo or
+  initials, name, username, verification summary) with ONE action, "Edit Profil",
+  which opens the separate `/account/profile` screen. No editable field lives on
+  the summary panel, so no unsaved form is ever displayed there.
+- Validation, success, and error wording always comes from the server tables
+  (`lib/account/profile-messages.ts`, `lib/live/operator-invitations-model.ts`).
+  A surface must not re-declare a message the server owns, so one condition can
+  never produce two different sentences.
+- Account verification (email, phone), Pengelola verification, and Place
+  verification stay THREE separate things in the copy: a verified phone is never
+  worded as, or shown beside, a management or Place status.
+- Status vocabulary is exact: an absent phone says "Belum ada", a present but
+  unconfirmed one says "Belum terverifikasi", and only a completed OTP
+  confirmation may say "Terverifikasi".
+
+## 6. Scope of the 2026-10-09 audit
 
 Audited in context: Home/Map, Place detail and Experience pages, Visit Intent,
 Authentication/onboarding, Account & profile, Producer dashboard and Place
@@ -82,4 +108,7 @@ accessibility labels. Deliberately unchanged: the locked terms in §2, code
 identifiers, and already-natural Indonesian copy. Tests that lock copy
 (`web/tests/account-*.test.ts`, `admin-*.test.ts`, `navigation-*.test.ts`,
 `notification-inbox.test.ts`) are kept in sync with this standard — update
-them here when a label changes.
+them here when a label changes. The 2026-10-11 mobile pass is locked by
+`account-mobile-profile-ui.test.ts`, `account-mobile-operator-ui.test.ts`,
+`operator-invitation-inbox.test.ts`, and `account-mobile-density.test.ts`
+(density, terminology, and account-navigation regression).

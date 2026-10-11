@@ -1,17 +1,48 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { AccountPlaceMembership } from "@/lib/account-memberships";
 import {
-  EmptyState,
+  LIVE_OPERATOR_INVITATION_STATUS_LABELS,
+  liveOperatorInvitationMessage,
+  type LiveOperatorInvitationStatus,
+} from "@/lib/live/operator-invitations-model";
+import {
   ErrorState,
-  LoadingState,
   Panel,
   StatusBadge,
   StatusMessage,
   btn,
   metaTextClass,
 } from "@/components/ui/kit";
+
+/**
+ * KELOLA AKSES LIVE — delegated Live-operator management, inside the Account
+ * Center's Akses section and therefore visible only to an owner/manager.
+ *
+ * Authority separation (locked, Authority Master §1/§6):
+ * - Pengelola = the owner/manager membership this component is rendered for.
+ * - Operator Live = an explicit delegated assignment for the EXACT Tempat
+ *   chosen here. Producer membership NEVER implies it, and this surface NEVER
+ *   offers a Tempat the account does not manage.
+ *
+ * Mobile layout (Tahap 3): the surface is COMPACT and split into subviews
+ * instead of one long page —
+ *   (a) the Tempat picker feeds everything below;
+ *   (b) "Operator" shows the ACTIVE operators, who must be revoked through a
+ *       confirmation dialog;
+ *   (c) "Undangan" holds the invite form in its OWN collapsible block, apart
+ *       from the lists, plus the pending invitations (cancellable) and history.
+ *
+ * The component only ever names Places handed to it by the server, delegates
+ * every write to the existing routes (which re-derive authorization on the
+ * server), and NEVER decides authorization itself: hiding a control is
+ * presentation, and the API refuses an unauthorized call either way.
+ *
+ * Anti-enumeration is preserved in the UI: the invite form reports the same
+ * result whatever the email is, because the server answers uniformly and never
+ * reveals whether the email resolved to an account.
+ */
 
 type Props = {
   /** ONLY the Places this account is owner/manager of — never a wider list. */
@@ -25,25 +56,42 @@ type OperatorAssignment = {
   revokedAt: string | null;
 };
 
-type LookupAccount = {
-  userId: string;
-  username: string | null;
+type PlaceInvitation = {
+  id: string;
+  placeId: string;
+  placeName: string;
+  invitedEmail: string;
+  status: string;
+  createdAt: string;
+  expiresAt: string;
+  resolvedAt: string | null;
 };
 
-const MESSAGES: Readonly<Record<string, string>> = {
-  authentication_required: "Sesi berakhir. Masuk kembali untuk melanjutkan.",
-  producer_authorization_required:
-    "Kamu tidak mengelola Tempat ini, jadi tidak dapat mengubah akses Live-nya.",
-  username_required: "Masukkan username akun yang ingin dicari.",
-  account_lookup_unavailable: "Pencarian akun tidak tersedia saat ini.",
-  live_operator_list_unavailable: "Daftar Operator Live tidak tersedia saat ini.",
-  live_operator_grant_failed: "Gagal memberikan akses Operator Live.",
-  live_operator_revoke_failed: "Gagal mencabut akses Operator Live.",
+const STATUS_TONES: Readonly<
+  Record<LiveOperatorInvitationStatus, "warning" | "positive" | "negative" | "neutral">
+> = {
+  pending: "warning",
+  accepted: "positive",
+  rejected: "negative",
+  cancelled: "neutral",
+  expired: "neutral",
+  revoked: "negative",
 };
 
-function messageFor(key: string | undefined, fallback: string): string {
-  if (!key) return fallback;
-  return MESSAGES[key] ?? fallback;
+const INVITE_ACKNOWLEDGEMENT =
+  "Undangan dicatat. Kalau email itu terdaftar, undangannya akan muncul di akun tersebut.";
+
+function statusLabel(status: string): string {
+  return (
+    LIVE_OPERATOR_INVITATION_STATUS_LABELS[status as LiveOperatorInvitationStatus] ??
+    status
+  );
+}
+
+function statusTone(
+  status: string,
+): "warning" | "positive" | "negative" | "neutral" {
+  return STATUS_TONES[status as LiveOperatorInvitationStatus] ?? "neutral";
 }
 
 function formatWhen(value: string): string {
@@ -58,56 +106,68 @@ function formatWhen(value: string): string {
   });
 }
 
-/**
- * KELOLA AKSES LIVE — delegated Live-operator management, inside the Account
- * Center's Akses section and therefore visible only to an owner/manager.
- *
- * Authority separation (locked, Authority Master §1/§6):
- * - Pengelola = the owner/manager membership this component is rendered for.
- * - Operator Live = an explicit ACTIVE `live_operators` assignment for the
- *   EXACT Tempat chosen here. Producer membership NEVER implies it, and this
- *   surface NEVER grants it for a Tempat the account does not manage.
- * The component only ever names Places handed to it by the server (the
- * account's own owner/manager memberships) and delegates every write to the
- * server routes, which re-derive authorization on the server.
- */
+async function loadOperators(placeId: string): Promise<OperatorAssignment[]> {
+  const response = await fetch(
+    `/api/account/live-operators?placeId=${encodeURIComponent(placeId)}`,
+  );
+  const payload = (await response.json().catch(() => ({}))) as {
+    operators?: OperatorAssignment[];
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(payload.error ?? "live_operator_list_unavailable");
+  }
+  return payload.operators ?? [];
+}
+
+async function loadInvitations(placeId: string): Promise<PlaceInvitation[]> {
+  const response = await fetch(
+    `/api/account/live-operators/invitations?placeId=${encodeURIComponent(placeId)}`,
+  );
+  const payload = (await response.json().catch(() => ({}))) as {
+    invitations?: PlaceInvitation[];
+    error?: string;
+  };
+  if (!response.ok) {
+    throw new Error(
+      payload.error ?? "live_operator_invitation_unavailable",
+    );
+  }
+  return payload.invitations ?? [];
+}
+
 export default function AccountLiveOperatorManager({ places }: Props) {
   const [selectedPlaceId, setSelectedPlaceId] = useState(places[0]?.placeId ?? "");
-  const [assignments, setAssignments] = useState<OperatorAssignment[]>([]);
-  // The list starts LOADING whenever a Place is available, so the effect never
-  // has to set state synchronously (react-hooks/set-state-in-effect). The
-  // loading state is otherwise set from event handlers, never from the effect.
+  const [view, setView] = useState<"operators" | "invitations">("operators");
+  const [inviteOpen, setInviteOpen] = useState(false);
+
+  const [operators, setOperators] = useState<OperatorAssignment[]>([]);
+  const [invitations, setInvitations] = useState<PlaceInvitation[]>([]);
+  // Starts LOADING whenever a Place exists, so the effect never has to set
+  // state synchronously (react-hooks/set-state-in-effect).
   const [listState, setListState] = useState<"idle" | "loading" | "ready" | "error">(
     places.length > 0 ? "loading" : "idle",
   );
   const [listError, setListError] = useState<string | null>(null);
 
-  const [query, setQuery] = useState("");
-  const [lookup, setLookup] = useState<LookupAccount | null>(null);
-  const [lookupState, setLookupState] = useState<
-    "idle" | "loading" | "found" | "empty" | "error"
-  >("idle");
-  const [lookupError, setLookupError] = useState<string | null>(null);
-
+  const [email, setEmail] = useState("");
   const [actionState, setActionState] = useState<"idle" | "working">("idle");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const [revokeTarget, setRevokeTarget] = useState<OperatorAssignment | null>(null);
+
   const selectedPlace = places.find((place) => place.placeId === selectedPlaceId);
 
-  /** Pure fetch: no setState, so effects can await it before updating state. */
-  async function fetchOperators(placeId: string): Promise<OperatorAssignment[]> {
-    const response = await fetch(
-      `/api/account/live-operators?placeId=${encodeURIComponent(placeId)}`,
-    );
-    const payload = (await response.json()) as {
-      operators?: OperatorAssignment[];
-      error?: string;
-    };
-    if (!response.ok) {
-      throw new Error(payload.error ?? "live_operator_list_unavailable");
-    }
-    return payload.operators ?? [];
+  async function refresh(placeId: string) {
+    const [nextOperators, nextInvitations] = await Promise.all([
+      loadOperators(placeId),
+      loadInvitations(placeId),
+    ]);
+    setOperators(nextOperators);
+    setInvitations(nextInvitations);
+    setListError(null);
+    setListState("ready");
   }
 
   useEffect(() => {
@@ -115,22 +175,24 @@ export default function AccountLiveOperatorManager({ places }: Props) {
     let cancelled = false;
     (async () => {
       try {
-        const operators = await fetchOperators(selectedPlaceId);
-        if (!cancelled) {
-          setAssignments(operators);
-          setListError(null);
-          setListState("ready");
-        }
+        const [nextOperators, nextInvitations] = await Promise.all([
+          loadOperators(selectedPlaceId),
+          loadInvitations(selectedPlaceId),
+        ]);
+        if (cancelled) return;
+        setOperators(nextOperators);
+        setInvitations(nextInvitations);
+        setListError(null);
+        setListState("ready");
       } catch (requestError) {
-        if (!cancelled) {
-          setListState("error");
-          setListError(
-            messageFor(
-              requestError instanceof Error ? requestError.message : undefined,
-              "Daftar Operator Live tidak dapat dimuat.",
-            ),
-          );
-        }
+        if (cancelled) return;
+        setListState("error");
+        setListError(
+          liveOperatorInvitationMessage(
+            requestError instanceof Error ? requestError.message : undefined,
+            "Daftar Operator Live tidak dapat dimuat.",
+          ),
+        );
       }
     })();
     return () => {
@@ -138,77 +200,73 @@ export default function AccountLiveOperatorManager({ places }: Props) {
     };
   }, [selectedPlaceId]);
 
-  async function runLookup() {
-    const value = query.trim();
+  async function submitInvite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = email.trim();
     if (!value) {
-      setLookupState("error");
-      setLookupError(MESSAGES.username_required);
+      setActionState("idle");
+      setActionMessage(null);
+      setActionError(liveOperatorInvitationMessage("email_required"));
       return;
     }
-    setLookupState("loading");
-    setLookupError(null);
-    setLookup(null);
-    try {
-      const response = await fetch(
-        `/api/account/lookup?username=${encodeURIComponent(value)}`,
-      );
-      const payload = (await response.json()) as {
-        account?: LookupAccount | null;
-        error?: string;
-      };
-      if (!response.ok) {
-        setLookupState("error");
-        setLookupError(messageFor(payload.error, "Pencarian akun gagal."));
-        return;
-      }
-      if (!payload.account) {
-        setLookupState("empty");
-        return;
-      }
-      setLookup(payload.account);
-      setLookupState("found");
-    } catch {
-      setLookupState("error");
-      setLookupError("Pencarian akun gagal.");
-    }
-  }
-
-  async function grant() {
-    if (!lookup || !selectedPlaceId) return;
     setActionState("working");
     setActionMessage(null);
     setActionError(null);
     try {
-      const response = await fetch("/api/account/live-operators", {
+      const response = await fetch("/api/account/live-operators/invitations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: lookup.userId, placeId: selectedPlaceId }),
+        body: JSON.stringify({ placeId: selectedPlaceId, email: value }),
       });
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-      };
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
-        setActionError(messageFor(payload.error, "Gagal memberikan akses."));
+        setActionError(liveOperatorInvitationMessage(payload.error));
         return;
       }
-      setActionMessage(
-        `Akses Operator Live diberikan${selectedPlace ? ` untuk ${selectedPlace.placeName}` : ""}.`,
-      );
+      // Uniform acknowledgement: the UI must not imply whether the email
+      // resolved to an account (the endpoint is deliberately non-enumerating).
+      setEmail("");
+      setInviteOpen(false);
+      setView("invitations");
+      setActionMessage(INVITE_ACKNOWLEDGEMENT);
       setListState("loading");
-      const operators = await fetchOperators(selectedPlaceId);
-      setAssignments(operators);
-      setListError(null);
-      setListState("ready");
+      await refresh(selectedPlaceId);
     } catch {
-      setActionError("Gagal memberikan akses.");
+      setActionError(liveOperatorInvitationMessage("live_operator_invitation_unavailable"));
       setListState("ready");
     } finally {
       setActionState("idle");
     }
   }
 
-  async function revoke(userId: string) {
-    if (!selectedPlaceId) return;
+  async function cancelInvitation(id: string) {
+    setActionState("working");
+    setActionMessage(null);
+    setActionError(null);
+    try {
+      const response = await fetch(
+        `/api/account/live-operators/invitations/${encodeURIComponent(id)}/cancel`,
+        { method: "POST" },
+      );
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        setActionError(liveOperatorInvitationMessage(payload.error));
+        return;
+      }
+      setActionMessage("Undangan dibatalkan.");
+      setListState("loading");
+      await refresh(selectedPlaceId);
+    } catch {
+      setActionError(liveOperatorInvitationMessage("live_operator_invitation_unavailable"));
+      setListState("ready");
+    } finally {
+      setActionState("idle");
+    }
+  }
+
+  async function confirmRevoke() {
+    const target = revokeTarget;
+    if (!target) return;
     setActionState("working");
     setActionMessage(null);
     setActionError(null);
@@ -216,23 +274,24 @@ export default function AccountLiveOperatorManager({ places }: Props) {
       const response = await fetch("/api/account/live-operators", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, placeId: selectedPlaceId }),
+        body: JSON.stringify({ userId: target.userId, placeId: selectedPlaceId }),
       });
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: string;
-      };
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
-        setActionError(messageFor(payload.error, "Gagal mencabut akses."));
+        setActionError(
+          liveOperatorInvitationMessage(
+            payload.error,
+            "Akses Operator Live gagal dicabut.",
+          ),
+        );
         return;
       }
+      setRevokeTarget(null);
       setActionMessage("Akses Operator Live dicabut.");
       setListState("loading");
-      const operators = await fetchOperators(selectedPlaceId);
-      setAssignments(operators);
-      setListError(null);
-      setListState("ready");
+      await refresh(selectedPlaceId);
     } catch {
-      setActionError("Gagal mencabut akses.");
+      setActionError("Akses Operator Live gagal dicabut.");
       setListState("ready");
     } finally {
       setActionState("idle");
@@ -241,8 +300,10 @@ export default function AccountLiveOperatorManager({ places }: Props) {
 
   if (places.length === 0) return null;
 
-  const active = assignments.filter((row) => row.revokedAt === null);
-  const revoked = assignments.filter((row) => row.revokedAt !== null);
+  const active = operators.filter((row) => row.revokedAt === null);
+  const revoked = operators.filter((row) => row.revokedAt !== null);
+  const pending = invitations.filter((row) => row.status === "pending");
+  const history = invitations.filter((row) => row.status !== "pending");
 
   return (
     <Panel className="grid gap-3">
@@ -269,12 +330,13 @@ export default function AccountLiveOperatorManager({ places }: Props) {
             setSelectedPlaceId(event.target.value);
             setListState("loading");
             setListError(null);
-            setLookup(null);
-            setLookupState("idle");
+            setInviteOpen(false);
+            setEmail("");
+            setRevokeTarget(null);
             setActionMessage(null);
             setActionError(null);
           }}
-          className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
+          className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm"
         >
           {places.map((place) => (
             <option key={place.placeId} value={place.placeId}>
@@ -284,136 +346,305 @@ export default function AccountLiveOperatorManager({ places }: Props) {
         </select>
       </div>
 
-      <div className="grid gap-2">
-        <p className="text-xs font-semibold text-black/70">Operator aktif</p>
-        {listState === "loading" ? (
-          <LoadingState label="Memuat Operator Live…" />
-        ) : listState === "error" && listError ? (
-          <ErrorState message={listError} />
-        ) : active.length === 0 ? (
-          <p className={`text-black/55 ${metaTextClass}`}>
-            Belum ada Operator Live aktif untuk Tempat ini.
-          </p>
-        ) : (
-          <ul className="grid gap-2">
-            {active.map((row) => (
-              <li
-                key={row.userId}
-                className="flex items-center gap-3 rounded-xl border border-black/10 bg-white px-3 py-2.5"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block break-words text-sm font-semibold">
-                    {row.username ?? "Akun tanpa username"}
-                  </span>
-                  <span className={`mt-0.5 block text-black/55 ${metaTextClass}`}>
-                    Diberikan {formatWhen(row.grantedAt)}
-                  </span>
-                </span>
-                <StatusBadge tone="positive">Aktif</StatusBadge>
-                <button
-                  type="button"
-                  onClick={() => revoke(row.userId)}
-                  disabled={actionState === "working"}
-                  className={btn.compact}
-                >
-                  Cabut
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+      {/* Two subviews instead of one long list: the operator list and the
+          invitation lifecycle never compete for the same screen. */}
+      <div className="grid min-w-0 grid-cols-2 gap-1 rounded-full border border-black/10 bg-white p-1">
+        <button
+          type="button"
+          aria-pressed={view === "operators"}
+          onClick={() => setView("operators")}
+          className={`min-w-0 rounded-full px-2 py-1.5 text-[11px] font-bold leading-tight transition ${
+            view === "operators" ? "bg-brand-accent text-white" : "text-black/60"
+          }`}
+        >
+          Operator ({active.length})
+        </button>
+        <button
+          type="button"
+          aria-pressed={view === "invitations"}
+          onClick={() => setView("invitations")}
+          className={`min-w-0 rounded-full px-2 py-1.5 text-[11px] font-bold leading-tight transition ${
+            view === "invitations" ? "bg-brand-accent text-white" : "text-black/60"
+          }`}
+        >
+          Undangan ({pending.length})
+        </button>
+      </div>
 
-        {revoked.length > 0 ? (
-          <details className="rounded-xl border border-black/10 bg-white px-3 py-2">
-            <summary className="cursor-pointer text-xs font-semibold text-black/70">
-              Riwayat yang dicabut ({revoked.length})
-            </summary>
-            <ul className="mt-2 grid gap-2">
-              {revoked.map((row) => (
-                <li key={row.userId} className="flex items-center gap-3">
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-words text-sm">
-                      {row.username ?? "Akun tanpa username"}
+      {listState === "error" && listError ? <ErrorState message={listError} /> : null}
+      {actionMessage ? <StatusMessage message={actionMessage} /> : null}
+      {actionError ? <ErrorState message={actionError} /> : null}
+
+      {view === "operators" ? (
+        <div className="grid gap-2">
+          <p className="text-xs font-semibold text-black/70">Operator aktif</p>
+          {listState === "loading" ? (
+            <p className={`text-black/55 ${metaTextClass}`} aria-busy="true">
+              Memuat Operator Live…
+            </p>
+          ) : active.length === 0 ? (
+            <p className={`text-black/55 ${metaTextClass}`}>
+              Belum ada Operator Live aktif untuk Tempat ini.
+            </p>
+          ) : (
+            <ul className="grid gap-2">
+              {active.map((row) => (
+                <li
+                  key={row.userId}
+                  className="grid gap-2 rounded-xl border border-black/10 bg-white px-3 py-2.5"
+                >
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm font-semibold">
+                        {row.username ?? "Akun tanpa username"}
+                      </span>
+                      <span className={`mt-0.5 block text-black/55 ${metaTextClass}`}>
+                        Diberikan {formatWhen(row.grantedAt)}
+                      </span>
                     </span>
-                    <span className={`mt-0.5 block text-black/55 ${metaTextClass}`}>
-                      Dicabut {row.revokedAt ? formatWhen(row.revokedAt) : "—"}
-                    </span>
-                  </span>
-                  <StatusBadge tone="negative">Dicabut</StatusBadge>
+                    <StatusBadge tone="positive">Aktif</StatusBadge>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Replacement path: accepting a new invitation revokes
+                        // any other active operator for this Place (0048).
+                        setInviteOpen(true);
+                        setView("invitations");
+                        setActionMessage(null);
+                        setActionError(null);
+                      }}
+                      className={btn.compact}
+                    >
+                      Undang pengganti
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRevokeTarget(row);
+                        setActionMessage(null);
+                        setActionError(null);
+                      }}
+                      disabled={actionState === "working"}
+                      className={btn.compact}
+                    >
+                      Cabut akses
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
-          </details>
-        ) : null}
-      </div>
+          )}
 
-      <div className="grid gap-2 border-t border-black/10 pt-3">
-        <label
-          className="text-xs font-semibold text-black/70"
-          htmlFor="live-operator-lookup"
-        >
-          Cari akun SINGGAH LOKAL (username)
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="live-operator-lookup"
-            type="text"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="username"
-            className="flex-1 rounded-xl border border-black/10 bg-white px-3 py-2 text-sm placeholder:text-black/30 focus:border-brand-accent focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={runLookup}
-            disabled={lookupState === "loading" || !query.trim()}
-            className={btn.secondary}
-          >
-            {lookupState === "loading" ? "Mencari…" : "Cari"}
-          </button>
+          {revoked.length > 0 ? (
+            <details className="rounded-xl border border-black/10 bg-white px-3 py-2">
+              <summary className="cursor-pointer text-xs font-semibold text-black/70">
+                Riwayat yang dicabut ({revoked.length})
+              </summary>
+              <ul className="mt-2 grid gap-2">
+                {revoked.map((row) => (
+                  <li key={row.userId} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm">
+                        {row.username ?? "Akun tanpa username"}
+                      </span>
+                      <span className={`mt-0.5 block text-black/55 ${metaTextClass}`}>
+                        Dicabut {row.revokedAt ? formatWhen(row.revokedAt) : "—"}
+                      </span>
+                    </span>
+                    <StatusBadge tone="negative">Dicabut</StatusBadge>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </div>
-        <p className="text-[11px] text-black/45">
-          Hanya akun yang sudah ada yang dapat ditambahkan. Pencarian mencocokkan
-          username secara persis; tidak ada daftar pengguna publik.
-        </p>
-
-        {lookupState === "empty" ? (
-          <StatusMessage message="Tidak ada akun dengan username tersebut." />
-        ) : null}
-
-        {lookupState === "error" && lookupError ? (
-          <ErrorState message={lookupError} />
-        ) : null}
-
-        {lookup ? (
-          <div className="flex items-center gap-3 rounded-xl border border-brand-accent/25 bg-brand-accent/5 px-3 py-2.5">
-            <span className="min-w-0 flex-1">
-              <span className="block break-words text-sm font-semibold">
-                {lookup.username ?? "Akun tanpa username"}
+      ) : (
+        <div className="grid gap-3">
+          {/* (b) the invite form lives in its OWN block, apart from the lists. */}
+          <div className="rounded-xl border border-black/10 bg-white px-3 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold">Undang Operator Live</span>
+                <span className={`mt-0.5 block text-black/55 ${metaTextClass}`}>
+                  Lewat email akun SINGGAH LOKAL yang terdaftar. Akun baru tidak
+                  dibuat dari sini.
+                </span>
               </span>
-              <span className={`mt-0.5 block text-black/55 ${metaTextClass}`}>
-                {lookup.username
-                  ? "Akun SINGGAH LOKAL — belum tentu Operator Live."
-                  : "Akun ini belum memiliki username publik."}
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={grant}
-              disabled={actionState === "working"}
-              className={btn.primary}
-            >
-              Beri akses
-            </button>
+              <button
+                type="button"
+                aria-expanded={inviteOpen}
+                onClick={() => {
+                  setInviteOpen((open) => !open);
+                  setActionError(null);
+                }}
+                className={btn.compact}
+              >
+                {inviteOpen ? "Tutup" : "Undang lewat email"}
+              </button>
+            </div>
+
+            {inviteOpen ? (
+              <form className="mt-3 grid gap-2" onSubmit={submitInvite}>
+                <label
+                  className="text-xs font-semibold text-black/70"
+                  htmlFor="live-operator-invite-email"
+                >
+                  Email akun
+                </label>
+                <input
+                  id="live-operator-invite-email"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="nama@email.com"
+                  className="w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm placeholder:text-black/30 focus:border-brand-accent focus:outline-none"
+                />
+                <p className={`text-black/45 ${metaTextClass}`}>
+                  Isian ini tidak memberi tahu apakah email tersebut terdaftar
+                  atau tidak.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="submit"
+                    disabled={actionState === "working" || !email.trim()}
+                    className={btn.primary}
+                  >
+                    {actionState === "working" ? "Mengirim…" : "Kirim undangan"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInviteOpen(false);
+                      setEmail("");
+                    }}
+                    className={btn.secondary}
+                  >
+                    Batal
+                  </button>
+                </div>
+              </form>
+            ) : null}
           </div>
-        ) : null}
 
-        {actionMessage ? <StatusMessage message={actionMessage} /> : null}
-        {actionError ? <ErrorState message={actionError} /> : null}
-      </div>
+          <div className="grid gap-2">
+            <p className="text-xs font-semibold text-black/70">Undangan menunggu</p>
+            {listState === "loading" ? (
+              <p className={`text-black/55 ${metaTextClass}`} aria-busy="true">
+                Memuat undangan…
+              </p>
+            ) : pending.length === 0 ? (
+              <p className={`text-black/55 ${metaTextClass}`}>
+                Belum ada undangan yang menunggu jawaban untuk Tempat ini.
+              </p>
+            ) : (
+              <ul className="grid gap-2">
+                {pending.map((row) => (
+                  <li
+                    key={row.id}
+                    className="grid gap-2 rounded-xl border border-black/10 bg-white px-3 py-2.5"
+                  >
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="min-w-0 flex-1">
+                        <span className="block break-words text-sm font-semibold">
+                          {row.invitedEmail}
+                        </span>
+                        <span className={`mt-0.5 block text-black/55 ${metaTextClass}`}>
+                          Dikirim {formatWhen(row.createdAt)} · berlaku sampai{" "}
+                          {formatWhen(row.expiresAt)}
+                        </span>
+                      </span>
+                      <StatusBadge tone={statusTone(row.status)}>
+                        {statusLabel(row.status)}
+                      </StatusBadge>
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => void cancelInvitation(row.id)}
+                        disabled={actionState === "working"}
+                        className={btn.compact}
+                      >
+                        Batalkan
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {history.length > 0 ? (
+            <details className="rounded-xl border border-black/10 bg-white px-3 py-2">
+              <summary className="cursor-pointer text-xs font-semibold text-black/70">
+                Riwayat undangan ({history.length})
+              </summary>
+              <ul className="mt-2 grid gap-2">
+                {history.map((row) => (
+                  <li key={row.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm">{row.invitedEmail}</span>
+                      <span className={`mt-0.5 block text-black/55 ${metaTextClass}`}>
+                        {row.resolvedAt
+                          ? `${statusLabel(row.status)} ${formatWhen(row.resolvedAt)}`
+                          : statusLabel(row.status)}
+                      </span>
+                    </span>
+                    <StatusBadge tone={statusTone(row.status)}>
+                      {statusLabel(row.status)}
+                    </StatusBadge>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      )}
+
+      {/* Revoking a delegated operator is irreversible from the UI, so it is
+          confirmed explicitly — the action never fires on a single tap. */}
+      {revokeTarget ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="revoke-operator-title"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-black/10 bg-white p-4">
+            <h4 id="revoke-operator-title" className="text-sm font-bold">
+              Cabut akses Operator Live?
+            </h4>
+            <p className={`mt-1.5 text-black/60 ${metaTextClass}`}>
+              {revokeTarget.username ?? "Akun tanpa username"} tidak akan bisa
+              mengoperasikan Live untuk {selectedPlace?.placeName ?? "Tempat ini"}{" "}
+              lagi. Akses bisa diberikan kembali lewat undangan baru.
+            </p>
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setRevokeTarget(null)}
+                className={btn.secondary}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmRevoke()}
+                disabled={actionState === "working"}
+                className={btn.primary}
+              >
+                {actionState === "working" ? "Mencabut…" : "Ya, cabut akses"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {listState === "idle" ? (
-        <EmptyState title="Pilih Tempat untuk melihat Operator Live." />
+        <p className={`text-black/55 ${metaTextClass}`}>
+          Pilih Tempat untuk melihat Operator Live.
+        </p>
       ) : null}
     </Panel>
   );

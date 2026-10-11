@@ -74,7 +74,9 @@ test("Pengaturan Notifikasi is the ONLY implemented route — the rest stay iner
 // --- B. Help ---------------------------------------------------------------
 
 test("Help is a real pointer-only surface — no invented FAQ/contact content", () => {
-  assert.match(menu, /href="\/help"/, "Help links the real help surface");
+  // The menu is rendered from ONE data array (Tahap 3 restructure), so the
+  // destination is declared as data — it still points at the real surface.
+  assert.match(menu, /\{ label: "Bantuan", href: "\/help" \}/, "Help links the real help surface");
   assert.equal(routeExists("../app/help/page.tsx"), true, "the /help route exists");
   const helpPage = readFileSync(new URL("../app/help/page.tsx", import.meta.url), "utf8");
   // Every pointer targets an existing surface only.
@@ -94,7 +96,7 @@ test("Help is a real pointer-only surface — no invented FAQ/contact content", 
 // --- C. About & Terms ------------------------------------------------------
 
 test("About is a real product-identity page; no legal surface is invented", () => {
-  assert.match(menu, /href="\/about"/, "Tentang links the real about surface");
+  assert.match(menu, /\{ label: "Tentang", href: "\/about" \}/, "Tentang links the real about surface");
   assert.equal(routeExists("../app/about/page.tsx"), true, "the /about route exists");
   assert.doesNotMatch(menu, /About &amp; Terms|About & Terms/, "the combined About & Terms label is gone");
   const aboutPage = readFileSync(new URL("../app/about/page.tsx", import.meta.url), "utf8");

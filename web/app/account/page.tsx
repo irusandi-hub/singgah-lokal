@@ -24,6 +24,8 @@ import {
   resolveLiveOperatorAssignments,
   type AccountLiveOperatorAssignment,
 } from "@/lib/account-live-operators";
+import { readOwnProfile } from "@/lib/account/profile-read";
+import { profileErrorMessage } from "@/lib/account/profile-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -31,35 +33,36 @@ export const dynamic = "force-dynamic";
  * AKUN & AKSES — the single gateway between the main app and every authority
  * area (Authority Master §1–§7).
  *
- * Layout (UI/UX pass, 2026-10-09): the page sits on the app's cream
- * background, the profile header is ONE rounded white panel (initials avatar,
- * real username, authenticated email, "Edit Profil"), and below it ONE grouped
- * "Akses" list where every row is an actual destination the account is
- * authorized to use:
- * - Pengelola  → an owner/manager row in producer_memberships (own resources).
- *   An owner/manager also gets "Kelola Akses Live" here, because delegating
- *   Live operation IS a Pengelola capability over their own Places.
- * - Operator Live → an ACTIVE delegated assignment in public.live_operators.
- *   Producer authority never produces an Operator Live row, and a delegated
- *   operator is never shown as Pengelola.
- * - Platform Admin → public.users.platform_role = 'platform_moderator'.
- * - Developer → the Creator-controlled environment allowlist.
+ * Layout (Tahap 3 mobile pass, 2026-10-11): the page sits on the app's cream
+ * background and contains exactly three things —
+ *  1. "Profil Saya": ONE rounded white panel with the READ-ONLY identity summary
+ *     (photo or initials, name, username), the verification summary, and the
+ *     single "Edit Profil" action that opens /account/profile. No editable field
+ *     lives on this page any more, so the summary can never show an unsaved form;
+ *  2. "Akses": ONE grouped list where every row is an actual destination the
+ *     account is authorized to use —
+ *     - Pengelola → an owner/manager row in producer_memberships (own resources).
+ *       An owner/manager also gets "Kelola Akses Live" here, because delegating
+ *       Live operation IS a Pengelola capability over their own Places.
+ *     - Operator Live → an ACTIVE delegated assignment in public.live_operators.
+ *       Producer authority never produces an Operator Live row, and a delegated
+ *       operator is never shown as Pengelola.
+ *     - Platform Admin → public.users.platform_role = 'platform_moderator'.
+ *     - Developer → the Creator-controlled environment allowlist;
+ *  3. the ONE sign-out action, reusing the existing SignOutButton.
  *
- * The authority probe runs server-side on every request, and each Operator
- * Live row shows the exact canonical Place name — never a raw place id. Areas
- * the account does not hold are not rendered at all — no dead links. The only
- * sign-out on the page reuses the existing SignOutButton (one implementation).
+ * The authority probe runs server-side on every request, and each Operator Live
+ * row shows the exact canonical Place name — never a raw place id. Areas the
+ * account does not hold are not rendered at all — no dead links.
  *
- * NOTE (canonical schema): public.users carries exactly id, created_at,
- * platform_role and (since 0047) username. It has NO display_name column, so
- * the Profil Saya panel does not pretend to edit one — a fake editable field
- * is worse than an absent one.
+ * VERIFICATION STAYS SEPARATE: the panel reports the two account contact facts
+ * (email, phone) only. Neither of them implies a verified manager or a verified
+ * Place, and no such badge is rendered here.
  */
 
 type AccountAuthority = {
   authenticated: boolean;
   email: string | null;
-  username: string | null;
   memberships: AccountPlaceMembership[];
   liveAssignments: AccountLiveOperatorAssignment[];
   isPlatformAdmin: boolean;
@@ -70,7 +73,6 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
   const fallback: AccountAuthority = {
     authenticated: false,
     email: null,
-    username: null,
     memberships: [],
     liveAssignments: [],
     isPlatformAdmin: false,
@@ -91,7 +93,7 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
       resolveLiveOperatorAssignments(),
       supabase
         .from("users")
-        .select("platform_role, username")
+        .select("platform_role")
         .eq("id", userData.user.id)
         .maybeSingle(),
     ]);
@@ -99,8 +101,6 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
     return {
       authenticated: true,
       email: userData.user.email ?? null,
-      username:
-        (userRow as { username?: string | null } | null)?.username ?? null,
       memberships,
       liveAssignments,
       isPlatformAdmin: userRow?.platform_role === "platform_moderator",
@@ -112,7 +112,10 @@ async function resolveAccountAuthority(): Promise<AccountAuthority> {
 }
 
 export default async function AccountPage() {
-  const authority = await resolveAccountAuthority();
+  const [authority, profile] = await Promise.all([
+    resolveAccountAuthority(),
+    readOwnProfile(),
+  ]);
 
   if (!authority.authenticated) {
     redirect("/auth?returnTo=%2Faccount");
@@ -163,15 +166,23 @@ export default async function AccountPage() {
         />
 
         <div className="mt-4 grid gap-5">
-          {/* Profile header — ONE rounded white panel: initials avatar, the
-              real username, the authenticated email, and "Edit Profil"
-              aligned with them (the client owns the editing state). */}
+          {/* Profil Saya — READ-ONLY summary on ONE rounded white panel. Every
+              value comes from the server; the only action is Edit Profil. */}
           <Section title="Profil Saya">
             <Panel>
-              <AccountProfileClient
-                username={authority.username}
-                email={authority.email}
-              />
+              {profile ? (
+                <AccountProfileClient
+                  fullName={profile.fullName}
+                  username={profile.username}
+                  email={authority.email}
+                  avatarUrl={profile.avatarUrl}
+                  verification={profile.verification}
+                />
+              ) : (
+                <p className={`text-black/60 ${metaTextClass}`}>
+                  {profileErrorMessage("profile_update_unavailable")}
+                </p>
+              )}
             </Panel>
           </Section>
 

@@ -2,21 +2,46 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import SignOutButton from "./sign-out-button";
+import {
+  AboutIcon,
+  AccountIcon,
+  ChevronIcon,
+  HelpIcon,
+  LanguageIcon,
+  NavigationIcon,
+  NotificationGlyphIcon,
+  SignOutIcon,
+  VideoIcon,
+} from "./account/account-icons";
 
 /**
  * Account/application menu — the single ☰ entry point in the header after
  * sign in (replaces the standalone email label, Kelola Akun button, and
- * Keluar button). Simple accessible dropdown: Escape and outside-pointer
- * close it, groups toggle open/closed, items that have no existing surface
- * yet stay visible but inert (no broken links, no invented scope).
+ * Keluar button).
+ *
+ * Structure (Tahap 3 mobile pass): ONE grouped list rendered from ONE data array
+ * — the previous version declared its first group as data and then repeated it
+ * as hand-written JSX, which is exactly the duplicated label/markup this pass
+ * removes. Group headings stay ("Kelola Akun", "Pengaturan"), every item carries
+ * its icon, and every item that NAVIGATES carries the same right-facing chevron;
+ * items with no existing surface yet stay visibly inert ("Segera tersedia") and
+ * deliberately have no chevron, because they do not navigate anywhere.
+ *
+ * Simple accessible dropdown: Escape and outside-pointer close it, groups toggle
+ * open/closed, the whole state resets on route change so no menu state can stack
+ * between pages. Navigation is unchanged — Akun & Akses opens the destination
+ * page whose title matches the label (docs/UI_TERMINOLOGY_STANDARD.md), and the
+ * inbox stays behind the header bell (this menu only links the preferences page).
  */
+
+type MenuItem = { label: string; href?: string };
 
 type MenuGroup = {
   id: "account" | "setting";
   label: string;
-  items: { label: string; href?: string }[];
+  items: MenuItem[];
 };
 
 const MENU_GROUPS: MenuGroup[] = [
@@ -42,6 +67,41 @@ const MENU_GROUPS: MenuGroup[] = [
     ],
   },
 ];
+
+/**
+ * Icon per label. Keyed by the locked label so the groups above stay a plain
+ * data array; presentation only — a missing entry simply renders no glyph.
+ */
+const MENU_ICONS: Readonly<Record<string, ReactNode>> = {
+  "Akun & Akses": <AccountIcon />,
+  Keluar: <SignOutIcon />,
+  Navigasi: <NavigationIcon />,
+  "Bahasa Aplikasi": <LanguageIcon />,
+  "Pengaturan Video": <VideoIcon />,
+  "Pengaturan Notifikasi": <NotificationGlyphIcon />,
+  Bantuan: <HelpIcon />,
+  Tentang: <AboutIcon />,
+};
+
+/** The two standalone destinations that do not belong to a settings group. */
+const MENU_DESTINATIONS: MenuItem[] = [
+  { label: "Bantuan", href: "/help" },
+  { label: "Tentang", href: "/about" },
+];
+
+const ITEM_BASE =
+  "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium";
+const ITEM_LINK = `${ITEM_BASE} justify-between text-brand-ink hover:bg-brand-cream`;
+const ITEM_INERT = `${ITEM_BASE} cursor-default text-black/45`;
+
+function ItemContent({ label }: { label: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2.5">
+      {MENU_ICONS[label] ?? null}
+      <span className="min-w-0 break-words">{label}</span>
+    </span>
+  );
+}
 
 export default function AccountMenu() {
   const [open, setOpen] = useState(false);
@@ -111,80 +171,71 @@ export default function AccountMenu() {
         <div
           role="menu"
           aria-label="Menu akun dan aplikasi"
-          className="absolute right-0 top-12 z-40 w-60 rounded-2xl border border-black/10 bg-white p-2 shadow-lg"
+          className="absolute right-0 top-12 z-40 w-64 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-black/10 bg-white p-2 shadow-lg"
         >
-          {/* Kelola Akun */}
-          <MenuGroupBlock
-            label="Kelola Akun"
-            expanded={expanded.account === true}
-            onToggle={() => toggleGroup("account")}
-          >
-            <Link
-              role="menuitem"
-              href="/account"
-              className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
-              onClick={closeMenu}
+          {MENU_GROUPS.map((group) => (
+            <MenuGroupBlock
+              key={group.id}
+              label={group.label}
+              expanded={expanded[group.id] === true}
+              onToggle={() => toggleGroup(group.id)}
             >
-              Akun & Akses
-            </Link>
-            <div className="rounded-xl px-1 hover:bg-brand-cream" onClick={closeMenu}>
-              <SignOutButton variant="menu-item" />
-            </div>
-          </MenuGroupBlock>
+              {group.items.map((item) => {
+                if (item.href) {
+                  return (
+                    <Link
+                      key={item.label}
+                      role="menuitem"
+                      href={item.href}
+                      className={ITEM_LINK}
+                      onClick={closeMenu}
+                    >
+                      <ItemContent label={item.label} />
+                      <ChevronIcon />
+                    </Link>
+                  );
+                }
+                // Keluar is the ONE action that is not a destination: it reuses
+                // the existing SignOutButton implementation.
+                if (item.label === "Keluar") {
+                  return (
+                    <div key={item.label} className="rounded-xl px-1 hover:bg-brand-cream" onClick={closeMenu}>
+                      <SignOutButton variant="menu-item" />
+                    </div>
+                  );
+                }
+                return (
+                  <span
+                    key={item.label}
+                    role="menuitem"
+                    aria-disabled="true"
+                    className={ITEM_INERT}
+                    title="Segera tersedia"
+                  >
+                    <ItemContent label={item.label} />
+                  </span>
+                );
+              })}
+            </MenuGroupBlock>
+          ))}
 
-          {/* Pengaturan */}
-          <MenuGroupBlock
-            label="Pengaturan"
-            expanded={expanded.setting === true}
-            onToggle={() => toggleGroup("setting")}
-          >
-            {MENU_GROUPS[1].items.map((item) =>
-              item.href ? (
-                <Link
-                  key={item.label}
-                  role="menuitem"
-                  href={item.href}
-                  className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
-                  onClick={closeMenu}
-                >
-                  {item.label}
-                </Link>
-              ) : (
-                <span
-                  key={item.label}
-                  role="menuitem"
-                  aria-disabled="true"
-                  className="block cursor-default rounded-xl px-3 py-2 text-sm font-medium text-black/45"
-                  title="Segera tersedia"
-                >
-                  {item.label}
-                </span>
-              ),
-            )}
-          </MenuGroupBlock>
-
-          {/* Help — pointer-only surface: guides for existing capabilities
-              (Live report, notifications, Producer onboarding). No invented
-              FAQ/contact/support policy. */}
-          <Link
-            role="menuitem"
-            href="/help"
-            className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
-            onClick={closeMenu}
-          >
-            Bantuan
-          </Link>
-
-          {/* Tentang — product identity from locked Master facts only.
-              Terms/Privacy have no source-of-truth yet and are NOT claimed. */}
-          <Link
-            role="menuitem"
-            href="/about"
-            className="block rounded-xl px-3 py-2 text-sm font-medium text-brand-ink hover:bg-brand-cream"
-            onClick={closeMenu}
-          >
-            Tentang
-          </Link>
+          {/* Help and Tentang are real surfaces, so they are ordinary
+              destinations in the same list — not a second group, not a
+              duplicate entry, and each carries the shared chevron. */}
+          <div className="mt-1 grid gap-0.5 border-t border-black/5 pt-1">
+            {MENU_DESTINATIONS.map((item) => (
+              <Link
+                key={item.label}
+                role="menuitem"
+                href={item.href ?? "/"}
+                className={ITEM_LINK}
+                onClick={closeMenu}
+              >
+                <ItemContent label={item.label} />
+                <ChevronIcon />
+              </Link>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
@@ -200,7 +251,7 @@ function MenuGroupBlock({
   label: string;
   expanded: boolean;
   onToggle: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="border-b border-black/5 pb-1 last:border-b-0">

@@ -242,7 +242,8 @@ test("Account Center keeps no Keamanan section and separates Pengelola from dele
   assert.doesNotMatch(accountPage, /Keluar dari akun ini lalu masuk kembali dengan email dan password yang sama/);
   assert.match(
     accountPage,
-    /<AccountProfileClient\s+username=\{authority\.username\}\s+email=\{authority\.email\}\s*\/>/,
+    /<AccountProfileClient\s+fullName=\{profile\.fullName\}\s+username=\{profile\.username\}/,
+    "the summary panel renders the server profile, read-only",
   );
   assert.ok(accountPage.includes('<AccountAccessClient memberships={authority.memberships} />'));
   // Operator Live is delegated ONLY: it is fed by active live_operators

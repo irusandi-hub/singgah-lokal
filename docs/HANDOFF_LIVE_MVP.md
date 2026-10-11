@@ -1927,3 +1927,114 @@ sandbox.
 A verified phone never creates, implies, or displays a verified manager or a
 verified Place; there is no badge, no identity-document check and no new
 eligibility criterion anywhere in this change.
+
+## 31. ACCOUNT MOBILE UI — EDIT PROFIL, LIVE OPERATOR MANAGEMENT, INVITATIONS (branch `feat/account-mobile-ui`, 2026-10-11)
+
+UI pass (Tahap 3) on top of the merged #37 (invitation lifecycle) and #38
+(profile/phone-OTP backend). **UI only: no migration 0046–0050 was touched, and
+no authorization or lifecycle rule was changed.** Base branch = `main` (both
+predecessor PRs were merged before this branch started).
+
+### 31.1 Screens changed
+
+- **`/account` — "Profil Saya" panel is now READ-ONLY**: photo (signed URL) or
+  the account's initials, the name, the username, the verification summary, and
+  ONE action, "Edit Profil". The inline username editor was removed from this
+  page, so the account page can no longer show an unsaved form. ONE "Akses"
+  section, one sign-out, unchanged.
+- **`/account/profile` — new "Edit Profil" screen** with exactly three groups:
+  *Informasi Pribadi* (photo, full name, username, date of birth),
+  *Kontak* (registered email READ-ONLY with the account-security explanation,
+  phone) and *Verifikasi* (email + phone facts as the server reports them). It
+  writes through the existing `PATCH /api/account/profile`,
+  `POST /api/account/profile/avatar` and the two phone OTP endpoints.
+- **"Kelola Akses Live" (manager)**: compact surface with a Place picker, an
+  "Operator" subview (active operators, each with *Undang pengganti* and
+  *Cabut akses*) and an "Undangan" subview (the invite-by-email form in its OWN
+  collapsible block, pending invitations with *Batalkan*, and invitation
+  history). Revoking an operator requires the explicit confirmation dialog.
+- **`/notifications` — "Undangan Operator Live" section**: the invitee sees the
+  Place, the inviting manager, and real *Terima*/*Tolak* buttons that call
+  `POST /api/live-operator-invitations/:id/accept|reject`. No second inbox and no
+  new navigation entry.
+- **Account menu (☰)**: one grouped list rendered from ONE data array (the
+  duplicated hard-coded group markup is gone), an icon on every row, and the
+  shared right-facing chevron on every row that navigates.
+- Inbox link label fixed to "Pengaturan Notifikasi" (the retired English
+  "Notification Settings" is gone from the inbox).
+
+### 31.2 Minimal server change (recorded, no rule changed)
+
+Two additive server pieces, both UI-support only:
+
+1. `lib/account/profile-read.ts` (`readOwnProfile()`) — the ONE server read
+   behind both profile surfaces: self-scoped (`users_self_access`), age computed
+   with `calculateAge`, verification summary built with
+   `buildVerificationSummary`, private-bucket avatar through a 1-hour signed URL
+   (a missing storage config yields `avatarUrl = null`, so the UI falls back to
+   initials).
+2. `isPhoneVerificationAvailable()` in `lib/account/phone-otp-provider.ts` — a
+   capability probe (provider **and** hash secret present) so the Edit Profil
+   screen states "Verifikasi nomor belum tersedia saat ini." and renders **no**
+   send-code control instead of a button that is certain to fail.
+
+Nothing else changed server-side: `/api/account/profile`, the OTP endpoints, the
+invitation endpoints and every RPC are untouched, and the profile route's payload
+shape is unchanged.
+
+### 31.3 UI decisions (not Masters — recorded as policy gaps)
+
+1. **The profile panel is read-only and editing moved to its own screen.** No
+   Master prescribes the layout; the task specified it, and it removes the
+   possibility of an unsaved form on the summary page.
+2. **Manager surface is invitation-only.** The 0047 direct username-lookup grant
+   UI was removed from the account page because the task defines the manager
+   surface as the invitation lifecycle (reachable through the existing audited
+   endpoints). **The 0047 lookup/grant APIs remain unchanged server-side**, so
+   no capability was removed from the backend; only its old UI entry point is
+   gone.
+3. **Anti-enumeration in the UI.** The invite form answers with one fixed
+   acknowledgement ("Kalau email itu terdaftar…") and never distinguishes a
+   found email from an unknown one, mirroring the endpoint.
+4. **Verification semantics in copy.** "Belum ada" (no value) is distinct from
+   "Belum terverifikasi" (value present, unconfirmed), and only a completed OTP
+   confirmation shows "Terverifikasi" — always from server data.
+
+### 31.4 Status / blockers (unchanged manual actions)
+
+- **B5 — no OTP provider configured.** The Edit Profil screen therefore shows
+  the unavailable status and no send-code control. Wiring is one
+  `setPhoneOtpProvider(...)` call in a server-only bootstrap; the whole send →
+  code → result flow is already implemented and becomes reachable immediately.
+- **B6 — `PHONE_OTP_HASH_SECRET` unset.** The probe treats this as unavailable
+  too; the OTP flow fails closed.
+- **Migrations 0047–0050 are still NOT applied to DEV.** The invitation UI and
+  the phone verification flow need the DEV apply in
+  `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` (§2.5–§2.6, §7) before they
+  can be exercised end-to-end. Nothing here was applied to production.
+- **Manual device/browser test not performed** (see 31.5).
+
+### 31.5 Verification status (no e2e/browser claim)
+
+New suites: `web/tests/account-mobile-profile-ui.test.ts` (11 tests — read-only
+panel, three groups, read-only email, the availability probe **executed**,
+no send-code control while unavailable, the full OTP flow still wired,
+server-only verification status, self-scoped server read),
+`web/tests/account-mobile-operator-ui.test.ts` (9 — picker, subviews, invite form
+in its own block, cancel, mandatory revoke confirmation, replacement action,
+locked status labels, server messages, anti-enumeration, no client-side
+authorization), `web/tests/operator-invitation-inbox.test.ts` (8 — existing
+notification page, real endpoints, server-confirmed flip, locked messages, no
+duplicate navigation) and `web/tests/account-mobile-density.test.ts` (7 —
+360px/390px static structure checks with a self-validating checker, wrapping,
+terminology, account-navigation regression).
+
+**NOT-RUN: browser measurement.** No headless browser exists in this repository,
+so `scrollWidth <= clientWidth` was never measured in a real 360px/390px
+viewport, and no e2e/browser run is claimed. The density evidence is static and
+say so in the test file.
+
+Existing suites that locked the pre-Tahap-3 UI were updated in the same commit
+(`account-center`, `navigation-separation`, `admin-live-account-surface`,
+`live-operator-management`, `account-profile-surface`, `account-menu-surfaces`):
+each now asserts the new contract, and none was weakened to pass.
