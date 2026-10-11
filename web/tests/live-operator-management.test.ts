@@ -93,10 +93,15 @@ test("the manager never invents a Place: it only offers the memberships it was g
   // The Place selector is built from the prop, never from a fetch.
   assert.match(manager, /places\.map\(/);
   assert.match(manager, /place\.placeName/);
-  // It cannot "list users": the only account source is the exact lookup.
+  // It cannot "list users" and it cannot address an account directly.
   assert.doesNotMatch(manager, /listUsers|admin\.listUsers|from\("users"\)/);
-  assert.match(manager, /\/api\/account\/lookup\?username=/);
   assert.match(manager, /\/api\/account\/live-operators\?placeId=/);
+  // Tahap 3: the manager surface now drives the INVITATION lifecycle, so the
+  // account is reached by registered email through the (non-enumerating) invite
+  // endpoint instead of a client-side username lookup. The 0047 lookup/grant
+  // APIs are untouched server-side — this test locks the UI contract only.
+  assert.match(manager, /\/api\/account\/live-operators\/invitations/);
+  assert.doesNotMatch(manager, /\/api\/account\/lookup/);
 });
 
 test("the manager shows the assigned Place and the assignment status", () => {

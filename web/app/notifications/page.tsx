@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import SiteNav from "@/components/site-nav";
 import NotificationInboxItem from "@/components/notification-inbox-item";
+import OperatorInvitationInbox from "@/components/account/operator-invitation-inbox";
 import { AuthenticationRequiredError, requireAuthenticatedActor } from "@/lib/auth/server";
 import { listUserNotifications } from "@/lib/notification-service";
 import { PageHeader, PageShell, StatusBadge, metaTextClass } from "@/components/ui/kit";
@@ -21,7 +22,11 @@ export const dynamic = "force-dynamic";
  * - opening a notification sets read_at through the server route; nothing is
  *   stored in the browser, so a refresh always re-reads canonical state;
  * - destinations are existing routes only — a Place-scoped notification opens
- *   that Place page, everything else stays plain (no new Live route).
+ *   that Place page, everything else stays plain (no new Live route);
+ * - Operator Live INVITATIONS keep their actionable Terima/Tolak controls here
+ *   (the same page the invitee is already told about, no second inbox and no
+ *   duplicate navigation entry): accepting or rejecting calls the real endpoint
+ *   and the row only changes once the server confirms.
  */
 export default async function NotificationsPage() {
   let notifications;
@@ -54,10 +59,14 @@ export default async function NotificationsPage() {
         <p className={`mt-2 text-black/45 ${metaTextClass}`}>
           Atur kategori notifikasi di{" "}
           <Link className="font-bold text-brand-accent underline-offset-2 hover:underline" href="/account/notifications">
-            Notification Settings
+            Pengaturan Notifikasi
           </Link>
           .
         </p>
+
+        <div className="mt-4">
+          <OperatorInvitationInbox />
+        </div>
 
         {notifications.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-dashed border-black/15 bg-white px-4 py-5">

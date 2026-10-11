@@ -57,6 +57,104 @@ export function AdminIcon({ className }: IconProps) {
   );
 }
 
+/** Akun & Akses — the account destination (key glyph). */
+export function AccountIcon({ className }: IconProps) {
+  return (
+    <svg {...svgProps(className)}>
+      <circle cx="9" cy="9" r="3.2" />
+      <path d="M3.5 20v-1.2a4 4 0 0 1 4-4h3a4 4 0 0 1 4 4V20" />
+      <path d="M15.5 9.2h5" />
+      <path d="M18 6.7v5" />
+    </svg>
+  );
+}
+
+/** Keluar — leaving the session (logout glyph). */
+export function SignOutIcon({ className }: IconProps) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13A1.5 1.5 0 0 1 18.5 20H15" />
+      <path d="M11 16l4-4-4-4" />
+      <path d="M15 12H4" />
+    </svg>
+  );
+}
+
+/** Pengaturan Notifikasi (bell glyph). */
+export function NotificationGlyphIcon({ className }: IconProps) {
+  return (
+    <svg {...svgProps(className)}>
+      <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.7 21a2 2 0 0 1-3.4 0" />
+    </svg>
+  );
+}
+
+/** Navigasi (compass glyph) — inert preference item. */
+export function NavigationIcon({ className }: IconProps) {
+  return (
+    <svg {...svgProps(className)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M15.4 8.6l-2 4.8-4.8 2 2-4.8z" />
+    </svg>
+  );
+}
+
+/** Bahasa Aplikasi (globe glyph) — inert preference item. */
+export function LanguageIcon({ className }: IconProps) {
+  return (
+    <svg {...svgProps(className)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3.5 12h17" />
+      <path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18z" />
+    </svg>
+  );
+}
+
+/** Pengaturan Video (play glyph) — inert preference item. */
+export function VideoIcon({ className }: IconProps) {
+  return (
+    <svg {...svgProps(className)}>
+      <rect x="3" y="6" width="12" height="12" rx="2.5" />
+      <path d="M15 11l6-3.2v8.4L15 13z" />
+    </svg>
+  );
+}
+
+/** Bantuan (life-ring glyph). */
+export function HelpIcon({ className }: IconProps) {
+  return (
+    <svg {...svgProps(className)}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="3.4" />
+      <path d="M5.6 5.6l3.5 3.5" />
+      <path d="M14.9 14.9l3.5 3.5" />
+      <path d="M18.4 5.6l-3.5 3.5" />
+      <path d="M9.1 14.9l-3.5 3.5" />
+    </svg>
+  );
+}
+
+/** Tentang (info glyph). */
+export function AboutIcon({ className }: IconProps) {
+  return (
+    <svg {...svgProps(className)}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5.5" />
+      <path d="M12 7.6h.01" />
+    </svg>
+  );
+}
+
+/** The shared right-facing chevron used by every navigating account row. */
+export function ChevronIcon({ className = "h-4 w-4 shrink-0 text-black/30" }: IconProps) {
+  return (
+    <svg {...svgProps(className)} strokeWidth={2}>
+      <path d="M9.5 6l6 6-6 6" />
+    </svg>
+  );
+}
+
 /** Developer — Creator authority (code glyph). */
 export function DeveloperIcon({ className }: IconProps) {
   return (
