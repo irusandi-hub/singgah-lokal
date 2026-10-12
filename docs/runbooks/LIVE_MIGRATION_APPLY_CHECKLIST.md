@@ -525,6 +525,32 @@ Automated equivalents (real Postgres engine via PGlite):
 `web/tests/live-comment-rate-limit.test.ts`,
 `web/tests/age-verification-foundation.test.ts`.
 
+#### 10.3.1 Concurrent admission + two-instance comment window (**NOT-RUN** — needs two DB sessions)
+
+The automated suites run on ONE database connection (PGlite), so they prove the
+serialization CONTRACT — a blocking, session-scoped `pg_advisory_xact_lock` taken
+BEFORE the capacity count (A-04), and one atomic conditional upsert inside
+`post_live_comment` for the comment window (A-09) — rather than two genuinely
+simultaneous transactions. Close that gap on DEV with two psql sessions against
+the same database, then tick the boxes:
+
+- [ ] **A-04 concurrent admission.** With the session already holding 100 active
+  presences, run `select public.admit_live_viewer('<session_id>');` in session A
+  and session B at the same time. Expect exactly one `live_capacity_full` (or
+  none, if a lease expired), and never 101 present rows:
+  `select count(*) from public.live_viewers where live_session_id = '<session_id>' and last_seen_at > now() - interval '5 minutes';`
+- [ ] **A-09 two-instance window.** With two app instances running, post two
+  comments for the SAME viewer + session within 5 seconds, alternating
+  instances. Expect the second to be refused with `live_comment_rate_limited`
+  and the stored row to stay put:
+  `select * from public.live_comment_rate_limits where live_session_id = '<session_id>' and user_id = '<user_id>';`
+  (one row; `last_comment_at` must NOT move on the denied attempt)
+- [ ] Record the observed numbers here (a measurement, not a pass/fail claim):
+
+```
+
+```
+
 ### 10.4 S-04 / S-05 — Realtime runtime checks on DEV (**NOT-RUN**)
 
 **Status: NOT-RUN.** What the suite already proves (RAN-PASSED) is the gate

@@ -70,7 +70,7 @@ PR yang ada → **0052, 0053, 0054, 0055** bebas, tidak ada tabrakan di cabang/P
 | A-02 | **FIXED** | `04b7d1e` | `0052`: SELECT tingkat-tabel `live_sessions` dicabut dari `anon`/`authenticated`, lalu GRANT kolom aman saja; `live_input_id` + `idempotency_key` server-side only. **Tidak ada grant baru ke `anon` yang lebih luas** (kolom yang di-grant = subset ketat grant tabel sebelumnya). `web/tests/live-privileges.test.ts` **diperbarui secara eksplisit**. |
 | A-04 | **FIXED** | `aa94173` | `0053`: lease presence `live_viewers.last_seen_at` + `touch_live_viewer_presence(text)`; kapasitas dan policy Realtime (`0009`) kini menghitung **presence aktif**. Angka tidak diubah (cap 100; nilai TUNABLE 5 menit tetap). Race-safe: serialisasi `pg_advisory_xact_lock` (`0027`) tidak disentuh. |
 | A-05 | **FIXED** | `87c0cfb` | Salinan UI menyatakan kapabilitas nyata (verifikasi usia belum tersedia); tanpa tombol/langkah yang pasti gagal; tidak menyiratkan DOB = verifikasi. Dikunci `web/tests/live-gate-copy.test.ts`. |
-| A-09 | **FIXED** | `bded0c6` | `0054`: jendela komentar ~1/5 s pindah dari memori proses ke penyimpanan bersama `public.live_comment_rate_limits` (RLS tertutup, nol akses klien), di-claim atomik di dalam `post_live_comment` (conditional upsert + row lock → race-safe lintas instance). Tanpa layanan eksternal baru. |
+| A-09 | **FIXED** | `bded0c6` | `0054`: jendela komentar ~1/5 s pindah dari memori proses ke penyimpanan bersama `public.live_comment_rate_limits` (RLS tertutup, nol akses klien), di-claim atomik di dalam `post_live_comment` (conditional upsert + row lock → state kanonik di DB, bukan per instance). Tanpa layanan eksternal baru. Pengukuran dua instance nyata: **NOT-RUN** (§10.3.1/§10.4). |
 | S-04 | **PARTIAL (RAN-PASSED + NOT-RUN DEV)** | `e60711` | Gate eligibility pada join/broadcast dievaluasi di Postgres nyata (PGlite): gate jalan di setiap jalur tulis, policy channel privat benar-benar memutuskan receive/send, klien tidak pernah join sebelum admission dan tidak jatuh ke polling. Round trip websocket nyata tetap **NOT-RUN** (butuh runtime DEV; checklist §10). |
 | S-05 | **PARTIAL (NOT-RUN)** | `e60711` | Perilaku rate limit + delivery broadcast di bawah beban tetap **NOT-RUN**; langkah beban manual ditulis di checklist §10. Tidak dilaporkan sebagai lulus. |
 | FONDASI USIA | **FOUNDATION-ONLY (sengaja tidak tersambung)** | `9dd473d` | `0055`: `age_verifications` + ledger event webhook + fungsi internal `age_verification_satisfied(uuid)` + RPC tulis SECURITY DEFINER (service_role only). **`assert_viewer_eligible`/`admit_live_viewer` tidak disentuh dan tetap menolak tanpa syarat.** Titik sambung satu-perubahan: `docs/HANDOFF_LIVE_MVP.md` §32.2. |
@@ -421,8 +421,15 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
   BLOCKING sehingga kontensi mengantre, bukan menolak penonton sah), upsert idempoten, `viewer_peak`,
   dan urutan gate (`assert_viewer_eligible` tetap pernyataan pertama). Dijalankan:
   `web/tests/live-viewer-presence-cap.test.ts` (100 penonton yang menonton >5 menit tetap terhitung;
-  penonton ke-101 ditolak; satu lease kedaluwarsa membebaskan tepat satu slot; admisi bersamaan),
-  `web/tests/live-viewer-cap-race.test.ts` (kontrak 0027 tetap utuh),
+  penonton ke-101 ditolak; tiga percobaan admisi berikutnya pada sesi yang sudah penuh juga ditolak
+  sehingga hitungan tidak pernah melewati cap; satu lease kedaluwarsa membebaskan tepat satu slot;
+  heartbeat klien lewat `/api/live/presence` dan berhenti bila ditolak),
+  `web/tests/live-viewer-cap-race.test.ts` (kontrak 0027 tetap utuh: `pg_advisory_xact_lock` BLOCKING
+  diambil SEBELUM hitungan kapasitas, kunci bercakupan sesi, bukan `try_`),
+  **Batas kejujuran:** PGlite berjalan pada SATU koneksi, jadi race-safety dibuktikan lewat kontrak
+  serialisasi di atas + penolakan setiap admisi saat sesi penuh — **bukan** dua transaksi yang benar
+  benar simultan. Uji simultan nyata (dua sesi DB) tetap **NOT-RUN**; langkah manualnya ada di
+  `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §10.3.1,
   `web/tests/db-regression/live-viewer-presence-access.sql` (result set), dan
   `web/tests/live-realtime-gate-static.test.ts` (policy Realtime memakai lease yang sama).
   **Temuan sampingan (bukan A-04):** baris audit `admission_denied` masih ter-rollback oleh
@@ -508,9 +515,15 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
   mana pun race-safe: tepat satu yang menang per jendela. Nilai TUNABLE (5 s) dan batas 300 karakter
   tidak diubah; kode error `live_comment_rate_limited` tetap sama sehingga route/UI tidak berubah;
   percobaan yang ditolak tidak memperpanjang jendelanya sendiri. Tanpa layanan eksternal baru
-  (PD-LIVEC-3). Dijalankan: `web/tests/live-comment-rate-limit.test.ts` (konsistensi lintas
-  "instance" — dua koneksi/klien terpisah melihat jendela yang sama; `Map` proses sudah hilang) dan
-  `web/tests/db-regression/live-comment-rate-limit-access.sql` (result set: nol akses klien).
+  (PD-LIVEC-3). Dijalankan: `web/tests/live-comment-rate-limit.test.ts` — tidak ada state proses
+  (`new Map(`, `commentTimestamps`, `enforceCommentRateLimit` sudah tidak ada dan modul memakai
+  `live_comment_rate_limits`), jendela diuji di engine nyata (komentar kedua ditolak, slot bebas
+  setelah jendela, penolakan tidak memperpanjang jendela, isolasi per penonton DAN per sesi, tabel
+  hanya menyimpan timestamp), dan nol akses klien; plus
+  `web/tests/db-regression/live-comment-rate-limit-access.sql` (result set: PK `(live_session_id,
+  user_id)`, claim atomik di RPC, nol akses klien). **Batas kejujuran:** konsistensi lintas-instance
+  di sini bersifat STRUKTURAL (state kanonik di DB + klaim atomik di RPC), bukan pengukuran dua
+  instance nyata — itu tetap **NOT-RUN** (langkah manual §10.3.1/§10.4).
 
 ### A-10 — Tidak ada mekanisme suspend/terminate akun; hanya kapabilitas Live produser · LOW · Tahap D · **POLICY DECISION NEEDED**
 
@@ -891,4 +904,12 @@ chunk 135-146: # tests  91  # pass  91  # fail 0
 TOTAL LIVE-C: 146 berkas, 1489 tes, 0 fail, 0 cancelled (semua berkas tercakup)
 CATATAN: satu percobaan pertama dengan chunk 20 berkas dihentikan oleh batas waktu sandbox
 (exit 124 pada 180 s) — bukan kegagalan tes; chunk diperkecil dan dijalankan ulang sampai tuntas.
+
+$ # Re-verifikasi setelah penyuntingan dokumen (audit + runbook) — hanya tes yang membaca
+$ # berkas dokumen itu yang dijalankan ulang, dengan status exit diambil eksplisit:
+$ bunx tsx --test tests/audit/live-auth-audit-defects.test.ts tests/live-privileges.test.ts tests/live-realtime-gate-static.test.ts > /tmp/livec-doc-rerun.log 2>&1; echo "RERUN_EXIT=$?"
+RERUN_EXIT=0
+# tests 16
+# pass 16
+# fail 0
 ```
