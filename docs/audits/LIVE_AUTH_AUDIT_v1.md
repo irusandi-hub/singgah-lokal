@@ -39,6 +39,21 @@ Project ref DEV yang tercatat di repo (dokumen, bukan nilai rahasia):
 
 ---
 
+## 0.b Status perbaikan (LIVE-B) — bukti asli di bawah tidak diubah
+
+Branch: `fix/live-auth-signup-operator-email`. Setiap SHA adalah satu tahap yang
+lulus tes relevan + `tsc -b --noEmit` + `eslint` (0 error) + suite penuh per chunk
+(1447/1447) + `next build`.
+
+| ID | Status | SHA | Catatan |
+| --- | --- | --- | --- |
+| A-01 | **FIXED** | `d004c6c` | `emailRedirectTo` → `/auth/callback?next=/auth` (satu-satunya penukar kode); `next` disanitasi di callback (open redirect ditolak). |
+| A-03 | **FIXED** | `37a7047` | `release_live_input`/`list_ended_live_inputs` → EXECUTE `service_role` saja; pemanggil server nyata (end wrapper + sweep) memakai koneksi service-role. |
+| A-06 | **FIXED** | `8f026a4` | Gerbang email terverifikasi (sumber `auth.users.email_confirmed_at`) di RPC accept, di predicate `can_operate_live_for_place`, dan di route accept. **POLICY DECISION**: hanya scope operator delegasi (owner/manager tidak terkena) — lihat §A-06 dan header `0051`. |
+| A-07 | **FIXED** | `587631b` | Kedua endpoint start Live memakai SATU helper `requireLiveStartAuthority` + satu mapper error; tes paritas menjalankan kedua handler nyata untuk input yang sama. |
+| S-01 | **PARTIAL (RAN-PASSED + NOT-RUN DEV)** | `c01d3e2` | Sisi DB/alur (mirror `public.users`, metadata hostile, kegagalan parsial + retry, duplikat, klien tidak bisa insert) kini RAN-PASSED di Postgres nyata; kebenaran template + klik email DEV tetap NOT-RUN (checklist §9). |
+| S-02 | **NOT-RUN (DEV)** | — | Butuh template email DEV; langkah manual ditulis di `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §9. |
+
 ## 1. Ringkasan temuan
 
 | Tingkat | Jumlah CONFIRMED | Jumlah SUSPECTED |
@@ -282,6 +297,12 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: tautan konfirmasi mendarat di `/auth`, yang tidak menukar `code` (alur PKCE/cookie `@supabase/ssr`) sehingga sesi pasca-konfirmasi tidak terbentuk; pengguna harus masuk manual dan UI tidak pernah menyatakan konfirmasi berhasil. Ini juga membuat `email_confirmed_at` tidak dapat dipastikan lewat jalur aplikasi.
 - Perbaikan yang diusulkan: arahkan `emailRedirectTo` ke `/auth/callback?next=/auth` (atau halaman `/auth/confirm` yang menukar `code`/`token_hash` lalu menampilkan status konfirmasi Indonesia), dan tambahkan tes yang menegaskan tujuan redirect selalu punya handler.
 - Tes pembuktian: belum ada → ditambahkan sebagai tes karakterisasi (A-01) di `web/tests/audit/`.
+- **Status (LIVE-B): FIXED di `d004c6c`.** `web/app/api/auth/sign-up/route.ts` mengirim
+  `emailRedirectTo: ${origin}/auth/callback?next=/auth` — handler yang sama dengan OAuth.
+  Dijalankan: `web/tests/auth-sign-up-flow.test.ts` (tujuan redirect persis, `next`
+  eksternal/protokol-relatif ditolak, `/auth` tidak punya penukar kode kedua). Sisa
+  yang butuh DEV (template email + klik sungguhan): **NOT-RUN**, lihat §S-02 dan
+  checklist §9.
 
 ### A-02 — `anon`/`authenticated` dapat membaca `live_input_id` dan `idempotency_key` dari `live_sessions` · MEDIUM · Tahap C · tanpa keputusan kebijakan
 
@@ -297,6 +318,16 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: (1) setiap akun terautentikasi bisa mengosongkan `live_input_id` sesi `ended` milik pihak lain — memutus kontrak cleanup "pointer dulu, hapus provider" (PO item 10) dan meninggalkan input provider yatim tanpa retry handle; (2) enumerasi UID input sesi `ended` lintas tenant, termasuk Place yang tidak published (melewati RLS karena SECURITY DEFINER). Belum bisa disalahgunakan untuk menonton/menyiarkan, tetapi jelas operasi lintas tenant.
 - Perbaikan: tambahkan pemeriksaan `can_operate_live_for_place(auth.uid(), <place sesi>)` di kedua RPC (atau turunkan grant ke service role dan panggil hanya dari route server).
 - Tes pembuktian: ditambahkan sebagai tes karakterisasi (A-03).
+- **Status (LIVE-B): FIXED di `37a7047`** (migrasi `0051_live_auth_integrity.sql` §1).
+  Opsi kedua yang dipakai: EXECUTE `release_live_input`/`list_ended_live_inputs` ditarik
+  dari `public`/`anon`/`authenticated` dan diberikan hanya ke `service_role`, setelah
+  memverifikasi pemanggil nyata di kode server (`lib/live/session-service.ts` end
+  wrapper dan `lib/live/session-service-cap.ts` sweep) — keduanya kini membuka
+  koneksi service-role. Badan fungsi sengaja tidak diubah: tanpa EXECUTE klien,
+  pemeriksaan pemanggil yang hilang tidak dapat dijangkau. Dijalankan:
+  `web/tests/live-cleanup-rpc-privileges.test.ts` +
+  `web/tests/db-regression/live-cleanup-rpc-access.sql` (result set) dan
+  `web/tests/live-cleanup-order.test.ts` (jalur server yang sah tetap jalan).
 
 ### A-04 — Batas 100 penonton konkuren tidak menghitung penonton yang bertahan >5 menit · MEDIUM · Tahap C · tanpa keputusan kebijakan
 
@@ -318,7 +349,23 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Bukti: `0048_live_operator_invitations.sql` → `accept_live_operator_invitation` hanya memeriksa `invited_user_id = auth.uid()`; tidak ada `auth.users.email_confirmed_at`. `0049` `can_operate_live_for_place` tidak memeriksa verifikasi email. `start_live_session` (`0049`) tidak memeriksa `email_confirmed_at`. Bandingkan dengan penonton yang wajib email terverifikasi (`0008` `assert_viewer_eligible`).
 - Dampak: akun dengan email belum terverifikasi dapat memegang otoritas Operator Live dan menyiarkan Live untuk Place, sedangkan penonton dengan kondisi sama ditolak. Apakah itu disengaja tidak dinyatakan master: `MASTER_LIVE_POLICY §2.2` hanya menuntut otorisasi Place, `MASTER_LIVE_TECH §4.2` tidak mencantumkan prasyarat email untuk producer → **tidak diputuskan**, jangan dipilih sendiri.
 - Perbaikan (setelah keputusan): tambahkan pemeriksaan `email_confirmed_at is not null` pada start/invite-accept, atau nyatakan eksplisit bahwa producer tidak menuntut verifikasi email.
-- Tes pembuktian: belum ada.
+- **Status (LIVE-B): FIXED di `8f026a4`** (migrasi `0051_live_auth_integrity.sql` §2),
+  **POLICY DECISION** tercatat di header migrasi dan di sini:
+  - Sumber otoritatif: `auth.users.email_confirmed_at` (bukan boolean klien/metadata).
+  - **Scope: hanya operator delegasi.** Master tidak mendefinisikan prasyarat email
+    untuk pengelola Tempat (`MASTER_LIVE_POLICY §2.2`, `MASTER_LIVE_TECH §4.2`), dan
+    baris matriks §5.3 (Pengelola Tempat) tidak ditandai A-06 — jadi owner/manager
+    TIDAK terkena gerbang ini, sama seperti sebelum migrasi. Bila pemilik produk
+    ingin memperluas, EXISTS subquery yang sama tinggal masuk ke cabang membership.
+  - Ditegakkan di dua lapis yang tidak bisa berbeda: predicate
+    `can_operate_live_for_place` (cabang operator) + RPC
+    `accept_live_operator_invitation` (`email_verification_required`, sebelum lookup
+    undangan), dan di route accept (`403 email_verification_required`, dibaca dari
+    Supabase Auth). Pesan Indonesia ada di `LiveConsole` dan model undangan.
+  - Dijalankan: `web/tests/live-operator-email-verification.test.ts` (4/4, termasuk
+    skrip DEV `db-regression/live-operator-email-verification-access.sql`) — sebelum
+    terverifikasi tidak bisa accept DAN tidak bisa start, setelah terverifikasi bisa,
+    revoke langsung menolak, dan POLICY DECISION owner/manager terkunci di tes.
 
 ### A-07 — Dua endpoint start/end yang kembar menilai otoritas operator secara berbeda · LOW · Tahap B · tanpa keputusan kebijakan
 
@@ -326,6 +373,19 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: perilaku tidak konsisten antar endpoint (fail-closed, jadi bukan celah keamanan). UI produser memakai `/api/live/start` sehingga operator tetap bisa memulai; route kembar tetap menjadi jebakan untuk pemakaian berikutnya.
 - Perbaikan: samakan ke `canOperateLiveForPlace` di POST route itu, atau hapus route kembar bila tidak terpakai.
 - Tes pembuktian: `live-operator-invitations-endpoints.test.ts` menguji route `/api/live-operator-invitations*`, bukan route kembar ini.
+- **Status (LIVE-B): FIXED di `587631b`.** Kedua endpoint
+  (`POST /api/live/start`, `POST /api/producer/live/sessions`) kini memanggil SATU
+  helper `requireLiveStartAuthority(request, placeId)`
+  (`lib/live/operator-authorization.ts`) dan menerjemahkan hasilnya lewat SATU
+  `liveStartAuthorityErrorResponse`; `requireProducerAccess` tidak lagi dipakai di
+  jalur start. Dijalankan: `web/tests/live-start-authority-parity.test.ts` (5/5) —
+  menjalankan KEDUA handler route nyata dengan input yang sama (owner/manager dan
+  operator terverifikasi lolos; editor, akun asing, owner Place lain, operator
+  di-revoke, operator belum terverifikasi → status+body identik; belum masuk → 401
+  identik; input tidak valid → 400 identik). Tes lama yang mengunci dua aturan
+  berbeda diperbarui ke satu gerbang bersama
+  (`live-operator-authorization.test.ts`, `live-operator-authority-migration.test.ts`,
+  `live-operator-invitations-endpoints.test.ts`, `live-operator-management.test.ts`).
 
 ### A-08 — Pencabutan playback setelah Live berakhir bergantung pada sweep; token tetap valid selama TTL · LOW · Tahap D · tanpa keputusan kebijakan
 
@@ -363,6 +423,20 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 | --- | --- | --- | --- | --- |
 | S-01 | HIGH | Pada project dengan email confirmation aktif, jalur `signUp` + trigger `handle_new_user` belum pernah diuji end-to-end: apakah kegagalan trigger (mis. RLS/permission) membatalkan `auth.users` dan apakah retry email yang sama menghasilkan satu baris `public.users`. | DEV: jalankan sign-up pada project DEV, periksa jumlah baris `auth.users` vs `public.users`, lalu ulangi email sama. | B |
 | S-02 | MEDIUM | Efek nyata A-01 bergantung pada template email DEV (apakah memakai `{{ .ConfirmationURL }}` dengan `redirect_to` atau tautan kustom). | DEV: lihat template email konfirmasi di dashboard + klik tautan sungguhan. | B |
+
+**Status (LIVE-B) untuk S-01/S-02:** bagian yang bisa dijalankan tanpa DEV
+**sudah RAN-PASSED** (`c01d3e2`): `web/tests/auth-sign-up-db.test.ts` (5/5 di Postgres
+nyata) membuktikan satu akun → tepat satu baris `public.users`, metadata sign-up
+hostile (`role`, `platform_role`, `producer_id`) tidak menghasilkan otoritas apa pun,
+kegagalan sinkronisasi profil membatalkan seluruh insert akun (tidak ada akun tanpa
+profil) dan email yang sama berhasil pada percobaan ulang, email duplikat ditolak,
+dan klien tidak bisa menyisipkan baris `public.users` sendiri; ditambah
+`web/tests/auth-sign-up-flow.test.ts` untuk sisi HTTP (validasi, penolakan
+`role`/`producer_id`, tujuan `emailRedirectTo`, penjagaan open redirect).
+Bagian yang **butuh DEV tetap NOT-RUN**: template email konfirmasi dan klik tautan
+sungguhan. Langkah manualnya ada di
+`docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §9 (S-01/S-02), dan **tidak boleh**
+disebut terverifikasi operasional sampai dikerjakan di DEV.
 | S-03 | MEDIUM | Drift migrasi repo vs DEV (0008/0047–0050 sudah/belum diapply; definisi fungsi usang seperti `end_live_session(text,text,text)` 3-argumen). | DEV: `select to_regproc(...)`, `information_schema`, bandingkan dengan repo. | semua |
 | S-04 | MEDIUM | `assert_viewer_eligible` benar-benar dijalankan untuk join Realtime dan broadcast komentar (bukan hanya diuji statis). | DEV/e2e dengan penonton sintetis; periksa penolakan join pada channel privat. | C |
 | S-05 | LOW | Perilaku rate limit & delivery broadcast di bawah beban (socket turun, REST fallback timeout) belum diukur di runtime. | DEV/e2e beban. | C |
@@ -382,6 +456,12 @@ terminate, lihat audit log, kelola kelayakan.
 Keterangan kolom: **Keputusan** = Diizinkan/Ditolak menurut kebijakan; **Sumber** =
 dokumen + bagian; **Penegakan** = fungsi/RLS/route aktual; **UI** = lokasi UI;
 **Status** = ADA / SEBAGIAN / TIDAK ADA; **Perbaikan** = ID temuan.
+
+> **Catatan status (LIVE-B):** baris-baris di §5 tetap memotret keadaan **saat audit**
+> (bukti asli, tidak diubah). A-01, A-03, A-06 dan A-07 sudah diperbaiki di branch
+> `fix/live-auth-signup-operator-email` — status + SHA per temuan ada di §0.b dan di
+> akhir setiap entri §3. A-02, A-04, A-05, A-08, A-09, A-10, A-11 **belum** disentuh
+> (Tahap C/D).
 
 ### 5.1 anon (tanpa akun)
 
