@@ -9,6 +9,7 @@ import {
   type LiveInputDeleteOutcome,
 } from "@/lib/live/cloudflare";
 import { LIVE_COMMENT_MAX_LENGTH } from "@/lib/live/types";
+import { sweepEndedLiveInputs } from "@/lib/live/session-service-cap";
 
 export class LiveValidationError extends Error {}
 export class LiveBoundaryUnavailableError extends Error {}
@@ -195,12 +196,89 @@ export async function admitLiveViewer(params: {
   });
 
   if (error) {
-    if (String(error.message).includes("live_capacity_full")) throw new LiveValidationError("live_capacity_full");
+    if (String(error.message).includes("live_capacity_full")) {
+      // A-13: the RPC's RAISE rolls back any audit row written inside it, so the
+      // denial is recorded OUT OF BAND — after the RPC refused, on the trusted
+      // service-role connection, on its own transaction. The denial decision is
+      // untouched (we still throw the same error). Best-effort: an audit miss
+      // must never turn a denial into an allow.
+      await recordAdmissionDenied(params.sessionId, params.userId, "capacity_full");
+      throw new LiveValidationError("live_capacity_full");
+    }
     if (String(error.message).includes("live_session_not_live")) throw new LiveValidationError("live_session_not_live");
     throw new LiveValidationError("live_viewer_denied");
   }
 
   return true;
+}
+
+/**
+ * A-13: record a refused admission on a transaction that the admitting RPC's
+ * rollback cannot reach. service_role only (migration 0056): the client can
+ * never call or forge this. Never throws — a missing audit row is a monitoring
+ * gap, not a reason to change the decision that already denied the viewer.
+ */
+async function recordAdmissionDenied(
+  sessionId: string,
+  actorId: string,
+  reason: string,
+): Promise<void> {
+  try {
+    await createSupabaseServiceClient().rpc("record_live_admission_denied", {
+      p_session_id: sessionId,
+      p_actor_id: actorId,
+      p_reason: reason,
+    });
+  } catch {
+    // Best-effort audit: the denial already happened and is unaffected.
+  }
+}
+
+/**
+ * A-10 / A-08: platform moderation actions plus the provider-revocation trigger.
+ *
+ * `moderate_live` (0008/0012) is the audited, `platform_moderator`-gated RPC that
+ * implements the policy §12.1 item 5 ladder. Every END-family action
+ * (`end`, `suspend`, `block_content`) sets the session to `ended`, which by
+ * itself only changes Supabase state — the provider live input is still alive.
+ * This wrapper therefore triggers the provider revocation using the capability
+ * the code ACTUALLY has (Cloudflare live-input delete, via the ended-input
+ * sweep), never an assumed provider feature. A production end / duration cap /
+ * stage unpublish is still covered by the status-route sweep.
+ */
+export async function moderateLiveSession(params: {
+  sessionId: string;
+  action: "warn" | "end" | "suspend" | "flag_review" | "resolve_review" | "block_content";
+  note?: string;
+}): Promise<{ revoked: number }> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.rpc("moderate_live", {
+    p_session_id: params.sessionId,
+    p_action: params.action,
+    p_note: params.note ?? null,
+  });
+
+  if (error) {
+    if (String(error.message).includes("platform_moderator_required")) {
+      throw new LiveValidationError("platform_moderator_required");
+    }
+    if (String(error.message).includes("live_session_not_found")) {
+      throw new LiveValidationError("live_session_not_found");
+    }
+    if (String(error.message).includes("live_moderation_action_invalid")) {
+      throw new LiveValidationError("live_moderation_action_invalid");
+    }
+    throw new LiveValidationError("live_moderation_failed");
+  }
+
+  let revoked = 0;
+  if (params.action === "end" || params.action === "suspend" || params.action === "block_content") {
+    // Provider revocation (best-effort, fail-safe): a cleanup failure never
+    // affects the committed moderation decision — the ended-input sweep retries.
+    revoked = await sweepEndedLiveInputs().catch(() => 0);
+  }
+
+  return { revoked };
 }
 
 /**
