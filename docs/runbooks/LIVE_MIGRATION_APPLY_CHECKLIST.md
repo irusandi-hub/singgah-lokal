@@ -10,7 +10,11 @@ Sections §0–§4 cover `0008`. §5–§6 cover the delegated Operator Live mig
 `0047` → `0048` → `0049` in that mandatory order (`0048` depends on `0047`; `0049`
 reads `public.live_operators`), and the runnable access script that proves the
 result on the DEV project. §7 covers `0050_profile_phone_verification.sql` (the
-profile + phone OTP foundation), which depends on `0047` only.
+profile + phone OTP foundation), which depends on `0047` only. §8 covers
+`0051_live_auth_integrity.sql` (cleanup-RPC lockdown A-03 + verified-email gate
+A-06), which depends on `0048` and `0050`. §9 is the manual sign-up / email
+confirmation verification (S-01/S-02), which needs the DEV project and its email
+template and therefore cannot run in the test suite.
 
 ## 0. Preconditions
 
@@ -249,7 +253,168 @@ The same rules are covered automatically in the normal suite by
 `web/tests/account-profile-phone-migration.test.ts` (which also executes this
 access script on a real Postgres engine).
 
-## 8. Out of scope (explicitly NOT here)
+## 8. Live auth integrity — apply 0051 (DEV)
+
+Applies to `web/supabase/migrations/0051_live_auth_integrity.sql`. Forward-only
+and idempotent; paste the WHOLE FILE in one run. It depends on `0048` (the
+invitation RPC it replaces) and on `0050` (it is numbered after the last applied
+migration). It changes **no** table and deletes no data: it replaces two function
+bodies and the EXECUTE posture of two cleanup RPCs.
+
+- [ ] Target re-confirmed: the Supabase **DEVELOPMENT** project ref (never
+  production).
+- [ ] `git pull` on the branch so the committed file is applied, never a local
+  edit.
+- [ ] `0048` and `0050` reported as applied
+  (`select to_regclass('public.live_operator_invitations')` and
+  `select to_regproc('public.record_phone_otp_verification')` are not null).
+
+### 8.1 Pre-apply checks (read-only, run first)
+
+```sql
+-- The cleanup RPCs of 0008/0013 and the 0049 predicate must already exist:
+select to_regproc('public.release_live_input');            -- expect not null
+select to_regproc('public.list_ended_live_inputs');        -- expect not null
+select to_regproc('public.can_operate_live_for_place');    -- expect not null
+select to_regproc('public.accept_live_operator_invitation'); -- expect not null
+-- Sanity: who currently holds EXECUTE on the cleanup RPCs (0049-era: any
+-- signed-in account). This is the state A-03 removes.
+select has_function_privilege('authenticated',
+  'public.release_live_input(text)', 'EXECUTE');            -- expect true BEFORE apply
+```
+
+### 8.2 Apply 0051
+
+- [ ] Paste the full contents of `0051_live_auth_integrity.sql` and run it once.
+  Expect success with no partial-commit errors.
+- [ ] Confirm the privilege posture **after** apply:
+
+```sql
+-- A-03: provider cleanup is server infrastructure → service_role only.
+select has_function_privilege('anon',
+  'public.release_live_input(text)', 'EXECUTE');             -- expect false
+select has_function_privilege('authenticated',
+  'public.release_live_input(text)', 'EXECUTE');             -- expect false
+select has_function_privilege('anon',
+  'public.list_ended_live_inputs()', 'EXECUTE');             -- expect false
+select has_function_privilege('authenticated',
+  'public.list_ended_live_inputs()', 'EXECUTE');             -- expect false
+select has_function_privilege('service_role',
+  'public.release_live_input(text)', 'EXECUTE');             -- expect true
+select has_function_privilege('service_role',
+  'public.list_ended_live_inputs()', 'EXECUTE');             -- expect true
+-- A-06: the authority predicate stays internal, and the accept RPC stays
+-- authenticated-only (its ACL is inherited from 0048 — 0051 grants nothing).
+select has_function_privilege('authenticated',
+  'public.can_operate_live_for_place(uuid,text)', 'EXECUTE'); -- expect false
+select has_function_privilege('anon',
+  'public.accept_live_operator_invitation(uuid)', 'EXECUTE'); -- expect false
+select has_function_privilege('authenticated',
+  'public.accept_live_operator_invitation(uuid)', 'EXECUTE'); -- expect true
+-- The viewer gate must be untouched by this migration:
+select to_regproc('public.assert_viewer_eligible');           -- expect not null
+select to_regproc('public.admit_live_viewer');                -- expect not null
+```
+
+### 8.3 Access verification on DEV
+
+- [ ] Run `web/tests/db-regression/live-cleanup-rpc-access.sql` on the same
+  DEVELOPMENT target (SQL Editor paste, or
+  `psql "$SUPABASE_DEV_DB_URL" -f tests/db-regression/live-cleanup-rpc-access.sql`).
+  One transaction, ends with `rollback;`, leaves no data behind. The file emits a
+  **result set** of `(check_name, passed, detail)` — every row must read
+  `passed = true` (the A-03 posture, and that the legitimate server path still
+  works through the service role).
+- [ ] Run `web/tests/db-regression/live-operator-email-verification-access.sql`
+  the same way. Same result-set contract: every row `passed = true`. It covers
+  the A-06 gate (an unconfirmed invitee cannot accept; an unconfirmed active
+  operator cannot start; after confirming, both succeed; a revoke denies the very
+  next start) **and** the recorded policy decision that an owner/manager WITHOUT
+  a confirmed email still starts Live.
+- [ ] Any `passed = false` — stop. Fix the migration in the repo and re-apply on a
+  fresh target. Do not "fix forward" in the database.
+- [ ] The same rules are covered automatically in the normal suite by
+  `web/tests/live-operator-email-verification.test.ts` (which executes the second
+  script on a real Postgres engine).
+
+## 9. Sign-up and email confirmation — manual DEV verification (S-01/S-02)
+
+**Status: NOT-RUN.** Nothing in this section can be executed by the test suite:
+it needs the DEV project's Auth service and its confirmation email template.
+Do not describe A-01 (the confirmation link landing on the code-exchange
+handler) as verified operational until every box below is ticked on DEV.
+
+The automatable half is already covered and green:
+
+- `web/tests/auth-sign-up-flow.test.ts` — the route's validation, the
+  `role`/`producer_id` refusal, the `emailRedirectTo` destination and the
+  callback's open-redirect guard.
+- `web/tests/auth-sign-up-db.test.ts` — on a real Postgres engine: the
+  `auth.users` → `public.users` mirror (exactly one row), hostile sign-up
+  metadata granting nothing, a failed profile sync leaving NOTHING behind (and
+  the same email succeeding on retry), a duplicate email being refused, and a
+  client being unable to insert its own profile row.
+
+### 9.1 Confirmation email template (S-02)
+
+- [ ] Supabase Dashboard → Authentication → **Email Templates** →
+  "Confirm signup".
+- [ ] The template must contain the confirmation link. Record which form it
+  uses, in the box below:
+  - [ ] `{{ .ConfirmationURL }}` — the standard form. Supabase appends the
+    `redirect_to` the app sent (`/auth/callback?next=/auth`), so the click lands
+    on the code-exchange handler.
+  - [ ] Custom URL — it must still point at
+    `{{ .SiteURL }}/auth/callback?next=/auth` and still carry the
+    `token_hash`/`code`. A link to the site root or to `/auth` alone is a
+    FAILURE: `/auth` never reads `code`, which is exactly the A-01 defect.
+- [ ] Template recorded (paste the link line here, never any secret):
+
+```
+
+```
+
+### 9.2 Real sign-up round trip (S-01/A-01)
+
+- [ ] On the DEV app, sign up with a fresh address (e.g.
+  `verifikasi+<tanggal>@example.com`).
+- [ ] Read the confirmation email and confirm the link host/path are
+  `/auth/callback` with `next=/auth` (S-02).
+- [ ] Open the link in the same browser. Expected: the session is created (the
+  code is exchanged) and the app lands **signed in**, not on a signed-out
+  `/auth`.
+- [ ] If the link lands signed-out, or `/auth` shows `missing_code`, that is the
+  A-01 defect still present in the DEV template — fix the template, not the app.
+
+### 9.3 Account-row sync and retry (S-01)
+
+- [ ] Run on the same DEVELOPMENT target (read-only):
+
+```sql
+-- One profile row per confirmed account; no orphan on either side.
+select count(*) from auth.users;
+select count(*) from public.users;
+select a.id from auth.users a
+  left join public.users u on u.id = a.id
+ where u.id is null;                          -- expect 0 rows
+select u.id from public.users u
+  left join auth.users a on a.id = u.id
+ where a.id is null;                          -- expect 0 rows
+-- The row is a plain account: no authority was created by signing up.
+select id, username, platform_role from public.users
+ where platform_role is not null;             -- expect only the Platform Admins you know
+select count(*) from public.producer_memberships;  -- unchanged by sign-ups
+```
+- [ ] Attempt the SAME email a second time. Expected: Auth refuses
+  (`User already registered`), `auth.users` gains no row, `public.users` gains no
+  row.
+- [ ] If the counts diverge (an account without a profile row), stop and treat it
+  as a profile-sync failure: the atomic half is covered by
+  `web/tests/auth-sign-up-db.test.ts`, so a divergence on DEV means something
+  else (a hand-edited row, or a trigger that was dropped) — investigate before
+  any further apply.
+
+## 10. Out of scope (explicitly NOT here)
 
 - No SMS/OTP provider and no vendor credential (B5 blocker stays open until the product owner supplies a provider; `PHONE_OTP_HASH_SECRET` / B6 is the matching server-side secret).
 - No Cloudflare account/credential configuration (B4 blocker stays open until the PO supplies `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` server-side).
