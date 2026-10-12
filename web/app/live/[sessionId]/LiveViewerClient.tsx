@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { LIVE_COMMENT_MAX_LENGTH } from "@/lib/live/types";
+import { LIVE_COMMENT_MAX_LENGTH, LIVE_VIEWER_PRESENCE_INTERVAL_MS } from "@/lib/live/types";
 
 type Props = {
   sessionId: string;
@@ -134,6 +134,46 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [comments]);
+
+  // Viewer presence heartbeat (A-04): the server counts ACTIVE PRESENCE toward
+  // the 100-concurrent cap and for private-channel access, with a lease that
+  // expires inside the TUNABLE grace window. Renewing it while this viewer is
+  // watching is what keeps a long watch counted — the old server-side rule
+  // dropped every viewer five minutes after admission. A closed tab stops
+  // renewing, so the lease expires server-side (presence, not a ledger row).
+  useEffect(() => {
+    if (!admitted || endedReason) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    async function renewPresence() {
+      try {
+        const response = await fetch("/api/live/presence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        });
+        if (cancelled) return;
+        // Fail closed: when the server refuses the renewal (not admitted, session
+        // no longer live), stop heartbeating instead of pretending presence. The
+        // server remains the only authority on who is present.
+        if (!response.ok && timer) clearInterval(timer);
+      } catch {
+        // Transient network failure: keep the interval running; if it persists,
+        // the server-side lease simply expires (fail closed).
+      }
+    }
+
+    void renewPresence();
+    timer = setInterval(() => {
+      void renewPresence();
+    }, LIVE_VIEWER_PRESENCE_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [admitted, endedReason, sessionId]);
 
   // WHEP playback (PO item 2, tech §5 amended): one admission attempt per
   // mount. The server applies every gate (published Place, stream health,

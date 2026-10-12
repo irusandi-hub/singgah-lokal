@@ -235,6 +235,33 @@ export async function admitLiveViewer(params: {
   return true;
 }
 
+/**
+ * Viewer presence heartbeat (A-04, migration 0053).
+ *
+ * Renews THIS caller's presence lease on the session it is already admitted to,
+ * so a viewer who keeps watching keeps counting toward the 100-concurrent cap
+ * and keeps receiving the private Realtime channel — instead of silently
+ * dropping out of the count five minutes after admission.
+ *
+ * Fail-closed: the server derives the actor from the session (auth.uid()); the
+ * RPC refuses an anonymous caller, a session that is no longer live, and any
+ * caller with no admitted ledger row for that session. This is presence only —
+ * admission still goes through admitLiveViewer's full gate.
+ */
+export async function touchLiveViewerPresence(params: { sessionId: string }): Promise<boolean> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.rpc("touch_live_viewer_presence", {
+    p_session_id: params.sessionId,
+  });
+
+  if (error) {
+    if (String(error.message).includes("live_session_not_live")) throw new LiveValidationError("live_session_not_live");
+    throw new LiveValidationError("live_viewer_denied");
+  }
+
+  return true;
+}
+
 export async function postLiveComment(params: {
   sessionId: string;
   userId: string;
