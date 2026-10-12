@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { AuthenticationRequiredError, ProducerAuthorizationRequiredError, requireProducerAccess } from "@/lib/auth/server";
+import { AuthenticationRequiredError, ProducerAuthorizationRequiredError } from "@/lib/auth/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 import { sweepOrphanLiveInputs } from "@/lib/live/session-service-cap";
 import { endLiveSession, LiveValidationError, startLiveSession } from "@/lib/live/session-service";
-import { canOperateLiveForPlace } from "@/lib/live/operator-authorization";
+import {
+  canOperateLiveForPlace,
+  liveStartAuthorityErrorResponse,
+  requireLiveStartAuthority,
+} from "@/lib/live/operator-authorization";
 
 type StartLiveBody = {
   placeId?: unknown;
@@ -19,6 +23,12 @@ type EndLiveBody = {
 };
 
 function errorResponse(error: unknown) {
+  // The SHARED start-authority outcomes (audit A-07), so this endpoint and
+  // POST /api/live/start answer a given caller identically.
+  const authorityResponse = liveStartAuthorityErrorResponse(error);
+  if (authorityResponse) {
+    return NextResponse.json(authorityResponse.body, { status: authorityResponse.status });
+  }
   if (error instanceof AuthenticationRequiredError) {
     return NextResponse.json({ error: "authentication_required" }, { status: 401 });
   }
@@ -43,8 +53,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "placeId_stage_idempotency_required" }, { status: 400 });
     }
 
-    // Producer must be authorized for the Place (owner/manager).
-    await requireProducerAccess(request, placeId, ["owner", "manager"]);
+    // THE shared start-Live authority gate (audit A-07): owner/manager OR an
+    // active delegated operator whose email is confirmed — exactly what
+    // POST /api/live/start applies. This endpoint used to re-implement a
+    // Producer-only rule, so the same operator could start on one route and be
+    // refused on the other.
+    await requireLiveStartAuthority(request, placeId);
 
     // Process is the subject: stage must exist, belong to the Place, and be published.
     const stage = await (await getServerProductionStoryRepository()).getById(placeId, stageId);

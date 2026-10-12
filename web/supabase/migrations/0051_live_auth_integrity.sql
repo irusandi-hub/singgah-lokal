@@ -181,8 +181,13 @@ begin
 end;
 $$;
 
-revoke all on function public.accept_live_operator_invitation(uuid) from public, anon, authenticated;
-grant execute on function public.accept_live_operator_invitation(uuid) to authenticated;
+-- No privilege statement here on purpose: `create or replace function`
+-- PRESERVES the existing ACL, and 0048 already set the exact least-privilege
+-- posture for this RPC
+-- (`revoke all ... from public, anon, authenticated` + `grant execute ... to
+-- authenticated`). Re-stating the grant would only duplicate 0048's decision in
+-- a migration about the email gate, so the posture is inherited, not re-derived.
+-- The A-03 section above still changes EXECUTE, for the two cleanup RPCs only.
 
 commit;
 

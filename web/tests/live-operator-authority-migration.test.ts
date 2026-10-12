@@ -525,7 +525,11 @@ test("the Live routes keep authorizing through the single server helper", () => 
     "utf8",
   );
 
-  assert.match(startRoute, /canOperateLiveForPlace/);
+  // A-07: both start endpoints go through the ONE shared start gate (which is
+  // built on canOperateLiveForPlace's rules inside this same helper); the end
+  // route keeps calling the predicate directly.
+  assert.match(startRoute, /requireLiveStartAuthority/);
+  assert.doesNotMatch(startRoute, /from\("live_operators"\)/);
   assert.match(endRoute, /canOperateLiveForPlace/);
   assert.match(helper, /export async function canOperateLiveForPlace/);
   assert.match(helper, /\.is\("revoked_at", null\)/);

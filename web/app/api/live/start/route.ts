@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { startLiveSession } from "@/lib/live/session-service";
-import { canOperateLiveForPlace } from "@/lib/live/operator-authorization";
-import { ProducerAuthorizationRequiredError } from "@/lib/auth/server";
+import {
+  liveStartAuthorityErrorResponse,
+  requireLiveStartAuthority,
+} from "@/lib/live/operator-authorization";
 
 type StartBody = {
   placeId?: unknown;
@@ -12,12 +13,6 @@ type StartBody = {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: userData, error: authError } = await supabase.auth.getUser();
-    if (authError || !userData?.user) {
-      return NextResponse.json({ error: "authentication_required" }, { status: 401 });
-    }
-
     const body = (await request.json()) as StartBody;
     const placeId =
       typeof body.placeId === "string" ? body.placeId : "";
@@ -34,12 +29,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Producer owner/manager OR an active delegated operator for this EXACT
-    // Place. A revoked assignment and a Producer of another Place both fail.
-    const allowed = await canOperateLiveForPlace(supabase, userData.user.id, placeId);
-    if (!allowed) {
-      throw new ProducerAuthorizationRequiredError();
-    }
+    // THE shared start-Live authority gate (audit A-07): identical to the
+    // Producer console endpoint by construction, because both call this one
+    // function instead of each keeping its own rule.
+    await requireLiveStartAuthority(request, placeId);
 
     const result = await startLiveSession({
       placeId,
@@ -50,11 +43,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof ProducerAuthorizationRequiredError) {
-      return NextResponse.json(
-        { error: "producer_authorization_required" },
-        { status: 403 },
-      );
+    const authorityResponse = liveStartAuthorityErrorResponse(error);
+    if (authorityResponse) {
+      return NextResponse.json(authorityResponse.body, {
+        status: authorityResponse.status,
+      });
     }
     if (error instanceof Error) {
       const message = error.message;
