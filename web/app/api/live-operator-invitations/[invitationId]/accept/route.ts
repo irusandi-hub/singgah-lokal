@@ -25,6 +25,17 @@ export async function POST(
       return NextResponse.json({ error: "invitation_id_required" }, { status: 400 });
     }
 
+    // A-06: a verified email is a prerequisite for delegated Operator access.
+    // Enforced HERE (server, from auth.users via getUser) AND inside the RPC
+    // (email_verification_required) — the two layers can never disagree. The
+    // source of truth is the confirmed-at timestamp, never client state.
+    if (!userData.user.email_confirmed_at) {
+      return NextResponse.json(
+        { error: "email_verification_required" },
+        { status: 403 },
+      );
+    }
+
     const { error } = await supabase.rpc("accept_live_operator_invitation", {
       p_invitation_id: invitationId,
     });

@@ -467,6 +467,8 @@ function startErrorMessage(error?: string): string {
       return "Proses harus berstatus Tayang untuk ditayangkan.";
     case "producer_authorization_required":
       return "Kamu tidak memiliki akses Pengelola untuk Tempat ini.";
+    case "email_verification_required":
+      return "Email kamu belum terverifikasi. Periksa email konfirmasi dari SINGGAH LOKAL, lalu coba lagi.";
     case "live_start_busy":
       return "Sedang ada pemulitan Live lain. Coba sesaat lagi.";
     default:

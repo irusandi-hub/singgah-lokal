@@ -25,6 +25,34 @@ export type PlaceManagerAuthority = {
 };
 
 /**
+ * Thrown when the caller holds an active delegated operator assignment but
+ * their account email is not confirmed yet (audit A-06). Distinct from
+ * ProducerAuthorizationRequiredError so the routes can answer with the
+ * precise, actionable code `email_verification_required`.
+ */
+export class LiveEmailVerificationRequiredError extends Error {
+  constructor() {
+    super("email_verification_required");
+  }
+}
+
+/**
+ * The authoritative verified-email state, read from Supabase Auth on the
+ * server (`auth.users.email_confirmed_at`) — never a client boolean or user
+ * metadata. Fails closed: no resolvable user means NOT verified.
+ */
+export async function hasVerifiedAccountEmail(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<boolean> {
+  if (!userId) return false;
+  const { data } = await supabase.auth.getUser();
+  const user = data?.user;
+  if (!user || user.id !== userId) return false;
+  return Boolean(user.email_confirmed_at);
+}
+
+/**
  * The caller's Pengelola authority over ONE exact Place, or null.
  *
  * This is the predicate every management surface shares (Live operator
@@ -76,15 +104,20 @@ export async function isPlaceOwnerOrManager(
   return (await resolvePlaceManagerAuthority(supabase, userId, placeId)) !== null;
 }
 
-/** Producer owner/manager OR a delegated, non-revoked operator of this Place. */
+/**
+ * Producer owner/manager OR a delegated, non-revoked operator of this Place.
+ *
+ * A-06 (POLICY DECISION, operator-delegate scope only): the OPERATOR branch
+ * additionally requires the account email to be confirmed
+ * (auth.users.email_confirmed_at). The owner/manager branch is unchanged —
+ * no master requires a verified email for a Pengelola Tempat.
+ */
 export async function canOperateLiveForPlace(
   supabase: SupabaseClient,
   userId: string,
   placeId: string,
 ): Promise<boolean> {
-  const [producer, operator] = await Promise.all([
-    isPlaceOwnerOrManager(supabase, userId, placeId),
-    hasActiveLiveOperatorAssignment(supabase, userId, placeId),
-  ]);
-  return producer || operator;
+  if (await isPlaceOwnerOrManager(supabase, userId, placeId)) return true;
+  if (!(await hasActiveLiveOperatorAssignment(supabase, userId, placeId))) return false;
+  return hasVerifiedAccountEmail(supabase, userId);
 }
