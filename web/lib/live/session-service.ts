@@ -22,13 +22,21 @@ type SessionRow = {
   producer_id: string;
   stage_id: string;
   status: string;
-  live_input_id: string | null;
   started_at: string;
   ended_at: string | null;
   ended_reason: string | null;
   end_note: string | null;
   viewer_peak: number;
 };
+
+/**
+ * A-02 (migration 0052): `live_input_id` and `idempotency_key` are no longer
+ * SELECT-granted to anon/authenticated, so every caller-session read must name
+ * the safe columns explicitly. Provider-sensitive reads go through the server's
+ * service-role connection instead (never through the caller's RLS session).
+ */
+const LIVE_SESSION_SAFE_COLUMNS =
+  "id, place_id, producer_id, stage_id, status, started_at, ended_at, ended_reason, end_note, viewer_peak";
 
 /**
  * Per-viewer comment rate limiting (tech §6, TUNABLE ~1/5s).
@@ -166,12 +174,14 @@ export async function endLiveSession(params: {
   // affects the committed session state (best-effort, fail-safe).
   try {
     // Pointer probe: the release RPC itself nulls live_input_id, so reading the
-    // pointer through the canonical row keeps the probe side-effect free. The
-    // read goes through RLS as the caller; a hidden/unknown session yields null
-    // and leaves the pointer untouched (the sweep remains the backstop).
-    const { data: rows } = await supabase
+    // pointer through the canonical row keeps the probe side-effect free. A-02:
+    // live_input_id is server-side only (no client column grant), so the probe
+    // runs on the SERVICE-ROLE connection — the same infrastructure connection
+    // that later calls release_live_input. The ended-state filter is kept, so
+    // the probe can never touch a session that is still live.
+    const { data: rows } = await createSupabaseServiceClient()
       .from("live_sessions")
-      .select("live_input_id")
+      .select("id, live_input_id")
       .eq("id", params.sessionId)
       .eq("status", "ended")
       .limit(1);
@@ -272,19 +282,37 @@ export async function submitLiveReport(params: {
 
 export async function getLiveSession(sessionId: string): Promise<SessionRow | null> {
   const supabase = await createSupabaseServerClient();
+  // A-02: explicit safe columns — a `select *` would (correctly) fail on the
+  // non-granted provider columns for anon/authenticated callers.
   const { data } = await supabase
     .from("live_sessions")
-    .select("*")
+    .select(LIVE_SESSION_SAFE_COLUMNS)
     .eq("id", sessionId)
     .maybeSingle();
   return (data as SessionRow | null) ?? null;
+}
+
+/**
+ * Provider-input pointer (A-02): server-side only. Reads live_input_id on the
+ * service-role connection, so playback signing and publish-URL re-issuance keep
+ * working while the column stays invisible to every client role. Callers must
+ * have completed their own authorization/visibility checks first — this helper
+ * authorizes nothing by itself.
+ */
+export async function getLiveSessionInputId(sessionId: string): Promise<string | null> {
+  const { data } = await createSupabaseServiceClient()
+    .from("live_sessions")
+    .select("id, live_input_id")
+    .eq("id", sessionId)
+    .maybeSingle();
+  return ((data as { live_input_id: string | null } | null)?.live_input_id) ?? null;
 }
 
 export async function listLiveSessionsForPlace(placeId: string): Promise<SessionRow[]> {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase
     .from("live_sessions")
-    .select("*")
+    .select(LIVE_SESSION_SAFE_COLUMNS)
     .eq("place_id", placeId)
     .order("started_at", { ascending: false })
     .limit(10);

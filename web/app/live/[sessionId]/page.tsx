@@ -16,9 +16,12 @@ export default async function LiveViewerPage({
   const { sessionId } = await params;
   const supabase = await createSupabaseServerClient();
 
+  // A-02: this page runs in the caller's own session (anon included), so it
+  // must only name the SELECT-granted columns — live_input_id is server-side
+  // only and is never needed to render the gate state.
   const { data: session } = await supabase
     .from("live_sessions")
-    .select("id, place_id, stage_id, status, started_at, ended_at, ended_reason, viewer_peak, live_input_id")
+    .select("id, place_id, stage_id, status, started_at, ended_at, ended_reason, viewer_peak")
     .eq("id", sessionId)
     .maybeSingle();
 
