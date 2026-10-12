@@ -70,11 +70,17 @@ export default async function LiveViewerPage({
             ) : (
               <div className="p-8 text-center">
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#e8c47c]">LIVE SEKARANG</p>
+                {/* A-05: honest capability statement. The server denies every
+                    viewer while the verified-age mechanism does not exist (B1,
+                    Phase 2.1), and a self-declared date of birth is NOT age
+                    verification — so this never reads as "waiting for" a step
+                    the viewer could complete, and it names the real reason. */}
                 <p className="mt-2 text-lg font-semibold text-white">
-                  Menunggu verifikasi akses Live
+                  Menonton Live belum dapat dibuka
                 </p>
                 <p className="mt-1 text-xs text-white/60">
-                  Akses Live memerlukan akun terverifikasi (email terverifikasi + usia ≥ 18).
+                  Verifikasi usia (18+) belum tersedia di platform, jadi akses menonton Live belum dapat
+                  diberikan. Email terverifikasi saja tidak cukup.
                 </p>
               </div>
             )}
