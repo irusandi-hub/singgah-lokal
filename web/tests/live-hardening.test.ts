@@ -113,8 +113,19 @@ test("I4: comment sequencing is server-issued, monotonic; Date.now() payload is 
   assert.doesNotMatch(commentsRouteSource, /sequence: Date\.now\(\)/);
   assert.match(commentsRouteSource, /nextLiveCommentSequence\(sessionId\)/);
   assert.match(sequenceSource, /import "server-only";/);
-  // Rate limit remains in the service layer (TUNABLE ~1/5s).
-  assert.match(sessionServiceSource, /enforceCommentRateLimit/);
+  // EXPLICIT CHANGE FOR A-09: the TUNABLE ~1/5s comment window is no longer a
+  // process-memory limiter in the service layer — it is claimed in the SHARED
+  // store by post_live_comment (migration 0054), so it is identical across
+  // server instances. The service only maps the rejection.
+  assert.doesNotMatch(sessionServiceSource, /enforceCommentRateLimit/);
+  assert.doesNotMatch(sessionServiceSource, /new Map\(/);
+  assert.match(sessionServiceSource, /live_comment_rate_limited/);
+  const rateLimitMigration = readFileSync(
+    new URL("../supabase/migrations/0054_live_comment_rate_limit.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(rateLimitMigration, /create table if not exists public\.live_comment_rate_limits/);
+  assert.match(rateLimitMigration, /revoke all on public\.live_comment_rate_limits from public, anon, authenticated;/);
 });
 
 test("I2: Live end requires and forwards an explicit idempotency key", () => {

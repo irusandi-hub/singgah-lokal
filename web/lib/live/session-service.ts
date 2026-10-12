@@ -8,10 +8,7 @@ import {
   isLiveInputDeleteNotFound,
   type LiveInputDeleteOutcome,
 } from "@/lib/live/cloudflare";
-import {
-  LIVE_COMMENT_MAX_LENGTH,
-  LIVE_COMMENT_MIN_INTERVAL_MS,
-} from "@/lib/live/types";
+import { LIVE_COMMENT_MAX_LENGTH } from "@/lib/live/types";
 
 export class LiveValidationError extends Error {}
 export class LiveBoundaryUnavailableError extends Error {}
@@ -37,35 +34,6 @@ type SessionRow = {
  */
 const LIVE_SESSION_SAFE_COLUMNS =
   "id, place_id, producer_id, stage_id, status, started_at, ended_at, ended_reason, end_note, viewer_peak";
-
-/**
- * Per-viewer comment rate limiting (tech §6, TUNABLE ~1/5s).
- * Server process memory is acceptable for Phase 2 single-runtime deployments;
- * a shared store (e.g. Upstash) is the TUNABLE upgrade path for multi-instance.
- */
-const commentTimestamps = new Map<string, number[]>();
-
-function enforceCommentRateLimit(viewerKey: string): void {
-  const now = Date.now();
-  const timestamps = (commentTimestamps.get(viewerKey) ?? []).filter(
-    (timestamp) => now - timestamp < LIVE_COMMENT_MIN_INTERVAL_MS,
-  );
-
-  if (timestamps.length >= 1) {
-    throw new LiveValidationError("live_comment_rate_limited");
-  }
-
-  timestamps.push(now);
-  commentTimestamps.set(viewerKey, timestamps);
-
-  if (commentTimestamps.size > 10_000) {
-    for (const [key, stamps] of commentTimestamps) {
-      if (stamps.every((timestamp) => now - timestamp >= LIVE_COMMENT_MIN_INTERVAL_MS)) {
-        commentTimestamps.delete(key);
-      }
-    }
-  }
-}
 
 export type StartLiveSessionResult = {
   sessionId: string;
@@ -271,8 +239,11 @@ export async function postLiveComment(params: {
     throw new LiveValidationError("live_comment_too_long");
   }
 
-  enforceCommentRateLimit(`${params.sessionId}:${params.userId}`);
-
+  // A-09: the ~1/5s per-viewer window is enforced by `post_live_comment`
+  // against the SHARED `live_comment_rate_limits` store (migration 0054), so it
+  // is identical across every server instance — there is deliberately NO
+  // process-memory limiter here, and nothing in this module keeps request
+  // state between calls.
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.rpc("post_live_comment", {
     p_session_id: params.sessionId,
@@ -280,6 +251,7 @@ export async function postLiveComment(params: {
   });
 
   if (error) {
+    if (String(error.message).includes("live_comment_rate_limited")) throw new LiveValidationError("live_comment_rate_limited");
     if (String(error.message).includes("live_session_not_live")) throw new LiveValidationError("live_session_not_live");
     throw new LiveValidationError("live_viewer_denied");
   }
