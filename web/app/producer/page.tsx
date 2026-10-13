@@ -18,6 +18,13 @@ export const dynamic = "force-dynamic";
 // memberships via the canonical repository — no new auth, no new API.
 export default async function ProducerDashboardPage() {
   let places: Place[] = [];
+  // Deny-by-default server gate (task Tahap 2C/3): the Pengelola dashboard is
+  // owner/manager-only. A delegated Operator Live account (or any account with
+  // no owner/manager membership) never renders it — it is redirected to the
+  // Account & Access Center, which is the only place that shows its real
+  // access. The "apply to become Pengelola" flow is untouched: it lives at
+  // /producer/onboarding (linked from the auth pages and the Account Center).
+  let hasManagerMembership = false;
 
   try {
     const actor = await requireAuthenticatedActor(new Request("http://localhost/producer"));
@@ -27,6 +34,7 @@ export default async function ProducerDashboardPage() {
       .select("place_id, role")
       .eq("user_id", actor.userId)
       .in("role", ["owner", "manager"]);
+    hasManagerMembership = (memberships?.length ?? 0) > 0;
     const placeRepository = await getServerPlaceManagementRepository();
     // PERFORMANCE (2026-10-08): the per-membership lookups are independent, so
     // they run as ONE parallel batch instead of a sequential `await` loop.
@@ -43,6 +51,10 @@ export default async function ProducerDashboardPage() {
       redirect("/auth?returnTo=%2Fproducer");
     }
     throw error;
+  }
+
+  if (!hasManagerMembership) {
+    redirect("/account");
   }
 
   return <ProducerPlaceWorkspace initialPlaces={places} showOnboardingHint={places.length === 0} />;
