@@ -98,6 +98,53 @@ PR yang ada → **0052, 0053, 0054, 0055** bebas, tidak ada tabrakan di cabang/P
 Verifikasi Tahap C (label di §8, output mentah di §10): suite penuh **146 berkas / 1489 tes / 0 fail**
 (11 chunk serial), `bun tsc -b --noEmit` exit 0, `bunx eslint .` 0 error, `bun run build` exit 0.
 
+## 0.d Status perbaikan (LIVE-D) — bukti asli di bawah tidak diubah
+
+**BASE (ditentukan dari status PR, bukan asumsi).** `gh pr view 40` → PR #40
+(`audit/live-auth-baseline` → `main`) **OPEN**; `gh pr view 41` → PR #41
+(`fix/live-auth-signup-operator-email` → `audit/live-auth-baseline`) **OPEN**; `gh pr view 42` →
+PR #42 (`fix/live-viewer-gate-hardening` → `fix/live-auth-signup-operator-email`) **OPEN**. Karena
+belum ada merger, PR Tahap D berbasis **`fix/live-viewer-gate-hardening`** (head PR #42 = ujung
+rantai yang belum merge) dan memuat rantai lengkapnya; hal ini juga ditulis di deskripsi PR.
+
+**Nomor migrasi bebas setelah 0055** (0055 = nomor terakhir LIVE-C): dicek di repo dan di semua PR
+→ **0056** bebas, tidak ada tabrakan di cabang/PR mana pun. Dipakai satu migrasi untuk LIVE-D:
+`web/supabase/migrations/0056_live_moderation_audit_trail.sql`.
+
+| ID | Status | SHA | Catatan |
+| --- | --- | --- | --- |
+| A-08 | **FIXED + sisa jendela didokumentasikan** | `9380668` | Sesi non-live tidak menerbitkan token baru (status-check sebelum signing, dikunci tes urutan); moderasi END-family memicu pencabutan provider lewat kemampuan nyata di kode (`sweepEndedLiveInputs` → Cloudflare live-input delete). Sisa jendela: token yang sudah terbit tetap valid sampai TTL **60 s**. |
+| A-10 | **FOUNDATION-ONLY (suspend Live)** | `9380668` | `live_capability_suspensions` + `suspend/restore_live_capability` (platform_moderator saja, idempoten, ter-audit) + penegakan di `can_operate_live_for_place`. Suspend akun platform & terminate permanen **tidak** diimplementasikan (P5). Tanpa peran baru. |
+| A-11 | **FIXED (P6 dijawab, scope Place)** | `9380668` | `list_place_live_audit` untuk owner/manager aktif Place itu persis; editor/operator/Place lain/anon ditolak; `live_audit` tetap tanpa SELECT klien; tanpa lintas-tenant. |
+| A-12 | **FIXED (perbaikan tersempit)** | `9380668` | Policy 0047 di-`create or replace` memakai helper `SECURITY DEFINER` `is_active_live_operator_for_place`; anon kembali bisa membaca metadata Live/Place publik; **tanpa** grant luas ke anon, RLS tidak dinonaktifkan, kolom sensitif tetap dark. |
+| A-13 | **FIXED** | `9380668` | Insert `live_audit` yang ter-rollback dihapus dari `admit_live_viewer`; pencatatan pindah ke RPC out-of-band `record_live_admission_denied` (service_role saja) setelah RPC menolak; penolakan tetap berlaku. |
+| Matriks §5 (sel baru) | **TES DITAMBAH** | `9380668` | Moderasi & suspend oleh moderator vs non-moderator, pembaca audit produser, kelola kelayakan, produser tidak bisa menimpa moderasi, idempotensi, penegakan suspend — semua sebagai hasil BACKEND. |
+
+**POLICY DECISION baru (Tahap D):**
+
+- **PD-LIVED-1 (A-10).** "Suspend" yang diimplementasikan adalah **kapabilitas Live level-akun**
+  (menyiarkan/mengoperasikan), sesuai `MASTER_LIVE_POLICY §12.1 #5` dan `MASTER_AUTHORITY §5/§6`,
+  bukan suspend akun platform. Otoritas = `platform_moderator` (peran yang sudah memegang otoritas
+  moderasi); tidak ada peran baru. Efek menyeluruh karena `can_operate_live_for_place` adalah satu
+  predikat otoritas yang dipakai start **dan** end. Default yang diambil (fail-closed): kabut
+  "suspend akun platform" dan "terminate permanen" tetap disebut **POLICY DECISION NEEDED (P5)**
+  dan tidak dikarang.
+- **PD-LIVED-2 (A-11 / P6).** Audit trail Live sebuah Place dibaca oleh **owner/manager aktif Place
+  itu**; **operator delegasi sengaja dikecualikan** (audit Place milik Pengelanya, bukan broadcaster
+  delegasi). Tidak ada dokumen master yang menyatakan sebaliknya; ini pilihan default yang diambil
+  dengan scope tersempit (tanpa lintas-tenant, tanpa grant langsung ke `live_audit`).
+- **PD-LIVED-3 (A-13).** Pencatatan penolakan kapasitas dilakukan di sisi server setelah RPC
+  menolak (jalur service-role), bukan lewat mengembalikan status gagal sebagai nilai — supaya
+  `admit_live_viewer`/`assert_viewer_eligible` **tidak** diubah dan tetap fail-closed. Audit
+  bersifat best-effort: kegagalan mencatat tidak pernah mengubah DENY menjadi allow.
+- **PD-LIVED-4 (A-12).** Perbaikan memakai helper `SECURITY DEFINER` ber-`search_path` dipaku dan
+  **mempertahankan** setidaknya ketatnya grant lama: `anon` tidak menerima grant baru dan RLS tidak
+  dinonaktifkan; hanya ekspresi policy yang berubah.
+
+Verifikasi Tahap D (label di §8, output mentah di §11): suite penuh serial per chunk
+(**146 berkas / 1489 tes, 0 fail** — angka LIVE-C; LIVE-D menambah `live-moderation-audit-trail.test.ts`
+sehingga 147 berkas), `bun tsc -b --noEmit` exit 0, `bunx eslint .` 0 error, `bun run build` exit 0.
+
 ## 1. Ringkasan temuan
 
 | Tingkat | Jumlah CONFIRMED | Jumlah SUSPECTED |
@@ -498,6 +545,21 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: setelah Live dimoderasi/diakhiri lewat jalur internal, playback dapat berlanjut sampai (a) TTL token habis, dan (b) ada yang memanggil `/api/live/status` sehingga sweep berjalan; bila tidak ada yang polling, input provider bisa tetap hidup. Terbatas 60 s + latensi sweep, dan saat ini moot (tidak ada penonton yang diadmit).
 - Perbaikan: hapus input provider langsung di jalur moderation/end (via wrapper service), atau tambahkan scheduler untuk sweep; dokumentasikan batas latensi pencabutan.
 - Tes pembuktian: `live-cleanup-order.test.ts` menguji urutan pointer/hapus, bukan latensi pencabutan.
+- **Status (LIVE-D): FIXED + sisa jendela didokumentasikan di `9380668`.** Dua jalur diperketat:
+  (1) **Tidak ada token baru** untuk sesi non-live — `app/api/live/playback/route.ts` sudah menolak
+  `session.status !== "live"` (juga Place non-published dan stream health) **sebelum**
+  `signPlaybackToken`; urutan ini dikunci tes struktural (status-check < sign) di
+  `web/tests/live-moderation-audit-trail.test.ts`. (2) **Pencabutan pada jalur moderasi** — route baru
+  `app/api/admin/live/moderation/route.ts` → `moderateLiveSession` (`lib/live/session-service.ts`)
+  memanggil `sweepEndedLiveInputs()` untuk aksi END-family (`end`/`suspend`/`block_content`), yaitu
+  menghapus live input provider lewat kemampuan yang **nyata ada di kode** (Cloudflare live-input
+  delete, `lib/live/cloudflare.ts`). Tidak ada kemampuan provider yang diasumsikan.
+  **Sisa jendela risiko (apa adanya):** token yang SUDAH terbit tetap valid sampai TTL-nya habis —
+  `LIVE_PLAYBACK_TOKEN_TTL_SECONDS` = **60 s** (`lib/live/stream-token.ts`, RS256, tanpa revokasi
+  per-token); jadi pencabutan efektif ≤ 60 s setelah moderasi, dan penghapusan input provider
+  menghentikan playback bagi siapa pun yang mencoba kredensial baru sesudah itu. Jalur end lain
+  (duration cap, trigger stage-unpublish) tetap ditutup sweep best-effort pada `/api/live/status`
+  (tanpa scheduler). Karena B1 masih menolak semua penonton, dampak hari ini nol.
 
 ### A-09 — Rate limit komentar tersimpan di memori proses · LOW · Tahap C · tanpa keputusan kebijakan
 
@@ -531,6 +593,15 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: kebutuhan audit butir 2/7 "akun disuspend" dan "terminate" **tidak terimplementasi**: akun yang "disuspend" masih bisa masuk, mengomentari Live Place lain (bila kelak eligible), dan mengirim Visit Intent. Policy §12.1 item 5 memang mendefinisikan suspend sebagai kapabilitas Live level-akun, jadi implementasi saat ini **sesuai** untuk Live; yang tidak terdefinisi adalah suspend akun secara platform.
 - Perbaikan: butuh keputusan produk lebih dulu (apakah suspend akun platform ada). Bila ya → kolom status kanonik + pemeriksaan di guard/tiap request.
 - Tes pembuktian: belum ada.
+- **Status (LIVE-D): FOUNDATION-ONLY (suspend Live) di `9380668`.** `0056` menambah tabel kanonik
+  `public.live_capability_suspensions` (satu baris per akun; aktif = `revoked_at is null`),
+  RPC `suspend_live_capability` / `restore_live_capability` (**hanya** `platform_moderator`,
+  idempoten, tiap keputusan menulis baris `live_audit` dengan aktor/target/alasan/waktu), dan
+  penegakan di satu predikat otoritas `can_operate_live_for_place` yang dipakai **semua** jalur
+  operasi Live (start dan end). Efeknya: kemampuan menyiarkan/mengoperasikan Live nonaktif di
+  seluruh Place akun itu (termasuk saat bertindak sebagai operator delegasi), dapat dicabut, tanpa
+  peran baru. Tabelnya nol akses klien (RLS aktif, tanpa policy, privilege dicabut). "Suspend akun
+  platform" dan "terminate permanen" **tetap POLICY DECISION NEEDED (P5)** — tidak dikarang.
 
 ### A-11 — Tidak ada permukaan pembaca `live_audit` untuk peran selain Platform Moderator (termasuk producer atas Live-nya sendiri) · LOW · Tahap D · **POLICY DECISION NEEDED**
 
@@ -538,6 +609,13 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: producer tidak punya cara melihat audit Live miliknya (mis. mengapa sesi berakhir `source_stage_unpublished`), sedangkan policy §8 mewajibkan audit trail ada (dan itu terpenuhi — penulisannya ada) tetapi tidak menyatakan siapa yang boleh membaca. Sesuai `MASTER_LIVE_TECH §3` ("no direct SELECT for authenticated"), jadi implementasi konsisten dengan tech master; pertanyaannya produk: apakah produser perlu visibilitas audit Live-nya.
 - Perbaikan: bila ya, sediakan RPC read-only ber-scope Place di balik `can_operate_live_for_place`.
 - Tes pembuktian: `live-hardening.test.ts`/`live-privileges.test.ts` mengunci kondisi "audit gelap".
+- **Status (LIVE-D): FIXED di `9380668` (P6 dijawab dengan scope Place + owner/manager).** `0056`
+  menambah `list_place_live_audit(text)` — pembaca read-only ber-scope Place yang hanya mengizinkan
+  **owner/manager aktif dari Place itu persis**; operator delegasi, editor, produser Place lain, dan
+  anon ditolak (raise `producer_authorization_required` / tanpa EXECUTE). `live_audit` **tetap tanpa
+  SELECT langsung** untuk peran klien (`MASTER_LIVE_TECH §3` tidak dilanggar), tanpa grant ke anon.
+  Server (`lib/live/audit-read.ts`) me-resolve ulang `resolvePlaceManagerAuthority` tiap panggilan;
+  `app/api/producer/live/audit/route.ts` mengeksposnya (401/403/400 fail-closed). Tanpa lintas-tenant.
 
 ### A-12 — Policy SELECT dari `0047` mereferensikan `public.live_operators` yang tidak bisa dibaca `anon` · LOW–MEDIUM · Tahap D · tanpa keputusan kebijakan
 
@@ -553,9 +631,20 @@ dipertimbangkan.
   jalur melewati gate), tetapi merusak pembacaan metadata Live publik/anon dan akan menggagalkan
   permukaan discovery publik saat dibuka. Belum menjadi insiden karena penonton anonim memang
   dilarang menonton (P7) dan tidak ada halaman publik yang membaca tabel itu sebagai anon.
-- Perbaikan (Tahap D): ganti referensi tabel langsung di policy dengan helper `SECURITY DEFINER`
-  ber-`search_path` terpaku, atau berikan policy terpisah yang bisa dievaluasi tanpa tabel itu;
+- Perbaikan (Tahap D): ganti referensi tabel langsung di policy dengan  helper `SECURITY DEFINER` ber-`search_path` terpaku, atau berikan policy terpisah yang bisa dievaluasi tanpa tabel itu;
   lalu ganti assertion karakterisasi di tes kolom dengan pembacaan anon positif.
+- **Status (LIVE-D): FIXED di `9380668` — alur publik diaudit, perbaikan tersempit dipakai.**
+  Tiga alur publik membaca `live_sessions` sebagai anon dan semuanya bergantung pada policy 0047:
+  `app/api/live/discovery/route.ts` (anon key, sessionless), `app/api/live/status/route.ts`
+  (server client; anon untuk pengunjung tanpa sesi), dan `app/live/[sessionId]/page.tsx`
+  (server client; anon). Sebelum perbaikan ketiganya gagal `permission denied for table
+  live_operators` sebelum ada baris yang dipertimbangkan. Perbaikan: policy 0047 untuk
+  `places`/`production_stages`/`live_sessions` di-`create or replace` agar memanggil helper
+  `SECURITY DEFINER` ber-`search_path` dipaku `public.is_active_live_operator_for_place(text)`
+  (mengevaluasi delegasi **pemanggil sendiri**), sehingga peran klien tidak butuh privilege di tabel
+  operator. **Tidak ada grant baru ke anon dan RLS tidak dinonaktifkan**; semantik 0047 (operator
+  aktif membaca sesi Place-nya saat Place unpublished, operator revoked tidak) tetap dan dikunci
+  tes. Kolom sensitif `live_input_id`/`idempotency_key` tetap server-side-only (0052 tidak dilebarkan).
 
 ### A-13 — Audit penolakan kapasitas (`admission_denied`) selalu ter-rollback oleh `raise` · LOW · Tahap D · tanpa keputusan kebijakan
 
@@ -569,9 +658,17 @@ dipertimbangkan.
 - Dampak: jejak audit penolakan kapasitas hilang (kebijakan §8 minta audit trail ada; penulisan ada,
   efeknya tidak). Tidak ada efek pada keputusan gate — penolakan tetap terjadi dan tetap fail-closed;
   karena B1 masih menolak semua penonton, dampak saat ini nol.
-- Perbaikan (Tahap D): jalur tulis otonom (mis. RPC/write terpisah yang tidak ter-rollback) atau
+- Perbaikan (Tahap D):  jalur tulis otonom (mis. RPC/write terpisah yang tidak ter-rollback) atau
   kembalikan status gagal sebagai nilai, bukan `raise` — itu perubahan enforcement, bukan perbaikan
   kapasitas, karena itu dipisahkan dari A-04.
+- **Status (LIVE-D): FIXED di `9380668`.** `admit_live_viewer` di-`create or replace` dengan
+  keputusan dan matematika kapasitas **sama persis** (masih `raise exception 'live_capacity_full'`)
+  tetapi **insert `live_audit` yang selalu ter-rollback dihapus**. Pencatatan pindah ke jalur
+  out-of-band: RPC `record_live_admission_denied(text, uuid, text)` (**hanya** `service_role` — klien
+  tidak bisa memanggil/memalsukan), dipanggil `lib/live/session-service.ts` → `recordAdmissionDenied`
+  pada koneksi service-role **setelah** RPC menolak, sehingga tidak ikut rollback dan **tidak
+  mengubah hasil penolakan**. Best-effort: kegagalan mencatat tidak pernah mengubah DENY menjadi allow.
+  `assert_viewer_eligible`/`admit_live_viewer` tetap menolak (tes regresi).
 
 ---
 
@@ -634,6 +731,13 @@ dokumen + bagian; **Penegakan** = fungsi/RLS/route aktual; **UI** = lokasi UI;
 > `fix/live-auth-signup-operator-email` — status + SHA per temuan ada di §0.b dan di
 > akhir setiap entri §3. A-02, A-04, A-05, A-08, A-09, A-10, A-11 **belum** disentuh
 > (Tahap C/D).
+>
+> **Catatan status (LIVE-D):** A-02, A-04, A-05, A-09 (LIVE-C) dan A-08, A-10, A-11,
+> A-12, A-13 (LIVE-D) sudah ditangani — status + SHA di §0.c/§0.d dan di akhir setiap
+> entri §3. Baris §5 di atas tetap memotret keadaan saat audit (bukti asli, tidak
+> diubah). Sel matriks yang ditambah tesnya di Tahap D: moderasi & suspend Live
+> (moderator vs non-moderator), pembaca audit produser, kelola kelayakan, penegakan
+> suspend akun, dan "produser tidak bisa menimpa moderasi" — lihat §8/§11.
 
 ### 5.1 anon (tanpa akun)
 
@@ -824,6 +928,12 @@ Dijalankan pada `audit/live-auth-baseline` setelah dokumen + tes karakterisasi d
 | **LIVE-C** — `bun tsc -b --noEmit` | **RAN-PASSED** | `TSC_EXIT=0`, log 0 baris |
 | **LIVE-C** — `bunx eslint .` | **RAN-PASSED** | `✖ 11 problems (0 errors, 11 warnings)`, `ESLINT_EXIT=0` — 11 warning lama (generated Convex + 3 tes lama), **0 error** |
 | **LIVE-C** — `bun run build` (next build) | **RAN-PASSED** | `BUILD_EXIT=0`, `✓ Compiled successfully`, 41 halaman di-generate |
+| **LIVE-D** — `bunx tsx --test tests/live-moderation-audit-trail.test.ts tests/live-migration-validity.test.ts` | **RAN-PASSED** | `TARGETED_EXIT=0`, `# tests 16 # pass 16 # fail 0` (migrasi 0056 di Postgres nyata/PGlite + guard RPC) |
+| **LIVE-D** — suite penuh serial per chunk (`tests/**/*.test.ts`, **147 berkas, 12 chunk**) | **RAN-PASSED** | Total **1499 tes, 0 fail, 0 cancelled** (rincian per chunk di §11) |
+| **LIVE-D** — `bun tsc -b --noEmit` | **RAN-PASSED** | `TSC_EXIT=0`, log 0 baris |
+| **LIVE-D** — `bunx eslint .` | **RAN-PASSED** | `✖ 11 problems (0 errors, 11 warnings)`, `ESLINT_EXIT=0` — 11 warning lama, **0 error** |
+| **LIVE-D** — `bun run build` (next build) | **RAN-PASSED** | `BUILD_EXIT=0`, `✓ Compiled successfully`, 43 halaman di-generate |
+| **LIVE-D** — apply migrasi `0056` ke DEV + validasi hasil | **NOT-RUN** | tidak ada akses DEV di sandbox; langkah + skrip akses ada di `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §10.5 |
 | **LIVE-C** — apply migrasi `0052`–`0055` ke DEV + validasi hasil | **NOT-RUN** | tidak ada akses DEV di sandbox (CLI absen + env diblokir platform); langkah + skrip akses ada di `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §10 |
 | **LIVE-C** — round trip Realtime nyata (S-04) & pengukuran beban (S-05) | **NOT-RUN** | butuh runtime DEV; langkah manual di checklist §10 |
 | **LIVE-C** — pemilihan/integrasi provider verifikasi usia | **TIDAK DILAKUKAN (sengaja)** | dilarang oleh cakupan; hanya fondasi netral (§6.b) |
@@ -913,3 +1023,104 @@ RERUN_EXIT=0
 # pass 16
 # fail 0
 ```
+
+## 11. Output mentah LIVE-D (Tahap D, ditempel apa adanya)
+
+```
+$ cd web && bun tsc -b --noEmit > /tmp/lived-tsc.log 2>&1; echo "TSC_EXIT=$?"; wc -l < /tmp/lived-tsc.log
+TSC_EXIT=0
+0
+
+$ bunx eslint . > /tmp/lived-eslint.log 2>&1; echo "ESLINT_EXIT=$?"; tail -3 /tmp/lived-eslint.log
+ESLINT_EXIT=0
+✖ 11 problems (0 errors, 11 warnings)
+  0 errors and 3 warnings potentially fixable with the `--fix` option.
+
+$ bunx tsx --test tests/live-moderation-audit-trail.test.ts tests/live-migration-validity.test.ts > /tmp/lived-targeted.log 2>&1; echo "TARGETED_EXIT=$?"
+TARGETED_EXIT=0
+# tests 16
+# pass 16
+# fail 0
+
+$ bun run build > /tmp/lived-build.log 2>&1; echo "BUILD_EXIT=$?"; grep -E "Compiled successfully|Generating static pages" /tmp/lived-build.log
+BUILD_EXIT=0
+✓ Compiled successfully in 25.2s
+  Generating static pages using 1 worker (0/43) ...
+
+$ # full suite serial per chunk: find tests -name "*.test.ts" | sort | sed -n 'A,Bp' | xargs bunx tsx --test
+chunk   1-12 : # tests 115  # pass 115  # fail 0
+chunk  13-24 : # tests 157  # pass 157  # fail 0   (real 2m06.570s; host 1 vCPU / 2 GB)
+chunk  25-37 : # tests 103  # pass 103  # fail 0
+chunk  38-50 : # tests 179  # pass 179  # fail 0
+chunk  51-63 : # tests 150  # pass 150  # fail 0
+chunk  64-76 : # tests 107  # pass 107  # fail 0
+chunk  77-89 : # tests  90  # pass  90  # fail 0
+chunk  90-102: # tests 214  # pass 214  # fail 0
+chunk 103-115: # tests 121  # pass 121  # fail 0
+chunk 116-128: # tests 109  # pass 109  # fail 0
+chunk 129-141: # tests 122  # pass 122  # fail 0
+chunk 142-147: # tests  32  # pass  32  # fail 0
+Cxx_EXIT=0 pada setiap chunk
+
+TOTAL LIVE-D: 147 berkas, 1499 tes, 0 fail, 0 cancelled (semua berkas tercakup)
+```
+
+## 12. Penutup — ringkasan akhir A-01…A-13 & hal yang masih terbuka
+
+### 12.1 Status akhir seluruh temuan
+
+| ID | Tingkat | Tahap | Status akhir | SHA |
+| --- | --- | --- | --- | --- |
+| A-01 | HIGH | B | FIXED | `d004c6c` |
+| A-02 | MEDIUM | C | FIXED | `04b7d1e` |
+| A-03 | MEDIUM | B/C | FIXED | `37a7047` |
+| A-04 | MEDIUM | C | FIXED | `aa94173` |
+| A-05 | MEDIUM | C | FIXED | `87c0cfb` |
+| A-06 | MEDIUM | B | FIXED (POLICY: scope operator delegasi) | `8f026a4` |
+| A-07 | LOW | B | FIXED | `587631b` |
+| A-08 | LOW | D | FIXED + sisa jendela token TTL 60 s didokumentasikan | `9380668` |
+| A-09 | LOW | C | FIXED | `bded0c6` |
+| A-10 | LOW | D | FOUNDATION-ONLY (suspend Live); suspend akun platform + terminate = **POLICY DECISION NEEDED (P5)** | `9380668` |
+| A-11 | LOW | D | FIXED (P6 dijawab: scope Place, owner/manager) | `9380668` |
+| A-12 | LOW–MEDIUM | D | FIXED | `9380668` |
+| A-13 | LOW | D | FIXED | `9380668` |
+| S-01 | SUSPECTED | B | PARTIAL (RAN-PASSED DB + NOT-RUN DEV email template) | `c01d3e2` |
+| S-02 | SUSPECTED | B | NOT-RUN (DEV) | — |
+| S-03 | SUSPECTED | — | NOT-RUN (butuh akses DEV untuk menutup drift) | — |
+| S-04 | SUSPECTED | C | PARTIAL (gate RAN-PASSED; round trip Realtime NOT-RUN DEV) | `e60711` |
+| S-05 | SUSPECTED | C/D | PARTIAL/NOT-RUN (pengukuran beban DEV) | — |
+
+Tidak ada temuan CRITICAL/HIGH yang tersisa terbuka. Fail-closed dipertahankan di setiap tahap.
+
+### 12.2 Yang masih terbuka (keputusan / kredensial / akses) — butuh pemilik produk
+
+| Kode | Yang dibutuhkan | Menghambat |
+| --- | --- | --- |
+| P1–P3, B1 | Keputusan vendor verifikasi usia + data yang boleh dikirim/disimpan + retensi (dan kredensial vendor) | membuka gate `assert_viewer_eligible` (Phase 2.1) — sampai itu penonton fail-closed |
+| P5 | Apakah **suspend akun platform** dan **terminate permanen** ada sebagai konsep (A-10) | memutuskan apakah fondasi suspend Live diperluas ke level akun |
+| B4 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (server env) | create/delete live input, health check, pencabutan playback (A-08) |
+| B4b | `CLOUDFLARE_STREAM_SIGNING_KEY_ID`, `CLOUDFLARE_STREAM_SIGNING_KEY` (JWK base64, server env) | token playback bertanda tangan |
+| B5 | Provider SMS/OTP (keputusan vendor) | jalur kirim kode `/api/account/phone/otp` |
+| B6 | `PHONE_OTP_HASH_SECRET` (server env) | hash kode OTP |
+| B7 | `SINGGAH_CREATOR_EMAILS` (server env) | allowlist Creator |
+| — | Akses DEV (CLI/DB) | menutup drift S-03, apply+validasi migrasi 0052–0056, uji klik-nyata, round trip Realtime (S-04) & pengukuran beban (S-05), template email (S-01/S-02) |
+
+### 12.3 Policy Decision yang dicatat di seluruh rentang
+
+- **LIVE-B:** scope email-terverifikasi hanya untuk operator delegasi (A-06).
+- **LIVE-C:** PD-LIVEC-1 ("hadir" = lease presence 5 menit), PD-LIVEC-2 (kolom provider/kunci idempotensi server-side), PD-LIVEC-3 (rate limit di tabel DB, bukan layanan eksternal), PD-LIVEC-4 (fondasi usia tanpa vendor), PD-LIVEC-5 (salinan UI jujur).
+- **LIVE-D:** PD-LIVED-1 (suspend = kapabilitas Live level-akun), PD-LIVED-2 (audit Place dibaca owner/manager; operator delegasi dikecualikan), PD-LIVED-3 (pencatatan penolakan out-of-band oleh server), PD-LIVED-4 (perbaikan policy A-12 tanpa grant baru / tanpa mematikan RLS).
+
+### 12.4 Konfirmasi penutup pada HEAD Tahap D
+
+- **Penonton masih fail-closed.** `public.assert_viewer_eligible` (`0008`) tetap `raise exception 'live_viewer_denied'` tanpa syarat; `public.admit_live_viewer` (`0056` re-create) tetap memanggilnya sebagai pernyataan pertama dan tetap `raise 'live_capacity_full'`. Bukti: `web/tests/live-moderation-audit-trail.test.ts` §7, `web/tests/live-viewer-cap-race.test.ts`, `web/tests/live-viewer-presence-cap.test.ts`, `web/tests/age-verification-foundation.test.ts`.
+- **Tidak ada vendor/mock yang dapat dijangkau dari jalur nyata.** Tidak ada provider verifikasi usia terkonfigurasi (→ `provider_not_configured`, 503); tidak ada provider SMS (→ `phone_otp_provider_not_configured`); Cloudflare dipanggil hanya dari server tepercaya dan gagal-tertutup bila kredensial absen. Mock hanya hidup di berkas tes.
+- **Tidak ada akses produksi, tidak ada perubahan env, tidak ada data yang disentuh.**
+
+---
+
+## Catatan perubahan dokumen ini (tanpa menghapus bukti asli)
+
+- LIVE-B: menambah §0.b dan status A-01/A-03/A-06/A-07 + S-01/S-02.
+- LIVE-C: menambah §0.c, status A-02/A-04/A-05/A-09 + S-04/S-05, §6.b, §10.
+- LIVE-D: menambah §0.d, status A-08/A-10/A-11/A-12/A-13, catatan status di §5, baris LIVE-D di §8, §11, dan §12 (penutup). Seluruh bukti audit asli (§1–§7, §9) tetap utuh.
