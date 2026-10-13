@@ -642,7 +642,53 @@ Automated equivalent (real Postgres engine via PGlite):
   actor/target/reason/time was appended, and that `DELETE /api/admin/live/capability`
   restores it. A repeated suspend/restore must change nothing.
 
-## 11. Out of scope (explicitly NOT here)
+## 11. Pengelola ↔ Operator Live boundary — verify (NO migration)
+
+Scope: the least-privilege boundary between a Pengelola Tempat (owner/manager)
+and a delegated Operator Live account. Evidence + root cause:
+`docs/audits/LIVE_OPERATOR_BOUNDARY_AUDIT.md`.
+
+**No migration is applied by this step.** The audit proved the database posture
+is already least-privilege (RLS on, no `anon` grant, `SELECT`-only for
+`authenticated`, no client write policy, the authority predicate not
+client-callable, all lifecycle writes via `SECURITY DEFINER` RPCs). This is a
+**verification** step; migration 0057 stays free.
+
+- [ ] Target confirmed: the Supabase **DEVELOPMENT** project ref (never
+  production). The script creates its own fixtures and ends with `rollback;` —
+  it leaves no data behind.
+- [ ] Run `web/tests/db-regression/live-operator-boundary-access.sql` (SQL Editor
+  paste, or `psql "$SUPABASE_DEV_DB_URL" -f tests/db-regression/live-operator-boundary-access.sql`).
+  It emits ONE result set with columns `ord, check_name, passed, detail`.
+- [ ] Every row must read `passed = true`. The checks cover: accept grants only
+  the delegated assignment (no `producer_memberships` change); the operator
+  operates Live for the assigned Place only; the operator cannot
+  invite/list/cancel/revoke/grant/revoke operators or look accounts up; a fake
+  Place id and a fake invitation id are refused; revocation denies the next
+  start; RLS confines reads to self or the managing Place; `anon` holds no table
+  `SELECT` and no RPC `EXECUTE`; the authority predicate is not client-callable;
+  no client write policy exists on either operator table.
+- [ ] Any `passed = false` — stop and reconcile; do not "fix forward" in the
+database.
+
+Automated equivalent (real Postgres engine via PGlite):
+`web/tests/live-operator-boundary.test.ts`.
+
+- [ ] **Manual UI check (DEV).** Signed in as an Operator-only account (an
+  account with an ACTIVE delegated assignment and NO owner/manager membership),
+  open `Akun & Akses`: only the Operator Live row (with the assigned Place) is
+  shown — no Pengelola entry, no "Kelola Akses Live" panel. Following that row
+  opens `Tampilkan Proses Secara Langsung` with the `Operator Live` eyebrow and
+  a back link to `Akun & Akses` — NOT the Pengelola area or its navigation.
+  Direct navigation to `/producer` and `/producer/visit-intents` redirects to
+  `Akun & Akses`.
+- [ ] Signed in as a legitimate Pengelola, confirm the Pengelola area, the Live
+  operator management panel, and the delegated operator rows are unchanged.
+- [ ] An account that INDEPENDENTLY holds both authorities keeps each one
+  (Policy Decision P2): the Pengelola area and the delegated Live console both
+  work, and neither is derived from the other.
+
+## 12. Out of scope (explicitly NOT here)
 
 - No SMS/OTP provider and no vendor credential (B5 blocker stays open until the product owner supplies a provider; `PHONE_OTP_HASH_SECRET` / B6 is the matching server-side secret).
 - No Cloudflare account/credential configuration (B4 blocker stays open until the PO supplies `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` server-side).

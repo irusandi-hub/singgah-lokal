@@ -2101,3 +2101,49 @@ entire viewer gate has exactly ONE place to change. After a provider is chosen
 
 Blockers that remain open: B1 (vendor + credentials), P1–P3 (vendor/data/retention
 decisions), B4/B4b (Cloudflare) for any real Live session, B5/B6 (SMS/OTP).
+
+## 33. PENGELOLA vs OPERATOR LIVE — LEAST-PRIVILEGE BOUNDARY (2026-10-13)
+
+Branch `fix/live-operator-least-privilege` (base: tip of the open stack
+#40→#43). Evidence: `docs/audits/LIVE_OPERATOR_BOUNDARY_AUDIT.md`.
+
+**Reported symptom.** An Operator-only account appeared to receive Pengelola
+access/display (a Pengelola entry, the "Kelola Akses Live" panel).
+
+**Confirmed root cause (H1/H3/H4/H5/H6 refuted, H2 confirmed).** Accepting an
+invitation never touched `producer_memberships` (H1 refuted on the real
+migration chain), every management route/RPC is owner/manager-gated (H3), the
+listings are self/Place-scoped (H4), the RLS/grant/EXECUTE posture is already
+least-privilege (H5), and the Account Center derives Pengelola from server
+`producer_memberships` only (H6). The defect was the **destination page of the
+delegated operator**: `/producer/live?place=…` rendered the Pengelola identity
+(`← Pengelola`, `Pengelola Live`) and the shared `ProducerSubNav` (Dashboard /
+Permintaan Kunjungan) for operator-only accounts, and `/producer` and
+`/producer/visit-intents` were gated on **authentication only**. So an operator
+acquired a visible Pengelola entry and Pengelola destinations. For a true
+operator-only account the "Kelola Akses Live" panel is NOT reproducible — it
+needs an owner/manager membership.
+
+**Fix (no migration).**
+1. `web/app/producer/live/page.tsx` — the shell is now a server decision:
+   owner/manager membership → unchanged Pengelola chrome + `ProducerSubNav`;
+   operator-only → `Operator Live` eyebrow, back link to `Akun & Akses`, and no
+   Pengelola navigation. The Live console is unchanged.
+2. `web/app/producer/page.tsx` and `web/app/producer/visit-intents/page.tsx` —
+   deny-by-default owner/manager server gate (redirect to `/account`). The
+   "apply to become Pengelola" flow stays reachable at `/producer/onboarding`.
+3. No GRANT change, no RLS change, no function change; `assert_viewer_eligible`
+   and `admit_live_viewer` are untouched; migrations 0046–0056 untouched;
+   production untouched.
+
+**Policy decisions.** P1 operator-only gets an operator surface, not the
+Pengelola Area. P2 dual-role accounts keep each authority independently. P3 no
+migration shipped (already least-privilege). P4 Live gates untouched.
+
+**Tests.** `web/tests/live-operator-boundary.test.ts` (13 tests, real Postgres
+engine + real server components) and the rollback-only result-set script
+`web/tests/db-regression/live-operator-boundary-access.sql` (26 checks). One
+existing test was amended explicitly: `web/tests/producer-navigation.test.ts`
+now locks "one back link per RENDERED state" for `/producer/live` instead of
+"one in the file", because the operator state deliberately has its own back
+link.

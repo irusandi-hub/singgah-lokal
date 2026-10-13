@@ -128,18 +128,42 @@ test("Visit Intent and Live stay reachable from the Producer area root", () => {
 });
 
 test("Top-level Producer pages return to the dashboard with one label", () => {
-  for (const [name, code] of [
-    ["live", livePage],
-    ["permintaan kunjungan", inbox],
-  ] as const) {
-    assert.match(code, /href="\/producer"/, `${name} must link back to the dashboard`);
-    assert.match(code, /← Pengelola/, `${name} must show the one contextual back link`);
-    assert.equal(
-      (code.match(/← /g) ?? []).length,
-      1,
-      `${name} must carry exactly one back link`,
-    );
-  }
+  // The inbox is a single-state Pengelola page: one contextual back link.
+  assert.match(inbox, /href="\/producer"/, "permintaan kunjungan must link back to the dashboard");
+  assert.match(inbox, /← Pengelola/, "permintaan kunjungan must show the one contextual back link");
+  assert.equal(
+    (inbox.match(/← /g) ?? []).length,
+    1,
+    "permintaan kunjungan must carry exactly one back link",
+  );
+
+  // Live serves TWO authorities with TWO MUTUALLY-EXCLUSIVE back links, so the
+  // rule is "exactly one per RENDERED state", not "exactly one in the file".
+  // Amended 2026-10-13 (fix/live-operator-least-privilege): the operator-only
+  // state previously rendered the Pengelola back link and the shared
+  // ProducerSubNav, which handed an Operator Live account an entry into the
+  // Pengelola area (task Tahap 3). The manager state is byte-for-byte the old
+  // page; only the operator state is different.
+  assert.match(
+    livePage,
+    /hasManagerAuthority \? "Pengelola Live" : "Operator Live"/,
+    "the shell is chosen by server-resolved owner/manager authority",
+  );
+  assert.match(livePage, /href="\/producer"/, "the manager state links back to the dashboard");
+  assert.match(livePage, /← Pengelola/, "the manager state shows the Pengelola back link");
+  assert.match(livePage, /href="\/account"/, "the operator state returns to the Account Center");
+  assert.match(livePage, /← Akun & Akses/, "the operator back link is labelled as such");
+  assert.equal(
+    (livePage.match(/← /g) ?? []).length,
+    2,
+    "Live carries one back link in each of its two mutually-exclusive states",
+  );
+  // The global Pengelola navigation layer is manager-only.
+  assert.match(
+    livePage,
+    /\{hasManagerAuthority \? \(\s*<div className="mt-4">\s*<ProducerSubNav active="\/producer\/live" \/>/,
+    "the ProducerSubNav is gated on server-resolved manager authority",
+  );
 });
 
 test("The Place workspace has ONE escape route and ONE navigation layer", () => {
