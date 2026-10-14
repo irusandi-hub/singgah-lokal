@@ -164,7 +164,9 @@ test("accept and reject call the invitee-only RPCs by invitation id", () => {
 // ---------------------------------------------------------------------------
 
 test("start and stop resolve authority through the single Live helper on every call", () => {
-  assert.match(startRoute, /canOperateLiveForPlace\(supabase, userData\.user\.id, placeId\)/);
+  // A-07: Live start resolves authority through the ONE shared start gate
+  // (implemented on canOperateLiveForPlace and used by both start endpoints).
+  assert.match(startRoute, /requireLiveStartAuthority\(request, placeId\)/);
   assert.match(endRoute, /canOperateLiveForPlace\(/);
   assert.match(endRoute, /session\.place_id/);
   // The helper itself has no authorization cache: each predicate is a fresh

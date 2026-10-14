@@ -35,7 +35,12 @@ export async function POST(request: Request) {
       password: input.password,
       options: {
         data: { display_name: input.name },
-        emailRedirectTo: `${new URL(request.url).origin}/auth`,
+        // A-01: the confirmation link must land on the ONLY handler that
+        // exchanges the code for a session (/auth/callback — the same handler
+        // OAuth uses), not on /auth, which never reads `code`. `next` is
+        // re-sanitized inside the callback, so this cannot become an open
+        // redirect: a tampered value collapses to an internal path.
+        emailRedirectTo: `${new URL(request.url).origin}/auth/callback?next=/auth`,
       },
     });
 

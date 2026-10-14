@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   createLiveInput,
@@ -186,8 +187,13 @@ export async function endLiveSession(params: {
     const outcome: LiveInputDeleteOutcome = await deleteLiveInput(inputId);
     if (outcome === "deleted" || isLiveInputDeleteNotFound(outcome)) {
       // Provider confirmed clean (deleted, or 404 = already-cleaned): NOW
-      // release the pointer via the fail-closed ended-state RPC.
-      await supabase.rpc("release_live_input", { p_session_id: params.sessionId });
+      // release the pointer via the fail-closed ended-state RPC. A-03: the
+      // release RPC is service-role only (server infrastructure), so this
+      // call opens a service connection instead of riding the caller's
+      // session — the sweep remains the backstop on any failure.
+      await createSupabaseServiceClient().rpc("release_live_input", {
+        p_session_id: params.sessionId,
+      });
     }
     // outcome === "failed": pointer stays; the ended-input sweep retries later.
   } catch {
