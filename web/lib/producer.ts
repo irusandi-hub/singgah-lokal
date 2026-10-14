@@ -4,6 +4,25 @@ import type { VisitIntent, VisitIntentStatus } from "@/lib/visit-intents";
 
 export type ProducerRole = "owner" | "manager" | "editor";
 
+/**
+ * Locked Indonesian label per Producer membership role
+ * (docs/UI_TERMINOLOGY_STANDARD.md §2 — "Pengelola" is the Producer management
+ * role term and is never translated or reinvented). Used by Admin surfaces and
+ * notification copy; the stored value stays the canonical `owner|manager|editor`.
+ */
+export const PRODUCER_ROLE_LABEL: Record<ProducerRole, string> = {
+  owner: "Pemilik",
+  manager: "Pengelola",
+  editor: "Editor",
+};
+
+export function producerRoleLabel(role: string | null | undefined): string {
+  if (role === "owner" || role === "manager" || role === "editor") {
+    return PRODUCER_ROLE_LABEL[role];
+  }
+  return role ?? "—";
+}
+
 export type ProducerAccess = {
   producerId: string;
   role: ProducerRole;

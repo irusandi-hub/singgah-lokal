@@ -652,7 +652,8 @@ and a delegated Operator Live account. Evidence + root cause:
 is already least-privilege (RLS on, no `anon` grant, `SELECT`-only for
 `authenticated`, no client write policy, the authority predicate not
 client-callable, all lifecycle writes via `SECURITY DEFINER` RPCs). This is a
-**verification** step; migration 0057 stays free.
+**verification** step. (Migration number `0057` is NOT free any more: it is used
+by the ADMIN-REVOKE feature, §12.)
 
 - [ ] Target confirmed: the Supabase **DEVELOPMENT** project ref (never
   production). The script creates its own fixtures and ends with `rollback;` —
@@ -688,7 +689,147 @@ Automated equivalent (real Postgres engine via PGlite):
   (Policy Decision P2): the Pengelola area and the delegated Live console both
   work, and neither is derived from the other.
 
-## 12. Out of scope (explicitly NOT here)
+## 12. ADMIN-REVOKE — cabut hak kelola Produser per Tempat, apply 0057 (DEV)
+
+Applies to `web/supabase/migrations/0057_admin_revoke_producer_place_access.sql`.
+Forward-only, additive and idempotent; paste the WHOLE FILE in one run. It is the
+first migration after `0056` and depends only on objects that already exist
+(`producer_memberships` from 0001, `place_audit` from 0031,
+`notify_recipient` from 0029). Evidence + root cause + Policy Decisions:
+`docs/audits/ADMIN_REVOKE_PLACE_ACCESS_AUDIT.md`.
+
+**Status of this section: NOT RUN.** It must be executed on the Supabase
+**DEVELOPMENT** project, and only with explicit authorisation. No production
+target is ever touched by this checklist.
+
+What 0057 changes, in full — nothing else:
+
+| Object | Change |
+| --- | --- |
+| `public.producer_memberships` | **+1 column** `id uuid not null default gen_random_uuid()` and **+1 unique index** `producer_memberships_id_key`. The PK `(user_id, place_id)` is unchanged; no row is added, altered or removed |
+| `public.place_audit` | CHECK `place_audit_action_check` is **extended** with `producer_place_access_revoked` and `producer_place_access_revoke_denied` (all prior values kept); **+1 partial expression index** `place_audit_revoked_membership_idx` |
+| `public.revoke_producer_place_access(uuid, uuid)` | **new** SECURITY DEFINER RPC (pinned `search_path`), `REVOKE ALL … FROM public, anon, authenticated`, `GRANT EXECUTE … TO service_role` |
+
+### 12.1 Pre-apply checks (read-only, run first)
+
+```sql
+-- 0057 objects must NOT exist yet:
+select column_name from information_schema.columns
+ where table_schema='public' and table_name='producer_memberships'
+   and column_name='id';                                  -- expect 0 rows
+select to_regproc('public.revoke_producer_place_access'); -- expect null
+select pg_get_constraintdef(oid) from pg_constraint
+ where conrelid='public.place_audit'::regclass
+   and conname='place_audit_action_check';                -- expect NO revocation value yet
+-- Dependencies already applied:
+select to_regclass('public.place_audit');                 -- expect not null
+select to_regproc('public.notify_recipient');             -- expect not null
+-- Baseline counts, to compare after apply (producer_memberships must be IDENTICAL):
+select count(*) as memberships from public.producer_memberships;
+select count(*) as audit_rows  from public.place_audit;
+select count(*) as notifications from public.notifications;
+```
+
+### 12.2 Apply 0057
+
+- [ ] Paste the full contents of
+  `0057_admin_revoke_producer_place_access.sql` and run it once. Expect success
+  with no partial-commit errors.
+- [ ] Re-running the SAME file must be a no-op (idempotency contract).
+- [ ] Confirm the shape and the privilege posture:
+
+```sql
+-- surrogate id: present, NOT NULL, unique, and filled on every existing row
+select is_nullable from information_schema.columns
+ where table_schema='public' and table_name='producer_memberships' and column_name='id'; -- NO
+select count(*) from public.producer_memberships where id is null;                     -- 0
+select indexdef from pg_indexes
+ where schemaname='public' and tablename='producer_memberships'
+   and indexdef ilike '%unique%' and indexdef ilike '%(id)%';                          -- 1 row
+-- canonical PK unchanged
+select string_agg(a.attname, ',' order by a.attname)
+  from pg_index i
+  join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
+ where i.indrelid = 'public.producer_memberships'::regclass and i.indisprimary;        -- place_id,user_id
+-- audit vocabulary extended, nothing removed
+select pg_get_constraintdef(oid) from pg_constraint
+ where conrelid='public.place_audit'::regclass and conname='place_audit_action_check';
+-- RPC: SECURITY DEFINER, pinned search_path, service_role only
+select prosecdef, proconfig::text from pg_proc where proname='revoke_producer_place_access';
+select has_function_privilege('service_role',
+  'public.revoke_producer_place_access(uuid, uuid)', 'EXECUTE');                       -- true
+select has_function_privilege('anon',
+  'public.revoke_producer_place_access(uuid, uuid)', 'EXECUTE');                       -- false
+select has_function_privilege('authenticated',
+  'public.revoke_producer_place_access(uuid, uuid)', 'EXECUTE');                       -- false
+-- RLS untouched on the two touched tables
+select relrowsecurity from pg_class where oid='public.producer_memberships'::regclass;  -- true
+select relrowsecurity from pg_class where oid='public.place_audit'::regclass;           -- true
+select count(*) from pg_policies where schemaname='public' and tablename='place_audit'; -- 0
+-- Nothing else changed: the counts from 12.1 are unchanged
+select count(*) from public.producer_memberships;
+```
+
+- [ ] **The Live gates must be untouched** (this migration touches no Live object):
+
+```sql
+select position('age_verification' in prosrc) = 0 as gate_untouched
+  from pg_proc where proname='assert_viewer_eligible';   -- expect true
+select to_regproc('public.admit_live_viewer');           -- expect not null
+```
+
+### 12.3 Access + behaviour verification on DEV (one result set)
+
+- [ ] Run `web/tests/db-regression/admin-revoke-place-access.sql` on the same
+  DEVELOPMENT target (SQL Editor paste, or
+  `psql "$SUPABASE_DEV_DB_URL" -f tests/db-regression/admin-revoke-place-access.sql`).
+  One transaction, ends with `rollback;`, creates its own fixtures and leaves no
+  data behind.
+- [ ] It emits ONE result set with columns `ord, check_name, passed, detail`
+  (checks 1–30). **Every row must read `passed = true`.**
+- [ ] What it proves: the schema/privilege posture (1–10); an admin revokes ONE
+  membership with audit attribution and the two notifications (11–17); the
+  last-owner safeguard refuses, audits and sends nothing (18–20); double
+  revocation is idempotent with no extra audit/notification (21–22); a non-admin
+  actor and an unknown membership id are refused (23–25); the Produser's other
+  Tempat membership stays intact and unrelated tables are untouched (26–27); anon
+  and non-admin cannot read or write the audit trail, and a client cannot forge a
+  notification (28–30).
+- [ ] Any `passed = false` — stop. Fix the migration in the repo and re-apply on a
+  fresh target. Do not "fix forward" in the database.
+
+Automated equivalent (real Postgres engine via PGlite, plus the full
+`0001…0056 → 0057` chain apply):
+`web/tests/admin-revoke-place-access.test.ts`,
+`web/tests/admin-revoke-place-access-migration.test.ts`.
+
+### 12.4 Manual UI check (DEV) — NOT RUN
+
+- [ ] Open `/admin/producer-membership` (Data Pengelola) as a Platform Admin.
+  Every relation row shows **Cabut Hak Akses**.
+- [ ] Clicking it opens the confirmation dialog naming the Pengelola (name +
+  email), the Tempat, and the access status; nothing executes before the explicit
+  confirmation, and **Batal** closes it with no change.
+- [ ] Confirm on a revocable row (a manager, an editor, or a non-last owner):
+  the button shows `Mencabut…` while working, then the table refreshes from the
+  server and a success notice says the notification was sent.
+- [ ] Confirm on the LAST owner of a Place: the server refuses with the
+  "tanpa Pemilik" message and the row is still there.
+- [ ] Sign in as the revoked Produser: the Tempat is gone from the Pengelola
+  area and from `/producer/visit-intents`, and there is no link to it; the inbox
+  holds exactly one notification titled "Hak akses Tempat dicabut" with the Place
+  name, the role, the time in the Place timezone, the actor "Admin Singgah Lokal",
+  what changed / did not change, and a pointer to **Bantuan**.
+- [ ] Sign in as another owner/manager of that Place: exactly one "Susunan
+  pengelola Tempat berubah" notification, containing no email/contact of the
+  revoked Produser and no internal admin detail.
+- [ ] As one of those accounts, open `Notifikasi`: both rows render normally
+  (title, body, timestamp) in the existing inbox — no new menu, no duplicate
+  navigation.
+- [ ] At 360 px and 390 px, the action button and the dialog are reachable with no
+  horizontal overflow.
+
+## 13. Out of scope (explicitly NOT here)
 
 - No SMS/OTP provider and no vendor credential (B5 blocker stays open until the product owner supplies a provider; `PHONE_OTP_HASH_SECRET` / B6 is the matching server-side secret).
 - No Cloudflare account/credential configuration (B4 blocker stays open until the PO supplies `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` server-side).

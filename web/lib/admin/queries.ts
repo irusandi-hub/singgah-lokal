@@ -52,6 +52,12 @@ export type AdminOverview = {
  * is untouched; a Pengelola with several Places simply appears once per relation.
  */
 export type AdminProducerPlaceRow = {
+  /**
+   * The membership's own identity (surrogate, migration 0057). This is the ONE
+   * value the revoke action sends to the server; the Pengelola and the Tempat
+   * are derived from the membership row in the database, never from the client.
+   */
+  membershipId: string;
   /** Account email of the member — Admin context ONLY. */
   email: string | null;
   producerId: string;
@@ -246,7 +252,7 @@ export async function listAdminProducerPlaces(): Promise<AdminProducerPlaceRow[]
   const [membershipResult, producerResult, placeResult, emails] = await Promise.all([
     supabase
       .from("producer_memberships")
-      .select("user_id, producer_id, place_id, role, created_at")
+      .select("id, user_id, producer_id, place_id, role, created_at")
       .order("created_at", { ascending: false })
       .limit(CANONICAL_LIST_LIMIT),
     supabase.from("producers").select("id, display_name, claim_status").limit(CANONICAL_LIST_LIMIT),
@@ -286,6 +292,7 @@ export async function listAdminProducerPlaces(): Promise<AdminProducerPlaceRow[]
     const producer = producerById.get(producerId);
     const place = placeById.get(String(row.place_id));
     return {
+      membershipId: String(row.id),
       email: emails.get(String(row.user_id)) ?? null,
       producerId,
       producerName: producer?.displayName ?? producerId,

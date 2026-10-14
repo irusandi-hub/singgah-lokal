@@ -2147,3 +2147,103 @@ existing test was amended explicitly: `web/tests/producer-navigation.test.ts`
 now locks "one back link per RENDERED state" for `/producer/live` instead of
 "one in the file", because the operator state deliberately has its own back
 link.
+
+## 34. ADMIN PLATFORM — CABUT HAK KELOLA PRODUSER ATAS SATU PLACE + NOTIFIKASI (branch `feat/admin-revoke-producer-place-access`, 2026-10-14, migration 0057)
+
+**Root cause / gap.** Admin Center → Data Pengelola (Pengelola ↔ Tempat) had NO
+action to revoke one Producer's management right over ONE Place. The row is a
+`producer_memberships` row (`user_id`, `producer_id`, `place_id`, `role`) and the
+table has **no status column** — access is decided by the row's existence, so
+"revoke" is a DELETE. Nothing in the platform could perform it, and nothing told
+the affected people. Verified absence before the change: no admin route/action,
+no RPC, no audit kind, no notification event for it.
+
+**Fix.**
+
+1. `web/supabase/migrations/0057_admin_revoke_producer_place_access.sql` — one
+   `SECURITY DEFINER` RPC `public.revoke_producer_place_access(p_actor_id uuid,
+   p_membership_id uuid)` (`set search_path = public`; `REVOKE ALL ... FROM
+   PUBLIC, anon`; `GRANT EXECUTE ... TO service_role` — the admin route calls it
+   with the service client, exactly like the other Admin actions). It also adds
+   the surrogate column `producer_memberships.id uuid` (+ unique index) because
+   the table had no single identity a client could reference, and extends the
+   `place_audit` action vocabulary with two values. In ONE transaction it: verifies the
+   Platform Admin in the DB itself (`public.users.platform_role =
+   'platform_moderator'`, session `auth.uid()` wins over the passed actor), locks the membership row
+   (`FOR UPDATE`, race-safe), derives Producer + Place **from the DB row only**
+   (client-sent producer/place ids are never trusted), enforces the last-owner
+   guard, DELETEs the membership, writes the audit row, and writes the
+   notifications. Idempotent: a re-revoke returns `already_revoked` with **no
+   side effect and no notification**.
+2. `web/lib/admin/producer-membership-revoke.ts` + route
+   `web/app/api/admin/producer-memberships/[membershipId]/revoke/route.ts` —
+   server action: `requirePlatformModerator()` on every request, then the RPC
+   with the SESSION actor id. The response carries `status` / `message` /
+   `placeName` / `notified` (HTTP 200 only for `revoked`; `invalid_target` 404,
+   `already_revoked`/`last_owner` 409, transport failure 503), so the UI can
+   never show a success the server refused.
+3. `web/app/admin/producer-membership/AdminPengelolaTable.tsx` — per-row
+   **"Cabut Hak Akses"** action (aria-label naming Producer + Place), explicit
+   confirmation dialog (Producer name + email, Place name, what is lost, and
+   that the Producer and the other Place managers will be notified), locked
+   button while running, server-sourced success/error, table re-read from the
+   server afterwards (search/columns/order/responsive layout preserved).
+4. Notifications reuse the EXISTING infrastructure — no new system, no new
+   category, no new channel: the official writer `public.notify_recipient`
+   (0029) with its preference gate + 0026 dedup key, and the EXISTING generic
+   inbox (`app/notifications` + `notification-inbox-item.tsx`) which renders
+   title/body/time for any `event_type` and only adds a link when a Place target
+   is present. Two new `event_type` values inside existing categories:
+   - `producer_place_access_revoked` (category **`safety_account`** = mandatory,
+     cannot be switched off) → the revoked Producer, **always**.
+   - `producer_place_management_changed` (category `system`) → every OTHER
+     active owner/manager of that Place; no email/contact/internal id of the
+     revoked Producer in the body.
+5. "Tambahkan pengelola"/"Ubah peran" style flows and every management gate were
+   already reading the membership row server-side on each request, so the
+   revocation takes effect immediately with no cache and no extra code.
+
+**Policy decisions (fail-closed where the task left a choice).**
+
+- P1 last active owner: a revocation that would leave the Place with no owner is
+  **REJECTED** (`last_owner`). No transfer flow was invented.
+- P2 notification is written INSIDE the revoke transaction (the table is
+  writable by the DB function), wrapped in a savepoint: a notification failure
+  is recorded in the audit (`notificationsWritten`, `notification_error`) and
+  NEVER rolls back the revocation (MASTER 10 §17).
+- P3/§2.7 audit uses the existing `place_audit` architecture (0031) with
+  `actor = platform_admin`, and is closed to anon.
+- P4 editor gets no notification (no master requires it); the acting admin gets
+  none (UI feedback + audit); no Live-operator notification, because Live
+  authority (`live_operator_assignments`) does not depend on the membership row.
+
+**Exact notification copy sent** (titles asserted verbatim, bodies asserted by
+their required fragments, in `web/tests/admin-revoke-place-access.test.ts` and
+`web/tests/db-regression/admin-revoke-place-access.sql`): the revoked Producer
+gets title *"Hak akses Tempat dicabut"* and body
+*"Admin Singgah Lokal mencabut hak akses <Pemilik|Pengelola|Editor> kamu atas
+Tempat <Place> pada <DD/MM/YYYY HH:MM> (<Place TZ>). Kamu tidak lagi bisa
+mengelola Tempat itu. Akun dan Tempat lain yang kamu kelola tidak berubah. Jika
+kamu merasa ini keliru, hubungi kami lewat menu Bantuan di aplikasi."*; the other
+active owners/managers get title *"Susunan pengelola Tempat berubah"* and body
+*"<display name> tidak lagi mengelola Tempat <Place> sebagai
+<Pemilik|Pengelola|Editor> pada <waktu>."* (no contact data, no admin detail).
+
+**Untouched.** Migrations 0046–0056, `assert_viewer_eligible`,
+`admit_live_viewer`, every GRANT to anon, verification status, Place/Experience/
+Visit Intent data, other Places of the same Producer. Migration 0057 is
+**forward-only, least-privilege, validated but NOT APPLIED to DEV** (not run in
+this task; runbook step added).
+
+**Tests.** `web/tests/admin-revoke-place-access.test.ts` (17, real Postgres via
+PGlite: authorization, forged ids ignored, cross-Place isolation, last-owner
+guard, idempotency + row-lock contract, row counts before/after, audit,
+notification matrix + verbatim copy),
+`web/tests/admin-revoke-place-access-migration.test.ts` (3, migration safety
+guards), `web/tests/admin-revoke-place-access-ui.test.ts` (14, UI contract), and
+the rollback-only result-set script
+`web/tests/db-regression/admin-revoke-place-access.sql` (ord/check_name/passed/
+detail, DEV NOT RUN). One existing test was amended explicitly:
+`web/tests/place-audit.test.ts` now locks the extended audit vocabulary for the
+new action instead of the old single-action list (behaviour was added, nothing
+weakened).
