@@ -414,7 +414,180 @@ select count(*) from public.producer_memberships;  -- unchanged by sign-ups
   else (a hand-edited row, or a trigger that was dropped) — investigate before
   any further apply.
 
-## 10. Out of scope (explicitly NOT here)
+## 10. Live gate hardening + age-verification foundation — apply 0052–0055 (DEV)
+
+Applies, in this order, to four forward-only, idempotent migrations from Tahap C:
+
+| Migration | Finding | What it changes |
+| --- | --- | --- |
+| `0052_live_session_column_privileges.sql` | A-02 | `live_sessions`: table-level SELECT → safe-column SELECT for anon/authenticated; service_role keeps full read |
+| `0053_live_viewer_presence_capacity.sql` | A-04 | `live_viewers.last_seen_at` presence lease + `touch_live_viewer_presence(text)`; capacity and the Realtime policies count active presence |
+| `0054_live_comment_rate_limit.sql` | A-09 | shared `live_comment_rate_limits` store; `post_live_comment` claims the ~1/5s window atomically |
+| `0055_age_verification_foundation.sql` | batas integrasi usia | provider-neutral `age_verifications` + `age_verification_events` + internal check function; **not** wired into `assert_viewer_eligible` |
+
+Each file is pasted WHOLE, in order, in one run. They depend on `0008`/`0009`
+(applied) and on each other's numbering only. `assert_viewer_eligible` and
+`admit_live_viewer` keep denying every viewer (B1) after all four.
+
+### 10.1 Pre-apply checks (read-only, run first)
+
+```sql
+-- The Live objects of 0008/0009 must exist:
+select to_regclass('public.live_sessions');        -- expect not null
+select to_regclass('public.live_viewers');         -- expect not null
+select to_regproc('public.admit_live_viewer');     -- expect not null
+-- The new objects must NOT exist yet:
+select column_name from information_schema.columns
+ where table_schema='public' and table_name='live_viewers'
+   and column_name='last_seen_at';                 -- expect 0 rows
+select to_regproc('public.touch_live_viewer_presence');   -- expect null
+select to_regclass('public.live_comment_rate_limits');    -- expect null
+select to_regclass('public.age_verifications');           -- expect null
+-- Current (pre-0052) posture: this is the A-02 exposure being removed.
+select has_table_privilege('anon','public.live_sessions','SELECT');  -- expect true BEFORE apply
+```
+
+### 10.2 Apply 0052 → 0053 → 0054 → 0055
+
+- [ ] Paste `0052_live_session_column_privileges.sql`, run once. Confirm:
+
+```sql
+select has_table_privilege('anon','public.live_sessions','SELECT');           -- expect false
+select has_column_privilege('anon','public.live_sessions','status','SELECT'); -- expect true
+select has_column_privilege('anon','public.live_sessions','live_input_id','SELECT');     -- false
+select has_column_privilege('authenticated','public.live_sessions','idempotency_key','SELECT'); -- false
+select has_column_privilege('service_role','public.live_sessions','live_input_id','SELECT');    -- true
+```
+
+- [ ] Paste `0053_live_viewer_presence_capacity.sql`, run once. Confirm:
+
+```sql
+select column_name, is_nullable, column_default from information_schema.columns
+ where table_schema='public' and table_name='live_viewers' and column_name='last_seen_at';
+select indexname from pg_indexes
+ where schemaname='public' and tablename='live_viewers' and indexname='live_viewers_presence_idx';
+select has_function_privilege('anon','public.touch_live_viewer_presence(text)','EXECUTE');          -- false
+select has_function_privilege('authenticated','public.touch_live_viewer_presence(text)','EXECUTE'); -- true
+-- The effective Realtime policies now read the presence lease (not admitted_at):
+select policyname, qual, with_check from pg_policies
+ where schemaname='realtime' and tablename='messages' order by policyname;
+```
+
+- [ ] Paste `0054_live_comment_rate_limit.sql`, run once. Confirm:
+
+```sql
+select rowsecurity from pg_tables where schemaname='public' and tablename='live_comment_rate_limits'; -- true
+select count(*) from pg_policies where schemaname='public' and tablename='live_comment_rate_limits'; -- 0
+select has_table_privilege('authenticated','public.live_comment_rate_limits','SELECT');   -- false
+select has_table_privilege('authenticated','public.live_comment_rate_limits','INSERT');   -- false
+```
+
+- [ ] Paste `0055_age_verification_foundation.sql`, run once. Confirm:
+
+```sql
+select rowsecurity from pg_tables where schemaname='public' and tablename='age_verifications';       -- true
+select rowsecurity from pg_tables where schemaname='public' and tablename='age_verification_events'; -- true
+select count(*) from pg_policies where schemaname='public' and tablename='age_verification_events';  -- 0
+select column_name from information_schema.columns
+ where table_schema='public' and table_name='age_verifications'
+   and column_name in ('date_of_birth','document_number','selfie','biometric_ref');  -- expect 0 rows
+select has_function_privilege('authenticated','public.age_verification_satisfied(uuid)','EXECUTE'); -- false
+select has_function_privilege('anon','public.record_age_verification_event(text,text,text)','EXECUTE'); -- false
+select has_function_privilege('service_role','public.record_age_verification_event(text,text,text)','EXECUTE'); -- true
+```
+
+- [ ] **Re-confirm the viewer gate is still fail-closed** — the whole point of
+  0055 is that nothing is wired to it yet:
+
+```sql
+select prosrc from pg_proc where proname='assert_viewer_eligible';
+-- expect the unconditional deny at the end of the body, and NO reference to
+-- age_verifications / age_verification_satisfied anywhere in it:
+select position('age_verification' in prosrc) = 0 as gate_untouched
+  from pg_proc where proname='assert_viewer_eligible';   -- expect true
+```
+
+### 10.3 Access verification on DEV (one result set per script)
+
+Each file is one transaction ending in `rollback;`, creates its own fixtures and
+leaves no data behind. Every emitted row must read `passed = true`.
+
+- [ ] `web/tests/db-regression/live-session-column-access.sql` (A-02)
+- [ ] `web/tests/db-regression/live-viewer-presence-access.sql` (A-04)
+- [ ] `web/tests/db-regression/live-comment-rate-limit-access.sql` (A-09)
+- [ ] `web/tests/db-regression/age-verification-access.sql` (age foundation)
+- [ ] Any `passed = false` — stop. Fix the migration in the repo and re-apply on a
+  fresh target. Do not "fix forward" in the database.
+
+Automated equivalents (real Postgres engine via PGlite):
+`web/tests/live-session-column-privileges.test.ts`,
+`web/tests/live-viewer-presence-cap.test.ts`,
+`web/tests/live-comment-rate-limit.test.ts`,
+`web/tests/age-verification-foundation.test.ts`.
+
+#### 10.3.1 Concurrent admission + two-instance comment window (**NOT-RUN** — needs two DB sessions)
+
+The automated suites run on ONE database connection (PGlite), so they prove the
+serialization CONTRACT — a blocking, session-scoped `pg_advisory_xact_lock` taken
+BEFORE the capacity count (A-04), and one atomic conditional upsert inside
+`post_live_comment` for the comment window (A-09) — rather than two genuinely
+simultaneous transactions. Close that gap on DEV with two psql sessions against
+the same database, then tick the boxes:
+
+- [ ] **A-04 concurrent admission.** With the session already holding 100 active
+  presences, run `select public.admit_live_viewer('<session_id>');` in session A
+  and session B at the same time. Expect exactly one `live_capacity_full` (or
+  none, if a lease expired), and never 101 present rows:
+  `select count(*) from public.live_viewers where live_session_id = '<session_id>' and last_seen_at > now() - interval '5 minutes';`
+- [ ] **A-09 two-instance window.** With two app instances running, post two
+  comments for the SAME viewer + session within 5 seconds, alternating
+  instances. Expect the second to be refused with `live_comment_rate_limited`
+  and the stored row to stay put:
+  `select * from public.live_comment_rate_limits where live_session_id = '<session_id>' and user_id = '<user_id>';`
+  (one row; `last_comment_at` must NOT move on the denied attempt)
+- [ ] Record the observed numbers here (a measurement, not a pass/fail claim):
+
+```
+
+```
+
+### 10.4 S-04 / S-05 — Realtime runtime checks on DEV (**NOT-RUN**)
+
+**Status: NOT-RUN.** What the suite already proves (RAN-PASSED) is the gate
+itself on a real Postgres engine: `web/tests/live-realtime-gate-static.test.ts`
+evaluates the private-channel RLS with the realtime topic GUC — a session with no
+admitted presence sees nothing and cannot publish, an admitted viewer with a
+fresh presence lease sees the broadcast and can publish, an expired lease or an
+ended session is refused, and no other session's topic leaks. The remaining
+questions need the running Realtime service and cannot be answered by any test in
+this repository:
+
+- [ ] **S-04 (join):** with the DEV app open on a Live, confirm the browser's
+  Realtime socket for `live_session:<id>` reports `SUBSCRIBED` for an admitted
+  viewer and `CHANNEL_ERROR` for a signed-out/anonymous tab (and that the client
+  tears its channels down on the error rather than retrying a public channel).
+- [ ] **S-04 (broadcast):** with a signed-in non-admitted account, call
+  `POST /api/live/comments` directly (outside the UI). Expect
+  `live_viewer_denied` (400) and **no** broadcast reaching an admitted viewer's
+  tab.
+- [ ] **S-04 (presence):** watch longer than the 5-minute grace window with the
+  tab open and confirm the viewer keeps receiving comments (the heartbeat renews
+  the lease), then close the tab and confirm that viewer stops being counted in
+  `live_viewers` presence after the window.
+- [ ] **S-05 (load):** with the maximum viewer count, measure comment delivery
+  and the observable rejection rate of the ~1/5s window across at least two
+  instances. Record: instance count, viewer count, comments attempted, delivered,
+  rejected, and any socket teardown. This is a measurement, not an assertion —
+  record the numbers here rather than a pass/fail claim:
+
+```
+
+```
+
+  Until those boxes are ticked on DEV, S-04 stays PARTIAL (gate proven on
+  Postgres, Realtime round trip NOT-RUN) and S-05 stays NOT-RUN.
+
+## 11. Out of scope (explicitly NOT here)
 
 - No SMS/OTP provider and no vendor credential (B5 blocker stays open until the product owner supplies a provider; `PHONE_OTP_HASH_SECRET` / B6 is the matching server-side secret).
 - No Cloudflare account/credential configuration (B4 blocker stays open until the PO supplies `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` server-side).

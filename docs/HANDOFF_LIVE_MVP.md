@@ -2038,3 +2038,66 @@ Existing suites that locked the pre-Tahap-3 UI were updated in the same commit
 (`account-center`, `navigation-separation`, `admin-live-account-surface`,
 `live-operator-management`, `account-profile-surface`, `account-menu-surfaces`):
 each now asserts the new contract, and none was weakened to pass.
+
+## 32. LIVE GATE HARDENING + AGE-VERIFICATION FOUNDATION (Tahap C, migrations 0052–0055)
+
+Branch `fix/live-viewer-gate-hardening` (base = head of PR #41, `fix/live-auth-signup-operator-email`,
+because PR #40 and #41 were still open when Tahap C started). Findings and their
+evidence live in `docs/audits/LIVE_AUTH_AUDIT_v1.md`; the DEV apply steps and the
+manual runtime checks live in `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §10.
+
+### 32.1 What changed
+
+| Finding | Migration | Change |
+| --- | --- | --- |
+| A-02 | `0052_live_session_column_privileges.sql` | `live_sessions` table-level SELECT → safe-column SELECT for anon/authenticated; `live_input_id` + `idempotency_key` become server-side only (service-role reads) |
+| A-04 | `0053_live_viewer_presence_capacity.sql` | presence lease `live_viewers.last_seen_at` + `touch_live_viewer_presence(text)`; the 100-concurrent cap and the Realtime policies count ACTIVE PRESENCE (guest window unchanged, TUNABLE 5 min) |
+| A-09 | `0054_live_comment_rate_limit.sql` | the ~1/5s comment window moves from process memory to the shared `live_comment_rate_limits` store, claimed atomically inside `post_live_comment` |
+| A-05 | — (copy) | Live gate copy states the real capability ("age verification not available yet"); participation controls render only for an admitted viewer |
+| S-04/S-05 | — (tests) | the Realtime join/broadcast gate is now evaluated on a real Postgres engine; the DEV runtime round trip and the load measurement stay NOT-RUN |
+| age boundary | `0055_age_verification_foundation.sql` | provider-neutral `age_verifications` + `age_verification_events` + internal check; **nothing wired to the Live gate** |
+
+Two pre-existing defects were DISCOVERED by the new tests and are deliberately left
+unfixed (out of Tahap C scope, both fail-closed — they are recorded in the audit):
+
+1. `0047`'s operator SELECT policies reference `public.live_operators`, which `anon`
+   holds no privilege on. RLS policy expressions run with the querying role's
+   privileges, so an ANONYMOUS read of `live_sessions` (and of `places` /
+   `production_stages`) fails with `permission denied for table live_operators`
+   before any row is considered. Signature: `0052`'s suite characterizes it.
+2. `admit_live_viewer` inserts an `admission_denied` audit row and then RAISES, so
+   the row is rolled back with the aborted statement — capacity denials are not
+   actually audited. Needs an autonomous write path (or returning a failure instead
+   of raising), which is an enforcement change, not a capacity fix.
+
+### 32.2 The age gate: the ONE integration seam (do NOT do this before approval)
+
+`assert_viewer_eligible` (`0008_live_sessions.sql`) still ends with the
+unconditional B1 deny (MASTER_LIVE_POLICY §12.2 #2). `admit_live_viewer`,
+`post_live_comment` and `submit_live_report` all call that one function, so the
+entire viewer gate has exactly ONE place to change. After a provider is chosen
+(P1), its data/retention rules decided (P2/P3), implemented behind
+`lib/age-verification/provider.ts`, tested, and approved by the product owner:
+
+1. Add a NEW forward-only migration (never edit `0008`) that replaces
+   `assert_viewer_eligible` and keeps every existing check in order: duration-cap
+   self-heal → session live → `content_status = 'ok'` → confirmed email + actor →
+   then, instead of the unconditional raise:
+   `if not public.age_verification_satisfied(auth.uid()) then raise exception 'live_viewer_denied' using errcode = 'P0001'; end if;`
+   The internal check already fails closed for pending/failed/expired/revoked/absent
+   rows, so the deny-default survives.
+2. Change nothing else: the admission RPC, the comment/report RPCs, the
+   presence/capacity logic, the column privileges and the Realtime policies all
+   continue to work unchanged, because they delegate to the gate.
+3. Update the UI copy in the same change (the A-05 wording becomes a real,
+   completable path) and update the tests that intentionally lock the deny-all:
+   `web/tests/age-verification-foundation.test.ts` ("a fully valid verified age
+   result still does NOT open the Live viewer gate"), `web/tests/live-gate-copy.test.ts`,
+   `web/tests/live-realtime-gate-static.test.ts` and `web/tests/audit/live-auth-audit-defects.test.ts`.
+   They are written to fail loudly at exactly that moment.
+4. Keep the provider credentials server-side only; `AGE_VERIFICATION_PROVIDER`
+   selects a REGISTERED provider, and an unknown/unset value stays
+   `provider_not_configured` (503) with no record written.
+
+Blockers that remain open: B1 (vendor + credentials), P1–P3 (vendor/data/retention
+decisions), B4/B4b (Cloudflare) for any real Live session, B5/B6 (SMS/OTP).

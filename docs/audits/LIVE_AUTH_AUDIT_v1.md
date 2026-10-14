@@ -54,6 +54,50 @@ lulus tes relevan + `tsc -b --noEmit` + `eslint` (0 error) + suite penuh per chu
 | S-01 | **PARTIAL (RAN-PASSED + NOT-RUN DEV)** | `c01d3e2` | Sisi DB/alur (mirror `public.users`, metadata hostile, kegagalan parsial + retry, duplikat, klien tidak bisa insert) kini RAN-PASSED di Postgres nyata; kebenaran template + klik email DEV tetap NOT-RUN (checklist §9). |
 | S-02 | **NOT-RUN (DEV)** | — | Butuh template email DEV; langkah manual ditulis di `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §9. |
 
+## 0.c Status perbaikan (LIVE-C) — bukti asli di bawah tidak diubah
+
+**BASE PR (ditentukan dari status PR, bukan asumsi).** `gh pr view 40` → PR #40
+(`audit/live-auth-baseline` → `main`) **OPEN**; `gh pr view 41` → PR #41
+(`fix/live-auth-signup-operator-email` → `audit/live-auth-baseline`) **OPEN**. Karena belum ada
+merger, PR Tahap C berbasis **`fix/live-auth-signup-operator-email`** (head PR #41 = ujung rantai
+yang belum merge) dan memuat rantai lengkapnya; hal ini juga ditulis di deskripsi PR.
+
+**Nomor migrasi bebas setelah 0051** (0051 = nomor terakhir LIVE-B): dicek di repo dan di semua
+PR yang ada → **0052, 0053, 0054, 0055** bebas, tidak ada tabrakan di cabang/PR mana pun.
+
+| ID | Status | SHA | Catatan |
+| --- | --- | --- | --- |
+| A-02 | **FIXED** | `04b7d1e` | `0052`: SELECT tingkat-tabel `live_sessions` dicabut dari `anon`/`authenticated`, lalu GRANT kolom aman saja; `live_input_id` + `idempotency_key` server-side only. **Tidak ada grant baru ke `anon` yang lebih luas** (kolom yang di-grant = subset ketat grant tabel sebelumnya). `web/tests/live-privileges.test.ts` **diperbarui secara eksplisit**. |
+| A-04 | **FIXED** | `aa94173` | `0053`: lease presence `live_viewers.last_seen_at` + `touch_live_viewer_presence(text)`; kapasitas dan policy Realtime (`0009`) kini menghitung **presence aktif**. Angka tidak diubah (cap 100; nilai TUNABLE 5 menit tetap). Race-safe: serialisasi `pg_advisory_xact_lock` (`0027`) tidak disentuh. |
+| A-05 | **FIXED** | `87c0cfb` | Salinan UI menyatakan kapabilitas nyata (verifikasi usia belum tersedia); tanpa tombol/langkah yang pasti gagal; tidak menyiratkan DOB = verifikasi. Dikunci `web/tests/live-gate-copy.test.ts`. |
+| A-09 | **FIXED** | `bded0c6` | `0054`: jendela komentar ~1/5 s pindah dari memori proses ke penyimpanan bersama `public.live_comment_rate_limits` (RLS tertutup, nol akses klien), di-claim atomik di dalam `post_live_comment` (conditional upsert + row lock → state kanonik di DB, bukan per instance). Tanpa layanan eksternal baru. Pengukuran dua instance nyata: **NOT-RUN** (§10.3.1/§10.4). |
+| S-04 | **PARTIAL (RAN-PASSED + NOT-RUN DEV)** | `e60711` | Gate eligibility pada join/broadcast dievaluasi di Postgres nyata (PGlite): gate jalan di setiap jalur tulis, policy channel privat benar-benar memutuskan receive/send, klien tidak pernah join sebelum admission dan tidak jatuh ke polling. Round trip websocket nyata tetap **NOT-RUN** (butuh runtime DEV; checklist §10). |
+| S-05 | **PARTIAL (NOT-RUN)** | `e60711` | Perilaku rate limit + delivery broadcast di bawah beban tetap **NOT-RUN**; langkah beban manual ditulis di checklist §10. Tidak dilaporkan sebagai lulus. |
+| FONDASI USIA | **FOUNDATION-ONLY (sengaja tidak tersambung)** | `9dd473d` | `0055`: `age_verifications` + ledger event webhook + fungsi internal `age_verification_satisfied(uuid)` + RPC tulis SECURITY DEFINER (service_role only). **`assert_viewer_eligible`/`admit_live_viewer` tidak disentuh dan tetap menolak tanpa syarat.** Titik sambung satu-perubahan: `docs/HANDOFF_LIVE_MVP.md` §32.2. |
+
+**POLICY DECISION baru (Tahap C) — dicatat karena ada pilihan yang diambil dengan default fail-closed:**
+
+- **PD-LIVEC-1 (A-04).** "Hadir" = satu definisi yang dipakai dua kali: lease
+  `live_viewers.last_seen_at` di dalam jendela grace TUNABLE 5 menit (nilai lama, tidak diubah).
+  Baris ledger `live_viewers` tidak lagi menjadi dasar kapasitas; admission tetap satu-satunya
+  jalur masuk (dan tetap menjalankan gate fail-closed lebih dulu).
+- **PD-LIVEC-2 (A-02).** Kolom provider + kunci idempotensi hanya untuk infrastruktur server;
+  konsekuensinya pembaca server yang sah memakai service-role / daftar kolom eksplisit
+  (`lib/live/session-service.ts`, `lib/live/session-service-cap.ts`, route playback & publish-url).
+- **PD-LIVEC-3 (A-09).** Tidak ada penyimpanan bersama yang SUDAH ADA untuk rate limit di proyek
+  (tidak ada Redis/Upstash/kv di `package.json`). Karena itu dipakai opsi cadangan yang diizinkan:
+  tabel kecil dengan RLS tertutup + RPC `SECURITY DEFINER` (`search_path` dipin, tanpa EXECUTE
+  ke `anon`), bukan layanan eksternal baru.
+- **PD-LIVEC-4 (fondasi usia).** Tanpa vendor. Tanpa kolom DOB/dokumen identitas/biometrik, tanpa
+  angka usia — hanya boolean hasil "memenuhi 18 (inklusif)". Tanpa provider terkonfigurasi →
+  `provider_not_configured` (503) dan **tidak ada** record verified yang dibuat. Mock hanya ada di
+  berkas tes dan tidak dapat dijangkau dari jalur DEV/produksi.
+- **PD-LIVEC-5 (A-05).** Salinan menyebut syarat apa adanya dan tidak menawarkan langkah yang pasti
+  gagal — syarat tetap syarat, bukan alur yang bisa diselesaikan hari ini.
+
+Verifikasi Tahap C (label di §8, output mentah di §10): suite penuh **146 berkas / 1489 tes / 0 fail**
+(11 chunk serial), `bun tsc -b --noEmit` exit 0, `bunx eslint .` 0 error, `bun run build` exit 0.
+
 ## 1. Ringkasan temuan
 
 | Tingkat | Jumlah CONFIRMED | Jumlah SUSPECTED |
@@ -63,9 +107,14 @@ lulus tes relevan + `tsc -b --noEmit` + `eslint` (0 error) + suite penuh per chu
 | MEDIUM | 5 (A-02…A-06) | 2 (S-03, S-04) |
 | LOW | 5 (A-07…A-11) | 1 (S-05) |
 
+Temuan **baru yang DITEMUKAN** oleh tes Tahap C (baris di atas adalah hasil audit awal dan
+tidak diubah): **A-12** (LOW–MEDIUM) dan **A-13** (LOW). Keduanya gagal-tertutup, di luar cakupan
+Tahap C, dan sengaja tidak diperbaiki — detail di §3.
+
 Sebaran per tahap perbaikan: **B (auth/signup/signin) = 3** (A-01, A-06, A-07),
 **C (age gate/admisi/komentar) = 5** (A-02, A-03, A-04, A-05, A-09),
-**D (produser/moderasi/admin) = 3** (A-08, A-10, A-11).
+**D (produser/moderasi/admin) = 3** (A-08, A-10, A-11) **+ 2 temuan susulan dari tes Tahap C**
+(A-12, A-13).
 
 Lima temuan teratas:
 
@@ -311,6 +360,29 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Perbaikan: cabut `select` tingkat-tabel lalu berikan GRANT kolom eksplisit **tanpa** `live_input_id`/`idempotency_key` (atau ekspos lewat view/RPC khusus), dan batasi `select *` di route aplikasi ke daftar kolom.
 - Catatan Tahap C: `web/tests/live-privileges.test.ts` mengunci grant tingkat-tabel ini sebagai perilaku yang diinginkan, jadi perbaikan harus memperbarui tes tersebut, bukan hanya migrasi baru.
 - Tes pembuktian: ditambahkan sebagai tes karakterisasi (A-02).
+- **Status (LIVE-C): FIXED di `04b7d1e`** (migrasi `0052_live_session_column_privileges.sql`).
+  Dipakai opsi grant kolom, bukan view: `revoke select on public.live_sessions from anon,
+  authenticated;` lalu `grant select (id, place_id, producer_id, stage_id, status, created_at,
+  started_at, ended_at, ended_reason, end_note, viewer_peak, content_status) on
+  public.live_sessions to anon, authenticated;` dan, eksplisit, `grant select on public.live_sessions
+  to service_role;` untuk jalur infrastruktur. **Least privilege:** kolom yang di-grant adalah
+  subset ketat dari grant tabel sebelumnya, jadi **tidak ada grant baru ke `anon` yang lebih luas**;
+  policy RLS tidak diubah (baris tetap sama); tidak ada grant tulis di mana pun (DML tetap RPC-only).
+  Semua pemakai `live_sessions` diperiksa satu per satu dan tidak ada yang rusak: RPC/trigger di
+  `0008`/`0027`/`0053`/`0054` (SECURITY DEFINER, jalan sebagai owner), policy Realtime `0009`,
+  route `live/status`, `live/playback`, `live/end`, `live/discovery`, `producer/live/sessions/*`,
+  `lib/live/session-service.ts`, `lib/live/session-service-cap.ts`, dan admin queries — pembaca yang
+  sah dipindah ke daftar kolom eksplisit atau ke koneksi service-role; `select *` pada tabel ini
+  tidak dipakai lagi di jalur aplikasi.
+  **Perubahan eksplisit pada `web/tests/live-privileges.test.ts`** (tes itu memang mengunci grant
+  tingkat-tabel; ini dijelaskan juga di deskripsi PR): pernyataan 0008 sekarang dipertahankan sebagai
+  bukti historis + ditandai superseded, dan ditambahkan assertion baru bahwa `0052` melakukan
+  `revoke` tingkat-tabel, **tidak** mengembalikan `grant select` tingkat-tabel, dan tidak pernah
+  memuat `live_input_id`/`idempotency_key` di daftar kolom klien. Tidak ada assertion lama yang
+  dilemahkan untuk lulus. Dijalankan: `web/tests/live-session-column-privileges.test.ts`
+  (anon **dan** authenticated ditolak per kolom termasuk `select *` dengan `permission denied`;
+  penonton terautentikasi tetap bisa membaca kolom aman; alur server sah tetap jalan lewat
+  service-role) + `web/tests/db-regression/live-session-column-access.sql` (result set).
 
 ### A-03 — `release_live_input` dan `list_ended_live_inputs` tidak memeriksa otoritas pemanggil · MEDIUM · Tahap B/C · tanpa keputusan kebijakan
 
@@ -336,6 +408,32 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: "100" = *concurrent* (policy §6, §12.2 #1) tetapi implementasinya adalah "admission dalam 5 menit terakhir". Penonton yang menonton >5 menit berhenti dihitung; 100 admission pada T dan 100 lagi pada T+6 menit menghasilkan ~200 penonton nyata dengan hitungan 100. `viewer_peak` juga ter-understatement. Saat ini dampaknya nol karena B1 menolak semua penonton, tetapi menjadi nyata begitu mekanisme usia Phase 2.1 aktif.
 - Perbaikan: hitung konkurensi dari presence Realtime (sesuai `MASTER_LIVE_TECH_v1.0.md` §6) atau lease/heartbeat eksplisit dengan kedaluwarsa server-side, bukan jendela admission.
 - Tes pembuktian: ditambahkan sebagai tes karakterisasi (A-04).
+- **Status (LIVE-C): FIXED di `aa94173`** (migrasi `0053_live_viewer_presence_capacity.sql`).
+  Dipakai opsi "lease/heartbeat eksplisit" yang disebut audit: kolom `live_viewers.last_seen_at`
+  sebagai lease presence (di-backfill dari `admitted_at`, **bukan** `now()` — migrasi tidak boleh
+  mengarang presence), di-refresh saat admission dan lewat `public.touch_live_viewer_presence(text)`
+  yang hanya memperbarui lease milik pemanggil untuk sesi yang masih `live`. Kapasitas sekarang
+  menghitung lease di dalam jendela grace TUNABLE 5 menit — penonton yang terus menonton tetap
+  dihitung, penonton yang pergi berhenti dihitung (fail closed) — dan policy Realtime `0009`
+  memakai definisi presence yang SAMA, sehingga "hadir" hanya punya satu arti (PD-LIVEC-1).
+  Yang tidak diubah: cap 100, nilai TUNABLE 5 menit, cap global 5 / per-Place 1, kunci advisory
+  `0027` (admisi konkuren tetap serial per sesi, lock diambil SEBELUM hitungan kapasitas dan tetap
+  BLOCKING sehingga kontensi mengantre, bukan menolak penonton sah), upsert idempoten, `viewer_peak`,
+  dan urutan gate (`assert_viewer_eligible` tetap pernyataan pertama). Dijalankan:
+  `web/tests/live-viewer-presence-cap.test.ts` (100 penonton yang menonton >5 menit tetap terhitung;
+  penonton ke-101 ditolak; tiga percobaan admisi berikutnya pada sesi yang sudah penuh juga ditolak
+  sehingga hitungan tidak pernah melewati cap; satu lease kedaluwarsa membebaskan tepat satu slot;
+  heartbeat klien lewat `/api/live/presence` dan berhenti bila ditolak),
+  `web/tests/live-viewer-cap-race.test.ts` (kontrak 0027 tetap utuh: `pg_advisory_xact_lock` BLOCKING
+  diambil SEBELUM hitungan kapasitas, kunci bercakupan sesi, bukan `try_`),
+  **Batas kejujuran:** PGlite berjalan pada SATU koneksi, jadi race-safety dibuktikan lewat kontrak
+  serialisasi di atas + penolakan setiap admisi saat sesi penuh — **bukan** dua transaksi yang benar
+  benar simultan. Uji simultan nyata (dua sesi DB) tetap **NOT-RUN**; langkah manualnya ada di
+  `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §10.3.1,
+  `web/tests/db-regression/live-viewer-presence-access.sql` (result set), dan
+  `web/tests/live-realtime-gate-static.test.ts` (policy Realtime memakai lease yang sama).
+  **Temuan sampingan (bukan A-04):** baris audit `admission_denied` masih ter-rollback oleh
+  `raise exception` — dicatat sebagai temuan baru **A-13**, sengaja tidak diperbaiki di sini.
 
 ### A-05 — Salinan UI menyiratkan jalur verifikasi yang bisa diselesaikan · MEDIUM · Tahap C (+salinan UI) · tanpa keputusan kebijakan
 
@@ -343,6 +441,13 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: menyiratkan bahwa penonton dapat memenuhi syarat (padahal tidak ada mekanisme verifikasi usia; gate menolak semua), dan menampilkan keadaan berharap ("Menunggu verifikasi") di tempat backend memberi penolakan permanen. Bertentangan dengan aturan UI yang sudah dipegang proyek (jangan mengklaim/menyiratkan hasil yang tidak terjadi; "status messages … never claim success when an operation fails", `UI_TERMINOLOGY_STANDARD.md` §1).
 - Perbaikan: nyatakan kapabilitas apa adanya (mis. "Verifikasi usia belum tersedia — akses menonton Live belum dapat diberikan.") dan hapus kata "Menunggu …" pada jalur yang pasti ditolak; jaga agar syarat tetap disebut sebagai syarat, bukan langkah yang bisa diselesaikan.
 - Tes pembuktian: copy dikunci sebagian oleh `live-ui.test.ts`; tes baru diperlukan saat teks berubah (belum ada tes untuk kalimat ini).
+- **Status (LIVE-C): FIXED di `87c0cfb`.** Salinan gate Live sekarang menyatakan kapabilitas nyata
+  (verifikasi usia belum tersedia, sehingga akses menonton Live belum dapat diberikan), memakai
+  istilah `docs/UI_TERMINOLOGY_STANDARD.md`, tanpa tombol atau langkah yang pasti gagal, dan tanpa
+  menyiratkan bahwa mengisi tanggal lahir = verifikasi (DOB memang bukan bukti usia). Keadaan
+  "Menunggu …" pada jalur yang pasti ditolak dihapus; kontrol partisipasi (komentar/laporan) hanya
+  dirender untuk penonton yang benar-benar diadmit. Dijalankan: `web/tests/live-gate-copy.test.ts`
+  (teks jujur terkunci + tidak ada janji alur) dan `web/tests/live-ui.test.ts`.
 
 ### A-06 — Tidak ada syarat email terverifikasi untuk Operator Live / start Live · MEDIUM · Tahap B · **POLICY DECISION NEEDED**
 
@@ -400,6 +505,25 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: pada multi-instance/serverless, batas "≈1/5 s per penonton" (policy §12.1 item 6, TUNABLE) bisa dilewati dengan menyebar permintaan antar instance. Risiko rendah (komentar ephemeral, moderasi konten tetap jalan) dan mekanisme memang ditandai TUNABLE di `MASTER_LIVE_TECH §6/§10`.
 - Perbaikan: mekanisme shared (mis. Redis/Upstash) atau pembatasan di RPC dengan penyimpanan kanonik.
 - Tes pembuktian: `live-comment-rate-limit.test.ts` menguji perilaku per-proses.
+- **Status (LIVE-C): FIXED di `bded0c6`** (migrasi `0054_live_comment_rate_limit.sql`).
+  Dipakai opsi "pembatasan di RPC dengan penyimpanan kanonik": tabel kecil
+  `public.live_comment_rate_limits` (satu baris per sesi+penonton, **hanya** waktu komentar terakhir
+  yang diterima — tidak pernah menyimpan teks komentar, sesuai aturan komentar ephemeral) dengan
+  RLS aktif, tanpa policy, dan seluruh privilege dicabut (nol akses klien). Slot diklaim di dalam
+  `post_live_comment` lewat satu conditional upsert atomik (`on conflict … do update … where
+  last_comment_at <= now() - interval`), jadi row lock membuat percobaan bersamaan dari instance
+  mana pun race-safe: tepat satu yang menang per jendela. Nilai TUNABLE (5 s) dan batas 300 karakter
+  tidak diubah; kode error `live_comment_rate_limited` tetap sama sehingga route/UI tidak berubah;
+  percobaan yang ditolak tidak memperpanjang jendelanya sendiri. Tanpa layanan eksternal baru
+  (PD-LIVEC-3). Dijalankan: `web/tests/live-comment-rate-limit.test.ts` — tidak ada state proses
+  (`new Map(`, `commentTimestamps`, `enforceCommentRateLimit` sudah tidak ada dan modul memakai
+  `live_comment_rate_limits`), jendela diuji di engine nyata (komentar kedua ditolak, slot bebas
+  setelah jendela, penolakan tidak memperpanjang jendela, isolasi per penonton DAN per sesi, tabel
+  hanya menyimpan timestamp), dan nol akses klien; plus
+  `web/tests/db-regression/live-comment-rate-limit-access.sql` (result set: PK `(live_session_id,
+  user_id)`, claim atomik di RPC, nol akses klien). **Batas kejujuran:** konsistensi lintas-instance
+  di sini bersifat STRUKTURAL (state kanonik di DB + klaim atomik di RPC), bukan pengukuran dua
+  instance nyata — itu tetap **NOT-RUN** (langkah manual §10.3.1/§10.4).
 
 ### A-10 — Tidak ada mekanisme suspend/terminate akun; hanya kapabilitas Live produser · LOW · Tahap D · **POLICY DECISION NEEDED**
 
@@ -414,6 +538,40 @@ Format: **ID — judul** · tingkat · tahap · butuh keputusan kebijakan.
 - Dampak: producer tidak punya cara melihat audit Live miliknya (mis. mengapa sesi berakhir `source_stage_unpublished`), sedangkan policy §8 mewajibkan audit trail ada (dan itu terpenuhi — penulisannya ada) tetapi tidak menyatakan siapa yang boleh membaca. Sesuai `MASTER_LIVE_TECH §3` ("no direct SELECT for authenticated"), jadi implementasi konsisten dengan tech master; pertanyaannya produk: apakah produser perlu visibilitas audit Live-nya.
 - Perbaikan: bila ya, sediakan RPC read-only ber-scope Place di balik `can_operate_live_for_place`.
 - Tes pembuktian: `live-hardening.test.ts`/`live-privileges.test.ts` mengunci kondisi "audit gelap".
+
+### A-12 — Policy SELECT dari `0047` mereferensikan `public.live_operators` yang tidak bisa dibaca `anon` · LOW–MEDIUM · Tahap D · tanpa keputusan kebijakan
+
+- **DITEMUKAN oleh tes LIVE-C** (`04b7d1e`, `web/tests/live-session-column-privileges.test.ts`),
+  **bukan** disebabkan oleh `0052`, dan sengaja **tidak** diperbaiki di Tahap C (di luar cakupan).
+- Bukti: migrasi `0047_account_center_live_operator.sql` membuat policy SELECT untuk
+  `live_sessions` (dan policy operator pada `places`/`production_stages`) yang memakai subquery ke
+  `public.live_operators`. `anon` tidak memegang privilege apa pun di tabel itu, dan ekspresi policy
+  RLS dievaluasi dengan privilege role yang meng-query — sehingga pembacaan `live_sessions` oleh
+  **anon** gagal `permission denied for table live_operators` **sebelum** ada baris yang
+dipertimbangkan.
+- Dampak: **fail-closed** (anon tidak mendapatkan data apa pun, jadi bukan kebocoran dan bukan
+  jalur melewati gate), tetapi merusak pembacaan metadata Live publik/anon dan akan menggagalkan
+  permukaan discovery publik saat dibuka. Belum menjadi insiden karena penonton anonim memang
+  dilarang menonton (P7) dan tidak ada halaman publik yang membaca tabel itu sebagai anon.
+- Perbaikan (Tahap D): ganti referensi tabel langsung di policy dengan helper `SECURITY DEFINER`
+  ber-`search_path` terpaku, atau berikan policy terpisah yang bisa dievaluasi tanpa tabel itu;
+  lalu ganti assertion karakterisasi di tes kolom dengan pembacaan anon positif.
+
+### A-13 — Audit penolakan kapasitas (`admission_denied`) selalu ter-rollback oleh `raise` · LOW · Tahap D · tanpa keputusan kebijakan
+
+- **DITEMUKAN oleh tes LIVE-C** (`aa94173`, `web/tests/live-viewer-presence-cap.test.ts`), **bukan**
+  akibat `0027`/`0053`, dan sengaja **tidak** diperbaiki di Tahap C.
+- Bukti: `admit_live_viewer` menulis `insert into public.live_audit … action='admission_denied'`
+  lalu `raise exception 'live_capacity_full'`. Karena semuanya satu pernyataan/transaksi, rollback
+  dari exception menghapus baris audit itu. Tes menegaskan sumber masih menulis audit row, tetapi
+  `select … from public.live_audit where action='admission_denied'` mengembalikan **0 baris**
+  (perilaku teramati; tes harus diperbarui saat diperbaiki).
+- Dampak: jejak audit penolakan kapasitas hilang (kebijakan §8 minta audit trail ada; penulisan ada,
+  efeknya tidak). Tidak ada efek pada keputusan gate — penolakan tetap terjadi dan tetap fail-closed;
+  karena B1 masih menolak semua penonton, dampak saat ini nol.
+- Perbaikan (Tahap D): jalur tulis otonom (mis. RPC/write terpisah yang tidak ter-rollback) atau
+  kembalikan status gagal sebagai nilai, bukan `raise` — itu perubahan enforcement, bukan perbaikan
+  kapasitas, karena itu dipisahkan dari A-04.
 
 ---
 
@@ -440,6 +598,20 @@ disebut terverifikasi operasional sampai dikerjakan di DEV.
 | S-03 | MEDIUM | Drift migrasi repo vs DEV (0008/0047–0050 sudah/belum diapply; definisi fungsi usang seperti `end_live_session(text,text,text)` 3-argumen). | DEV: `select to_regproc(...)`, `information_schema`, bandingkan dengan repo. | semua |
 | S-04 | MEDIUM | `assert_viewer_eligible` benar-benar dijalankan untuk join Realtime dan broadcast komentar (bukan hanya diuji statis). | DEV/e2e dengan penonton sintetis; periksa penolakan join pada channel privat. | C |
 | S-05 | LOW | Perilaku rate limit & delivery broadcast di bawah beban (socket turun, REST fallback timeout) belum diukur di runtime. | DEV/e2e beban. | C |
+
+**Status (LIVE-C) untuk S-04/S-05 — `e60711`:** bagian yang bisa dijalankan **tanpa runtime
+Realtime sudah RAN-PASSED** di `web/tests/live-realtime-gate-static.test.ts` (Postgres nyata/PGlite):
+(a) gate eligibility benar-benar dijalankan di setiap jalur partisipasi — RPC adalah satu-satunya
+jalur tulis, semuanya memanggil `assert_viewer_eligible`, dan pemanggil anonim / belum terverifikasi
+/ tanpa admission ditolak **pada saat panggilan** di mesin nyata; (b) policy channel privat benar-benar
+memutuskan join (receive) dan broadcast (send): sesi tanpa presence yang diadmit tidak melihat apa pun
+dan tidak bisa mem-publish, penonton yang diadmit dengan lease presence segar melihat broadcast dan
+bisa mem-publish, sedangkan lease kedaluwarsa atau sesi yang sudah berakhir ditolak; (c) klien tidak
+pernah join sebelum admission dan tidak jatuh ke polling (`LiveViewerClient`), jadi tidak ada jalur
+samping tanpa gate.
+Yang tetap **NOT-RUN**: round trip websocket join/receive dan delivery broadcast nyata di runtime DEV
+(S-04) serta pengukuran beban (S-05) — langkah manualnya ada di checklist §10 dan **tidak boleh**
+disebut lulus sebelum dieksekusi di DEV.
 
 ---
 
@@ -595,6 +767,28 @@ Kerangka kriteria (setiap kandidat dinilai pada semua baris, dengan sumber + tan
 | B7 | `SINGGAH_CREATOR_EMAILS` (server env) | allowlist Creator |
 | — | Akses DEV (CLI/DB) atau apply migrasi 0008 + 0047–0050 | menutup drift S-03 dan mengaktifkan uji DEV |
 
+### 6.b Batas integrasi verifikasi usia yang dibangun di Tahap C (`9dd473d`)
+
+Instruksi Tahap C melarang memilih vendor. Yang dibangun karena itu hanya **fondasi provider-neutral**
+(migrasi `0055_age_verification_foundation.sql` + `web/lib/age-verification/*`):
+
+| Bagian | Isi | Batas yang dijaga |
+| --- | --- | --- |
+| `public.age_verifications` | `user_id`, `status` (`pending`/`verified`/`failed`/`expired`/`revoked`), `provider_ref` (opaque), `minimum_age_confirmed` (boolean hasil "memenuhi 18 inklusif"), `verified_at`, `expires_at`, dibuat/diubah | **Tidak ada** kolom DOB, dokumen identitas, biometrik, atau angka usia |
+| RLS | klien tidak bisa menulis; pengguna hanya bisa membaca status miliknya sendiri | tulis hanya lewat RPC `SECURITY DEFINER` (service_role) |
+| `public.age_verification_events` | ledger webhook: `event_id` unik → satu event diproses sekali | replay/anti-replay ditolak |
+| `public.age_verification_satisfied(uuid)` | internal: `verified` **dan** `minimum_age_confirmed` **dan** `verified_at` terisi **dan** belum kedaluwarsa; revoked/expired/absent → gagal | EXECUTE dicabut dari PUBLIC/anon/authenticated |
+| `web/lib/age-verification/provider.ts` | interface TS netral (`createVerification`, `handleCallback` dengan verifikasi tanda tangan) | **tanpa implementasi vendor**; tanpa provider terkonfigurasi → `provider_not_configured` (503) dan tidak ada record verified |
+
+**Yang TIDAK dilakukan (sengaja):** fungsi (3) tidak disambungkan ke `assert_viewer_eligible`.
+`assert_viewer_eligible` dan `admit_live_viewer` **tetap menolak tanpa syarat** — dikonfirmasi ulang
+oleh tes regresi (`web/tests/live-viewer-cap-race.test.ts` kasus B1, `web/tests/live-viewer-presence-cap.test.ts`,
+`web/tests/age-verification-foundation.test.ts` kasus "hasil verified yang lengkap pun TIDAK membuka gate",
+`web/tests/audit/live-auth-audit-defects.test.ts`). Titik sambung **satu perubahan terisolasi**
+(mengganti `raise` deny-all dengan `age_verification_satisfied(auth.uid())` di migrasi baru,
+forward-only) didokumentasikan di `docs/HANDOFF_LIVE_MVP.md` §32.2 dan hanya dikerjakan **setelah**
+provider dipilih, diuji, dan disetujui pemilik produk. Mock provider hidup **hanya** di berkas tes.
+
 ---
 
 ## 7. Catatan cakupan & hal yang sengaja tidak diubah
@@ -607,6 +801,14 @@ Kerangka kriteria (setiap kandidat dinilai pada semua baris, dengan sumber + tan
   diperbaiki): teks `/help` masih memuat frasa lama "Setting → Notification Settings"
   (`docs/UI_TERMINOLOGY_STANDARD.md` §3 menetapkan "Pengaturan Notifikasi").
 - Tidak ada akses produksi, tidak ada perubahan env, tidak ada data yang disentuh.
+- **Tahap C (`fix/live-viewer-gate-hardening`):** tidak ada vendor verifikasi usia yang dipilih atau
+  dikonfigurasi, tidak ada layanan eksternal baru, dan **tidak ada mock provider yang dapat dijangkau
+  dari jalur DEV/produksi** — mock hanya hidup di berkas tes (`web/tests/age-verification-foundation.test.ts`),
+  sedangkan `web/lib/age-verification/service.ts` mengembalikan `provider_not_configured` (503) bila
+  tidak ada provider terdaftar. Gate penonton tetap fail-closed: `assert_viewer_eligible`
+  (`0008`, tidak diubah) mengakhiri badannya dengan `raise exception 'live_viewer_denied'` tanpa syarat,
+  dan `admit_live_viewer` tetap memanggilnya sebagai pernyataan pertama — dikonfirmasi ulang oleh tes
+  regresi Tahap C.
 
 ## 8. Verifikasi (label RAN-PASSED / RAN-FAILED / NOT-RUN)
 
@@ -618,6 +820,13 @@ Dijalankan pada `audit/live-auth-baseline` setelah dokumen + tes karakterisasi d
 | `bun tsc -b --noEmit` | **RAN-PASSED** | `TSC_EXIT=0` (tanpa output) |
 | `bunx eslint .` | **RAN-PASSED** | `✖ 11 problems (0 errors, 11 warnings)`, `ESLINT_EXIT=0` — 11 warning sudah ada sebelumnya (berkas generated Convex + 3 tes lama), **0 error** dan tidak ada temuan pada berkas audit baru |
 | Full suite serial per chunk (`tests/**/*.test.ts`, 136 berkas, 9 chunk) | **RAN-PASSED** | Total **1424 tes, 0 fail, 0 cancelled** (lihat §9) |
+| **LIVE-C** — suite penuh serial per chunk (`tests/**/*.test.ts`, **146 berkas, 11 chunk**) pada `fix/live-viewer-gate-hardening` | **RAN-PASSED** | Total **1489 tes, 0 fail, 0 cancelled** (rincian per chunk di §10) |
+| **LIVE-C** — `bun tsc -b --noEmit` | **RAN-PASSED** | `TSC_EXIT=0`, log 0 baris |
+| **LIVE-C** — `bunx eslint .` | **RAN-PASSED** | `✖ 11 problems (0 errors, 11 warnings)`, `ESLINT_EXIT=0` — 11 warning lama (generated Convex + 3 tes lama), **0 error** |
+| **LIVE-C** — `bun run build` (next build) | **RAN-PASSED** | `BUILD_EXIT=0`, `✓ Compiled successfully`, 41 halaman di-generate |
+| **LIVE-C** — apply migrasi `0052`–`0055` ke DEV + validasi hasil | **NOT-RUN** | tidak ada akses DEV di sandbox (CLI absen + env diblokir platform); langkah + skrip akses ada di `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §10 |
+| **LIVE-C** — round trip Realtime nyata (S-04) & pengukuran beban (S-05) | **NOT-RUN** | butuh runtime DEV; langkah manual di checklist §10 |
+| **LIVE-C** — pemilihan/integrasi provider verifikasi usia | **TIDAK DILAKUKAN (sengaja)** | dilarang oleh cakupan; hanya fondasi netral (§6.b) |
 | DEV: drift migrasi / state tabel / uji klik-nyata / e2e | **NOT-RUN** | tidak ada akses DEV (CLI absen + env diblokir platform) — lihat §0 |
 | Riset provider verifikasi usia (web) | **NOT-RUN** | tanpa akses web pada tahap ini; hanya kerangka kriteria (§6) |
 | Pengukuran viewport nyata 360/390px | **NOT-RUN** | tidak ada Playwright/Puppeteer di repo; bukan bagian cakupan tahap ini |
@@ -659,4 +868,48 @@ chunk 124-136: # tests 108  # pass 108  # fail 0   (duration_ms 4375)
 CHUNK_STATUS=0 pada setiap chunk
 
 TOTAL: 1424 tes, 0 fail, 0 cancelled, 0 skipped, 0 todo (136 berkas, semua chunk tercakup)
+```
+
+## 10. Output mentah LIVE-C (Tahap C, ditempel apa adanya)
+
+```
+$ cd web && bun tsc -b --noEmit > /tmp/livec-tsc.log 2>&1; echo "TSC_EXIT=$?"; wc -l < /tmp/livec-tsc.log
+TSC_EXIT=0
+0
+
+$ bunx eslint . > /tmp/livec-eslint.log 2>&1; echo "ESLINT_EXIT=$?"; tail -3 /tmp/livec-eslint.log
+ESLINT_EXIT=0
+✖ 11 problems (0 errors, 11 warnings)
+  0 errors and 3 warnings potentially fixable with the `--fix` option.
+
+$ bun run build > /tmp/livec-build.log 2>&1; echo "BUILD_EXIT=$?"; grep -E "Compiled successfully|Generating static pages" /tmp/livec-build.log
+BUILD_EXIT=0
+✓ Running next.config.ts took 28ms
+✓ Compiled successfully in 474ms
+  Generating static pages using 1 worker (0/41) ...
+
+$ # full suite serial per chunk: find tests -name "*.test.ts" | sort | sed -n 'A,Bp' | xargs bunx tsx --test
+chunk   1-12 : # tests 115  # pass 115  # fail 0
+chunk  13-24 : # tests 157  # pass 157  # fail 0   (real 2m05.492s; host 1 vCPU / 2 GB)
+chunk  25-38 : # tests 108  # pass 108  # fail 0
+chunk  39-52 : # tests 208  # pass 208  # fail 0
+chunk  53-66 : # tests 136  # pass 136  # fail 0
+chunk  67-80 : # tests 123  # pass 123  # fail 0
+chunk  81-92 : # tests 128  # pass 128  # fail 0
+chunk  93-106: # tests 166  # pass 166  # fail 0
+chunk 107-120: # tests 133  # pass 133  # fail 0
+chunk 121-134: # tests 124  # pass 124  # fail 0
+chunk 135-146: # tests  91  # pass  91  # fail 0
+
+TOTAL LIVE-C: 146 berkas, 1489 tes, 0 fail, 0 cancelled (semua berkas tercakup)
+CATATAN: satu percobaan pertama dengan chunk 20 berkas dihentikan oleh batas waktu sandbox
+(exit 124 pada 180 s) — bukan kegagalan tes; chunk diperkecil dan dijalankan ulang sampai tuntas.
+
+$ # Re-verifikasi setelah penyuntingan dokumen (audit + runbook) — hanya tes yang membaca
+$ # berkas dokumen itu yang dijalankan ulang, dengan status exit diambil eksplisit:
+$ bunx tsx --test tests/audit/live-auth-audit-defects.test.ts tests/live-privileges.test.ts tests/live-realtime-gate-static.test.ts > /tmp/livec-doc-rerun.log 2>&1; echo "RERUN_EXIT=$?"
+RERUN_EXIT=0
+# tests 16
+# pass 16
+# fail 0
 ```

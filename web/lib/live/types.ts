@@ -58,7 +58,22 @@ export const LIVE_GLOBAL_ACTIVE_CAP = 5;
 export const LIVE_PER_PLACE_ACTIVE_CAP = 1;
 export const LIVE_DURATION_CAP_MINUTES = 60;
 export const LIVE_COMMENT_MAX_LENGTH = 300;
+/**
+ * TUNABLE (tech §6): ~1 comment / 5 s per viewer. The CANONICAL enforcement is
+ * in the database (`post_live_comment` against the shared
+ * `live_comment_rate_limits` store, migration 0054) so the window is identical
+ * across server instances; this constant mirrors the same value for client
+ * messaging and drift checks.
+ */
 export const LIVE_COMMENT_MIN_INTERVAL_MS = 5000;
+/**
+ * Viewer presence heartbeat interval (A-04, migration 0053). The server counts
+ * a viewer as present while its presence lease is inside the TUNABLE grace
+ * window (5 minutes, `admit_live_viewer` / `live_realtime_*`), so the client
+ * must renew well inside that window to keep a watching viewer counted. A
+ * closed tab stops renewing and drops out of the count after the grace window.
+ */
+export const LIVE_VIEWER_PRESENCE_INTERVAL_MS = 60_000;
 export const LIVE_REPORT_NOTE_MAX_LENGTH = 500;
 /** Tunable (tech §10, Phase 5): provider max is 24 h; we sign short. */
 export const LIVE_PLAYBACK_TOKEN_TTL_SECONDS = 60;

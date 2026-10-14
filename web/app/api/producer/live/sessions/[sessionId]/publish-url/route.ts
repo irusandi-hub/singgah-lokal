@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getLiveInputPublishUrl } from "@/lib/live/cloudflare";
-import { getLiveSession, LiveValidationError } from "@/lib/live/session-service";
+import { getLiveSession, getLiveSessionInputId, LiveValidationError } from "@/lib/live/session-service";
 import { canOperateLiveForPlace } from "@/lib/live/operator-authorization";
 
 /**
@@ -50,7 +50,10 @@ export async function GET(
       );
     }
 
-    const publishUrl = await getLiveInputPublishUrl(session.live_input_id ?? "");
+    // A-02: the provider input pointer is server-side only — it is read on the
+    // service-role connection AFTER the operator authorization check above.
+    const liveInputId = await getLiveSessionInputId(sessionId);
+    const publishUrl = await getLiveInputPublishUrl(liveInputId ?? "");
     if (!publishUrl) {
       // Fail closed: no URL without a working provider boundary (B4).
       return NextResponse.json({ error: "live_boundary_unavailable" }, { status: 503 });

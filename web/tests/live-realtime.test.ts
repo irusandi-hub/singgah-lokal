@@ -47,13 +47,30 @@ test("Realtime 3: viewer listens only to allow-listed events with validated payl
   const events = [...viewerSource.matchAll(/channel\.on\("broadcast", \{ event: "([a-z_]+)" \}/g)].map((m) => m[1]);
   assert.deepEqual(events.sort(), ["comment", "status"]);
   assert.doesNotMatch(viewerSource, /postgres_changes/);
-  assert.doesNotMatch(viewerSource, /presence/);
+  // EXPLICIT CHANGE FOR A-04: the viewer still subscribes to NO Realtime
+  // presence event (presence in this product is the server-side lease of
+  // migration 0053, never a client-tracked Realtime presence) — the file merely
+  // names the presence heartbeat endpoint.
+  assert.doesNotMatch(viewerSource, /channel\.on\("presence"/);
+  assert.doesNotMatch(viewerSource, /\.track\(/);
+  assert.doesNotMatch(viewerSource, /presence:\s*\{/);
   // Payloads are validated before entering state: comment bodies must be
   // strings, the ended signal must explicitly carry status "ended".
   assert.match(viewerSource, /typeof message\?\.payload\?\.body === "string"/);
   assert.match(viewerSource, /message\?\.payload\?\.status === "ended"/);
-  // No polling replaces Realtime (tech §6 display-transport-only).
-  assert.doesNotMatch(viewerSource, /setInterval/);
+  // No polling replaces Realtime (tech §6 display-transport-only). EXPLICIT
+  // CHANGE FOR A-04: the viewer now runs exactly ONE interval, and it is the
+  // presence HEARTBEAT (POST /api/live/presence, migration 0053) that renews the
+  // server-side presence lease — not a poll of comments/status/DB. Comments and
+  // the ended signal still arrive only over the private Realtime channel.
+  assert.equal([...viewerSource.matchAll(/setInterval\(/g)].length, 1, "exactly one interval (presence)");
+  assert.match(viewerSource, /const response = await fetch\("\/api\/live\/presence"/);
+  assert.ok(
+    viewerSource.indexOf("async function renewPresence") <
+      viewerSource.indexOf('fetch("/api/live/presence"'),
+    "the presence call must live inside the renewal function",
+  );
+  assert.doesNotMatch(viewerSource, /setInterval[\s\S]{0,400}\/api\/live\/comments/);
 });
 
 test("Realtime 4: unmount tears down the dynamic client fully (no stale listeners)", () => {
@@ -104,7 +121,25 @@ test("Realtime 8: private-channel RLS remains the authority; invalid joins fail 
   assert.match(rlsSource, /create policy live_realtime_receive/);
   assert.match(rlsSource, /create policy live_realtime_send/);
   assert.match(rlsSource, /live_viewers v/);
+  // EXPLICIT CHANGE FOR A-04: 0009's admission-window predicate
+  // (`admitted_at > now() - interval '5 minutes'`) is SUPERSEDED by migration
+  // 0053, which evaluates the presence lease instead, so the channel gate and
+  // the capacity gate share one definition of "present". 0009 stays as
+  // append-only history; the live predicate is locked in
+  // live-viewer-presence-cap.test.ts against the effective policy.
   assert.match(rlsSource, /admitted_at > now\(\) - interval '5 minutes'/);
+  const presenceMigration = readFileSync(
+    new URL("../supabase/migrations/0053_live_viewer_presence_capacity.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(presenceMigration, /drop policy if exists live_realtime_receive on realtime\.messages;/);
+  assert.match(presenceMigration, /drop policy if exists live_realtime_send on realtime\.messages;/);
+  assert.equal(
+    [...presenceMigration.matchAll(/v\.last_seen_at > now\(\) - interval '5 minutes'/g)].length,
+    2,
+    "both realtime policies must evaluate the presence lease",
+  );
+  assert.doesNotMatch(presenceMigration, /from public\.live_viewers[\s\S]{0,200}admitted_at/);
   assert.match(rlsSource, /producer_memberships/);
   assert.match(rlsSource, /role in \('owner', 'manager'\)/);
   assert.match(rlsSource, /extension = 'broadcast'/);

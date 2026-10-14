@@ -33,10 +33,12 @@ export async function sweepOrphanLiveInputs(): Promise<number> {
     return 0; // Boundary unavailable (incl. B4): nothing to sweep.
   }
 
-  const supabase = await createSupabaseServerClient();
+  // A-02: live_input_id is server-side only (no client column grant), so the
+  // orphan sweep reads the reference set on the service-role connection.
+  const supabase = createSupabaseServiceClient();
   const { data: referenced } = await supabase
     .from("live_sessions")
-    .select("live_input_id")
+    .select("id, live_input_id")
     .not("live_input_id", "is", null);
   const referencedIds = new Set((referenced ?? []).map((row) => row.live_input_id as string));
 
