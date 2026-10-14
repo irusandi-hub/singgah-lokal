@@ -62,6 +62,7 @@ const CHAIN = [
   "0049_live_operator_authority.sql",
   "0051_live_auth_integrity.sql",
   "0052_live_session_column_privileges.sql",
+  "0056_live_moderation_audit_trail.sql",
 ];
 
 /** The safe column set 0052 grants; the two provider columns are excluded. */
@@ -284,24 +285,23 @@ test("anon and a signed-in viewer are refused the protected columns at call time
   assert.equal(safe[0].viewer_peak, 0);
   await db.exec("reset role;");
 
-  // CHARACTERIZATION of a PRE-EXISTING defect this suite discovered (reported
-  // as a new finding in the audit doc, NOT caused by 0052 and NOT fixed here):
-  // migration 0047's `live_sessions_live_operator_read` policy (and the Places /
-  // production_stages operator policies) reference public.live_operators, which
-  // anon holds NO privilege on. RLS policy expressions run with the querying
-  // role's privileges, so an ANONYMOUS read of live_sessions fails with
-  // "permission denied for table live_operators" before any row is considered —
-  // fail-closed, but it breaks public Live metadata reads. When the fix lands
-  // (a SECURITY DEFINER helper instead of a direct table reference), this
-  // assertion must be replaced by the anon positive read.
+  // A-12 FIXED (0056): the operator policies no longer reference
+  // public.live_operators directly — they call a pinned SECURITY DEFINER helper
+  // that evaluates the caller's own delegation. So an ANONYMOUS read of
+  // live_sessions now SUCCEEDS (previously it failed with "permission denied for
+  // table live_operators" before any row was considered), while the
+  // provider-sensitive columns stay invisible.
   await asRole(db, "anon", null);
+  const anonSafe = await rows(db, `select id, status from public.live_sessions`);
+  assert.equal(anonSafe.length, 1, "anon reads the public metadata again (A-12)");
   await assert.rejects(
-    () => db.query(`select id from public.live_sessions`),
-    (error: Error) => {
-      assert.match(String(error.message), /permission denied for table live_operators/i);
-      return true;
-    },
-    "documented pre-existing anon policy-ACL defect (fail-closed)",
+    () => db.query(`select live_input_id from public.live_sessions`),
+    /permission denied/i,
+    "the provider pointer stays invisible to anon",
+  );
+  await assert.rejects(
+    () => db.query(`select * from public.live_sessions`),
+    /permission denied/i,
   );
   await db.exec("reset role;");
 

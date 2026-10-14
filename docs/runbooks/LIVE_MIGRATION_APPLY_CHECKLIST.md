@@ -516,6 +516,7 @@ leaves no data behind. Every emitted row must read `passed = true`.
 - [ ] `web/tests/db-regression/live-viewer-presence-access.sql` (A-04)
 - [ ] `web/tests/db-regression/live-comment-rate-limit-access.sql` (A-09)
 - [ ] `web/tests/db-regression/age-verification-access.sql` (age foundation)
+- [ ] `web/tests/db-regression/live-moderation-audit-access.sql` (A-08/A-10/A-11/A-12/A-13, §10.5)
 - [ ] Any `passed = false` — stop. Fix the migration in the repo and re-apply on a
   fresh target. Do not "fix forward" in the database.
 
@@ -586,6 +587,60 @@ this repository:
 
   Until those boxes are ticked on DEV, S-04 stays PARTIAL (gate proven on
   Postgres, Realtime round trip NOT-RUN) and S-05 stays NOT-RUN.
+
+### 10.5 Moderation audit trail, producer audit reader, Live-capability suspension — apply 0056 (DEV)
+
+`0056_live_moderation_audit_trail.sql` is forward-only, non-destructive and
+re-runnable. It closes A-12 (the operator-policy ACL that broke anon reads),
+A-13 (the rolled-back denial audit), A-11 (the producer audit reader) and
+A-10 (account-level Live-capability suspension). A-08 adds no SQL — it lives in
+`lib/live/session-service.ts` + `app/api/admin/live/moderation/route.ts`.
+
+| Migration | Finding | Effect |
+| --- | --- | --- |
+| `0056_live_moderation_audit_trail.sql` | A-08/A-10/A-11/A-12/A-13 | re-creates the three 0047 operator policies to use `is_active_live_operator_for_place`; adds `live_capability_suspensions` + `suspend/restore_live_capability`; adds `list_place_live_audit`; adds `record_live_admission_denied`; drops the inert audit insert from `admit_live_viewer`; widens the `live_audit.action` CHECK |
+
+- [ ] Apply AFTER 0055. Paste `0056_live_moderation_audit_trail.sql`, run once. Confirm:
+
+```sql
+-- A-12: the policy no longer references the operator TABLE directly
+select prosrc from pg_proc where proname='is_active_live_operator_for_place';
+select qual from pg_policies where schemaname='public' and tablename='live_sessions'
+  and policyname='live_sessions_live_operator_read';   -- expect is_active_live_operator_for_place(...)
+-- A-12: anon reads the public metadata again, the sensitive columns stay dark
+select has_column_privilege('anon','public.live_sessions','status','SELECT');          -- true
+select has_column_privilege('anon','public.live_sessions','live_input_id','SELECT');   -- false
+-- A-10: nol akses klien ke tabel suspend; RPC hanya untuk authenticated (moderator dicek di dalam)
+select rowsecurity from pg_tables where schemaname='public' and tablename='live_capability_suspensions'; -- true
+select count(*) from pg_policies where schemaname='public' and tablename='live_capability_suspensions';  -- 0
+select has_function_privilege('anon','public.suspend_live_capability(uuid,text)','EXECUTE');   -- false
+select has_function_privilege('authenticated','public.suspend_live_capability(uuid,text)','EXECUTE'); -- true
+-- A-11: reader tanpa grant anon
+select has_function_privilege('anon','public.list_place_live_audit(text)','EXECUTE');   -- false
+-- A-13: recorder hanya service_role
+select has_function_privilege('authenticated','public.record_live_admission_denied(text,uuid,text)','EXECUTE'); -- false
+select has_function_privilege('service_role','public.record_live_admission_denied(text,uuid,text)','EXECUTE');  -- true
+-- A-13: admit_live_viewer tidak lagi menulis live_audit di dalam transaksinya
+select position('insert into public.live_audit' in prosrc) = 0 as no_inert_insert
+  from pg_proc where proname='admit_live_viewer';   -- expect true
+-- Regression: gate penonton masih fail-closed
+select position('age_verification' in prosrc) = 0 as gate_untouched
+  from pg_proc where proname='assert_viewer_eligible';   -- expect true
+```
+
+- [ ] `web/tests/db-regression/live-moderation-audit-access.sql`
+  (A-08/A-10/A-11/A-12/A-13) — one result set (`ord, check_name, passed, detail`),
+  rolls back its fixtures. Every row must read `passed = true`.
+
+Automated equivalent (real Postgres engine via PGlite):
+`web/tests/live-moderation-audit-trail.test.ts`.
+
+- [ ] **Manual moderator round trip (DEV).** As a `platform_moderator`, call
+  `POST /api/admin/live/capability` with `{ "userId": "<account>" }`; confirm
+  `start_live_session` for a Place that account operates now raises
+  `producer_authorization_required`, that exactly one `live_audit` row with
+  actor/target/reason/time was appended, and that `DELETE /api/admin/live/capability`
+  restores it. A repeated suspend/restore must change nothing.
 
 ## 11. Out of scope (explicitly NOT here)
 

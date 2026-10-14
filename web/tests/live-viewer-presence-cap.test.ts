@@ -70,6 +70,7 @@ const CHAIN = [
   "0051_live_auth_integrity.sql",
   "0052_live_session_column_privileges.sql",
   "0053_live_viewer_presence_capacity.sql",
+  "0056_live_moderation_audit_trail.sql",
 ];
 
 const CAP = 100;
@@ -274,16 +275,22 @@ test("a viewer watching longer than the grace window KEEPS counting toward the c
 
   const ledger = await rows(db, `select count(*)::int as n from public.live_viewers`);
   assert.equal(Number(ledger[0].n), CAP, "a denied admission writes no ledger row");
-  // The denial path still WRITES the audit row (source contract), but the
-  // `raise exception` that follows rolls it back with the aborted statement —
-  // a PRE-EXISTING defect this suite discovered and reports as a new finding
-  // (out of A-04 scope: it needs an autonomous write path, not a capacity
-  // change). Asserted as observed so a fix must update this test.
+  // A-13 (fixed in 0056): the old in-transaction audit insert could never
+  // commit — the `raise exception` rolled it back with the aborted statement —
+  // so it is GONE and the denial is recorded out of band instead.
   const denialSource = String(
     (await rows(db, `select prosrc from pg_proc where proname = 'admit_live_viewer'`))[0].prosrc,
   );
-  assert.match(denialSource, /'admission_denied'/);
-  assert.match(denialSource, /jsonb_build_object\('reason', 'capacity_full'\)/);
+  assert.doesNotMatch(
+    denialSource,
+    /insert into public\.live_audit/,
+    "A-13: the inert in-transaction denial insert is removed",
+  );
+  const recorder = await rows(
+    db,
+    `select proname from pg_proc where proname = 'record_live_admission_denied'`,
+  );
+  assert.equal(recorder.length, 1, "A-13: the out-of-band recorder exists");
   const audit = await rows(
     db,
     `select detail from public.live_audit where action = 'admission_denied'`,
@@ -291,10 +298,23 @@ test("a viewer watching longer than the grace window KEEPS counting toward the c
   assert.equal(
     audit.length,
     0,
-    "observed: the RAISE rolls the denial audit row back (new finding, not A-04)",
+    "the RAISE leaves no row; the trusted server path records the denial separately",
   );
-  // The fail-closed decision itself is unaffected: denial is still raised.
+  // The fail-closed decision itself is unaffected: denial is still raised…
   await assert.rejects(() => db.query(`select public.admit_live_viewer('${SESSION}')`), /live_capacity_full/);
+  // …and the separate, service-role recording transaction writes the row.
+  await rows(db, `select public.record_live_admission_denied('${SESSION}', '${LATEST_USER}', 'capacity_full')`);
+  const recorded = await rows(
+    db,
+    `select detail from public.live_audit where action = 'admission_denied'`,
+  );
+  assert.equal(recorded.length, 1, "A-13: the denial is now recorded");
+  assert.equal(String((recorded[0].detail as Record<string, unknown>).reason), "capacity_full");
+  // Recording never changed the decision: the cap still refuses and the ledger
+  // is still at CAP.
+  await assert.rejects(() => db.query(`select public.admit_live_viewer('${SESSION}')`), /live_capacity_full/);
+  const ledgerAfter = await rows(db, `select count(*)::int as n from public.live_viewers`);
+  assert.equal(Number(ledgerAfter[0].n), CAP, "recording the denial grants nothing");
 
   await db.close();
 });
