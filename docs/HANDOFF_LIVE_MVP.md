@@ -2247,3 +2247,58 @@ detail, DEV NOT RUN). One existing test was amended explicitly:
 `web/tests/place-audit.test.ts` now locks the extended audit vocabulary for the
 new action instead of the old single-action list (behaviour was added, nothing
 weakened).
+
+## 35. ADMIN PLACE DETAIL — "CABUT HAK PENGELOLAAN" (branch `feat/admin-place-detail-revoke-management`, 2026-10-14, NO new migration)
+
+**Scope.** An EXTENSION of §34 on top of the unmerged chain PR #40–#45 (base =
+tip of `feat/admin-revoke-producer-place-access`). No RPC, route, notification,
+or migration was re-created; everything from #45 is reused as-is.
+
+**Real gaps closed (relative to #45).**
+
+- `G-UI-1` — the Place-detail "Pengelola" section had no per-row identity, so it
+  could not invoke the revoke action. `lib/admin/place-workspace.ts` now selects
+  `producer_memberships.id` and resolves the member email through the ONE safe
+  Admin directory read (`listAdminActorEmails`); `AdminPlaceMembershipRow`
+  carries `membershipId` + `userEmail`. The page renders the new
+  `components/admin/place-members-panel.tsx`.
+- `G-AUTH-1` — `canManagePlace` (`lib/producer.ts`) authorized through
+  `place.producer?.id === access.producerId`, i.e. via `places.producer_id`,
+  which a revoke deliberately does NOT clear. A revoked account whose access had
+  no membership-scoped `placeId` could therefore still pass that predicate. It is
+  now membership-scoped only (`access.placeId === place.id`), fail-closed and
+  consistent with every RLS policy and server gate. Latent path, not a proven
+  exploit (every production route already calls `requireProducerAccess(placeId)`
+  first).
+
+**Reuse vs new.** Reused unchanged: RPC `revoke_producer_place_access` (0057),
+route `/api/admin/producer-memberships/[membershipId]/revoke`,
+`lib/admin/producer-membership-revoke.ts`, last-owner guard, audit vocabulary +
+labels (0057/`place-audit-format.ts`), notifications. New: the shared dialog
+`components/admin/producer-access-revoke-dialog.tsx` (EXTRACTED from
+`AdminPengelolaTable.tsx`, not copied — one implementation, two surfaces), the
+Place-detail panel above, `membershipId`/`userEmail` on the workspace payload,
+and the `canManagePlace` narrowing.
+
+**Owner rule (unchanged from #45).** Last active owner is refused fail-closed by
+server; no transfer flow. The panel shows that row DISABLED with the reason
+"Tidak dapat dicabut: Pemilik terakhir." — never hidden.
+
+**Audit (unchanged).** One attributed `place_audit` row per successful revoke,
+written in the SAME transaction, append-only intact. No new action, no second
+trail.
+
+**Labels.** Data Pengelola keeps **"Cabut Hak Akses"** (locked by the #45 test);
+the Place-detail panel uses **"Cabut Hak Pengelolaan"** (per task wording). Both
+call the same shared action.
+
+**Migration.** None. `0058` stays free; DEV/production untouched.
+
+**Tests.** `web/tests/admin-place-detail-revoke.test.ts` (new: real Postgres via
+PGlite — exact-row revoke, other Places/rows untouched, `places.producer_id`
+unchanged, claim gate unchanged, idempotent re-revoke with no second
+notification, plus static contract for the shared component / per-surface labels
+/ payload / closed producer_id path). Two existing tests amended explicitly:
+`web/tests/producer.test.ts` (membership-scoped semantics) and
+`web/tests/admin-revoke-place-access-ui.test.ts` (markup assertions now point at
+the shared component). Nothing weakened or removed.

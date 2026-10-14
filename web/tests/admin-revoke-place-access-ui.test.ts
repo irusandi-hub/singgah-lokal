@@ -26,6 +26,11 @@ const stripComments = (source: string) =>
 const route = read("../app/api/admin/producer-memberships/[membershipId]/revoke/route.ts");
 const service = read("../lib/admin/producer-membership-revoke.ts");
 const table = read("../app/admin/producer-membership/AdminPengelolaTable.tsx");
+// ADMIN-PLACE-REVOKE (2026-10-14): the dialog + request were EXTRACTED from the
+// table into ONE shared component, reused by the Place-detail "Pengelola"
+// section. Markup/structure assertions point at the shared component; the
+// table keeps its surface-only assertions (label literal, column order, banner).
+const revokeDialog = read("../components/admin/producer-access-revoke-dialog.tsx");
 const page = read("../app/admin/producer-membership/page.tsx");
 const queries = read("../lib/admin/queries.ts");
 const auditFormat = read("../lib/place-audit-format.ts");
@@ -116,52 +121,58 @@ test("setiap baris punya aksi Cabut Hak Akses yang merujuk Produser + Tempat", (
 
 test("konfirmasi wajib: dialog menyebut Produser, email, Tempat, dan dampaknya", () => {
   const code = stripComments(table);
-  assert.match(code, /role="dialog"/);
-  assert.match(code, /aria-modal="true"/);
-  assert.match(code, /aria-labelledby="revoke-producer-access-title"/);
-  assert.match(code, /aria-describedby="revoke-producer-access-warning"/);
+  const dialog = stripComments(revokeDialog);
+  // Markup berada di komponen bersama (satu implementasi pencabutan).
+  assert.match(dialog, /role="dialog"/);
+  assert.match(dialog, /aria-modal="true"/);
+  assert.match(dialog, /aria-labelledby="revoke-producer-access-title"/);
+  assert.match(dialog, /aria-describedby="revoke-producer-access-warning"/);
+  assert.match(dialog, /revoke-dialog-producer/);
+  assert.match(dialog, /revoke-dialog-email/);
+  assert.match(dialog, /revoke-dialog-place/);
+  assert.match(dialog, /revokeTarget\.producerName/);
+  assert.match(dialog, /revokeTarget\.email/);
+  assert.match(dialog, /revokeTarget\.placeName/);
+  // Tombol Batal; TIDAK ada confirm() native.
+  assert.match(dialog, /Batal/);
+  assert.doesNotMatch(dialog, /window\.confirm|\bconfirm\(/);
+  // Copy milik surface: judul + peringatan menyebut kehilangan akses kelola.
   assert.match(code, /Cabut Hak Akses\?/);
-  assert.match(code, /revoke-dialog-producer/);
-  assert.match(code, /revoke-dialog-email/);
-  assert.match(code, /revoke-dialog-place/);
-  assert.match(code, /revokeTarget\.producerName/);
-  assert.match(code, /revokeTarget\.email/);
-  assert.match(code, /revokeTarget\.placeName/);
-  // Peringatan: kehilangan akses kelola + pihak terdampak dinotifikasi.
   assert.match(code, /kehilangan akses mengelola Tempat tersebut/);
   assert.match(code, /akan diberi tahu lewat notifikasi/);
-  // Tombol Batal + Cabut Hak Akses; TIDAK ada confirm() native.
-  assert.match(code, /Batal/);
-  assert.doesNotMatch(code, /window\.confirm|\bconfirm\(/);
-  // Tidak ada pemanggilan API sebelum konfirmasi eksplisit: fetch hanya ada di confirmRevoke.
-  const fetchCalls = code.match(/await fetch\(/g) ?? [];
+  // Tidak ada pemanggilan API sebelum konfirmasi eksplisit: fetch hanya satu,
+  // di komponen dialog; tabel tidak memanggil API sendiri.
+  const fetchCalls = dialog.match(/await fetch\(/g) ?? [];
   assert.equal(fetchCalls.length, 1, "exactly one fetch, inside the confirmation handler");
+  assert.equal((code.match(/await fetch\(/g) ?? []).length, 0, "tabel tidak memanggil API sendiri");
 });
 
 test("tombol terkunci saat proses; sukses/error/peringatan memakai pesan server", () => {
   const code = stripComments(table);
-  assert.match(code, /disabled=\{working\}/);
-  assert.match(code, /Mencabut…/);
+  const dialog = stripComments(revokeDialog);
+  assert.match(dialog, /disabled=\{working\}/);
+  assert.match(dialog, /Mencabut…/);
   // Hanya status 2xx yang dianggap sukses, dan hanya saat server mengonfirmasi.
-  assert.match(code, /if \(response\.ok\) \{/);
+  assert.match(dialog, /if \(response\.ok\) \{/);
   // Peringatan bila notifikasi gagal (jalur in-transaction yang dikurung).
-  assert.match(code, /Hak akses dicabut, tetapi notifikasi gagal dikirim\./);
-  assert.match(code, /Hak akses dicabut\. Notifikasi sudah dikirim\./);
+  assert.match(dialog, /Hak akses dicabut, tetapi notifikasi gagal dikirim\./);
+  assert.match(dialog, /Hak akses dicabut\. Notifikasi sudah dikirim\./);
   // Penolakan: pesan server apa adanya, bukan sukses.
-  assert.match(code, /payload\.message \?\? payload\.error \?\? "Hak akses gagal dicabut\."/);
+  assert.match(dialog, /payload\.message \?\? payload\.error \?\? "Hak akses gagal dicabut\."/);
+  // Banner umpan balik milik surface.
   assert.match(code, /role=\{feedback\.kind === "error" \? "alert" : "status"\}/);
-  // Tabel direfresh dari server (tidak ada state klien sebagai sumber kebenaran).
-  assert.match(code, /useRouter\(\)/);
-  assert.match(code, /router\.refresh\(\)/);
-  assert.match(table, /from "next\/navigation"/);
+  // Data direfresh dari server (tidak ada state klien sebagai sumber kebenaran).
+  assert.match(dialog, /useRouter\(\)/);
+  assert.match(dialog, /router\.refresh\(\)/);
+  assert.match(revokeDialog, /from "next\/navigation"/);
 });
 
 test("endpoint & metode yang dipanggil benar, dan pengenceran URL aman", () => {
   assert.match(
-    table,
+    revokeDialog,
     /`\/api\/admin\/producer-memberships\/\$\{encodeURIComponent\(target\.membershipId\)\}\/revoke`/,
   );
-  assert.match(table, /method: "POST"/);
+  assert.match(revokeDialog, /method: "POST"/);
 });
 
 test("pencarian, kolom, urutan, dan responsivitas tabel tetap", () => {
@@ -180,19 +191,20 @@ test("pencarian, kolom, urutan, dan responsivitas tabel tetap", () => {
 
 test("dialog dan aksi aman di 360/390px (tanpa overflow horizontal)", () => {
   const code = stripComments(table);
+  const dialog = stripComments(revokeDialog);
   // Overlay penuh + kartu terbatas lebar + padding, boleh di-scroll vertikal.
-  assert.match(code, /fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black\/40 p-4/);
-  assert.match(code, /className="w-full max-w-sm rounded-2xl border border-black\/10 bg-white p-4"/);
+  assert.match(dialog, /fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black\/40 p-4/);
+  assert.match(dialog, /className="w-full max-w-sm rounded-2xl border border-black\/10 bg-white p-4"/);
   // Tombol aksi di sel tabel boleh membungkus dan tidak mendorong lebar kolom.
   assert.match(code, /max-w-full whitespace-normal/);
-  // Tidak ada lebar piksel kaku melebihi lebar ponsel.
-  const fixedWidths = code.match(/\b(?:min-)?w-\[(\d+)px\]/g) ?? [];
+  // Tidak ada lebar piksel kaku melebihi lebar ponsel (tabel + dialog).
+  const fixedWidths = `${code}\n${dialog}`.match(/\b(?:min-)?w-\[(\d+)px\]/g) ?? [];
   for (const width of fixedWidths) {
     const px = Number(width.replace(/\D/g, ""));
     assert.ok(px <= 360, `fixed width ${width} would overflow a 360px viewport`);
   }
   // Tombol dialog membungkus (flex-wrap), bukan memaksa satu baris.
-  assert.match(code, /mt-3 flex flex-wrap justify-end gap-2/);
+  assert.match(dialog, /mt-3 flex flex-wrap justify-end gap-2/);
 });
 
 // ---------------------------------------------------------------------------
