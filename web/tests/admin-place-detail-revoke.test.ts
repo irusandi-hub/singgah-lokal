@@ -283,6 +283,86 @@ test("detail Place: pencabutan ulang idempoten — tanpa audit/notifikasi kedua"
   await db.close();
 });
 
+test("detail Place: kegagalan tulis audit membatalkan pencabutan (atomik, tanpa residu)", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  // Force the FINAL audit insert (step 3.7) to fail, so the trail cannot be
+  // written at all. The RPC writes the audit LAST and OUTSIDE its notification
+  // savepoint precisely so that this failure aborts the whole transaction:
+  // a revocation with no attributable trail is exactly what Master 09
+  // §2/§13 forbids, so the delete must roll back with it.
+  await db.exec(`
+    create function public._fail_place_audit_insert() returns trigger
+    language plpgsql as $$
+    begin
+      if new.action = 'producer_place_access_revoked' then
+        raise exception 'simulated_audit_outage';
+      end if;
+      return new;
+    end;
+    $$;
+    create trigger _fail_place_audit_insert
+      before insert on public.place_audit
+      for each row execute procedure public._fail_place_audit_insert();
+  `);
+
+  const targetId = await membershipIdFor(db, MANAGER, PLACE);
+  const before = {
+    memberships: await count(db, "producer_memberships"),
+    notifications: await count(db, "notifications"),
+    audit: await count(db, "place_audit"),
+  };
+
+  await assert.rejects(
+    () => asService(db, ADMIN, targetId),
+    /simulated_audit_outage/,
+    "the RPC must surface the audit failure instead of swallowing it",
+  );
+
+  // Rolled back: the membership row is still there and the manager still
+  // manages the Place — no silent, unattributed revocation.
+  assert.equal(await canManage(db, MANAGER, PLACE), true);
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where id = $1::uuid`, [targetId])).length,
+    1,
+  );
+  assert.equal(await count(db, "producer_memberships"), before.memberships);
+  // Neither the notification savepoint nor any audit row survived.
+  assert.equal(await count(db, "notifications"), before.notifications);
+  assert.equal(await count(db, "place_audit"), before.audit);
+
+  await db.close();
+});
+
+test("detail Place: place_audit tetap append-only (UPDATE/DELETE ditolak)", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  await asService(db, ADMIN, await membershipIdFor(db, MANAGER, PLACE));
+  const entry = await rows(db, `select id from public.place_audit order by id limit 1`);
+  assert.equal(entry.length, 1, "the successful revoke wrote one place_audit row");
+  const auditId = String(entry[0].id);
+
+  // The append-only trigger (0031) refuses every writer, including the owner.
+  await assert.rejects(
+    () => db.query(`update public.place_audit set detail = '{"tampered":true}'::jsonb where id = $1`, [auditId]),
+    /append-only/,
+  );
+  await assert.rejects(
+    () => db.query(`delete from public.place_audit where id = $1`, [auditId]),
+    /append-only/,
+  );
+  // The row is unchanged and still present after both attempts.
+  assert.equal(await count(db, "place_audit"), 1);
+  assert.equal(
+    String((await rows(db, `select action from public.place_audit where id = $1`, [auditId]))[0].action),
+    "producer_place_access_revoked",
+  );
+
+  await db.close();
+});
+
 // ---------------------------------------------------------------------------
 // 2. Kontrak statis: satu implementasi, dua permukaan, jalur producer_id tertutup
 // ---------------------------------------------------------------------------

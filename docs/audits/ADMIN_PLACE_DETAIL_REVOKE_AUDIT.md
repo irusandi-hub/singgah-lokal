@@ -237,7 +237,15 @@ statis untuk markup yang tak bisa dijalankan di sandbox:
    pencabutan (predikat membership-scoped; RLS membership).
 6. Owner terakhir ditolak; owner non-terakhir, manager, editor berhasil.
 7. Audit Place: satu catatan teratribusi per pencabutan sukses; penolakan owner
-   terakhir tercatat; append-only tetap (UPDATE/DELETE ditolak); label terformat.
+   terakhir tercatat; **kegagalan tulis audit membatalkan pencabutan (atomik,
+   tanpa residu membership/notifikasi)**; append-only tetap (**UPDATE/DELETE
+   ditolak oleh trigger 0031**); label terformat. Ketiga jaminan ini diuji
+   langsung di `admin-place-detail-revoke.test.ts` (test 1, 4, 5) — bukan hanya
+   diasumsikan dari "satu transaksi".
+
+Catatan implementasi: dua jaminan terakhir (atomik + append-only) semula hanya
+ada di rencana §8 ini, belum di suite; keduanya kini ditambahkan sebagai delta di
+`admin-place-detail-revoke.test.ts` tanpa mengubah berkas tes #45.
 8. UI statis: aksi **"Cabut Hak Pengelolaan"** terlihat untuk eligible; dialog
    menyebut akun + Tempat; Batal tidak mengubah state; sukses merefresh; gagal
    tanpa sukses palsu; loading mencegah submit ganda; empty state tetap; tanpa
