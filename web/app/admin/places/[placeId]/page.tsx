@@ -4,6 +4,7 @@ import { AdminErrorState, AdminPageHeader, AdminStatusBadge, formatAdminTimestam
 import AdminPlaceEditor from "@/components/admin/place-editor";
 import AdminPlaceModeration from "@/components/admin/place-moderation";
 import AdminPlaceCuration from "@/components/admin/place-curation";
+import AdminPlaceMembersPanel from "@/components/admin/place-members-panel";
 import { getAdminPlaceDetail, getAdminPlaceDiscoveryView } from "@/lib/admin/place-workspace";
 import { formatDiscoveryStars, DISCOVERY_BREAKDOWN_LABELS } from "@/lib/admin/discovery-view";
 import { listPlaceAudit, type PlaceAuditRow } from "@/lib/admin/place-audit";
@@ -193,20 +194,13 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
             .
           </p>
         )}
-        <ul className="mt-3 divide-y divide-black/5">
-          {memberships.length === 0 ? (
-            <li className="py-2 text-xs text-black/50">Belum ada membership.</li>
-          ) : (
-            memberships.map((membership) => (
-              <li key={`${membership.userId}-${membership.producerId}`} className="flex flex-wrap justify-between gap-2 py-2 text-xs text-black/70">
-                <span className="font-mono">{membership.userId.slice(0, 8)}…</span>
-                <span>
-                  {membership.role} · {formatAdminTimestamp(membership.createdAt)}
-                </span>
-              </li>
-            ))
-          )}
-        </ul>
+        <p className="mt-2 text-xs leading-5 text-black/55">
+          Hak kelola Tempat ditentukan oleh membership akun di bawah — bukan oleh penanda produser di atas.
+          Mencabut satu membership tidak mengubah kepemilikan, klaim, atau Tempat dan akun lain.
+        </p>
+        <div className="mt-3">
+          <AdminPlaceMembersPanel placeName={place.name} memberships={memberships} />
+        </div>
       </section>
 
       <section aria-label="Klaim" className="rounded-2xl border border-black/10 bg-white p-5">
