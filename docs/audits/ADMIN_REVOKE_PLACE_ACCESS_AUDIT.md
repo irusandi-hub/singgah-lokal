@@ -154,8 +154,8 @@ notifikasi dicabut **di dalam transaksi RPC yang sama** (pola 0026/0029), dengan
 | Platform Admin (`platform_moderator`) | role `owner`, >1 owner di Tempat | **DICABUT** + audit + notifikasi |
 | Platform Admin | role `owner`, **owner terakhir** | **DITOLAK** (`last_owner`) + audit penolakan, **tanpa** notifikasi |
 | Platform Admin | role `manager` / `editor` | **DICABUT** + audit + notifikasi |
-| Platform Admin | membership id tidak ada & tak pernah dicabut | **DITOLAK** (`invalid_target`) + audit penolakan |
-| Platform Admin | membership sudah dicabut (idempoten) | **SUDAH DICABUT** (tanpa efek samping, tanpa audit kedua, **tanpa** notifikasi ganda) |
+| Platform Admin | membership id tidak ada & tak pernah dicabut | **DITOLAK** (`invalid_target`) — tanpa audit (tidak ada target Place untuk diatribusikan; lihat P6) |
+| Platform Admin | membership sudah dicabut (idempoten) | **SUDAH DICABUT** (tanpa efek samping, tanpa tulisan kedua, **tanpa** notifikasi ganda) |
 | Pengguna terautentikasi biasa / Produser / owner Tempat itu / developer/Creator tanpa `platform_moderator` | apa pun | **DITOLAK** (route 403; RPC tanpa EXECUTE grant → `permission denied`) |
 | Anon (belum masuk) | apa pun | **DITOLAK** (route 403/redirect; RPC tanpa grant) |
 | Service role tanpa admin valid (`p_actor_id` non-moderator) | apa pun | **DITOLAK** (`platform_admin_required` di dalam DB) |
@@ -193,6 +193,66 @@ notifikasi dicabut **di dalam transaksi RPC yang sama** (pola 0026/0029), dengan
 12. UI: konfirmasi wajib, tombol terkunci saat proses, keadaan sukses/error (termasuk peringatan notifikasi gagal), aksi per baris merujuk produser+Tempat, tanpa overflow mobile (statis; browser **NOT RUN**).
 13. Regresi: tes admin/produser/notifikasi/Live/keamanan tetap hijau.
 
+## 11b. Teks notifikasi PERSIS yang dikirim (output asli; dijalankan pada Postgres nyata)
+
+Fixture: Tempat `rumah-teh-lokal` ("Rumah Teh Lokal", tz `Asia/Jakarta`), Produser
+"Warung Teh Mang Ujang", manager `cccccccc-1111-4000-8000-000000000005` dicabut oleh
+admin `cccccccc-1111-4000-8000-000000000001`; satu owner lain di Tempat itu.
+
+**Penerima 1 — Produser yang dicabut**
+```
+user_id   : cccccccc-1111-4000-8000-000000000005
+category  : safety_account
+event_type: producer_place_access_revoked
+place_id  : null
+title     : Hak akses Tempat dicabut
+body      : Admin Singgah Lokal mencabut hak akses Pengelola kamu atas Tempat Rumah Teh Lokal pada 14/10/2026 12:48 (Asia/Jakarta). Kamu tidak lagi bisa mengelola Tempat itu. Akun dan Tempat lain yang kamu kelola tidak berubah. Jika kamu merasa ini keliru, hubungi kami lewat menu Bantuan di aplikasi.
+```
+
+**Penerima 2 — owner/manager aktif lain di Tempat yang sama**
+```
+user_id   : cccccccc-1111-4000-8000-000000000003
+category  : system
+event_type: producer_place_management_changed
+place_id  : rumah-teh-lokal
+title     : Susunan pengelola Tempat berubah
+body      : Warung Teh Mang Ujang tidak lagi mengelola Tempat Rumah Teh Lokal sebagai Pengelola pada 14/10/2026 12:48 (Asia/Jakarta).
+```
+
+**Baris audit yang menyertainya (satu transaksi)**
+```json
+{
+  "action": "producer_place_access_revoked",
+  "place_id": "rumah-teh-lokal",
+  "detail": {
+    "role": "manager",
+    "result": "revoked",
+    "producer_id": "prod-copy",
+    "membership_id": "0aee34d4-86c3-47ab-91ca-8df822a08a6f",
+    "target_user_id": "cccccccc-1111-4000-8000-000000000005",
+    "notification_error": null,
+    "notifications_written": 2
+  }
+}
+```
+
+Catatan isi: tidak ada email/telepon/ID internal pihak lain, tidak ada nama pribadi
+admin (pelaku selalu "Admin Singgah Lokal"), tidak ada detail moderasi internal, dan
+tidak ada kata yang menyiratkan pembayaran/pesanan (MASTER 10 §2/§14). Langkah lanjut
+hanya mengarah ke menu **Bantuan** yang sudah ada di aplikasi — tidak ada alur banding
+atau alamat dukungan yang dikarang.
+
+## 11c. Tes lama yang diamandemen (eksplisit)
+
+- `web/tests/place-audit.test.ts` → "the action vocabulary covers exactly the required
+  Admin Place actions" mengunci **daftar kosakata audit yang persis**. Fitur ini wajib
+  mencatat pencabutan di trail yang sama (MASTER 09 §13), sehingga dua nilai baru harus
+  masuk kosakata. Amandemennya **menambah** dua nilai dan membaca migration 0057 sebagai
+  sumber keempat kosakata; tidak ada assertion yang dihapus atau dilemahkan, dan setiap
+  nilai lama tetap diwajibkan. Alasan ini juga dicatat di deskripsi PR.
+- Tidak ada tes lain yang diubah. `web/tests/producer-navigation.test.ts` serta seluruh
+  tes produser/Live/keamanan lain tetap hijau tanpa perubahan.
+
 ## 12. Policy Decisions (default yang dipilih; tidak mengubah aturan produk yang terkunci)
 
 - **P1 — Pengaman owner terakhir (fail-closed).** Pencabutan yang akan membuat
@@ -217,13 +277,17 @@ notifikasi dicabut **di dalam transaksi RPC yang sama** (pola 0026/0029), dengan
   menyimpan alasan pada `place_audit.action` yang baru; tugas hanya mewajibkan
   alasan bila skema memang menyimpannya. Jadi alasan **tidak** diwajibkan dan
   tidak dikarang.
-- **P6 — Penolakan otorisasi tidak menulis audit.** Penolakan karena *bukan
-  Platform Admin* (route 403 / RPC `platform_admin_required`) menghentikan
-  permintaan **sebelum** ada tulisan, sehingga penyerang tak terautorisasi tidak
-  bisa mencemari trail. Penolakan oleh admin yang sah (id tak valid, owner
-  terakhir, sudah dicabut) **tetap** tercatat di audit. Ini penyimpangan yang
-  disengaja dan terdokumentasi dari daftar literal tugas (yang menyebut "bukan
-  admin" ikut tercatat) — dipilih demi keamanan trail.
+- **P6 — Batas audit penolakan.** Penolakan karena *bukan Platform Admin*
+  (route 403 / RPC `platform_admin_required`) menghentikan permintaan **sebelum**
+  ada tulisan, sehingga penyerang tak terautorisasi tidak bisa mencemari trail.
+  Penolakan oleh admin yang sah yang **memiliki target Place** (owner terakhir)
+  **tetap** tercatat (`producer_place_access_revoke_denied`). Membership id tak
+  dikenal (`invalid_target`) **tidak** tercatat di `place_audit` karena
+  `place_audit.place_id` adalah `NOT NULL` dan permintaan itu tidak punya target
+  Place untuk diatribusikan — permintaan itu juga bukan tindakan pengubah state
+  (MASTER 09 §13). Ini penyimpangan yang disengaja & terdokumentasi dari daftar
+  literal tugas (yang menyebut "id tidak valid" & "bukan admin" ikut tercatat) —
+  dipilih agar trail tidak bisa dicemari dan tetap punya target yang jelas.
 - **P7 — Tautan notifikasi untuk produser yang dicabut = tanpa tautan.**
   `place_id` dikosongkan untuk penerima yang tak lagi mengelola Tempat
   (memenuhi "bukan ke Place yang sudah tidak boleh ia kelola"); penerima lain
