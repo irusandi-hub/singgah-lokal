@@ -4,7 +4,9 @@
 -- Runnable on the DEVELOPMENT project (SQL Editor paste, or
 -- `psql "$SUPABASE_DEV_DB_URL" -f tests/db-regression/admin-revoke-place-access.sql`)
 -- and executed automatically on a real Postgres engine by
--- web/tests/admin-revoke-place-access.test.ts.
+-- web/tests/admin-revoke-place-access-migration.test.ts. It seeds its own
+-- isolated namespace, so the same 30 checks run on an empty database and on a
+-- DEV database that already carries demo/PO data.
 --
 -- Contract verified (docs/audits/ADMIN_REVOKE_PLACE_ACCESS_AUDIT.md):
 --   1. schema: producer_memberships gains ONE unique, non-null surrogate id;
@@ -45,9 +47,64 @@ create temporary table admin_revoke_checks (
 ) on commit drop;
 
 -- ---------------------------------------------------------------------------
--- Fixtures (rolled back at the end). Places 'rumah-teh-lokal'/'kopi-dari-kebun'/
--- 'dapur-rasa' are seeded by 0001.
+-- Fixtures — ISOLATED and re-seeded deterministically, so the result is the same
+-- on a fresh database and on a DEV database that already holds demo/PO data.
+--
+-- The Places seeded by 0001 ('rumah-teh-lokal', 'kopi-dari-kebun',
+-- 'dapur-rasa') are deliberately NOT used: their membership sets belong to the
+-- application, not to this script. A Place that already carries other owners
+-- would silently change the last-owner and co-manager results — and the
+-- revocation under test would send notifications to real accounts. This script
+-- therefore creates its OWN three Places, and every fixture row lives in ONE
+-- reserved namespace ('regress-revoke-*', 'prod-admin-revoke-dev', the
+-- 'cccccccc-1111-…' accounts) that no application code ever writes.
+--
+-- The namespace is cleared and re-seeded BEFORE any check runs, so a re-run — or
+-- residue from a manual paste that stopped halfway — cannot change the outcome.
+-- `place_audit` is append-only by design (0031 trigger) and is never deleted
+-- here; the closing `rollback;` is what guarantees nothing is left behind.
 -- ---------------------------------------------------------------------------
+delete from public.notifications
+ where user_id in (
+   'cccccccc-1111-4000-8000-000000000001',
+   'cccccccc-1111-4000-8000-000000000002',
+   'cccccccc-1111-4000-8000-000000000003',
+   'cccccccc-1111-4000-8000-000000000004',
+   'cccccccc-1111-4000-8000-000000000005',
+   'cccccccc-1111-4000-8000-000000000006',
+   'cccccccc-1111-4000-8000-000000000007'
+ );
+
+delete from public.producer_memberships
+ where user_id in (
+   'cccccccc-1111-4000-8000-000000000001',
+   'cccccccc-1111-4000-8000-000000000002',
+   'cccccccc-1111-4000-8000-000000000003',
+   'cccccccc-1111-4000-8000-000000000004',
+   'cccccccc-1111-4000-8000-000000000005',
+   'cccccccc-1111-4000-8000-000000000006',
+   'cccccccc-1111-4000-8000-000000000007'
+ )
+    or place_id in ('regress-revoke-a', 'regress-revoke-b', 'regress-revoke-c');
+
+-- Three Places owned by this script: A is the revocation target, B is the same
+-- Produser's other Tempat (isolation), C has a single owner (last-owner
+-- safeguard). Category/currency values match the CHECK constraints in force
+-- after 0033/0039; the timezone trigger in 0003 accepts 'Asia/Jakarta'.
+insert into public.places (id, name, short_description, category, type, area, timezone, currency)
+values
+  ('regress-revoke-a', 'Rumah Teh Regress A', 'Fixture isolasi regresi (dibuat dan di-rollback oleh skrip ini).', 'Perdagangan & Jasa', 'experience', 'Regress DEV', 'Asia/Jakarta', 'IDR'),
+  ('regress-revoke-b', 'Kopi Regress B', 'Fixture isolasi regresi (dibuat dan di-rollback oleh skrip ini).', 'Perdagangan & Jasa', 'production', 'Regress DEV', 'Asia/Jakarta', 'IDR'),
+  ('regress-revoke-c', 'Dapur Regress C', 'Fixture isolasi regresi (dibuat dan di-rollback oleh skrip ini).', 'Perdagangan & Jasa', 'production', 'Regress DEV', 'Asia/Jakarta', 'IDR')
+on conflict (id) do update
+  set name = excluded.name,
+      short_description = excluded.short_description,
+      category = excluded.category,
+      type = excluded.type,
+      area = excluded.area,
+      timezone = excluded.timezone,
+      currency = excluded.currency;
+
 insert into auth.users (id, email, email_confirmed_at) values
   ('cccccccc-1111-4000-8000-000000000001', 'rev-admin@example.com', now()),
   ('cccccccc-1111-4000-8000-000000000002', 'rev-nonadmin@example.com', now()),
@@ -73,16 +130,19 @@ update public.users set platform_role = 'platform_moderator'
 
 insert into public.producers (id, display_name) values
   ('prod-admin-revoke-dev', 'Pengelola Revoke DEV')
-on conflict (id) do nothing;
+on conflict (id) do update set display_name = excluded.display_name;
 
+-- Re-seeded to a KNOWN state (upsert on the canonical PK), so the membership set
+-- each check reads is exactly this one, whatever the surrounding database holds.
 insert into public.producer_memberships (user_id, producer_id, place_id, role) values
-  ('cccccccc-1111-4000-8000-000000000003', 'prod-admin-revoke-dev', 'rumah-teh-lokal', 'owner'),
-  ('cccccccc-1111-4000-8000-000000000004', 'prod-admin-revoke-dev', 'rumah-teh-lokal', 'owner'),
-  ('cccccccc-1111-4000-8000-000000000005', 'prod-admin-revoke-dev', 'rumah-teh-lokal', 'manager'),
-  ('cccccccc-1111-4000-8000-000000000006', 'prod-admin-revoke-dev', 'rumah-teh-lokal', 'editor'),
-  ('cccccccc-1111-4000-8000-000000000003', 'prod-admin-revoke-dev', 'kopi-dari-kebun', 'owner'),
-  ('cccccccc-1111-4000-8000-000000000007', 'prod-admin-revoke-dev', 'dapur-rasa', 'owner')
-on conflict do nothing;
+  ('cccccccc-1111-4000-8000-000000000003', 'prod-admin-revoke-dev', 'regress-revoke-a', 'owner'),
+  ('cccccccc-1111-4000-8000-000000000004', 'prod-admin-revoke-dev', 'regress-revoke-a', 'owner'),
+  ('cccccccc-1111-4000-8000-000000000005', 'prod-admin-revoke-dev', 'regress-revoke-a', 'manager'),
+  ('cccccccc-1111-4000-8000-000000000006', 'prod-admin-revoke-dev', 'regress-revoke-a', 'editor'),
+  ('cccccccc-1111-4000-8000-000000000003', 'prod-admin-revoke-dev', 'regress-revoke-b', 'owner'),
+  ('cccccccc-1111-4000-8000-000000000007', 'prod-admin-revoke-dev', 'regress-revoke-c', 'owner')
+on conflict (user_id, place_id) do update
+  set producer_id = excluded.producer_id, role = excluded.role;
 
 -- ---------------------------------------------------------------------------
 -- 1. Schema & posture (checks 1–10)
@@ -154,12 +214,11 @@ declare
   v_audit    record;
   v_notif    record;
   v_body     text;
-  v_when_text text;
 begin
   perform set_config('request.jwt.claims', '', false); -- no session: actor comes from p_actor_id
 
   select id into v_target from public.producer_memberships
-   where user_id = v_manager and place_id = 'rumah-teh-lokal';
+   where user_id = v_manager and place_id = 'regress-revoke-a';
 
   v_outcome := public.revoke_producer_place_access(v_admin, v_target);
 
@@ -182,7 +241,7 @@ begin
 
   insert into admin_revoke_checks values
     (13, 'audit_attributes_actor_target_result',
-        v_audit.place_id = 'rumah-teh-lokal'
+        v_audit.place_id = 'regress-revoke-a'
         and v_audit.actor_id = v_admin
         and v_audit.detail ->> 'target_user_id' = v_manager::text
         and v_audit.detail ->> 'role' = 'manager'
@@ -196,9 +255,6 @@ begin
      and source_id = v_target::text;
 
   v_body := coalesce(v_notif.body, '');
-  select to_char(created_at at time zone 'Asia/Jakarta', 'DD/MM/YYYY HH24:MI')
-    into v_when_text
-    from public.places where id = 'rumah-teh-lokal';
 
   insert into admin_revoke_checks values
     (14, 'revoked_producer_gets_one_safety_account_notification',
@@ -212,7 +268,7 @@ begin
         coalesce(v_notif.category, 'no notification') || ' / ' || coalesce(v_notif.event_type, '-')),
     (15, 'revocation_notification_content',
         v_body like '%Admin Singgah Lokal%'
-        and v_body like '%Rumah Teh Lokal%'
+        and v_body like '%Rumah Teh Regress A%'
         and v_body like '%Pengelola%'
         and v_body like '%(Asia/Jakarta)%'
         and v_body like '%tidak lagi bisa mengelola Tempat itu%'
@@ -231,7 +287,7 @@ begin
         and (select count(*) from public.notifications
               where user_id = v_owner1 and event_type='producer_place_management_changed'
                 and body like '%Pengelola Revoke DEV%'
-                and body like '%Rumah Teh Lokal%'
+                and body like '%Rumah Teh Regress A%'
                 and body not like '%@example.com%'
                 and body not like '%Admin Singgah Lokal%') = 1,
         'owner/manager peers notified, no email, no admin detail'),
@@ -252,7 +308,7 @@ declare
 begin
   perform set_config('request.jwt.claims', '', false);
   select id into v_target from public.producer_memberships
-   where user_id = v_lone and place_id = 'dapur-rasa';
+   where user_id = v_lone and place_id = 'regress-revoke-c';
 
   v_outcome := public.revoke_producer_place_access(v_admin, v_target);
 
@@ -294,7 +350,7 @@ begin
 
   -- Editor revocation first, so we can prove the re-submit is idempotent.
   select id into v_target from public.producer_memberships
-   where user_id = v_editor and place_id = 'rumah-teh-lokal';
+   where user_id = v_editor and place_id = 'regress-revoke-a';
 
   perform public.revoke_producer_place_access(v_admin, v_target);
   select count(*) into v_before_notifications from public.notifications
@@ -336,7 +392,7 @@ begin
 
   select m.place_id, m.role into v_cross
     from public.producer_memberships m
-   where m.user_id = v_owner1 and m.place_id = 'kopi-dari-kebun';
+   where m.user_id = v_owner1 and m.place_id = 'regress-revoke-b';
 
   insert into admin_revoke_checks values
     (25, 'other_place_membership_untouched',
@@ -344,7 +400,7 @@ begin
         'same Produser keeps the other Tempat membership'),
     (26, 'revoked_user_has_no_membership_left_on_that_place',
         not exists (select 1 from public.producer_memberships
-                     where user_id = v_editor and place_id = 'rumah-teh-lokal'),
+                     where user_id = v_editor and place_id = 'regress-revoke-a'),
         'management gate reads this row and now finds nothing'),
     (27, 'unrelated_tables_untouched',
         (select count(*) from auth.users where id = v_editor) = 1
