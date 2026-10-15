@@ -29,7 +29,7 @@ import { readFileSync } from "node:fs";
  *
  * CATATAN JUJUR soal konkurensi: PGlite di sandbox ini adalah SATU koneksi,
  * jadi dua transaksi paralel yang sesungguhnya TIDAK dapat dijalankan (lihat
- * docs/audits/PLACE_MANAGEMENT_POLICY_AUDIT.md §8). Test di bawah membuktikan
+ * docs/audits/PLACE_MANAGEMENT_POLICY_AUDIT.md §5). Test di bawah membuktikan
  * kontrak serialisasinya (advisory xact lock per Tempat + row lock) dan
  * perilaku berurutan yang setara; eksekusi paralel = NOT RUN.
  */

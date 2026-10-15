@@ -281,7 +281,52 @@ in the Supabase SQL Editor as the existing checklist prescribes (paste
 and the feature is NOT available to users yet**; nothing was applied to production. See
 `docs/runbooks/PLACE_MANAGEMENT_POLICY_DEPLOYMENT.md`.
 
-## 8. Open items for the product owner
+## 8. Verification against a running build (this pass)
+
+**Builds.** The managed preview ran this revision's content at
+`https://3000-iyqivc7a3360xd842qd5j.e2b.app`, and the Vercel preview deployment for commit
+`19a0bc9` is `https://singgah-lokal-884cdtocq-singgahlokal.vercel.app` (deployment status
+`success`). The Vercel preview sits behind Vercel SSO (`302` to `vercel.com/sso-api`), so its
+HTML cannot be fetched directly; the managed preview — same revision — is what was inspected.
+
+**Rendered UI, not source.** The two UI test files are *source-contract* tests, so they are
+not offered as UI evidence. Instead a **temporary** route rendered the real components in the
+real Next runtime (App Router context, real client-component SSR), the produced HTML was
+inspected attribute by attribute, and the route was then deleted (worktree clean at `19a0bc9`;
+the path answers `404` again). Observed in that rendered HTML:
+
+* **Path A — Admin Center → Data Pengelola.** One `Cabut Hak Akses` button per eligible row,
+each with a distinct `aria-label` naming the account **and** the Place
+(`Cabut hak akses Wayang Golek Sunda atas Rumah Teh Lokal`). Every row's button is **enabled**
+(no `disabled` attribute) — including the row whose membership role is `owner`.
+* **Path B — Admin Center → Detail Tempat → Pengelola.** For a Place whose **only** membership
+is the last owner, the `Cabut Hak Pengelolaan` button is rendered and **enabled**
+(`aria-label="Cabut hak pengelolaan terakhir@example.com atas Rumah Teh Lokal"`): the last
+manager is revocable and no button is disabled for that reason.
+* **Confirmation dialog (rendered open).** `role="dialog"` + `aria-modal="true"`; the account,
+email, Place and scope fields are all present (`revoke-dialog-producer`, `-email`, `-place`,
+`-scope`); the label *"Alasan pencabutan (wajib)"* renders above the reason control, whose
+options are the five policy reasons plus *"Alasan lain…"*; and the confirm button carries the
+real boolean `disabled=""` attribute **while no valid reason is chosen**, so confirmation
+cannot be reached without a reason. The scope sentence (digital management rights only; no
+legal-ownership determination; no data deletion) is rendered in the dialog itself.
+* **Managerless + archived states.** With an empty membership list and an archived Place, the
+rendered output contains `place-managerless-notice` (*"Tanpa Pengelola digital aktif."* plus the
+official claim-approval recovery link) and `place-archived-notice` — the archived Place still
+reads as archived.
+
+**Route behaviour on that build.** `/` `200` · `/ketentuan` `200` · `/policy` `200` ·
+`/about` `200` · `/auth` `200`; the Admin surfaces and `/account` answer `307` to
+`/auth?returnTo=…` when signed out.
+
+**NOT verified — stated plainly.** A signed-in Admin **browser session** and the real
+click → server → database round trip were **not** performed: this environment holds no Admin
+account, and DEV is still at `0057`, where the three-argument RPC does not exist — so the
+request the dialog issues would fail on DEV regardless of how correct the UI is. The rendered
+markup above proves the surfaces, the copy, and the reason gate; it does not prove the
+end-to-end action, and is not claimed to.
+
+## 9. Open items for the product owner
 
 1. **Legal review.** Ketentuan Penggunaan v1.1 is written from the product decision and is
    explicitly marked as *awaiting legal review* in the document, the register, and the
