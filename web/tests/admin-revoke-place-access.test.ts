@@ -891,6 +891,24 @@ test("hitung baris: hanya producer_memberships yang berubah", async () => {
   const db = await createDb();
   await seedWorld(db);
 
+  // Fixture diperkaya lebih dulu supaya klaim "konten dan riwayat tetap terjaga"
+  // TIDAK hampa: satu Experience (dari seed 0001) dan satu Visit Intent nyata
+  // harus benar-benar ada dan bertahan.
+  const experienceId = String(
+    (await rows(db, `select id from public.experiences where place_id = $1::text limit 1`, [PLACE_A]))[0]
+      ?.id ?? "",
+  );
+  assert.ok(experienceId, "fixture: PLACE_A harus punya Experience");
+  await db.exec(`
+    insert into public.visit_intents (
+      id, user_id, place_id, experience_id, requested_date,
+      requested_start_time, requested_end_time, party_size, timezone, idempotency_key
+    ) values (
+      'vi-revoke-regress', '${MANAGER}', '${PLACE_A}', '${experienceId}', current_date,
+      '09:00', '10:30', 2, 'Asia/Jakarta', 'vi-revoke-regress-key'
+    ) on conflict (id) do nothing;
+  `);
+
   const tables = [
     "auth.users",
     "public.users",
@@ -904,6 +922,17 @@ test("hitung baris: hanya producer_memberships yang berubah", async () => {
   for (const table of tables) before[table] = await count(db, table);
   const membershipsBefore = await count(db, "public.producer_memberships");
 
+  // Non-hampa: yang dilindungi memang ada isinya.
+  assert.ok(
+    before["public.experiences"] > 0,
+    `fixture: Experience harus non-kosong (count=${before["public.experiences"]}, placeExperience=${JSON.stringify(experienceId)})`,
+  );
+  assert.ok(
+    before["public.visit_intents"] > 0,
+    `fixture: Visit Intent harus non-kosong (count=${before["public.visit_intents"]})`,
+  );
+  assert.ok(before["public.places"] > 0, `fixture: Place harus non-kosong (count=${before["public.places"]})`);
+
   assert.equal((await revokeAsService(db, ADMIN, await membershipId(db, MANAGER, PLACE_A))).status, "revoked");
   assert.equal((await revokeAsService(db, ADMIN, await membershipId(db, EDITOR, PLACE_A))).status, "revoked");
 
@@ -912,11 +941,33 @@ test("hitung baris: hanya producer_memberships yang berubah", async () => {
   }
   assert.equal(await count(db, "public.producer_memberships"), membershipsBefore - 2);
 
+  // Baris CONTENT yang spesifik masih ada, masih terikat Tempat yang sama, dan
+  // status Visit Intent-nya tidak tersentuh oleh pencabutan.
+  assert.equal(
+    (await rows(db, `select id, place_id from public.experiences where id = $1::text`, [experienceId]))[0]
+      ?.place_id,
+    PLACE_A,
+    "Experience tetap ada dan masih milik Tempat yang sama",
+  );
+  const intent = await rows(
+    db,
+    `select place_id, experience_id, status, party_size from public.visit_intents where id = 'vi-revoke-regress'`,
+  );
+  assert.equal(intent.length, 1, "Visit Intent tetap ada");
+  assert.equal(intent[0].place_id, PLACE_A);
+  assert.equal(intent[0].experience_id, experienceId);
+  assert.equal(intent[0].status, "pending");
+
   // Place masih ada dan tidak diarsipkan/diubah status kepemilikannya.
   const place = await rows(db, `select publication_status, producer_id, claim_status from public.places where id = $1::text`, [PLACE_A]);
   assert.equal(place[0].publication_status, "published");
   assert.equal(place[0].producer_id, null);
   assert.equal(place[0].claim_status, "unverified");
+
+  // Riwayat administrasi bertambah (2 pencabutan) dan tidak ada baris yang hilang:
+  // `place_audit` append-only, jadi tidak ada cara menghapusnya pun.
+  const auditRowsAfter = await count(db, "public.place_audit");
+  assert.equal(auditRowsAfter, 2, "dua baris audit untuk dua pencabutan");
 
   await db.close();
 });
@@ -1102,6 +1153,95 @@ test("kegagalan notifikasi tidak membatalkan pencabutan, dan tercatat di audit",
   );
   // Tidak ada notifikasi setengah jadi.
   assert.equal(await count(db, "public.notifications"), 0);
+
+  await db.close();
+});
+
+// ---------------------------------------------------------------------------
+// 8b. Kegagalan penulisan AUDIT membatalkan SELURUH transaksi pencabutan
+// ---------------------------------------------------------------------------
+//
+// 0058 §1.9: "Kalau tulisan ini gagal, seluruh transaksi (termasuk pencabutan)
+// dibatalkan — perubahan tanpa trail adalah yang dilarang." Ini kebalikan dari
+// §1.8 (kegagalan notifikasi hanya di-warning). Keduanya diuji secara terpisah
+// supaya tidak ada satu pun yang bisa berubah diam-diam.
+test("kegagalan penulisan audit membatalkan pencabutan — tanpa jejak, tanpa efek", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  // PLACE_C: SATU pengelola, dan penanda Produser menunjuk Produser-nya. Kalau
+  // transaksi selesai, DUA perubahan akan terjadi (baris membership hilang +
+  // penanda dilepas) — jadi rollback dapat dibuktikan pada keduanya sekaligus.
+  await db.exec(`update public.places set producer_id = '${PRODUCER_B}' where id = '${PLACE_C}'`);
+  const target = await membershipId(db, OWNER_2, PLACE_C);
+
+  // Penulisan audit dipaksa gagal — tepat pola gangguan yang dijaga 0058 §1.9.
+  // Sequence, bukan tabel, dipakai sebagai penanda: SETIAP tulisan tabel ikut
+  // di-rollback, jadi hanya `nextval` (non-transaksional) yang bisa membuktikan
+  // bahwa RPC benar-benar SAMPAI ke langkah audit. Tanpa bukti "late failure"
+  // ini, penolakan di validasi awal akan tampak sama (membership tetap utuh)
+  // dan asersinya jadi kosong.
+  await db.exec(`
+    create sequence public.audit_probe_seq start with 10;
+    create function public.fail_audit_insert() returns trigger language plpgsql as $$
+    begin
+      perform nextval('public.audit_probe_seq');
+      raise exception 'simulated_audit_write_failure';
+    end;
+    $$;
+    create trigger fail_revoke_audit before insert on public.place_audit
+      for each row when (new.action = 'producer_place_access_revoked')
+      execute function public.fail_audit_insert();
+  `);
+
+  // RPC GAGAL — bukan diam-diam "berhasil tanpa jejak".
+  await expectRpcRaise(db, ADMIN, target, "simulated_audit_write_failure");
+
+  // 1. Kegagalannya memang terjadi DI LANGKAH AUDIT (probe non-transaksional
+  //    terpakai tepat sekali), bukan di validasi/otorisasi lebih awal.
+  const probe = await rows(db, `select last_value::int as n, is_called from public.audit_probe_seq`);
+  assert.equal(probe[0].n, 10, "penulisan audit harus benar-benar dicoba");
+  assert.equal(probe[0].is_called, true, "trigger audit harus terpicu tepat sekali");
+
+  // 2. DELETE di dalam transaksi yang sama ikut dibatalkan: kewenangan utuh.
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where id = $1::uuid`, [target])).length,
+    1,
+    "pencabutan tanpa trail audit tidak boleh bertahan",
+  );
+
+  // 3. UPDATE pelepasan penanda Produser (dijalankan SEBELUM audit) juga batal.
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1::text`, [PLACE_C]))[0]
+      .producer_id,
+    PRODUCER_B,
+    "pelepasan penanda Produser ikut di-rollback",
+  );
+  assert.equal(
+    (await rows(db, `select public.place_has_active_ownership('${PLACE_C}') as owned`))[0].owned,
+    true,
+    "Tempat tetap punya pengelola aktif setelah transaksi dibatalkan",
+  );
+
+  // 4. Notifikasi yang sudah ditulis lebih dulu di transaksi itu pun hilang —
+  //    tidak ada notifikasi "sudah dicabut" untuk pencabutan yang batal.
+  assert.equal(await count(db, "public.notifications"), 0);
+
+  // 5. Tidak ada baris audit: trail dan perubahan selalu sejalan.
+  assert.equal(await count(db, "public.place_audit"), 0);
+
+  // 6. Kegagalannya sementara, bukan merusak: setelah gangguan hilang, operasi
+  //    resmi yang SAMA berhasil dan barulah tercatat.
+  await db.exec(`drop trigger fail_revoke_audit on public.place_audit;`);
+  const outcome = await revokeAsService(db, ADMIN, target);
+  assert.equal(outcome.status, "revoked", JSON.stringify(outcome));
+  assert.equal(outcome.managerless, true);
+  assert.equal(await count(db, "public.place_audit"), 1);
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1::text`, [PLACE_C]))[0]
+      .producer_id,
+    null,
+  );
 
   await db.close();
 });

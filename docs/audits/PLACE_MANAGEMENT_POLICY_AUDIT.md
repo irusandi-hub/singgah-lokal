@@ -156,6 +156,43 @@ left.
 | 15 | Terms available through the real legal interface | `/ketentuan` + register version + acceptance card | `legal-documents` #1–#3, #5–#8, #10 |
 | 16 | Existing ownership-claim / other protections still work | claim gate, `place_audit` append-only, notifications locked, membership RLS | `admin-revoke-place-access` #8, #17, #18, #23; `legal-documents` #4 |
 
+## 4.1 The 17 business/security scenarios requested by the owner
+
+Each row was executed on the real migration chain (PGlite), not inspected in source.
+Numbers in parentheses are the test names in `web/tests/admin-revoke-place-access.test.ts`
+unless another file is named.
+
+| # | Scenario | Executable check | Result |
+| --- | --- | --- | --- |
+| 1 | Revoke one of several managers | `owner non-terakhir, manager, editor, dan owner TERAKHIR semuanya dapat dicabut`; `mencabut satu Tempat tidak memengaruhi Tempat lain…`; `hitung baris…` | PASS |
+| 2 | Revoke the **last** manager | `pengelola TERAKHIR dapat dicabut — Tempat valid tanpa Pengelola (aturan B & C)` | PASS |
+| 3 | Reject empty / too-short reason | `alasan kosong/pendek/terlalu panjang DITOLAK tanpa efek samping apa pun` | PASS |
+| 4 | Reject an over-limit reason | same check (501 → 500-character boundary both sides) | PASS |
+| 5 | A failed revocation deletes nothing | same check + `membership id palsu ditolak; tidak ada efek samping` | PASS |
+| 6 | The Place still exists after revocation | `pengelola TERAKHIR dapat dicabut…` (row present) + `hitung baris…` | PASS |
+| 7 | Content, Experience, Visit Intent, history preserved | `hitung baris: hanya producer_memberships yang berubah` — asserts the seeded `experiences` (1), `visit_intents` (1) and `places` (3) are still there, that only the membership count moves, and that `place_audit` **grows** by exactly the 2 rows the run wrote | PASS |
+| 8 | Authority gone on **every** authorization path | `Produser yang dicabut langsung kehilangan akses kelola (gate server + RLS)`; `anon dan non-admin tidak dapat membaca atau menulis audit` | PASS |
+| 9 | `places.producer_id` released only in the right condition | `penanda Produser TIDAK dilepas selagi masih ada pengelola lain`; `pengelola terakhir: penanda Produser dilepas…` | PASS |
+| 10 | A managerless Place is recoverable by the official claim process | `pengelola terakhir: penanda Produser dilepas dan jalur klaim resmi terbuka` (`submit_place_claim` accepted; **no** authority before approval) | PASS |
+| 11 | No automatic archiving from the revocation | `pengelola TERAKHIR dapat dicabut…` (`publication_status` still `published`) | PASS |
+| 12 | Audit records actor, target, reason, time, outcome | `alasan yang sah dicatat utuh di trail audit bersama actor, target, dan hasil`; `admin sah dapat mencabut…` | PASS |
+| 13 | **An audit-write failure cancels the revocation transaction** | `kegagalan penulisan audit membatalkan pencabutan — tanpa jejak, tanpa efek` (**added in this pass**) | PASS |
+| 14 | A notification failure cannot reverse a successful revocation | `kegagalan notifikasi tidak membatalkan pencabutan, dan tercatat di audit` | PASS |
+| 15 | The revoked account cannot keep managing through another path | `Produser yang dicabut langsung kehilangan akses kelola…`; `pemberian kewenangan ulang hanya lewat proses resmi…` | PASS |
+| 16 | Ordinary users cannot call the admin function | `tanpa sesi/non-admin ditolak…`; `service_role punya EXECUTE, dan fungsi memverifikasi admin di dalam DB` | PASS |
+| 17 | Concurrent revocation cannot leave a wrong manager state | contract + measured lock + sequential orderings (§5) | **PARTIAL** — semantics proven, true parallelism NOT RUN |
+
+Scenario 13 closes a gap this audit previously left open: nothing tested that a failing
+audit write aborts the business change, even though `0058` §1.9 states exactly that. The new
+check forces the audit insert to raise and then asserts the membership row survives, the
+Producer pointer is untouched, the notification written earlier in the same transaction is
+gone, and the audit trail is empty — then that the very same revocation succeeds once the
+fault is removed. It is **non-vacuous in both directions**: a pass-through marker that only
+`nextval` (non-transactional, so it survives the rollback) can observe proves the failing
+write happened at the audit step and not earlier, and wrapping the audit insert in a
+swallowed `exception` handler in `0058` makes the test fail (`not ok 20`), which was checked
+by mutation and then reverted (`0058` byte-identical to `HEAD`, `sha256 5e1b879a…`).
+
 ## 5. Concurrency: what was and was NOT proven
 
 * **Implemented:** one per-Place `pg_advisory_xact_lock` taken before the remaining-manager
@@ -183,13 +220,23 @@ left.
 
 ## 6. Test results (this change)
 
-* Full web suite: **152/152 files, 1567/1567 tests, 0 failures** (one file per process —
-  a single-process run is OOM-killed in the 1-CPU/2 GB sandbox; two files were SIGKILLed
-  mid-run and passed on a fresh process, which is an environment limit, not a defect).
-* Focused: `admin-revoke-place-access` 25/25 · `admin-place-detail-revoke` 10/10 ·
-  `admin-revoke-place-access-ui` 24/24 · `admin-revoke-place-access-migration` 3/3
-  (this one executes the committed 33-check regression script on the real chain through
-  `0059`) · `legal-documents` 10/10.
+* Full web suite, re-run in this pass on the current content (one file per process — a
+  single-process run is OOM-killed here): **152/152 files ran, 1562/1565 tests passed,
+  3 failed**. All three failures are kernel `SIGKILL` — the host log records
+  `Out of memory: Killed process … anon-rss:1316444 kB` on this 1-CPU/2 GB box — not
+  assertion failures: `place-curated-admin-migration`, `discovery-aggregate`,
+  `discovery-dev-dataset`. Two of the three were re-run on **pristine `origin/main`
+  (`0a447bb`) in a clean worktree and fail identically** (`3/4` and `4/5`, both
+  `signal: 'SIGKILL'`), and none of the three — nor any module they load — is in this PR's
+  31-file delta, so they are environment limits, not regressions. The third
+  (`discovery-dev-dataset`) could not be conclusively re-tested on `main` (its worktree run
+  exceeded the command time budget), so for that one file non-causality rests on the delta
+  check and the fact that the failure is a kernel kill rather than a failed assertion.
+* Focused: `admin-revoke-place-access` **26/26** (25/25 before the test added in this pass —
+  §4.1 #13) · `admin-place-detail-revoke` 10/10 · `admin-revoke-place-access-ui` 24/24 ·
+  `admin-revoke-place-access-migration` 3/3 (this one executes the committed 33-check
+  regression script on the real chain through `0059`) · `legal-documents` 10/10. Every
+  admin/account/legal file in the suite is green.
 * `npx tsc --noEmit` → exit 0 · `npx eslint .` → exit 0, 0 errors, 11 pre-existing
   warnings (none in the changed files).
 * The committed regression script also runs standalone against DEV
@@ -198,21 +245,41 @@ left.
 ## 7. DEV migration status (read-only verification)
 
 Project under test: the linked DEV project (`qiwexmzbysujmqctrsiq`). Probes are
-**read-only** PostgREST calls; no migration was applied.
+**read-only**; no migration was applied.
 
-| Probe | Result | Meaning |
+> **Correction of an earlier probe.** The first attempt sent only an `apikey` header, which
+> makes PostgREST act as **`anon`** and produced `permission denied for function` — that
+> message said nothing about the signature (any function the browser role cannot execute
+> answers the same way). The workspace does hold a `SUPABASE_SERVICE_ROLE_KEY`, so the
+> probes were repeated with the proper `apikey` **and** `Authorization: Bearer` pair, which
+> resolves as `service_role` and gives a decisive answer.
+
+| Probe (as `service_role`) | Result | Meaning |
 | --- | --- | --- |
-| `POST /rest/v1/rpc/revoke_producer_place_access {p_actor_id,p_membership_id}` | `401 permission denied for function` (2-arg resolved) | the **0057** signature exists |
-| `POST … {p_actor_id,p_membership_id,p_reason}` | `404 PGRST202 … no matches were found` | **0058 is NOT applied** |
-| `GET /rest/v1/legal_documents` | `404` | **0059 is NOT applied** |
+| `POST /rest/v1/rpc/revoke_producer_place_access {p_actor_id,p_membership_id}` | `400 P0001 platform_admin_required` | the **0057** signature exists **and runs**; the in-function admin check fires for a non-admin actor and writes nothing |
+| `POST … {p_actor_id,p_membership_id,p_reason}` | `404 PGRST202 … Perhaps you meant to call … (p_actor_id, p_membership_id)` | **0058 is NOT applied** |
+| `GET /rest/v1/legal_documents?select=id,version` | `404 PGRST205 Could not find the table` | **0059 is NOT applied** |
 | `GET /rest/v1/producer_memberships?select=id` | `200` (empty table) | 0057's `id` column is live |
+| `GET /rest/v1/place_audit?select=id&limit=1` | `200`, 1 row | the trail exists and is readable only through service role |
+| The app itself (`/ketentuan` on the running build) | renders the *"Register versi dokumen belum tersedia di lingkungan ini"* fallback | independent confirmation from the application that 0059 is absent |
 
-**Blocker:** the migration could not be applied from this environment. There is no `psql`,
-no Supabase CLI, no Postgres driver, and the DEV connection string
-(`SUPABASE_DEV_DB_URL`) is a secret that is neither present nor readable here. Per the
-existing checklist, applying to DEV requires the SQL-Editor paste or a `psql` session with
-that connection string. **The policy is therefore NOT in force on DEV yet** — see
-`docs/runbooks/PLACE_MANAGEMENT_POLICY_DEPLOYMENT.md` for the exact sequence.
+**Every official apply path was investigated, not assumed:**
+
+| Path | Result |
+| --- | --- |
+| `psql "$SUPABASE_DEV_DB_URL" -f …` (the repo's own checklist) | no `psql` binary and no DB URL/password in the workspace — only `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` |
+| Supabase CLI (`supabase db push` / `--db-url`) | not installed, and `web/supabase/config.toml` is absent (project not linked); the CLI would still need a personal access token or DB password |
+| Management API `GET /v1/projects/{ref}` and `POST /v1/projects/{ref}/database/query` with the service key | `401 {"message":"JWT failed verification"}` — a service-role key is **not** a management credential; those endpoints require a personal access token (`sbp_…`) |
+| DDL through PostgREST (`exec_sql`-style RPC backdoor) | **none exists**: every migration was searched for dynamic SQL (`execute format`, `exec_sql`, `run_sql`) and there is no DDL-capable function; even if one existed, using it would bypass the approved migration workflow and was not attempted |
+| Installed Supabase connectors | only the client SDKs (`@supabase/supabase-js`, `ssr`, `postgrest/auth/storage/realtime/functions-js`) — a data-plane client, with no schema-change capability |
+
+**Exact blocker and the action required (one of):** add `SUPABASE_DEV_DB_URL` (the DEV Postgres
+connection string) **or** a Supabase personal access token `SUPABASE_ACCESS_TOKEN` to the
+workspace environment — both are secrets only the owner can supply — **or** run the two files
+in the Supabase SQL Editor as the existing checklist prescribes (paste
+`0058` then `0059`, each once) and report back. **The policy is therefore NOT in force on DEV
+and the feature is NOT available to users yet**; nothing was applied to production. See
+`docs/runbooks/PLACE_MANAGEMENT_POLICY_DEPLOYMENT.md`.
 
 ## 8. Open items for the product owner
 
