@@ -162,21 +162,31 @@ left.
   count and the Producer-pointer release, plus `FOR UPDATE` on the target membership row.
   Together they make the transition atomic per Place and idempotent per row.
 * **Tested:** the serialization *contract* (lock present, taken before the count, before
-  the release; row lock present), that the lock key is deterministic and Place-specific,
+  the release; row lock present); that the lock key is deterministic and Place-specific;
   the dangerous **sequential** orderings (2 → 1 → 0 managers, duplicate revokes,
-  already-revoked replays), and the final state invariants.
+  already-revoked replays); and the final state invariants.
+* **Executed, not just asserted:** the *lifetime* of the lock is observed on the real
+  engine through `pg_locks` **from inside the revoking transaction** — the probe must read
+  **0 before** the revocation and **1 after**, for the exact key
+  `hashtext('revoke_producer_place_access:' || place_id)` (bigint → `classid`/`objid`), and
+  0 again after the transaction ends. That bidirectionality is deliberate so the assertion
+  cannot pass vacuously; removing the `pg_advisory_xact_lock` line from `0058` makes it fail
+  with `advisory_lock_not_held_during_revocation (found 0)`, which was checked by mutation and
+  then reverted. This is the semantic that makes a second session block, and it is now
+  measured rather than assumed.
 * **NOT tested — reported honestly:** genuine **parallel** execution of two transactions.
-  The sandbox's Postgres engine (PGlite) is a single connection, so two concurrent
-  sessions cannot be created here. Concurrency is therefore **not** claimed as verified;
-  the remaining risk is bounded by the advisory lock design, and the two-session
-  confirmation is left as an explicit DEV step in the runbook.
+  The sandbox has no Postgres server binary (`postgres`/`initdb`/`psql` are all absent) and
+  its Postgres engine (PGlite) is a single connection, so two concurrent sessions cannot be
+  created here. Concurrency is therefore **not** claimed as verified; the remaining risk is
+  bounded by the advisory-lock design plus the measured lock lifetime above, and the
+  two-session confirmation is left as an explicit DEV step in the runbook.
 
 ## 6. Test results (this change)
 
 * Full web suite: **152/152 files, 1567/1567 tests, 0 failures** (one file per process —
   a single-process run is OOM-killed in the 1-CPU/2 GB sandbox; two files were SIGKILLed
   mid-run and passed on a fresh process, which is an environment limit, not a defect).
-* Focused: `admin-revoke-place-access` 24/24 · `admin-place-detail-revoke` 10/10 ·
+* Focused: `admin-revoke-place-access` 25/25 · `admin-place-detail-revoke` 10/10 ·
   `admin-revoke-place-access-ui` 24/24 · `admin-revoke-place-access-migration` 3/3
   (this one executes the committed 33-check regression script on the real chain through
   `0059`) · `legal-documents` 10/10.

@@ -1147,6 +1147,93 @@ test("RPC menyerialkan per Tempat + mengunci baris target (kontrak; eksekusi par
   assert.deepEqual(deletes, ["delete from public.producer_memberships"]);
 });
 
+test("kunci advisory dipegang selama transaksi pencabutan dan dilepas saat transaksi berakhir", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  const target = await membershipId(db, MANAGER, PLACE_A);
+
+  // Titik nol: di luar transaksi pencabutan tidak ada kunci advisory yang dipegang,
+  // sehingga pembacaan 0 setelahnya punya arti.
+  const baseline = await rows(
+    db,
+    `select count(*)::int as n from pg_locks where locktype = 'advisory' and granted`,
+  );
+  assert.equal(baseline[0].n, 0, "sebelum pencabutan tidak ada kunci advisory");
+
+  // PGlite hanya SATU koneksi, jadi dua transaksi paralel tidak dapat dijalankan
+  // di sandbox ini. Yang BISA dan memang di sini DILAKUKAN adalah mengamati kunci
+  // itu dari dalam transaksi yang sama: `pg_advisory_xact_lock` dipegang hingga
+  // akhir transaksi, jadi selama transaksi pencabutan masih terbuka kuncinya
+  // HARUS terlihat di `pg_locks` dengan nilai yang tepat — dan itu persis
+  // semantik yang membuat sesi kedua MEMBLOKIR, bukan sekadar kontrak di kertas.
+  // Assertion dijalankan di dalam transaksi (raise = gagal), lalu seluruh
+  // transaksi di-rollback sehingga tidak ada residu.
+  // Probe dirancang SENSITIF DUA ARAH di dalam test yang sama: ia HARUS membaca 0
+  // sebelum pencabutan dijalankan dan 1 sesudahnya. Kalau pembacaan `pg_locks`
+  // (atau aritmetika kunci bigint → classid/objid) salah, probe akan gagal di
+  // salah satu sisi — jadi assertion ini tidak bisa lolos secara semu.
+  await db.exec(`
+    begin;
+    do $$
+    declare
+      v_key  bigint := hashtext('revoke_producer_place_access:' || '${PLACE_A}')::bigint;
+      v_held integer;
+    begin
+      select count(*)::int into v_held
+        from pg_locks
+       where locktype = 'advisory'
+         and granted
+         and classid::bigint = ((v_key >> 32) & 4294967295)
+         and objid::bigint   = (v_key & 4294967295);
+      if v_held <> 0 then
+        raise exception 'probe_not_sensitive: kunci sudah terlihat SEBELUM pencabutan (%)', v_held;
+      end if;
+    end $$;
+    select public.revoke_producer_place_access('${ADMIN}', '${target}', '${REASON}');
+    do $$
+    declare
+      v_key  bigint := hashtext('revoke_producer_place_access:' || '${PLACE_A}')::bigint;
+      v_held integer;
+    begin
+      select count(*)::int into v_held
+        from pg_locks
+       where locktype = 'advisory'
+         and granted
+         and classid::bigint = ((v_key >> 32) & 4294967295)
+         and objid::bigint   = (v_key & 4294967295);
+      if v_held <> 1 then
+        raise exception 'advisory_lock_not_held_during_revocation (found %)', v_held;
+      end if;
+    end $$;
+    rollback;
+  `);
+
+  // Rollback mengembalikan pencabutan DAN melepas kuncinya: tidak ada kunci yang
+  // bocor ke transaksi berikutnya, dan barisan pengelola tetap utuh.
+  const afterRollback = await rows(
+    db,
+    `select count(*)::int as n from pg_locks where locktype = 'advisory' and granted`,
+  );
+  assert.equal(afterRollback[0].n, 0, "kunci dilepas saat transaksi berakhir");
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where id = $1::uuid`, [target])).length,
+    1,
+    "rollback juga mengembalikan baris membership — seluruhnya satu transaksi",
+  );
+
+  // Dan sesudahnya pencabutan berjalan normal dengan hasil yang sama seperti
+  // sebelumnya (kunci tidak tertinggal dalam keadaan terkunci).
+  const outside = await revokeAsService(db, ADMIN, target);
+  assert.equal(outside.status, "revoked");
+  assert.equal(
+    (await rows(db, `select count(*)::int as n from pg_locks where locktype = 'advisory' and granted`))[0].n,
+    0,
+  );
+
+  await db.close();
+});
+
 test("kunci serialisasi bergantung pada Tempat (bukan global) dan deterministik", async () => {
   const db = await createDb();
 
