@@ -20,10 +20,14 @@ import { existsSync, readFileSync } from "node:fs";
  *   CATEGORY, not a support channel claim).
  * - About & Terms: About is a REAL product-identity page (/about) built
  *   strictly from locked Master facts (core flow, SINGGAH = visit intent,
- *   real-time Live, initial market/language). Terms/Privacy still have NO
- *   source-of-truth (no Privacy/Terms master; MASTER 12 defers to a missing
- *   "Privacy Master"), so no legal page exists and the menu entry no longer
- *   claims Terms.
+ *   real-time Live, initial market/language). English Terms/Privacy pages
+ *   still have NO source-of-truth (no Privacy/Terms master; MASTER 12 defers
+ *   to a missing "Privacy Master"), so no /terms or /privacy route exists and
+ *   the menu entry no longer claims Terms. Since the permanent place-management
+ *   policy (migration 0058) DID come with an official source of truth, the
+ *   Indonesian Ketentuan Penggunaan now exists as a versioned document at
+ *   /ketentuan; About LINKS it and never copies its clauses (one home for the
+ *   prose: lib/legal/documents.ts).
  *
  * These tests lock that state: no invented route, no dead link, no duplicate
  * notification entry, and no change to the existing header navigation.
@@ -104,14 +108,37 @@ test("About is a real product-identity page; no legal surface is invented", () =
   for (const fact of ["Map/Discovery", "visit intent", "tidak direkam", "Bahasa Indonesia"]) {
     assert.ok(aboutPage.toLowerCase().includes(fact.toLowerCase()), `about page states the locked fact: ${fact}`);
   }
-  // No legal copy: Terms/Privacy have no source-of-truth (no Privacy master).
+  // Still no invented English-language legal page: the versioned Indonesian
+  // document lives at /ketentuan (migration 0059), NOT at a /terms or /privacy
+  // route invented without a Privacy/Terms master.
   for (const route of ["../app/terms/page.tsx", "../app/privacy/page.tsx"]) {
     assert.equal(routeExists(route), false, "no legal page was invented without a Privacy/Terms master");
   }
   for (const invented of ["effective date", "berlaku sejak", "data processing agreement", "garansi", "warranty"]) {
     assert.doesNotMatch(aboutPage.toLowerCase(), new RegExp(invented), `no invented legal copy (${invented})`);
   }
-  assert.doesNotMatch(aboutPage, /syarat|ketentuan/i, "no invented Terms section");
+  // About may LINK to the official legal surfaces — and only to surfaces that
+  // really exist — but it never AUTHORS legal wording of its own: the document
+  // text has exactly one source (lib/legal/documents.ts).
+  assert.match(aboutPage, /href="\/ketentuan"/, "About links the versioned Ketentuan Penggunaan");
+  assert.match(aboutPage, /href="\/policy"/, "About links the existing Kebijakan surface");
+  assert.equal(routeExists("../app/ketentuan/page.tsx"), true, "/ketentuan is a real route");
+  assert.equal(routeExists("../app/policy/page.tsx"), true, "/policy is a real route");
+  const legalDocument = readFileSync(new URL("../lib/legal/documents.ts", import.meta.url), "utf8");
+  for (const clause of [
+    "tidak dengan sendirinya merupakan pengakuan, penetapan, atau jaminan",
+    "tidak mengharuskan Singgah Lokal menunjuk pengelola pengganti",
+  ]) {
+    assert.ok(legalDocument.includes(clause), `the clause has one home: ${clause}`);
+    assert.equal(
+      aboutPage.includes(clause),
+      false,
+      "About must not duplicate legal clause text — one source only",
+    );
+  }
+  // The document is explicitly pending legal review; About must not upgrade
+  // that claim.
+  assert.doesNotMatch(aboutPage, /final secara hukum|sudah ditinjau/i);
 });
 
 // --- D. Menu structure / no duplicates -------------------------------------

@@ -26,6 +26,8 @@ import {
 } from "@/lib/account-live-operators";
 import { readOwnProfile } from "@/lib/account/profile-read";
 import { profileErrorMessage } from "@/lib/account/profile-messages";
+import LegalAcceptancePrompt from "@/components/legal/legal-acceptance-prompt";
+import { readKetentuanAcceptanceState, type LegalAcceptanceState } from "@/lib/legal/acceptance";
 
 export const dynamic = "force-dynamic";
 
@@ -121,6 +123,19 @@ export default async function AccountPage() {
     redirect("/auth?returnTo=%2Faccount");
   }
 
+  // Dokumen hukum berversi (migration 0059): keberadaan kewajiban persetujuan
+  // adalah fakta server yang perlu diketahui akun ini. Kegagalan membaca register
+  // TIDAK memblokir halaman — kartunya hanya tidak muncul.
+  let legalAcceptance: LegalAcceptanceState | null = null;
+  try {
+    legalAcceptance = await readKetentuanAcceptanceState();
+  } catch {
+    legalAcceptance = null;
+  }
+  const needsLegalAcceptance = Boolean(
+    legalAcceptance && legalAcceptance.available && legalAcceptance.required && !legalAcceptance.accepted,
+  );
+
   const accessItems: Array<{
     href: string;
     label: string;
@@ -166,6 +181,15 @@ export default async function AccountPage() {
         />
 
         <div className="mt-4 grid gap-5">
+          {needsLegalAcceptance && legalAcceptance ? (
+            <LegalAcceptancePrompt
+              documentId={legalAcceptance.document.id}
+              title={legalAcceptance.document.title}
+              version={legalAcceptance.version}
+              href={legalAcceptance.document.href}
+            />
+          ) : null}
+
           {/* Profil Saya — READ-ONLY summary on ONE rounded white panel. Every
               value comes from the server; the only action is Edit Profil. */}
           <Section title="Profil Saya">

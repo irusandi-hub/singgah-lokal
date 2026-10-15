@@ -2,9 +2,40 @@ import "server-only";
 
 import { requirePlatformModerator } from "@/lib/live/platform";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
+import {
+  REVOKE_REASON_MAX_LENGTH,
+  REVOKE_REASON_MIN_LENGTH,
+  REVOKE_REASON_OPTIONS,
+  normalizeRevokeReason,
+  revokeProducerPlaceAccessHttpStatus,
+  revokeProducerPlaceAccessStatusMessage,
+  type ProducerPlaceAccessRevokeStatus,
+} from "@/lib/admin/revoke-reason";
+
+// Re-exported so every caller of the ONE revocation module sees the same pure
+// policy helpers that the Admin form (a client component) uses.
+export {
+  REVOKE_REASON_MAX_LENGTH,
+  REVOKE_REASON_MIN_LENGTH,
+  REVOKE_REASON_OPTIONS,
+  normalizeRevokeReason,
+  revokeProducerPlaceAccessHttpStatus,
+  revokeProducerPlaceAccessStatusMessage,
+};
 
 /**
- * ADMIN — mencabut hak kelola seorang Produser atas SATU Tempat.
+ * ADMIN — mencabut kewenangan pengelolaan digital seorang Produser atas SATU
+ * Tempat (kebijakan permanen, migration 0058).
+ *
+ * Kebijakan yang ditegakkan modul ini:
+ * - Peran di aplikasi = kewenangan DIGITAL, bukan kepemilikan hukum (aturan A).
+ * - Platform Admin dapat mencabut TANPA menunjuk pengelola pengganti (aturan B).
+ * - Tempat tanpa Pengelola aktif adalah keadaan yang SAH (aturan C). Hasilnya
+ *   melaporkan `managerless` supaya UI dapat menampilkannya apa adanya.
+ * - Pencabutan berlaku pada semua jalur otorisasi karena satu-satunya sumber
+ *   kewenangan (`producer_memberships`) hilang di database (aturan D); modul ini
+ *   tidak pernah "menyembunyikan tombol" sebagai pengganti otorisasi.
+ * - ALASAN PENCABUTAN WAJIB dan dicatat di trail audit.
  *
  * Modul ini adalah SATU-SATUNYA jalur penulisan untuk fitur ini, dan sengaja
  * terpisah dari `lib/admin/queries.ts`: modul itu dikunci oleh
@@ -12,28 +43,38 @@ import { createSupabaseServiceClient } from "@/lib/supabase/admin";
  * SEKALI (di dalam `canonicalAdminClient`). Menambah penulisan di sana akan
  * memecah kontrak "satu konstruksi client" itu, jadi penulisan hidup di sini.
  *
- * Aturan:
+ * Aturan lain:
  * - Otorisasi selalu `requirePlatformModerator()` (sesi, server-side). Actor yang
  *   diteruskan ke RPC adalah id admin hasil guard — BUKAN input klien.
- * - Klien hanya menyumbang SATU nilai: membership id. Produser dan Tempat
- *   diturunkan di dalam database dari baris membership (AGENTS.md: id dari klien
- *   tidak dipercaya). UUID divalidasi di server sebelum menyentuh RPC sehingga
- *   input rusak tidak pernah menjadi error cast Postgres.
- * - Seluruh efek (pencabutan, audit, notifikasi) dikerjakan oleh satu RPC
- *   transaksional; modul ini hanya memetakan hasilnya ke kode/HTTP Indonesia.
+ * - Klien hanya menyumbang DUA nilai: membership id dan alasan. Produser dan
+ *   Tempat diturunkan di dalam database dari baris membership (AGENTS.md: id dari
+ *   klien tidak dipercaya).
+ * - Seluruh efek (pencabutan, pelepasan penanda Produser, audit, notifikasi)
+ *   dikerjakan oleh satu RPC transaksional; modul ini hanya memetakan hasilnya ke
+ *   kode/HTTP Indonesia.
  */
 
-/** Bentuk hasil yang stabil untuk klien Admin. */
+/**
+ * Hasil operasi. `managerless` true berarti Tempat itu sekarang TIDAK punya
+ * Pengelola digital aktif — keadaan sah, bukan kesalahan.
+ */
 export type ProducerPlaceAccessRevokeResult = {
-  status: "revoked" | "already_revoked" | "invalid_target" | "last_owner";
+  status: ProducerPlaceAccessRevokeStatus;
   /** Pesan Indonesia siap tampil (server yang menentukannya). */
   message: string;
   placeName: string | null;
   producerName: string | null;
   /** Role yang dicabut (owner/manager/editor), bukan label tampilan. */
   role: string | null;
+  reason: string | null;
   /** True hanya bila pencabutan benar-benar terjadi DAN notifikasi terkirim. */
   notified: boolean;
+  /** Jumlah Pengelola digital yang tersisa pada Tempat itu setelah operasi. */
+  managerCount: number | null;
+  /** True bila Tempat itu kini tanpa Pengelola digital aktif. */
+  managerless: boolean | null;
+  /** Status publikasi Tempat ('draft' | 'published' | 'paused' | 'archived'). */
+  placePublicationStatus: string | null;
 };
 
 export class ProducerPlaceAccessRevokeError extends Error {
@@ -41,35 +82,6 @@ export class ProducerPlaceAccessRevokeError extends Error {
   constructor(code: string) {
     super(code);
     this.code = code;
-  }
-}
-
-/** Operator-facing Indonesian label per status (UI_TERMINOLOGY_STANDARD). */
-export function revokeProducerPlaceAccessStatusMessage(status: string): string {
-  switch (status) {
-    case "already_revoked":
-      return "Hak akses Pengelola sudah dicabut sebelumnya.";
-    case "invalid_target":
-      return "Data akses Pengelola tidak ditemukan.";
-    case "last_owner":
-      return "Tidak dapat dicabut: Tempat ini akan tanpa Pemilik.";
-    default:
-      return "Hak akses Pengelola gagal dicabut.";
-  }
-}
-
-/** HTTP status per outcome. "revoked" is the only success. */
-export function revokeProducerPlaceAccessHttpStatus(status: string): number {
-  switch (status) {
-    case "revoked":
-      return 200;
-    case "invalid_target":
-      return 404;
-    case "already_revoked":
-    case "last_owner":
-      return 409;
-    default:
-      return 503;
   }
 }
 
@@ -87,49 +99,75 @@ type RawRpcResult = {
   placeName?: unknown;
   producerName?: unknown;
   role?: unknown;
+  reason?: unknown;
   notified?: unknown;
+  managerCount?: unknown;
+  managerless?: unknown;
+  placePublicationStatus?: unknown;
 };
 
 function asText(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
+function asCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 /**
- * Cabut hak kelola Produser atas SATU Tempat.
+ * Cabut kewenangan pengelolaan digital seorang Produser atas SATU Tempat.
  *
  * Returns a result object for every EXPECTED outcome (including refusals —
- * last owner, unknown id, already revoked) so the route can answer with the
- * server's own message instead of inventing one. Throws only for a
+ * invalid target, missing reason, already revoked) so the route can answer with
+ * the server's own message instead of inventing one. Throws only for a
  * configuration/transport failure that is not an outcome of the operation.
  */
 export async function revokeProducerPlaceAccess(
   membershipId: unknown,
+  reasonInput: unknown,
 ): Promise<ProducerPlaceAccessRevokeResult> {
   const actor = await requirePlatformModerator();
 
-  // Fail closed on a malformed id BEFORE the RPC: the client never gets to see
-  // a Postgres cast error, and the refusal is the same shape as an unknown id.
-  if (!isMembershipId(membershipId)) {
-    const status = "invalid_target";
-    return {
-      status,
-      message: revokeProducerPlaceAccessStatusMessage(status),
-      placeName: null,
-      producerName: null,
-      role: null,
-      notified: false,
-    };
-  }
+  const refusal = (
+    status: Extract<ProducerPlaceAccessRevokeStatus, "invalid_target" | "invalid_reason">,
+  ): ProducerPlaceAccessRevokeResult => ({
+    status,
+    message: revokeProducerPlaceAccessStatusMessage(status),
+    placeName: null,
+    producerName: null,
+    role: null,
+    reason: null,
+    notified: false,
+    managerCount: null,
+    managerless: null,
+    placePublicationStatus: null,
+  });
+
+  // Fail closed BEFORE the RPC: a malformed id or a missing/too-short reason
+  // never reaches the database, so the refusal is the same shape as any other
+  // refused outcome and no Postgres cast error can appear.
+  if (!isMembershipId(membershipId)) return refusal("invalid_target");
+  const reason = normalizeRevokeReason(reasonInput);
+  if (reason === null) return refusal("invalid_reason");
 
   const { data, error } = await createSupabaseServiceClient().rpc(
     "revoke_producer_place_access",
-    { p_actor_id: actor.userId, p_membership_id: membershipId.trim() },
+    {
+      p_actor_id: actor.userId,
+      p_membership_id: membershipId.trim(),
+      p_reason: reason,
+    },
   );
   if (error) throw new ProducerPlaceAccessRevokeError("producer_access_revoke_unavailable");
 
   const payload = (data ?? {}) as RawRpcResult;
   const status = asText(payload.status);
-  if (status !== "revoked" && status !== "already_revoked" && status !== "invalid_target" && status !== "last_owner") {
+  if (
+    status !== "revoked" &&
+    status !== "already_revoked" &&
+    status !== "invalid_target" &&
+    status !== "invalid_reason"
+  ) {
     throw new ProducerPlaceAccessRevokeError("producer_access_revoke_unavailable");
   }
 
@@ -141,6 +179,10 @@ export async function revokeProducerPlaceAccess(
     placeName: asText(payload.placeName),
     producerName: asText(payload.producerName),
     role: asText(payload.role),
+    reason: asText(payload.reason),
     notified: payload.notified === true,
+    managerCount: asCount(payload.managerCount),
+    managerless: typeof payload.managerless === "boolean" ? payload.managerless : null,
+    placePublicationStatus: asText(payload.placePublicationStatus),
   };
 }

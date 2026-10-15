@@ -196,10 +196,17 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
         )}
         <p className="mt-2 text-xs leading-5 text-black/55">
           Hak kelola Tempat ditentukan oleh membership akun di bawah — bukan oleh penanda produser di atas.
-          Mencabut satu membership tidak mengubah kepemilikan, klaim, atau Tempat dan akun lain.
+          Peran di aplikasi adalah kewenangan pengelolaan digital, bukan penetapan kepemilikan hukum atas
+          Tempat. Setiap membership dapat dicabut, termasuk pengelola terakhir: Tempat boleh tetap ada
+          tanpa Pengelola aktif dan pengelola pengganti tidak wajib ditunjuk. Mencabut satu membership tidak
+          mengubah klaim, isi Tempat, riwayat, atau Tempat dan akun lain.
         </p>
         <div className="mt-3">
-          <AdminPlaceMembersPanel placeName={place.name} memberships={memberships} />
+          <AdminPlaceMembersPanel
+            placeName={place.name}
+            memberships={memberships}
+            publicationStatus={place.publicationStatus}
+          />
         </div>
       </section>
 

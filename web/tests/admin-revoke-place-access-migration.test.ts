@@ -121,6 +121,8 @@ test("0057: dipakai setelah 0056, sekali, bersih, tanpa menyentuh 0046–0056", 
 
   // Snapshot taken BEFORE 0057: the surrogate `id` does not exist yet, so the
   // pre-existing canonical columns are what must survive untouched.
+  // (0058 later REPLACES the RPC signature and 0059 adds the legal-document
+  // registry; both run after this snapshot and change no membership row.)
   const beforeSnapshot = await db.query(
     `select user_id, producer_id, place_id, role from public.producer_memberships order by user_id, place_id`,
   );
@@ -170,15 +172,15 @@ test("0057: dipakai setelah 0056, sekali, bersih, tanpa menyentuh 0046–0056", 
   assert.equal((serviceExecute.rows[0] as Record<string, unknown>).ok, true);
 
   // 7. Rantai tidak berubah: 0046–0056 tetap ada, tidak ada nomor yang bolong,
-  // dan 0057 adalah nomor tertinggi (tidak ada migrasi baru diselipkan).
+  // dan 0059 adalah nomor tertinggi (kebijakan 0058 + dokumen hukum 0059).
   const numbers = ALL_MIGRATIONS.map(migrationNumber);
   for (let n = 46; n <= 56; n += 1) {
     assert.ok(numbers.includes(n), `migration ${n} must still exist`);
   }
   assert.equal(
     numbers[numbers.length - 1],
-    57,
-    "0057 is the highest migration number in the chain",
+    59,
+    "0059 is the highest migration number in the chain",
   );
   assert.deepEqual(
     numbers,
@@ -203,16 +205,17 @@ test("db-regression/admin-revoke-place-access.sql lulus semua check dan rollback
   );
   assert.ok(checkSet, "the script must emit its (ord, check_name, passed, detail) result set");
   const checkRows = (checkSet.rows ?? []) as Array<Record<string, unknown>>;
-  assert.ok(checkRows.length >= 25, `expected at least 25 checks, got ${checkRows.length}`);
+  assert.ok(checkRows.length >= 30, `expected at least 30 checks, got ${checkRows.length}`);
   const failures = checkRows.filter((row) => row.passed !== true);
   assert.deepEqual(
     failures.map((row) => ({ ord: row.ord, check_name: row.check_name, detail: row.detail })),
     [],
     "every check must pass",
   );
-  // Setiap nomor 1..30 hadir.
+  // Setiap nomor 1..33 hadir (schema, happy path, kebijakan managerless, alasan
+  // wajib, idempotensi/isolasi, batas akses klien).
   const ords = checkRows.map((row) => Number(row.ord)).sort((a, b) => a - b);
-  assert.deepEqual(ords, Array.from({ length: 30 }, (_, index) => index + 1));
+  assert.deepEqual(ords, Array.from({ length: 33 }, (_, index) => index + 1));
 
   // Rollback: tidak ada residu fixture.
   const leftover = await db.query(

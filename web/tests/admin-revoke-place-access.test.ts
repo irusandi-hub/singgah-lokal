@@ -9,13 +9,29 @@ import { readFileSync } from "node:fs";
  *
  * Semua perilaku di sini dijalankan terhadap RANTAI MIGRASI NYATA di mesin
  * Postgres nyata (PGlite) — bukan mock: RPC `revoke_producer_place_access`
- * (0057), trail audit `place_audit` (0031), dan penulis notifikasi
+ * (0057 → 0058), trail audit `place_audit` (0031), dan penulis notifikasi
  * `notify_recipient` (0029) dipanggil apa adanya. Bukti untuk
- * docs/audits/ADMIN_REVOKE_PLACE_ACCESS_AUDIT.md.
+ * docs/audits/PLACE_MANAGEMENT_POLICY_AUDIT.md.
  *
- * Rantai berhenti di 0031 + 0057 (0036/0039 hanya memperluas CHECK `action`
- * place_audit dengan nilai yang sama seperti yang 0057 tulis ulang lengkap), jadi
- * keadaan akhir yang diuji identik dengan rantai produksi.
+ * KEBIJAKAN PERMANEN yang diuji (migration 0058):
+ * - kewenangan pengelolaan digital ≠ kepemilikan hukum;
+ * - Admin dapat mencabut TANPA menunjuk pengelola pengganti;
+ * - Tempat tanpa Pengelola aktif adalah keadaan yang SAH (dan penanda
+ *   `places.producer_id` yang sudah tidak berwenang dilepas, sehingga Tempat
+ *   kembali dapat diklaim lewat proses resmi);
+ * - ALASAN pencabutan wajib dan tercatat;
+ * - pencabutan berlaku pada semua jalur otorisasi dan tidak menyentuh Tempat,
+ *   membership, atau data lain yang tidak terkait.
+ *
+ * Rantai berhenti di 0031 + 0058 (0036/0039 hanya memperluas CHECK `action`
+ * place_audit dengan nilai yang sama), jadi keadaan akhir yang diuji identik
+ * dengan rantai produksi.
+ *
+ * CATATAN JUJUR soal konkurensi: PGlite di sandbox ini adalah SATU koneksi,
+ * jadi dua transaksi paralel yang sesungguhnya TIDAK dapat dijalankan (lihat
+ * docs/audits/PLACE_MANAGEMENT_POLICY_AUDIT.md §8). Test di bawah membuktikan
+ * kontrak serialisasinya (advisory xact lock per Tempat + row lock) dan
+ * perilaku berurutan yang setara; eksekusi paralel = NOT RUN.
  */
 
 const MIGRATION_DIR = "../supabase/migrations/";
@@ -47,7 +63,11 @@ const CHAIN = [
   "0030_notifications_realtime_publication.sql",
   "0031_place_audit.sql",
   "0057_admin_revoke_producer_place_access.sql",
+  "0058_place_management_policy_managerless.sql",
 ];
+
+/** Alasan pencabutan yang sah (aturan B: wajib, 3–500 karakter, dicatat). */
+const REASON = "Akun tidak lagi memiliki kewenangan mengelola Tempat ini.";
 
 const ADMIN = "aaaa0000-0000-4000-8000-000000000001"; // platform_moderator
 const ADMIN_2 = "aaaa0000-0000-4000-8000-000000000002"; // platform_moderator (ke-2)
@@ -136,14 +156,15 @@ async function revokeAsService(
   db: PGlite,
   actorId: string,
   membershipId: string,
+  reason: string | null = REASON,
   role = "service_role",
 ): Promise<Row> {
   await setAuthUid(db, null);
   await db.exec(`set role ${role};`);
   try {
     const result = await db.query(
-      `select public.revoke_producer_place_access($1::uuid, $2::uuid) as outcome`,
-      [actorId, membershipId],
+      `select public.revoke_producer_place_access($1::uuid, $2::uuid, $3::text) as outcome`,
+      [actorId, membershipId, reason],
     );
     const first = (result.rows?.[0] ?? {}) as Record<string, unknown>;
     return (first.outcome ?? {}) as Row;
@@ -162,9 +183,10 @@ async function revokeAsClient(
   await setAuthUid(db, userId);
   await db.exec(`set role ${role};`);
   try {
-    await db.query(`select public.revoke_producer_place_access($1::uuid, $2::uuid)`, [
+    await db.query(`select public.revoke_producer_place_access($1::uuid, $2::uuid, $3::text)`, [
       userId,
       membershipId,
+      REASON,
     ]);
     assert.fail("a client role must not be able to execute the admin revoke RPC");
   } catch (error) {
@@ -181,13 +203,15 @@ async function expectRpcRaise(
   membershipId: string,
   message: string,
   sessionUserId: string | null = null,
+  reason: string = REASON,
 ): Promise<void> {
   await setAuthUid(db, sessionUserId);
   await db.exec("set role service_role;");
   try {
-    await db.query(`select public.revoke_producer_place_access($1::uuid, $2::uuid)`, [
+    await db.query(`select public.revoke_producer_place_access($1::uuid, $2::uuid, $3::text)`, [
       actorId,
       membershipId,
+      reason,
     ]);
     assert.fail(`expected raise exception '${message}'`);
   } catch (error) {
@@ -381,7 +405,11 @@ test("admin sah dapat mencabut: baris hilang, audit tercatat, notifikasi terkiri
   assert.equal(detail.role, "manager");
   assert.equal(detail.result, "revoked");
   assert.equal((revoked[0].before_data as Record<string, unknown>).role, "manager");
-  assert.equal(revoked[0].after_data, null);
+  // after_data kini mencatat keadaan SESUDAH operasi pada Tempat (kebijakan
+  // managerless): jumlah pengelola yang tersisa dan penanda Produser.
+  const after = revoked[0].after_data as Record<string, unknown>;
+  assert.equal(after.membership_count, 3);
+  assert.equal(after.producer_id, null);
 
   // Notifikasi: tepat 1 (safety_account) + 2 owner lain (system), tanpa editor.
   assert.equal(await count(db, "public.notifications"), before.notifications + 3);
@@ -447,7 +475,7 @@ test("tanpa sesi/non-admin ditolak: klien tidak bisa memanggil RPC, service role
   for (const role of ["anon", "authenticated"]) {
     const priv = await rows(
       db,
-      `select has_function_privilege($1::text, 'public.revoke_producer_place_access(uuid, uuid)', 'execute') as ok`,
+      `select has_function_privilege($1::text, 'public.revoke_producer_place_access(uuid, uuid, text)', 'execute') as ok`,
       [role],
     );
     assert.equal(priv[0].ok, false, `${role} must NOT have EXECUTE`);
@@ -495,18 +523,12 @@ test("membership id palsu ditolak; tidak ada efek samping", async () => {
   assert.equal(outcome.notified, false);
   assert.match(String(outcome.message), /tidak ditemukan/i);
 
-  // Id null ditolak tegas.
-  await setAuthUid(db, null);
-  await db.exec("set role service_role;");
-  try {
-    await db.query(`select public.revoke_producer_place_access($1::uuid, null)`, [ADMIN]);
-    assert.fail("expected membership_target_invalid");
-  } catch (error) {
-    if (error instanceof assert.AssertionError) throw error;
-    assert.match((error as Error).message, /membership_target_invalid/);
-  } finally {
-    await db.exec("reset role;");
-  }
+  // Id null ditolak sebagai outcome yang sama (`invalid_target`) — bukan sukses,
+  // bukan exception yang membocorkan detail internal.
+  const nullTarget = await revokeAsService(db, ADMIN, null as unknown as string);
+  assert.equal(nullTarget.ok, false);
+  assert.equal(nullTarget.status, "invalid_target");
+  assert.equal(await count(db, "public.place_audit"), 0, "tanpa tulisan audit");
 
   assert.equal(await count(db, "public.producer_memberships"), 6, "tidak satu baris pun terhapus");
   assert.equal(await count(db, "public.notifications"), 0);
@@ -519,14 +541,15 @@ test("RPC hanya menerima SATU id: Produser dan Tempat diturunkan dari baris DB",
   const db = await createDb();
   await seedWorld(db);
 
-  // Signature: (uuid, uuid) — tidak ada masukan produser/place.
+  // Signature: (uuid, uuid, text) — masih tidak ada masukan Produser/Tempat;
+  // satu-satunya tambahan adalah ALASAN wajib (aturan B).
   const args = await rows(
     db,
     `select pg_get_function_arguments(oid) as args, prosecdef, proconfig::text as config
        from pg_proc where proname = 'revoke_producer_place_access'`,
   );
-  assert.equal(args.length, 1);
-  assert.equal(args[0].args, "p_actor_id uuid, p_membership_id uuid");
+  assert.equal(args.length, 1, "hanya satu overload — versi 2-argumen dilepas oleh 0058");
+  assert.equal(args[0].args, "p_actor_id uuid, p_membership_id uuid, p_reason text");
   assert.equal(args[0].prosecdef, true, "SECURITY DEFINER");
   assert.match(String(args[0].config), /search_path=public/, "search_path dipin");
 
@@ -553,61 +576,251 @@ test("RPC hanya menerima SATU id: Produser dan Tempat diturunkan dari baris DB",
 });
 
 // ---------------------------------------------------------------------------
-// 4. Pengaman owner terakhir
+// 4. Kebijakan pengelolaan digital: Tempat boleh tanpa Pengelola aktif
 // ---------------------------------------------------------------------------
 
-test("owner terakhir DITOLAK (fail-closed) + audit penolakan, tanpa notifikasi", async () => {
+test("pengelola TERAKHIR dapat dicabut — Tempat valid tanpa Pengelola (aturan B & C)", async () => {
   const db = await createDb();
   await seedWorld(db);
 
-  // PLACE_C hanya punya satu owner (OWNER_2).
-  const loneOwner = await membershipId(db, OWNER_2, PLACE_C);
-  const outcome = await revokeAsService(db, ADMIN, loneOwner);
-  assert.equal(outcome.ok, false);
-  assert.equal(outcome.status, "last_owner");
+  // PLACE_C hanya punya SATU pengelola (OWNER_2). 0057 menolaknya sebagai
+  // 'last_owner'; kebijakan 0058 harus BERHASIL, tanpa pengelola pengganti.
+  const loneManager = await membershipId(db, OWNER_2, PLACE_C);
+  const outcome = await revokeAsService(db, ADMIN, loneManager);
+  assert.equal(outcome.status, "revoked", JSON.stringify(outcome));
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.managerCount, 0);
+  assert.equal(outcome.managerless, true);
+  assert.equal(outcome.reason, REASON);
   assert.equal(outcome.placeName, "Dapur Rasa");
-  assert.match(String(outcome.message), /tanpa Pemilik/i);
+  assert.equal(outcome.role, "owner");
 
+  // Baris hilang; Tempatnya TETAP ADA dan tidak diarsipkan/dihapus otomatis.
   assert.equal(
-    (await rows(db, `select 1 from public.producer_memberships where id = $1::uuid`, [loneOwner]))
+    (await rows(db, `select 1 from public.producer_memberships where id = $1::uuid`, [loneManager]))
       .length,
-    1,
-    "baris owner terakhir tetap ada",
+    0,
+    "baris pengelola terakhir dicabut",
   );
-  assert.equal(await count(db, "public.notifications"), 0, "penolakan tidak membuat notifikasi");
+  const place = await rows(
+    db,
+    `select id, name, publication_status, claim_status from public.places where id = $1::text`,
+    [PLACE_C],
+  );
+  assert.equal(place.length, 1, "Tempat tidak dihapus (aturan C)");
+  assert.equal(place[0].publication_status, "published", "tidak ada pengarsipan otomatis");
+  assert.equal(place[0].claim_status, "unverified");
 
-  const denied = await auditRows(db, "producer_place_access_revoke_denied");
-  assert.equal(denied.length, 1);
-  assert.equal(denied[0].place_id, PLACE_C);
-  assert.equal(denied[0].actor_id, ADMIN);
-  const detail = denied[0].detail as Record<string, unknown>;
-  assert.equal(detail.reason, "last_owner");
-  assert.equal(detail.result, "denied");
-  assert.equal(detail.membership_id, loneOwner);
+  // Tidak ada pengelola pengganti yang dibuat atau dipaksakan.
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where place_id = $1::text`, [PLACE_C]))
+      .length,
+    0,
+  );
+
+  // Notifikasi: pihak yang dicabut tetap diberi tahu (kanal wajib).
+  assert.equal((await notificationsFor(db, OWNER_2)).length, 1);
+
+  // Audit: hasil 'revoked' + keadaan managerless tercatat, bukan penolakan.
+  const revoked = await auditRows(db, "producer_place_access_revoked");
+  assert.equal(revoked.length, 1);
+  assert.equal(revoked[0].place_id, PLACE_C);
+  const detail = revoked[0].detail as Record<string, unknown>;
+  assert.equal(detail.result, "revoked");
+  assert.equal(detail.managerless, true);
+  assert.equal(detail.manager_count, 0);
+  assert.equal(detail.reason, REASON);
+  // Tidak ada lagi baris audit penolakan 'last_owner' dari jalur ini.
+  assert.equal((await auditRows(db, "producer_place_access_revoke_denied")).length, 0);
 
   await db.close();
 });
 
-test("owner non-terakhir, manager, dan editor tetap dapat dicabut", async () => {
+test("pengelola terakhir: penanda Produser dilepas dan jalur klaim resmi terbuka (aturan C & D)", async () => {
   const db = await createDb();
   await seedWorld(db);
 
-  // owner non-terakhir (PLACE_A punya dua owner).
-  assert.equal((await revokeAsService(db, ADMIN, await membershipId(db, OWNER, PLACE_A))).status, "revoked");
-  // manager.
-  assert.equal((await revokeAsService(db, ADMIN, await membershipId(db, MANAGER, PLACE_A))).status, "revoked");
-  // editor.
-  assert.equal((await revokeAsService(db, ADMIN, await membershipId(db, EDITOR, PLACE_A))).status, "revoked");
-
-  const remaining = await rows(
-    db,
-    `select user_id, role from public.producer_memberships where place_id = $1::text order by user_id`,
-    [PLACE_A],
+  // PLACE_C menunjuk Produser pemilik baris pengelola terakhirnya.
+  await db.exec(`update public.places set producer_id = '${PRODUCER_B}' where id = '${PLACE_C}'`);
+  assert.equal(
+    (await rows(db, `select public.place_has_active_ownership('${PLACE_C}') as owned`))[0].owned,
+    true,
   );
-  assert.deepEqual(
-    remaining.map((r) => `${r.user_id}:${r.role}`),
-    [`${OWNER_2}:owner`],
-    "hanya owner terakhir yang tersisa",
+
+  const outcome = await revokeAsService(db, ADMIN, await membershipId(db, OWNER_2, PLACE_C));
+  assert.equal(outcome.status, "revoked");
+
+  // Penanda Produser yang sudah tidak berwenang TIDAK lagi menahan Tempat.
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1::text`, [PLACE_C]))[0]
+      .producer_id,
+    null,
+    "penanda Produser dilepas saat Tempat kehilangan pengelola terakhir",
+  );
+  assert.equal(
+    (await rows(db, `select public.place_has_active_ownership('${PLACE_C}') as owned`))[0].owned,
+    false,
+    "Tempat managerless kembali dapat diklaim lewat proses resmi",
+  );
+
+  // Jalur pemulihan RESMI benar-benar terbuka: klaim dengan bukti diterima oleh
+  // RPC yang sudah ada (0028), dan tetap TIDAK memberi kewenangan sebelum admin
+  // menyetujuinya. Gate kepemilikan di dalam RPC membaca
+  // `place_has_active_ownership`, jadi keadaan managerless-lah yang membukanya.
+  const claimId = await db.query(
+    `select public.submit_place_claim($1::uuid, $2::text, $3::text) as id`,
+    [REGULAR, PLACE_C, "claims/regress/evidence.pdf"],
+  );
+  assert.ok(String((claimId.rows?.[0] as Row)?.id ?? "").length > 0, "klaim resmi diterima");
+  assert.equal(
+    (await rows(db, `select status from public.place_claims where place_id = $1::text`, [PLACE_C]))[0]
+      .status,
+    "pending",
+    "klaim masuk sebagai pengajuan, menunggu keputusan admin",
+  );
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where place_id = $1::text`, [PLACE_C]))
+      .length,
+    0,
+    "klaim saja tidak memberi kewenangan kelola sebelum disetujui",
+  );
+
+  // Audit menyimpan penanda sebelum/sesudah, sehingga riwayat tidak hilang.
+  const revoked = await auditRows(db, "producer_place_access_revoked");
+  const before = revoked[0].before_data as Record<string, unknown>;
+  const after = revoked[0].after_data as Record<string, unknown>;
+  assert.equal(before.place_producer_id, PRODUCER_B);
+  assert.equal(before.membership_count, 1);
+  assert.equal(after.producer_id, null);
+  assert.equal(after.membership_count, 0);
+  assert.equal((revoked[0].detail as Record<string, unknown>).producer_pointer_released, true);
+
+  await db.close();
+});
+
+test("penanda Produser TIDAK dilepas selagi masih ada pengelola lain", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  await db.exec(`update public.places set producer_id = '${PRODUCER_A}' where id = '${PLACE_A}'`);
+
+  // PLACE_A punya 4 pengelola; mencabut satu tidak menjadikannya managerless.
+  const outcome = await revokeAsService(db, ADMIN, await membershipId(db, MANAGER, PLACE_A));
+  assert.equal(outcome.status, "revoked");
+  assert.equal(outcome.managerCount, 3);
+  assert.equal(outcome.managerless, false);
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1::text`, [PLACE_A]))[0]
+      .producer_id,
+    PRODUCER_A,
+    "selagi ada pengelola lain, penanda Produser dibiarkan apa adanya",
+  );
+
+  // Baru setelah pengelola TERAKHIR dicabut penanda itu dilepas.
+  for (const userId of [OWNER, OWNER_2, EDITOR]) {
+    assert.equal(
+      (await revokeAsService(db, ADMIN, await membershipId(db, userId, PLACE_A))).status,
+      "revoked",
+    );
+  }
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1::text`, [PLACE_A]))[0]
+      .producer_id,
+    null,
+  );
+
+  await db.close();
+});
+
+// ---------------------------------------------------------------------------
+// 4b. Alasan pencabutan WAJIB dan tercatat (aturan B)
+// ---------------------------------------------------------------------------
+
+test("alasan kosong/pendek/terlalu panjang DITOLAK tanpa efek samping apa pun", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  await db.exec(`update public.places set producer_id = '${PRODUCER_A}' where id = '${PLACE_A}'`);
+  const target = await membershipId(db, MANAGER, PLACE_A);
+  const before = {
+    memberships: await count(db, "public.producer_memberships"),
+    notifications: await count(db, "public.notifications"),
+    audit: await count(db, "public.place_audit"),
+  };
+
+  for (const bad of [null, "", "   ", "ab", "x".repeat(501)]) {
+    const outcome = await revokeAsService(db, ADMIN, target, bad);
+    assert.equal(outcome.ok, false, `alasan ${JSON.stringify(bad)} harus ditolak`);
+    assert.equal(outcome.status, "invalid_reason", `alasan ${JSON.stringify(bad)} → invalid_reason`);
+    assert.equal(outcome.notified, false);
+    assert.match(String(outcome.message), /alasan pencabutan wajib/i);
+  }
+
+  // Tidak ada yang berubah: baris masih ada, tanpa audit, tanpa notifikasi.
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where id = $1::uuid`, [target])).length,
+    1,
+  );
+  assert.equal(await count(db, "public.producer_memberships"), before.memberships);
+  assert.equal(await count(db, "public.notifications"), before.notifications);
+  assert.equal(await count(db, "public.place_audit"), before.audit, "tanpa tulisan audit");
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1::text`, [PLACE_A]))[0]
+      .producer_id,
+    PRODUCER_A,
+    "penanda Produser tidak disentuh saat permintaan ditolak",
+  );
+
+  await db.close();
+});
+
+test("alasan yang sah dicatat utuh di trail audit bersama actor, target, dan hasil", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  const reason = "Ada sengketa atau laporan yang memerlukan peninjauan admin.";
+  const target = await membershipId(db, MANAGER, PLACE_A);
+  const outcome = await revokeAsService(db, ADMIN_2, target, reason);
+  assert.equal(outcome.status, "revoked");
+  assert.equal(outcome.reason, reason);
+
+  const revoked = await auditRows(db, "producer_place_access_revoked");
+  assert.equal(revoked.length, 1);
+  const entry = revoked[0];
+  const detail = entry.detail as Record<string, unknown>;
+  // Actor (admin terautentikasi), Tempat, target, alasan, hasil — semuanya ada.
+  assert.equal(entry.actor_id, ADMIN_2);
+  assert.equal(entry.place_id, PLACE_A);
+  assert.equal(detail.membership_id, target);
+  assert.equal(detail.target_user_id, MANAGER);
+  assert.equal(detail.reason, reason);
+  assert.equal(detail.result, "revoked");
+  assert.equal((entry.before_data as Record<string, unknown>).user_id, MANAGER);
+  assert.equal((entry.before_data as Record<string, unknown>).role, "manager");
+  // Waktu operasi ada dan berasal dari server (kolom created_at trail).
+  const stamp = await rows(
+    db,
+    `select created_at from public.place_audit where action = 'producer_place_access_revoked'`,
+  );
+  assert.ok(stamp[0].created_at instanceof Date || String(stamp[0].created_at).length > 0);
+
+  await db.close();
+});
+
+test("owner non-terakhir, manager, editor, dan owner TERAKHIR semuanya dapat dicabut", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  for (const userId of [OWNER, MANAGER, EDITOR, OWNER_2]) {
+    const outcome = await revokeAsService(db, ADMIN, await membershipId(db, userId, PLACE_A));
+    assert.equal(outcome.status, "revoked", `pencabutan ${userId}`);
+  }
+
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where place_id = $1::text`, [PLACE_A]))
+      .length,
+    0,
+    "semua pengelola dapat dicabut, termasuk owner terakhir",
   );
 
   await db.close();
@@ -897,34 +1110,157 @@ test("kegagalan notifikasi tidak membatalkan pencabutan, dan tercatat di audit",
 // 9. Kontrak kunci baris (konkurensi sungguhan = NOT RUN)
 // ---------------------------------------------------------------------------
 
-test("RPC mengunci baris target dan baris owner (FOR UPDATE) sebelum memutuskan", () => {
-  const sql = readMigration("0057_admin_revoke_producer_place_access.sql");
-  assert.match(sql, /where m\.id = p_membership_id\s*\n\s*for update/);
-  assert.match(sql, /where m\.place_id = v_place_id and m\.role = 'owner'\s*\n\s*order by m\.user_id\s*\n\s*for update/);
-  assert.match(sql, /count\(\*\)::integer into v_owner_count/);
-  // Least privilege: RPC hanya untuk service_role.
-  assert.match(sql, /revoke all on function public\.revoke_producer_place_access\(uuid, uuid\)\s*\n\s*from public, anon, authenticated;/);
-  assert.match(sql, /grant execute on function public\.revoke_producer_place_access\(uuid, uuid\) to service_role;/);
+test("RPC menyerialkan per Tempat + mengunci baris target (kontrak; eksekusi paralel = NOT RUN)", () => {
+  // Kontraknya diperiksa pada CODE, bukan prosa: komentar migration menyebut
+  // aturan lama ('last_owner') justru untuk menjelaskan bahwa aturan itu DICABUT.
+  const code = readMigration("0058_place_management_policy_managerless.sql").replace(/--[^\n]*/g, "");
+  // Serialisasi per Tempat SEBELUM hitung-sisa + pelepasan penanda Produser:
+  // tanpa ini dua pencabutan berbeda pada Tempat yang sama dapat sama-sama
+  // membaca "masih 1 pengelola" dan meninggalkan penanda Produser yang basi.
+  assert.match(code, /perform pg_advisory_xact_lock\(hashtext\('revoke_producer_place_access:' \|\| v_place_id\)\);/);
+  const lockIndex = code.indexOf("pg_advisory_xact_lock");
+  const countIndex = code.indexOf("into v_remaining");
+  const releaseIndex = code.indexOf("v_pointer_released := true;");
+  assert.ok(lockIndex > -1 && countIndex > lockIndex, "lock harus SEBELUM hitungan sisa");
+  assert.ok(releaseIndex > countIndex, "pelepasan penanda setelah hitungan sisa");
+  // Pencabutan ganda atas baris yang SAMA tetap diserialkan oleh row lock.
+  assert.match(code, /where m\.id = p_membership_id\s*\n\s*for update;/);
+  // Pengaman owner terakhir DIHAPUS: tidak ada lagi v_owner_count / 'last_owner'.
+  assert.doesNotMatch(code, /v_owner_count/);
+  assert.doesNotMatch(code, /last_owner/);
+  // Alasan wajib divalidasi DI DALAM fungsi sebelum data apa pun disentuh.
+  assert.match(code, /v_reason := btrim\(coalesce\(p_reason, ''\)\);/);
+  assert.match(code, /if char_length\(v_reason\) < 3 or char_length\(v_reason\) > 500 then/);
+  assert.ok(
+    code.indexOf("char_length(v_reason) < 3") < code.indexOf("delete from public.producer_memberships"),
+    "validasi alasan harus mendahului DELETE",
+  );
+  // Least privilege: RPC hanya untuk service_role, dan overload lama dilepas.
+  assert.match(code, /drop function if exists public\.revoke_producer_place_access\(uuid, uuid\);/);
+  assert.match(code, /revoke all on function public\.revoke_producer_place_access\(uuid, uuid, text\)\s*\n\s*from public, anon, authenticated;/);
+  assert.match(code, /grant execute on function public\.revoke_producer_place_access\(uuid, uuid, text\) to service_role;/);
   // Tidak ada GRANT baru ke anon.
-  assert.doesNotMatch(sql, /grant [^;]*to anon/i);
-  assert.doesNotMatch(sql, /disable row level security/i);
+  assert.doesNotMatch(code, /grant [^;]*to anon/i);
+  assert.doesNotMatch(code, /disable row level security/i);
+  // Non-destruktif: satu-satunya DELETE adalah baris membership yang dicabut.
+  const deletes = (code.match(/delete from [a-z_."]+/gi) ?? []).map((s) => s.toLowerCase());
+  assert.deepEqual(deletes, ["delete from public.producer_memberships"]);
+});
+
+test("kunci serialisasi bergantung pada Tempat (bukan global) dan deterministik", async () => {
+  const db = await createDb();
+
+  // Kunci adalah hashtext dari place_id, jadi dua Tempat berbeda tidak pernah
+  // saling memblokir, dan Tempat yang sama selalu menghasilkan kunci yang sama.
+  const keys = await rows(
+    db,
+    `select hashtext('revoke_producer_place_access:' || $1::text) as a,
+            hashtext('revoke_producer_place_access:' || $2::text) as b,
+            hashtext('revoke_producer_place_access:' || $1::text) as a_again`,
+    [PLACE_A, PLACE_B],
+  );
+  assert.notEqual(keys[0].a, keys[0].b, "dua Tempat berbeda → kunci berbeda");
+  assert.equal(keys[0].a, keys[0].a_again, "Tempat yang sama → kunci yang sama (deterministik)");
+
+  await db.close();
+});
+
+test("pencabutan berurutan pada Tempat yang sama selalu berakhir konsisten (tanpa penanda basi)", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  // Simulasi berurutan dari kasus yang paling berbahaya: dua pengelola terakhir
+  // dicabut satu per satu. Hasil akhirnya harus SELALU konsisten — 0 membership,
+  // penanda Produser null — dan tidak ada penanda basi yang tertinggal.
+  await db.exec(`update public.places set producer_id = '${PRODUCER_A}' where id = '${PLACE_C}'`);
+  await db.exec(
+    `insert into public.producer_memberships (user_id, producer_id, place_id, role)
+     values ('${OWNER}', '${PRODUCER_A}', '${PLACE_C}', 'owner'),
+            ('${MANAGER}', '${PRODUCER_A}', '${PLACE_C}', 'manager')
+     on conflict do nothing;`,
+  );
+  // PLACE_C kini punya tiga pengelola (OWNER_2 dari seed + dua sisipan di atas).
+  // Dicabut berurutan: sisa 2 → 1 → 0, dan penanda Produser baru dilepas di
+  // pencabutan TERAKHIR.
+  assert.equal((await revokeAsService(db, ADMIN, await membershipId(db, OWNER_2, PLACE_C))).managerCount, 2);
+  assert.equal((await revokeAsService(db, ADMIN, await membershipId(db, OWNER, PLACE_C))).managerCount, 1);
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1::text`, [PLACE_C]))[0]
+      .producer_id,
+    PRODUCER_A,
+    "masih ada pengelola → penanda dibiarkan",
+  );
+  const last = await revokeAsService(db, ADMIN, await membershipId(db, MANAGER, PLACE_C));
+  assert.equal(last.managerCount, 0);
+  assert.equal(last.managerless, true);
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1::text`, [PLACE_C]))[0]
+      .producer_id,
+    null,
+    "pengelola terakhir dicabut → penanda dilepas",
+  );
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where place_id = $1::text`, [PLACE_C]))
+      .length,
+    0,
+  );
+
+  await db.close();
+});
+
+test("pemberian kewenangan ulang hanya lewat proses resmi (klien tidak bisa menulis membership)", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  const target = await membershipId(db, MANAGER, PLACE_A);
+  await revokeAsService(db, ADMIN, target);
+
+  // Klien (authenticated) tidak boleh memberi dirinya kewenangan kembali dengan
+  // menulis baris membership langsung: tidak ada policy INSERT untuk klien.
+  await setAuthUid(db, MANAGER);
+  await db.exec("set role authenticated;");
+  try {
+    await db.query(
+      `insert into public.producer_memberships (user_id, producer_id, place_id, role)
+       values ('${MANAGER}'::uuid, '${PRODUCER_A}', '${PLACE_A}', 'owner')`,
+    );
+    assert.fail("klien tidak boleh memberi kewenangan kelola sendiri");
+  } catch (error) {
+    if (error instanceof assert.AssertionError) throw error;
+    assert.match((error as Error).message, /permission denied|row-level security/i);
+  } finally {
+    await db.exec("reset role;");
+  }
+
+  // Jalur resmi tetap utuh: review_place_claim (0028) yang menulis membership,
+  // dan hanya lewat keputusan admin.
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where user_id = $1::uuid and place_id = $2::text`, [MANAGER, PLACE_A]))
+      .length,
+    0,
+  );
+  const claimSql = readMigration("0028_place_claims.sql");
+  assert.match(claimSql, /insert into public\.producer_memberships/);
+  assert.match(claimSql, /revoke all on function public\.review_place_claim/);
+
+  await db.close();
 });
 
 test("service_role punya EXECUTE, dan fungsi memverifikasi admin di dalam DB", async () => {
   const db = await createDb();
   const priv = await rows(
     db,
-    `select has_function_privilege('service_role', 'public.revoke_producer_place_access(uuid, uuid)', 'execute') as ok`,
+    `select has_function_privilege('service_role', 'public.revoke_producer_place_access(uuid, uuid, text)', 'execute') as ok`,
   );
   assert.equal(priv[0].ok, true);
 
   const anon = await rows(
     db,
-    `select has_function_privilege('anon', 'public.revoke_producer_place_access(uuid, uuid)', 'execute') as ok`,
+    `select has_function_privilege('anon', 'public.revoke_producer_place_access(uuid, uuid, text)', 'execute') as ok`,
   );
   assert.equal(anon[0].ok, false);
 
-  const sql = readMigration("0057_admin_revoke_producer_place_access.sql");
+  const sql = readMigration("0058_place_management_policy_managerless.sql");
   assert.match(sql, /u\.platform_role = 'platform_moderator'/);
   assert.match(sql, /v_actor := auth\.uid\(\);/);
 

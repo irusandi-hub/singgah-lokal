@@ -7,9 +7,12 @@ import { PageHeader, PageShell, backLinkClass } from "@/components/ui/kit";
  * Place-centered discovery + the core flow (AGENTS.md / MASTER_INDEX),
  * SINGGAH = visit intent, not checkout/payment (AGENTS.md locked rule),
  * initial market + language (MASTER 01), Live = real-time, no recording
- * (MASTER_LIVE_POLICY). No legal text, roadmap, entity, or contact is
- * invented; Terms/Privacy await their own source-of-truth and are therefore
- * not claimed here.
+ * (MASTER_LIVE_POLICY). No roadmap, entity, or contact is invented.
+ *
+ * Legal text is NOT authored here: the About page links to the two official
+ * surfaces — the versioned Ketentuan Penggunaan (/ketentuan, migration 0059)
+ * and the Kebijakan Data & Klaim Tempat (/policy) — and repeats none of their
+ * wording, so the two can never drift from this page.
  */
 export default function AboutPage() {
   return (
@@ -57,10 +60,15 @@ export default function AboutPage() {
           </section>
 
           <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
-            <h2 className="text-[15px] font-semibold">Kebijakan</h2>
+            <h2 className="text-[15px] font-semibold">Ketentuan &amp; kebijakan</h2>
             <p className="mt-1.5 text-sm leading-6 text-black/60">
-              Retensi arsip klaim Tempat (30 hari), sifat privat bukti kepemilikan, dan
-              batas tanggung jawab platform terhadap sengketa kepemilikan dirangkum di{" "}
+              <Link href="/ketentuan" className="font-bold text-brand-primary underline underline-offset-2">
+                Ketentuan Penggunaan
+              </Link>{" "}
+              memuat antara lain kewenangan pengelolaan digital atas Tempat dan pencabutannya: akses
+              Pengelola adalah kewenangan digital di platform, bukan penetapan kepemilikan hukum.
+              Retensi arsip klaim Tempat (30 hari), sifat privat bukti kepemilikan, dan batas
+              tanggung jawab platform terhadap sengketa kepemilikan dirangkum di{" "}
               <Link href="/policy" className="font-bold text-brand-primary underline underline-offset-2">
                 halaman Kebijakan
               </Link>

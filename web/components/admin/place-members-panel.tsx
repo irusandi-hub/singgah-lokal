@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { formatAdminTimestamp, formatShortId } from "@/components/admin/ui";
 import ProducerAccessRevokeDialog, {
   type ProducerAccessRevokeFeedback,
@@ -18,9 +19,13 @@ import { producerRoleLabel } from "@/lib/producer";
  * implementation. The action label here is "Cabut Hak Pengelolaan"; the Data
  * Pengelola list keeps "Cabut Hak Akses".
  *
- * A membership that cannot be revoked — the LAST owner, which the server also
- * refuses fail-closed to avoid leaving the Place without an owner — is shown
- * DISABLED with a short reason, not hidden.
+ * PERMANENT POLICY (migration 0058). Every membership is revocable, INCLUDING
+ * the last owner: a Place is allowed to exist without an active digital
+ * manager and the admin is never forced to appoint a replacement. When the list
+ * is empty the section says so explicitly and offers the established recovery
+ * path (the official Place-claim process) instead of a forced assignment. The
+ * Place's publication state is shown alongside, so an archived Place reads as
+ * archived rather than as an error.
  */
 
 /** Structural shape of the membership the server passes in (serializable). */
@@ -33,23 +38,23 @@ type PlaceMembership = {
   userEmail: string | null;
 };
 
+const ARCHIVED_HINT =
+  "Tempat ini diarsipkan: tidak tampil di Discovery dan tidak dapat dikunjungi sampai dipulihkan dari arsip.";
+
 export default function AdminPlaceMembersPanel({
   placeName,
   memberships,
+  publicationStatus,
 }: {
   placeName: string;
   memberships: PlaceMembership[];
+  /** Canonical publication status of THIS Place (draft/published/paused/archived). */
+  publicationStatus?: string | null;
 }) {
   const [revokeTarget, setRevokeTarget] = useState<ProducerAccessRevokeTarget | null>(null);
   const [feedback, setFeedback] = useState<ProducerAccessRevokeFeedback>(null);
 
-  if (memberships.length === 0) {
-    return <p className="text-xs text-black/50">Belum ada membership.</p>;
-  }
-
-  // The last owner cannot be revoked (server-enforced); compute it here only to
-  // explain the disabled action, never to decide authorization.
-  const ownerCount = memberships.filter((membership) => membership.role === "owner").length;
+  const archived = publicationStatus === "archived";
 
   return (
     <div className="grid gap-3">
@@ -68,29 +73,46 @@ export default function AdminPlaceMembersPanel({
         </p>
       ) : null}
 
-      <ul className="divide-y divide-black/5">
-        {memberships.map((membership) => {
-          const lastOwner = membership.role === "owner" && ownerCount <= 1;
-          const account = membership.userEmail ?? formatShortId(membership.userId);
-          return (
-            <li
-              key={membership.membershipId}
-              className="flex flex-wrap items-center justify-between gap-2 py-2.5"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-black/80" data-testid="place-member-account">
-                  {account}
-                </p>
-                <p className="text-xs text-black/55">
-                  {producerRoleLabel(membership.role)} · {membership.producerId} ·{" "}
-                  {formatAdminTimestamp(membership.createdAt)}
-                </p>
-              </div>
-              {lastOwner ? (
-                <span className="text-[11px] font-semibold text-black/45" data-testid="place-member-locked">
-                  Tidak dapat dicabut: Pemilik terakhir.
-                </span>
-              ) : (
+      {archived ? (
+        <p
+          data-testid="place-archived-notice"
+          className="rounded-xl border border-black/10 bg-black/5 px-3.5 py-2.5 text-xs font-semibold text-black/70"
+        >
+          {ARCHIVED_HINT}
+        </p>
+      ) : null}
+
+      {memberships.length === 0 ? (
+        <div data-testid="place-managerless-notice" className="rounded-xl border border-black/10 bg-black/5 p-3.5">
+          <p className="text-sm font-semibold text-black/75">Tanpa Pengelola digital aktif.</p>
+          <p className="mt-1 text-xs leading-5 text-black/60">
+            Tempat ini tetap tersimpan beserta data dan riwayat administrasinya. Keadaan tanpa
+            Pengelola adalah keadaan yang sah; tidak ada pengelola pengganti yang wajib ditunjuk.
+            Pemberian kewenangan pengelolaan berikutnya hanya lewat proses resmi —{" "}
+            <Link href="/admin/places" className="font-bold text-brand-primary underline underline-offset-2">
+              persetujuan klaim Tempat
+            </Link>
+            .
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-black/5">
+          {memberships.map((membership) => {
+            const account = membership.userEmail ?? formatShortId(membership.userId);
+            return (
+              <li
+                key={membership.membershipId}
+                className="flex flex-wrap items-center justify-between gap-2 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-black/80" data-testid="place-member-account">
+                    {account}
+                  </p>
+                  <p className="text-xs text-black/55">
+                    {producerRoleLabel(membership.role)} · {membership.producerId} ·{" "}
+                    {formatAdminTimestamp(membership.createdAt)}
+                  </p>
+                </div>
                 <button
                   type="button"
                   aria-label={`Cabut hak pengelolaan ${account} atas ${placeName}`}
@@ -108,11 +130,11 @@ export default function AdminPlaceMembersPanel({
                 >
                   Cabut Hak Pengelolaan
                 </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <ProducerAccessRevokeDialog
         revokeTarget={revokeTarget}

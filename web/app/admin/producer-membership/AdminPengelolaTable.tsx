@@ -158,7 +158,7 @@ export default function AdminPengelolaTable({ relations }: { relations: AdminPro
         revokeTarget={revokeTarget}
         actionLabel="Cabut Hak Akses"
         dialogTitle="Cabut Hak Akses?"
-        warning="Pengelola ini akan kehilangan akses mengelola Tempat tersebut. Pengelola itu dan pengelola lain Tempat itu akan diberi tahu lewat notifikasi."
+        warning="Pengelola ini akan kehilangan akses mengelola Tempat tersebut. Pengelola itu dan pengelola lain Tempat itu akan diberi tahu lewat notifikasi. Pengelola pengganti tidak wajib ditunjuk: Tempat boleh tetap ada tanpa Pengelola aktif."
         onClose={() => setRevokeTarget(null)}
         onFeedback={setFeedback}
       />
