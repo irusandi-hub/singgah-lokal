@@ -472,12 +472,23 @@ test("0013 lockdown applies cleanly and locks EXECUTE on internal Live helpers",
   await db.close();
 });
 
-test("Live service layer only calls RPCs that migration 0008 actually defines", () => {
+test("Live service layer only calls RPCs that the Live migrations actually define", () => {
   // Contract guard: an RPC rename in the service layer without a matching
   // migration update (or vice versa) breaks at runtime, not compile time.
-  const migration = readMigration("0008_live_sessions.sql");
+  // EXPLICIT CHANGE FOR A-04 / A-13: 0008 is no longer the only migration that
+  // defines a Live RPC the service calls — 0053 adds
+  // `touch_live_viewer_presence` and 0056 adds `record_live_admission_denied`
+  // (the out-of-band denial recorder) — so the guard scans every Live migration
+  // that defines an RPC (0008 + 0053 + 0056).
+  const migrations = [
+    "0008_live_sessions.sql",
+    "0053_live_viewer_presence_capacity.sql",
+    "0056_live_moderation_audit_trail.sql",
+  ].map(readMigration);
   const defined = new Set(
-    [...migration.matchAll(/create or replace function public\.([a-z_]+)\(/gi)].map((m) => m[1])
+    migrations.flatMap((migration) =>
+      [...migration.matchAll(/create or replace function public\.([a-z_]+)\(/gi)].map((m) => m[1]),
+    ),
   );
 
   const service = readFileSync(new URL("../lib/live/session-service.ts", import.meta.url), "utf8");

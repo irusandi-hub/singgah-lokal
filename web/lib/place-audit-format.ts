@@ -27,6 +27,11 @@ export const PLACE_AUDIT_ACTIONS = {
   // changes publication, claim, or ownership, and never touches Discovery.
   curated: "admin_place_curated",
   uncurated: "admin_place_uncurated",
+  // Producer membership revocation (migration 0057): the Admin action that
+  // removes one Pengelola's management access to ONE Place, plus the refusal
+  // of that action when it would leave the Place without an active owner.
+  producerAccessRevoked: "producer_place_access_revoked",
+  producerAccessRevokeDenied: "producer_place_access_revoke_denied",
   // Developer Authority (Creator-controlled, Dummy Place only). Distinct keys
   // from the admin_* pair above so the trail never blurs a Developer decision
   // with a Platform Admin one (Master Dummy Place v1.0 §5).
@@ -50,6 +55,8 @@ export const PLACE_AUDIT_ACTION_LABEL: Record<PlaceAuditAction, string> = {
   place_claim_rejected: "Klaim ditolak",
   admin_place_curated: "Dijadikan Tempat Pilihan",
   admin_place_uncurated: "Promosi Tempat Pilihan dicabut",
+  producer_place_access_revoked: "Hak kelola Pengelola dicabut",
+  producer_place_access_revoke_denied: "Pencabutan hak kelola ditolak",
   developer_place_dummy_marked: "Ditandai sebagai Dummy Place (Developer)",
   developer_place_dummy_cleared: "Status Dummy Place dicabut (Developer)",
   developer_place_curated: "Dijadikan Tempat Pilihan (Developer)",

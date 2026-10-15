@@ -2038,3 +2038,267 @@ Existing suites that locked the pre-Tahap-3 UI were updated in the same commit
 (`account-center`, `navigation-separation`, `admin-live-account-surface`,
 `live-operator-management`, `account-profile-surface`, `account-menu-surfaces`):
 each now asserts the new contract, and none was weakened to pass.
+
+## 32. LIVE GATE HARDENING + AGE-VERIFICATION FOUNDATION (Tahap C, migrations 0052–0055)
+
+Branch `fix/live-viewer-gate-hardening` (base = head of PR #41, `fix/live-auth-signup-operator-email`,
+because PR #40 and #41 were still open when Tahap C started). Findings and their
+evidence live in `docs/audits/LIVE_AUTH_AUDIT_v1.md`; the DEV apply steps and the
+manual runtime checks live in `docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §10.
+
+### 32.1 What changed
+
+| Finding | Migration | Change |
+| --- | --- | --- |
+| A-02 | `0052_live_session_column_privileges.sql` | `live_sessions` table-level SELECT → safe-column SELECT for anon/authenticated; `live_input_id` + `idempotency_key` become server-side only (service-role reads) |
+| A-04 | `0053_live_viewer_presence_capacity.sql` | presence lease `live_viewers.last_seen_at` + `touch_live_viewer_presence(text)`; the 100-concurrent cap and the Realtime policies count ACTIVE PRESENCE (guest window unchanged, TUNABLE 5 min) |
+| A-09 | `0054_live_comment_rate_limit.sql` | the ~1/5s comment window moves from process memory to the shared `live_comment_rate_limits` store, claimed atomically inside `post_live_comment` |
+| A-05 | — (copy) | Live gate copy states the real capability ("age verification not available yet"); participation controls render only for an admitted viewer |
+| S-04/S-05 | — (tests) | the Realtime join/broadcast gate is now evaluated on a real Postgres engine; the DEV runtime round trip and the load measurement stay NOT-RUN |
+| age boundary | `0055_age_verification_foundation.sql` | provider-neutral `age_verifications` + `age_verification_events` + internal check; **nothing wired to the Live gate** |
+
+Two pre-existing defects were DISCOVERED by the new tests and are deliberately left
+unfixed (out of Tahap C scope, both fail-closed — they are recorded in the audit):
+
+1. `0047`'s operator SELECT policies reference `public.live_operators`, which `anon`
+   holds no privilege on. RLS policy expressions run with the querying role's
+   privileges, so an ANONYMOUS read of `live_sessions` (and of `places` /
+   `production_stages`) fails with `permission denied for table live_operators`
+   before any row is considered. Signature: `0052`'s suite characterizes it.
+2. `admit_live_viewer` inserts an `admission_denied` audit row and then RAISES, so
+   the row is rolled back with the aborted statement — capacity denials are not
+   actually audited. Needs an autonomous write path (or returning a failure instead
+   of raising), which is an enforcement change, not a capacity fix.
+
+### 32.2 The age gate: the ONE integration seam (do NOT do this before approval)
+
+`assert_viewer_eligible` (`0008_live_sessions.sql`) still ends with the
+unconditional B1 deny (MASTER_LIVE_POLICY §12.2 #2). `admit_live_viewer`,
+`post_live_comment` and `submit_live_report` all call that one function, so the
+entire viewer gate has exactly ONE place to change. After a provider is chosen
+(P1), its data/retention rules decided (P2/P3), implemented behind
+`lib/age-verification/provider.ts`, tested, and approved by the product owner:
+
+1. Add a NEW forward-only migration (never edit `0008`) that replaces
+   `assert_viewer_eligible` and keeps every existing check in order: duration-cap
+   self-heal → session live → `content_status = 'ok'` → confirmed email + actor →
+   then, instead of the unconditional raise:
+   `if not public.age_verification_satisfied(auth.uid()) then raise exception 'live_viewer_denied' using errcode = 'P0001'; end if;`
+   The internal check already fails closed for pending/failed/expired/revoked/absent
+   rows, so the deny-default survives.
+2. Change nothing else: the admission RPC, the comment/report RPCs, the
+   presence/capacity logic, the column privileges and the Realtime policies all
+   continue to work unchanged, because they delegate to the gate.
+3. Update the UI copy in the same change (the A-05 wording becomes a real,
+   completable path) and update the tests that intentionally lock the deny-all:
+   `web/tests/age-verification-foundation.test.ts` ("a fully valid verified age
+   result still does NOT open the Live viewer gate"), `web/tests/live-gate-copy.test.ts`,
+   `web/tests/live-realtime-gate-static.test.ts` and `web/tests/audit/live-auth-audit-defects.test.ts`.
+   They are written to fail loudly at exactly that moment.
+4. Keep the provider credentials server-side only; `AGE_VERIFICATION_PROVIDER`
+   selects a REGISTERED provider, and an unknown/unset value stays
+   `provider_not_configured` (503) with no record written.
+
+Blockers that remain open: B1 (vendor + credentials), P1–P3 (vendor/data/retention
+decisions), B4/B4b (Cloudflare) for any real Live session, B5/B6 (SMS/OTP).
+
+## 33. PENGELOLA vs OPERATOR LIVE — LEAST-PRIVILEGE BOUNDARY (2026-10-13)
+
+Branch `fix/live-operator-least-privilege` (base: tip of the open stack
+#40→#43). Evidence: `docs/audits/LIVE_OPERATOR_BOUNDARY_AUDIT.md`.
+
+**Reported symptom.** An Operator-only account appeared to receive Pengelola
+access/display (a Pengelola entry, the "Kelola Akses Live" panel).
+
+**Confirmed root cause (H1/H3/H4/H5/H6 refuted, H2 confirmed).** Accepting an
+invitation never touched `producer_memberships` (H1 refuted on the real
+migration chain), every management route/RPC is owner/manager-gated (H3), the
+listings are self/Place-scoped (H4), the RLS/grant/EXECUTE posture is already
+least-privilege (H5), and the Account Center derives Pengelola from server
+`producer_memberships` only (H6). The defect was the **destination page of the
+delegated operator**: `/producer/live?place=…` rendered the Pengelola identity
+(`← Pengelola`, `Pengelola Live`) and the shared `ProducerSubNav` (Dashboard /
+Permintaan Kunjungan) for operator-only accounts, and `/producer` and
+`/producer/visit-intents` were gated on **authentication only**. So an operator
+acquired a visible Pengelola entry and Pengelola destinations. For a true
+operator-only account the "Kelola Akses Live" panel is NOT reproducible — it
+needs an owner/manager membership.
+
+**Fix (no migration).**
+1. `web/app/producer/live/page.tsx` — the shell is now a server decision:
+   owner/manager membership → unchanged Pengelola chrome + `ProducerSubNav`;
+   operator-only → `Operator Live` eyebrow, back link to `Akun & Akses`, and no
+   Pengelola navigation. The Live console is unchanged.
+2. `web/app/producer/page.tsx` and `web/app/producer/visit-intents/page.tsx` —
+   deny-by-default owner/manager server gate (redirect to `/account`). The
+   "apply to become Pengelola" flow stays reachable at `/producer/onboarding`.
+3. No GRANT change, no RLS change, no function change; `assert_viewer_eligible`
+   and `admit_live_viewer` are untouched; migrations 0046–0056 untouched;
+   production untouched.
+
+**Policy decisions.** P1 operator-only gets an operator surface, not the
+Pengelola Area. P2 dual-role accounts keep each authority independently. P3 no
+migration shipped (already least-privilege). P4 Live gates untouched.
+
+**Tests.** `web/tests/live-operator-boundary.test.ts` (13 tests, real Postgres
+engine + real server components) and the rollback-only result-set script
+`web/tests/db-regression/live-operator-boundary-access.sql` (26 checks). One
+existing test was amended explicitly: `web/tests/producer-navigation.test.ts`
+now locks "one back link per RENDERED state" for `/producer/live` instead of
+"one in the file", because the operator state deliberately has its own back
+link.
+
+## 34. ADMIN PLATFORM — CABUT HAK KELOLA PRODUSER ATAS SATU PLACE + NOTIFIKASI (branch `feat/admin-revoke-producer-place-access`, 2026-10-14, migration 0057)
+
+**Root cause / gap.** Admin Center → Data Pengelola (Pengelola ↔ Tempat) had NO
+action to revoke one Producer's management right over ONE Place. The row is a
+`producer_memberships` row (`user_id`, `producer_id`, `place_id`, `role`) and the
+table has **no status column** — access is decided by the row's existence, so
+"revoke" is a DELETE. Nothing in the platform could perform it, and nothing told
+the affected people. Verified absence before the change: no admin route/action,
+no RPC, no audit kind, no notification event for it.
+
+**Fix.**
+
+1. `web/supabase/migrations/0057_admin_revoke_producer_place_access.sql` — one
+   `SECURITY DEFINER` RPC `public.revoke_producer_place_access(p_actor_id uuid,
+   p_membership_id uuid)` (`set search_path = public`; `REVOKE ALL ... FROM
+   PUBLIC, anon`; `GRANT EXECUTE ... TO service_role` — the admin route calls it
+   with the service client, exactly like the other Admin actions). It also adds
+   the surrogate column `producer_memberships.id uuid` (+ unique index) because
+   the table had no single identity a client could reference, and extends the
+   `place_audit` action vocabulary with two values. In ONE transaction it: verifies the
+   Platform Admin in the DB itself (`public.users.platform_role =
+   'platform_moderator'`, session `auth.uid()` wins over the passed actor), locks the membership row
+   (`FOR UPDATE`, race-safe), derives Producer + Place **from the DB row only**
+   (client-sent producer/place ids are never trusted), enforces the last-owner
+   guard, DELETEs the membership, writes the audit row, and writes the
+   notifications. Idempotent: a re-revoke returns `already_revoked` with **no
+   side effect and no notification**.
+2. `web/lib/admin/producer-membership-revoke.ts` + route
+   `web/app/api/admin/producer-memberships/[membershipId]/revoke/route.ts` —
+   server action: `requirePlatformModerator()` on every request, then the RPC
+   with the SESSION actor id. The response carries `status` / `message` /
+   `placeName` / `notified` (HTTP 200 only for `revoked`; `invalid_target` 404,
+   `already_revoked`/`last_owner` 409, transport failure 503), so the UI can
+   never show a success the server refused.
+3. `web/app/admin/producer-membership/AdminPengelolaTable.tsx` — per-row
+   **"Cabut Hak Akses"** action (aria-label naming Producer + Place), explicit
+   confirmation dialog (Producer name + email, Place name, what is lost, and
+   that the Producer and the other Place managers will be notified), locked
+   button while running, server-sourced success/error, table re-read from the
+   server afterwards (search/columns/order/responsive layout preserved).
+4. Notifications reuse the EXISTING infrastructure — no new system, no new
+   category, no new channel: the official writer `public.notify_recipient`
+   (0029) with its preference gate + 0026 dedup key, and the EXISTING generic
+   inbox (`app/notifications` + `notification-inbox-item.tsx`) which renders
+   title/body/time for any `event_type` and only adds a link when a Place target
+   is present. Two new `event_type` values inside existing categories:
+   - `producer_place_access_revoked` (category **`safety_account`** = mandatory,
+     cannot be switched off) → the revoked Producer, **always**.
+   - `producer_place_management_changed` (category `system`) → every OTHER
+     active owner/manager of that Place; no email/contact/internal id of the
+     revoked Producer in the body.
+5. "Tambahkan pengelola"/"Ubah peran" style flows and every management gate were
+   already reading the membership row server-side on each request, so the
+   revocation takes effect immediately with no cache and no extra code.
+
+**Policy decisions (fail-closed where the task left a choice).**
+
+- P1 last active owner: a revocation that would leave the Place with no owner is
+  **REJECTED** (`last_owner`). No transfer flow was invented.
+- P2 notification is written INSIDE the revoke transaction (the table is
+  writable by the DB function), wrapped in a savepoint: a notification failure
+  is recorded in the audit (`notificationsWritten`, `notification_error`) and
+  NEVER rolls back the revocation (MASTER 10 §17).
+- P3/§2.7 audit uses the existing `place_audit` architecture (0031) with
+  `actor = platform_admin`, and is closed to anon.
+- P4 editor gets no notification (no master requires it); the acting admin gets
+  none (UI feedback + audit); no Live-operator notification, because Live
+  authority (`live_operator_assignments`) does not depend on the membership row.
+
+**Exact notification copy sent** (titles asserted verbatim, bodies asserted by
+their required fragments, in `web/tests/admin-revoke-place-access.test.ts` and
+`web/tests/db-regression/admin-revoke-place-access.sql`): the revoked Producer
+gets title *"Hak akses Tempat dicabut"* and body
+*"Admin Singgah Lokal mencabut hak akses <Pemilik|Pengelola|Editor> kamu atas
+Tempat <Place> pada <DD/MM/YYYY HH:MM> (<Place TZ>). Kamu tidak lagi bisa
+mengelola Tempat itu. Akun dan Tempat lain yang kamu kelola tidak berubah. Jika
+kamu merasa ini keliru, hubungi kami lewat menu Bantuan di aplikasi."*; the other
+active owners/managers get title *"Susunan pengelola Tempat berubah"* and body
+*"<display name> tidak lagi mengelola Tempat <Place> sebagai
+<Pemilik|Pengelola|Editor> pada <waktu>."* (no contact data, no admin detail).
+
+**Untouched.** Migrations 0046–0056, `assert_viewer_eligible`,
+`admit_live_viewer`, every GRANT to anon, verification status, Place/Experience/
+Visit Intent data, other Places of the same Producer. Migration 0057 is
+**forward-only, least-privilege, validated but NOT APPLIED to DEV** (not run in
+this task; runbook step added).
+
+**Tests.** `web/tests/admin-revoke-place-access.test.ts` (17, real Postgres via
+PGlite: authorization, forged ids ignored, cross-Place isolation, last-owner
+guard, idempotency + row-lock contract, row counts before/after, audit,
+notification matrix + verbatim copy),
+`web/tests/admin-revoke-place-access-migration.test.ts` (3, migration safety
+guards), `web/tests/admin-revoke-place-access-ui.test.ts` (14, UI contract), and
+the rollback-only result-set script
+`web/tests/db-regression/admin-revoke-place-access.sql` (ord/check_name/passed/
+detail, DEV NOT RUN). One existing test was amended explicitly:
+`web/tests/place-audit.test.ts` now locks the extended audit vocabulary for the
+new action instead of the old single-action list (behaviour was added, nothing
+weakened).
+
+## 35. ADMIN PLACE DETAIL — "CABUT HAK PENGELOLAAN" (branch `feat/admin-place-detail-revoke-management`, 2026-10-14, NO new migration)
+
+**Scope.** An EXTENSION of §34 on top of the unmerged chain PR #40–#45 (base =
+tip of `feat/admin-revoke-producer-place-access`). No RPC, route, notification,
+or migration was re-created; everything from #45 is reused as-is.
+
+**Real gaps closed (relative to #45).**
+
+- `G-UI-1` — the Place-detail "Pengelola" section had no per-row identity, so it
+  could not invoke the revoke action. `lib/admin/place-workspace.ts` now selects
+  `producer_memberships.id` and resolves the member email through the ONE safe
+  Admin directory read (`listAdminActorEmails`); `AdminPlaceMembershipRow`
+  carries `membershipId` + `userEmail`. The page renders the new
+  `components/admin/place-members-panel.tsx`.
+- `G-AUTH-1` — `canManagePlace` (`lib/producer.ts`) authorized through
+  `place.producer?.id === access.producerId`, i.e. via `places.producer_id`,
+  which a revoke deliberately does NOT clear. A revoked account whose access had
+  no membership-scoped `placeId` could therefore still pass that predicate. It is
+  now membership-scoped only (`access.placeId === place.id`), fail-closed and
+  consistent with every RLS policy and server gate. Latent path, not a proven
+  exploit (every production route already calls `requireProducerAccess(placeId)`
+  first).
+
+**Reuse vs new.** Reused unchanged: RPC `revoke_producer_place_access` (0057),
+route `/api/admin/producer-memberships/[membershipId]/revoke`,
+`lib/admin/producer-membership-revoke.ts`, last-owner guard, audit vocabulary +
+labels (0057/`place-audit-format.ts`), notifications. New: the shared dialog
+`components/admin/producer-access-revoke-dialog.tsx` (EXTRACTED from
+`AdminPengelolaTable.tsx`, not copied — one implementation, two surfaces), the
+Place-detail panel above, `membershipId`/`userEmail` on the workspace payload,
+and the `canManagePlace` narrowing.
+
+**Owner rule (unchanged from #45).** Last active owner is refused fail-closed by
+server; no transfer flow. The panel shows that row DISABLED with the reason
+"Tidak dapat dicabut: Pemilik terakhir." — never hidden.
+
+**Audit (unchanged).** One attributed `place_audit` row per successful revoke,
+written in the SAME transaction, append-only intact. No new action, no second
+trail.
+
+**Labels.** Data Pengelola keeps **"Cabut Hak Akses"** (locked by the #45 test);
+the Place-detail panel uses **"Cabut Hak Pengelolaan"** (per task wording). Both
+call the same shared action.
+
+**Migration.** None. `0058` stays free; DEV/production untouched.
+
+**Tests.** `web/tests/admin-place-detail-revoke.test.ts` (new: real Postgres via
+PGlite — exact-row revoke, other Places/rows untouched, `places.producer_id`
+unchanged, claim gate unchanged, idempotent re-revoke with no second
+notification, plus static contract for the shared component / per-surface labels
+/ payload / closed producer_id path). Two existing tests amended explicitly:
+`web/tests/producer.test.ts` (membership-scoped semantics) and
+`web/tests/admin-revoke-place-access-ui.test.ts` (markup assertions now point at
+the shared component). Nothing weakened or removed.

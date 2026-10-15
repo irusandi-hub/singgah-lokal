@@ -31,8 +31,9 @@ export default function HelpPage() {
             <ul className="mt-1.5 grid gap-1.5 text-sm leading-6 text-black/60">
               <li>Live disiarkan real-time — tidak ada rekaman dan tidak ada tayangan ulang.</li>
               <li>
-                Akses Live dan komentar melewati admission gate server-side: akun dengan email
-                terverifikasi, dengan kapasitas penonton terbatas per sesi.
+                Akses menonton, berkomentar, dan melaporkan Live melewati admission gate di server,
+                dengan kapasitas penonton terbatas per sesi. Saat ini gate menolak semua penonton
+                karena verifikasi usia (18+) belum tersedia — email terverifikasi saja tidak cukup.
               </li>
               <li>
                 Jika Live menampilkan konten terlarang, gunakan tombol <b>Laporkan</b> di halaman

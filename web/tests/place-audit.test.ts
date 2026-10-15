@@ -282,10 +282,16 @@ test("migration 0031 is idempotent and additive — it touches nothing that alre
 // ---------------------------------------------------------------------------
 
 test("the action vocabulary covers exactly the required Admin Place actions", () => {
-  // The Admin vocabulary is unchanged. Migration 0039 EXTENDS it with the
-  // Creator-only Developer Authority keys, which are distinct on purpose so a
-  // Developer decision is never recorded as a Platform Admin one (Master Dummy
-  // Place v1.0 §5).
+  // The vocabulary only ever GROWS, and only by an audited Admin action on a
+  // Place. Migration 0039 extended it with the Creator-only Developer Authority
+  // keys (distinct on purpose, so a Developer decision is never recorded as a
+  // Platform Admin one — Master Dummy Place v1.0 §5).
+  //
+  // AMENDED EXPLICITLY for migration 0057 (TASK ADMIN-REVOKE): revoking a
+  // Pengelola's management access to ONE Place is a privileged Admin action on
+  // that Place, so it is recorded in this same append-only trail — one key for
+  // the revocation, one for the refused revocation (fail-closed owner
+  // safeguard). Both are additions; no prior key was removed or renamed.
   assert.deepEqual(Object.values(PLACE_AUDIT_ACTIONS).sort(), [
     "admin_place_archived",
     "admin_place_created",
@@ -301,19 +307,23 @@ test("the action vocabulary covers exactly the required Admin Place actions", ()
     "developer_place_uncurated",
     "place_claim_approved",
     "place_claim_rejected",
+    "producer_place_access_revoke_denied",
+    "producer_place_access_revoked",
   ]);
   // Every action has an operator-facing label for the Riwayat surface.
   for (const action of Object.values(PLACE_AUDIT_ACTIONS)) {
     assert.ok(PLACE_AUDIT_ACTION_LABEL[action], `${action} needs a label`);
   }
   // The vocabulary in code is the vocabulary the database enforces — the
-  // workspace actions in 0031, the Stage 4 curation actions in 0036, and the
-  // Creator-only Developer Authority actions in 0039 (all additive CHECK
-  // replacements, none of which removes a prior key).
+  // workspace actions in 0031, the Stage 4 curation actions in 0036, the
+  // Creator-only Developer Authority actions in 0039, and the membership
+  // revocation actions in 0057 (all additive CHECK replacements, none of which
+  // removes a prior key).
   const sql =
     stripComments(readMigration("0031_place_audit.sql")) +
     stripComments(readMigration("0036_place_curated_admin.sql")) +
-    stripComments(readMigration("0039_dummy_place_developer_authority.sql"));
+    stripComments(readMigration("0039_dummy_place_developer_authority.sql")) +
+    stripComments(readMigration("0057_admin_revoke_producer_place_access.sql"));
   for (const action of Object.values(PLACE_AUDIT_ACTIONS)) {
     assert.match(sql, new RegExp(`'${action}'`));
   }

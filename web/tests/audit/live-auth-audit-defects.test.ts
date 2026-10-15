@@ -37,30 +37,30 @@ function sqlFunctionBody(sql: string, name: string): string {
 const live0008 = readMigration("0008_live_sessions.sql");
 const cap0027 = readMigration("0027_live_viewer_cap_race_guard.sql");
 
-// --- A-01 ------------------------------------------------------------------
+// --- A-01 (FIXED 2026-10-11, Tahap B/LIVE-B) --------------------------------
+// The audit originally found the confirmation link landing on /auth, which
+// never exchanges `code` (A-01, HIGH). The sign-up route now targets the
+// existing /auth/callback handler with a sanitized `next`. These assertions
+// were FLIPPED from the original defect characterization: they now lock the
+// FIX, so a regression back to /auth fails loudly.
 
-test("KNOWN DEFECT A-01: the sign-up email-confirmation redirect target has no code-exchange handler", () => {
+test("A-01 FIXED: the sign-up email-confirmation target is the code-exchange handler", () => {
   const signUpRoute = read("../../app/api/auth/sign-up/route.ts");
   const callbackRoute = read("../../app/auth/callback/route.ts");
-  const authForm = read("../../app/auth/auth-form.tsx");
 
-  // The confirmation link is told to return to /auth ...
+  // The confirmation link returns to /auth/callback (the only exchange
+  // handler), carrying an internal `next` destination.
   assert.match(
     signUpRoute,
-    /emailRedirectTo: `\$\{new URL\(request\.url\)\.origin\}\/auth`/,
-    "sign-up still redirects confirmation to /auth",
+    /emailRedirectTo: `\$\{new URL\(request\.url\)\.origin\}\/auth\/callback\?next=\/auth`/,
+    "A-01 regression: confirmation must land on /auth/callback, not /auth",
   );
 
-  // ... but the ONLY code-exchange handler in the app is /auth/callback ...
+  // The target swaps the code for a session with the project's SSR client,
+  // and the `next` destination is re-sanitized (no open redirect).
   assert.match(callbackRoute, /exchangeCodeForSession\(code\)/);
-  assert.doesNotMatch(authForm, /exchangeCodeForSession/);
-
-  // ... and /auth never reads the `code` parameter it is handed.
-  assert.doesNotMatch(
-    authForm,
-    /searchParams\.get\("code"\)/,
-    "if /auth starts handling `code`, A-01 may be fixed — update the audit document",
-  );
+  assert.match(callbackRoute, /sanitizeReturnTo\(searchParams\.get\("next"\)\)/);
+  assert.match(callbackRoute, /NextResponse\.redirect\(new URL\(next, origin\)\)/);
 });
 
 // --- A-02 ------------------------------------------------------------------
@@ -88,30 +88,38 @@ test("KNOWN DEFECT A-02: anon/authenticated SELECT on live_sessions is row-scope
   );
 });
 
-// --- A-03 ------------------------------------------------------------------
+// --- A-03 (FIXED 2026-10-11, Tahap B/LIVE-B) --------------------------------
+// Original defect: release_live_input / list_ended_live_inputs verified only
+// the SESSION STATE and were EXECUTE-granted to every authenticated account,
+// so any signed-in user could null another tenant's live_input_id and
+// enumerate ended sessions' provider input UIDs. Migration 0051 locks both
+// RPCs to the service role (the only callers are the server cleanup paths),
+// and the callers now open a service connection.
 
-test("KNOWN DEFECT A-03: release_live_input and list_ended_live_inputs are authenticated-only by grant but have no caller-authority check", () => {
-  const release = sqlFunctionBody(live0008, "release_live_input");
-  const list = sqlFunctionBody(live0008, "list_ended_live_inputs");
+test("A-03 FIXED: the cleanup RPCs are service-role only and every caller is server-side", () => {
+  const migration0051 = readMigration("0051_live_auth_integrity.sql");
 
-  // The only precondition is the session state — never who is calling.
-  assert.match(release, /where id = p_session_id and status = 'ended'/);
-  for (const [name, body] of [
-    ["release_live_input", release],
-    ["list_ended_live_inputs", list],
-  ] as const) {
-    assert.doesNotMatch(body, /can_operate_live_for_place/, `${name} has no Place predicate`);
-    assert.doesNotMatch(body, /producer_memberships/, `${name} has no membership predicate`);
-    assert.doesNotMatch(body, /auth\.uid\(\)/, `${name} never inspects the caller`);
-  }
+  // EXECUTE is revoked from every client-reachable grantee and granted only
+  // to the infrastructure role.
+  assert.match(
+    migration0051,
+    /revoke execute on function public\.release_live_input\(text\) from public, anon, authenticated;/,
+  );
+  assert.match(
+    migration0051,
+    /revoke execute on function public\.list_ended_live_inputs\(\) from public, anon, authenticated;/,
+  );
+  assert.match(migration0051, /grant execute on function public\.release_live_input\(text\) to service_role;/);
+  assert.match(migration0051, /grant execute on function public\.list_ended_live_inputs\(\) to service_role;/);
+  assert.doesNotMatch(migration0051, /grant execute[^;]* to (anon|authenticated|public)/);
 
-  // The grant that makes them reachable by any signed-in account.
-  assert.match(live0008, /grant execute on function public\.release_live_input\(text\) to authenticated;/);
-  assert.match(live0008, /grant execute on function public\.list_ended_live_inputs\(\) to authenticated;/);
-
-  // list_ended_live_inputs is SECURITY DEFINER, so it reads across tenants
-  // regardless of the live_sessions RLS policies.
-  assert.match(list, /security definer set search_path = public/);
+  // The only code callers open a service-role connection for these two RPCs.
+  const service = read("../../lib/live/session-service.ts");
+  const cap = read("../../lib/live/session-service-cap.ts");
+  assert.match(service, /createSupabaseServiceClient\(\)\.rpc\("release_live_input"/);
+  assert.match(cap, /const supabase = createSupabaseServiceClient\(\);/);
+  assert.match(cap, /supabase\.rpc\("list_ended_live_inputs"\)/);
+  assert.match(cap, /supabase\.rpc\("release_live_input"/);
 });
 
 // --- A-04 ------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { LIVE_COMMENT_MAX_LENGTH } from "@/lib/live/types";
+import { LIVE_COMMENT_MAX_LENGTH, LIVE_VIEWER_PRESENCE_INTERVAL_MS } from "@/lib/live/types";
 
 type Props = {
   sessionId: string;
@@ -135,6 +135,46 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [comments]);
 
+  // Viewer presence heartbeat (A-04): the server counts ACTIVE PRESENCE toward
+  // the 100-concurrent cap and for private-channel access, with a lease that
+  // expires inside the TUNABLE grace window. Renewing it while this viewer is
+  // watching is what keeps a long watch counted — the old server-side rule
+  // dropped every viewer five minutes after admission. A closed tab stops
+  // renewing, so the lease expires server-side (presence, not a ledger row).
+  useEffect(() => {
+    if (!admitted || endedReason) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    async function renewPresence() {
+      try {
+        const response = await fetch("/api/live/presence", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        });
+        if (cancelled) return;
+        // Fail closed: when the server refuses the renewal (not admitted, session
+        // no longer live), stop heartbeating instead of pretending presence. The
+        // server remains the only authority on who is present.
+        if (!response.ok && timer) clearInterval(timer);
+      } catch {
+        // Transient network failure: keep the interval running; if it persists,
+        // the server-side lease simply expires (fail closed).
+      }
+    }
+
+    void renewPresence();
+    timer = setInterval(() => {
+      void renewPresence();
+    }, LIVE_VIEWER_PRESENCE_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [admitted, endedReason, sessionId]);
+
   // WHEP playback (PO item 2, tech §5 amended): one admission attempt per
   // mount. The server applies every gate (published Place, stream health,
   // verified email + content gate + B1 fail-closed age gate, 100-concurrent
@@ -157,7 +197,10 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
         if (payload.error === "live_capacity_full") setPlaybackError("Live penuh (maksimal 100 penonton).");
         else if (payload.error === "live_stream_unavailable") setPlaybackError("Streaming belum tersedia.");
         else if (payload.error === "authentication_required") setPlaybackError("Masuk untuk menonton Live.");
-        else setPlaybackError("Akses Live memerlukan verifikasi (email terverifikasi + usia ≥ 18).");
+        // A-05: the server denies viewers while the verified-age mechanism does
+        // not exist, so state the actual capability instead of implying a
+        // verifiable step (and never imply that a date of birth verifies age).
+        else setPlaybackError("Menonton Live belum dapat dibuka: verifikasi usia (18+) belum tersedia.");
         return;
       }
       const payload = (await admission.json().catch(() => ({}))) as { token?: string };
@@ -224,7 +267,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
     }
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
     if (payload.error === "authentication_required") setNotice("Masuk untuk ikut berkomentar.");
-    else if (payload.error === "live_viewer_denied") setNotice("Akses Live memerlukan verifikasi usia (≥ 18).");
+    else if (payload.error === "live_viewer_denied") setNotice("Berkomentar belum dapat dibuka: verifikasi usia (18+) belum tersedia.");
     else if (payload.error === "live_capacity_full") setNotice("Live penuh (maksimal 100 penonton).");
     else if (payload.error === "live_session_not_live") setNotice("Live sudah berakhir.");
     else if (payload.error === "live_comment_rate_limited") setNotice("Tunggu sebentar sebelum berkomentar lagi.");
@@ -245,7 +288,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
     }
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
     if (payload.error === "authentication_required") setNotice("Masuk untuk melaporkan Live ini.");
-    else if (payload.error === "live_viewer_denied") setNotice("Akses Live memerlukan verifikasi usia (≥ 18).");
+    else if (payload.error === "live_viewer_denied") setNotice("Melaporkan Live belum dapat dibuka: verifikasi usia (18+) belum tersedia.");
     else setNotice("Laporan tidak dapat dikirim.");
   }
 
@@ -277,11 +320,17 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
         )}
         {!playbackError && !whepUrl && (
           <p className="mt-3 text-xs text-white/60">
-            Menunggu verifikasi akses Live (email terverifikasi + usia ≥ 18).
+            Menonton Live belum dapat dibuka: verifikasi usia (18+) belum tersedia.
           </p>
         )}
       </section>
 
+      {/* A-05: participation surfaces only exist for an ADMITTED viewer. While
+          the server denies every viewer (no verified-age mechanism yet), the
+          forms are not rendered, so the UI never offers a button that is
+          certain to fail — it states the real capability instead. */}
+      {admitted ? (
+        <>
       {/* Comments (ephemeral) */}
       <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm" aria-label="Komentar Live">
         <div className="flex items-center justify-between">
@@ -291,9 +340,7 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
 
         <div ref={listRef} className="mt-3 h-40 space-y-2 overflow-y-auto rounded-xl bg-brand-cream p-3">
           {comments.length === 0 ? (
-            <p className="text-xs text-black/45">
-              Komentar muncul real-time untuk penonton terverifikasi.
-            </p>
+            <p className="text-xs text-black/45">Belum ada komentar.</p>
           ) : (
             comments.map((comment) => (
               <p key={comment.id} className="rounded-lg bg-white px-3 py-2 text-xs text-black/75 shadow-sm">
@@ -374,6 +421,19 @@ export function LiveViewerClient({ sessionId, processTitle, placeId, placeName }
           Live tidak direkam. Laporan ditinjau Platform Admin/Moderator.
         </p>
       </section>
+        </>
+      ) : (
+        <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm sm:col-span-2" aria-label="Partisipasi Live">
+          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Partisipasi</p>
+          <p className="mt-2 text-sm text-black/70">
+            Berkomentar dan melaporkan Live belum dapat dibuka: verifikasi usia (18+) belum tersedia di
+            platform.
+          </p>
+          <p className="mt-2 text-[11px] leading-4 text-black/45">
+            Live hanya dapat ditonton dan diikuti oleh penonton yang memenuhi syarat akses.
+          </p>
+        </section>
+      )}
     </div>
   );
 }

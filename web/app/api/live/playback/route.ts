@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getLiveInputStatus } from "@/lib/live/cloudflare";
 import { signPlaybackToken } from "@/lib/live/stream-token";
-import { admitLiveViewer, getLiveSession, LiveValidationError } from "@/lib/live/session-service";
+import { admitLiveViewer, getLiveSession, getLiveSessionInputId, LiveValidationError } from "@/lib/live/session-service";
 import { getServerPlaceExperienceRepository } from "@/lib/place-experience-repository";
 
 type PlaybackBody = {
@@ -52,8 +52,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "live_session_not_live" }, { status: 400 });
     }
 
-    // Stream health gate: unknown status fails closed.
-    const health = session.live_input_id ? await getLiveInputStatus(session.live_input_id) : null;
+    // Stream health gate: unknown status fails closed. A-02: the provider input
+    // pointer is read on the service-role connection (server-side only column),
+    // after this request's own visibility checks above have passed.
+    const liveInputId = await getLiveSessionInputId(sessionId);
+    const health = liveInputId ? await getLiveInputStatus(liveInputId) : null;
     if (!health || !health.connected) {
       return NextResponse.json({ error: "live_stream_unavailable" }, { status: 503 });
     }
@@ -63,7 +66,7 @@ export async function POST(request: Request) {
     await admitLiveViewer({ sessionId, userId: userData.user.id });
 
     // Gates passed: sign a short-lived token (never expose the raw WHEP URL).
-    const token = await signPlaybackToken(session.live_input_id ?? "");
+    const token = await signPlaybackToken(liveInputId ?? "");
     if (!token) {
       // Fail closed: without a configured signing key (or on crypto failure)
       // playback is denied — no unsigned URL is ever issued.

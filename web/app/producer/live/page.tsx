@@ -46,6 +46,13 @@ export default async function ProducerLivePage() {
     .eq("user_id", userData.user.id)
     .is("revoked_at", null);
 
+  // The SHELL is a server decision too: an account that holds an ACTIVE
+  // owner/manager membership gets the Pengelola area chrome; an account whose
+  // only authority is a DELEGATED assignment gets an Operator Live chrome and
+  // NO Pengelola navigation. Neither role is ever derived from the other
+  // (Authority Master §6; task Tahap 3).
+  const hasManagerAuthority = authorized.length > 0;
+
   const seen = new Set(authorized.map((membership) => String(membership.place_id)));
   const operatorOnly = (operatorAssignments ?? [])
     .map((row) => String(row.place_id))
@@ -93,23 +100,38 @@ export default async function ProducerLivePage() {
     <PageShell>
       <PageHeader
         back={
-          <Link className={backLinkClass} href="/producer">
-            ← Pengelola
-          </Link>
+          // Exactly ONE contextual back link per rendered state (mutually
+          // exclusive branches): the Pengelola area for a manager, the Account
+          // & Access Center for a delegated Operator Live account.
+          hasManagerAuthority ? (
+            <Link className={backLinkClass} href="/producer">
+              ← Pengelola
+            </Link>
+          ) : (
+            <Link className={backLinkClass} href="/account">
+              ← Akun & Akses
+            </Link>
+          )
         }
-        eyebrow="Pengelola Live"
+        eyebrow={hasManagerAuthority ? "Pengelola Live" : "Operator Live"}
         title="Tampilkan Proses Secara Langsung"
         description="Tampilkan proses yang sedang berlangsung secara langsung. 1 kamera statis, 720p/30fps, maksimal 100 penonton secara bersamaan, durasi maksimal 60 menit. Live tidak direkam dan tidak memuat monetisasi."
       />
 
-      <div className="mt-4">
-        <ProducerSubNav active="/producer/live" />
-      </div>
+      {hasManagerAuthority ? (
+        <div className="mt-4">
+          <ProducerSubNav active="/producer/live" />
+        </div>
+      ) : null}
 
       <div className="mt-4">
         {places.length === 0 ? (
           <EmptyState
-            title="Belum ada Tempat dengan hak akses Pengelola"
+            title={
+              hasManagerAuthority
+                ? "Belum ada Tempat dengan hak akses Pengelola"
+                : "Belum ada Tempat yang ditugaskan"
+            }
             description="Live hanya dapat dimulai dari Tempat yang kamu kelola, atau Tempat yang menjadi penugasan Operator Live-mu."
           />
         ) : (

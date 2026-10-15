@@ -71,6 +71,7 @@ export function mapInvitationRpcError(message: string | undefined): InvitationHt
   const matched = code([
     "authentication_required",
     "producer_authorization_required",
+    "email_verification_required",
     "live_operator_invite_self_not_allowed",
     "live_operator_invite_rate_limited",
     "email_required",
@@ -89,6 +90,7 @@ export function mapInvitationRpcError(message: string | undefined): InvitationHt
       return { status: 401, code: matched };
     case "producer_authorization_required":
     case "live_operator_invitation_forbidden":
+    case "email_verification_required":
       return { status: 403, code: matched };
     case "live_operator_invite_rate_limited":
       return { status: 429, code: matched };

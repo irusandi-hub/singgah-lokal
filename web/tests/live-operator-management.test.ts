@@ -208,11 +208,13 @@ test("a membership never creates an operator assignment and vice versa", () => {
 
 test("a delegated operator may operate Live for the assigned Place only", () => {
   // Both Live entry points accept the two authorities, each established on its
-  // own, and reject anyone else.
-  for (const [name, route] of [["start", startRoute], ["end", endRoute]] as const) {
-    assert.match(route, /canOperateLiveForPlace/, `${name} uses the operator-aware check`);
-    assert.match(route, /producer_authorization_required/, `${name} fails closed`);
-  }
+  // own, and reject anyone else. Start goes through the ONE shared start gate
+  // (A-07) — which is the operator-aware check, used by both start endpoints —
+  // and end calls the predicate directly, against the session's own Place.
+  assert.match(startRoute, /requireLiveStartAuthority/, "start uses the operator-aware gate");
+  assert.match(startRoute, /producer_authorization_required/, "start fails closed");
+  assert.match(endRoute, /canOperateLiveForPlace/, "end uses the operator-aware check");
+  assert.match(endRoute, /producer_authorization_required/, "end fails closed");
   // Ending derives the Place from the SESSION, never from client input.
   assert.match(endRoute, /session\.place_id/);
   assert.doesNotMatch(endRoute, /body\.placeId/);
@@ -240,8 +242,14 @@ test("ending Producer Live is authorized against the session's own Place", () =>
   assert.match(deleteHandler, /canOperateLiveForPlace/);
   assert.match(deleteHandler, /select\("place_id"\)/);
   assert.doesNotMatch(deleteHandler, /body\.placeId/, "the client cannot name the Place to end");
-  // The Producer-only START entry point is unchanged.
-  assert.match(producerSessions, /requireProducerAccess\(request, placeId, \["owner", "manager"\]\)/);
+  // A-07: the START path of this same endpoint is no longer a Producer-only
+  // rule of its own — it calls the shared gate, exactly like /api/live/start.
+  const startHandler = producerSessions.slice(
+    0,
+    producerSessions.indexOf("export async function DELETE"),
+  );
+  assert.match(startHandler, /requireLiveStartAuthority\(request, placeId\)/);
+  assert.doesNotMatch(startHandler, /requireProducerAccess\(request, placeId/);
 });
 
 // ---------------------------------------------------------------------------
@@ -309,7 +317,7 @@ test("the operator's delegated reads are read-only and published/scoped", () => 
 test("the Live Operator is the operator of Live and nothing else", () => {
   // The endpoints the operator reaches are exactly Live operation endpoints.
   const operatorReachable = [startRoute, endRoute, publishUrlRoute].map((source) =>
-    source.includes("canOperateLiveForPlace"),
+    source.includes("canOperateLiveForPlace") || source.includes("requireLiveStartAuthority"),
   );
   assert.deepEqual(operatorReachable, [true, true, true]);
   for (const route of PRODUCER_RESOURCE_ROUTES) {

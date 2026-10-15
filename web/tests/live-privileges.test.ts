@@ -3,6 +3,10 @@ import test from "node:test";
 import { readFileSync, existsSync } from "node:fs";
 
 const migration = readFileSync(new URL("../supabase/migrations/0008_live_sessions.sql", import.meta.url), "utf8");
+const columnPrivilegesMigration = readFileSync(
+  new URL("../supabase/migrations/0052_live_session_column_privileges.sql", import.meta.url),
+  "utf8",
+);
 
 test("Blanket revoke-all does not strip RLS-governed SELECT from discovery surfaces", () => {
   // The blanket revoke (write-lockout) exists...
@@ -11,8 +15,41 @@ test("Blanket revoke-all does not strip RLS-governed SELECT from discovery surfa
   }
   // ...but SELECT is explicitly restored for the RLS-governed read paths
   // (anon + authenticated) — otherwise signed-in discovery/status/Place reads fail.
-  for (const table of ["live_sessions", "live_viewers", "live_reports", "live_eligibility"]) {
+  //
+  // EXPLICIT CHANGE FOR A-02 (Tahap C, migration 0052): 0008 restored SELECT at
+  // TABLE level, which also exposed live_input_id / idempotency_key. That grant
+  // is now superseded for live_sessions by migration 0052 (table-level SELECT
+  // revoked for anon/authenticated, re-granted per SAFE COLUMN only). The 0008
+  // statement is kept as historical evidence and asserted as such; the other
+  // Live tables keep their table-level SELECT unchanged.
+  for (const table of ["live_viewers", "live_reports", "live_eligibility"]) {
     assert.match(migration, new RegExp(`grant select on public\\.${table} to anon, authenticated`));
+  }
+  assert.match(
+    migration,
+    /grant select on public\.live_sessions to anon, authenticated;/,
+    "0008 granted table-level SELECT on live_sessions (append-only history; superseded by 0052)",
+  );
+  // A-02 supersession: table-level SELECT off, safe columns only.
+  assert.match(
+    columnPrivilegesMigration,
+    /revoke select on public\.live_sessions from anon, authenticated;/,
+  );
+  assert.doesNotMatch(
+    columnPrivilegesMigration,
+    /grant select on public\.live_sessions to anon, authenticated/,
+    "A-02 must not restore the table-level grant",
+  );
+  const grantedColumns = columnPrivilegesMigration.slice(
+    columnPrivilegesMigration.indexOf("grant select ("),
+    columnPrivilegesMigration.indexOf(") on public.live_sessions to anon, authenticated;"),
+  );
+  for (const column of ["live_input_id", "idempotency_key"]) {
+    assert.equal(
+      grantedColumns.includes(column),
+      false,
+      `${column} must stay out of the client column grant`,
+    );
   }
   // live_audit stays dark: no grant for anon/authenticated, explicit PUBLIC revoke.
   assert.match(migration, /revoke all on public\.live_audit from public, anon, authenticated;/);

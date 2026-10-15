@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createSupabaseServiceClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   createLiveInput,
@@ -7,10 +8,8 @@ import {
   isLiveInputDeleteNotFound,
   type LiveInputDeleteOutcome,
 } from "@/lib/live/cloudflare";
-import {
-  LIVE_COMMENT_MAX_LENGTH,
-  LIVE_COMMENT_MIN_INTERVAL_MS,
-} from "@/lib/live/types";
+import { LIVE_COMMENT_MAX_LENGTH } from "@/lib/live/types";
+import { sweepEndedLiveInputs } from "@/lib/live/session-service-cap";
 
 export class LiveValidationError extends Error {}
 export class LiveBoundaryUnavailableError extends Error {}
@@ -21,7 +20,6 @@ type SessionRow = {
   producer_id: string;
   stage_id: string;
   status: string;
-  live_input_id: string | null;
   started_at: string;
   ended_at: string | null;
   ended_reason: string | null;
@@ -30,33 +28,13 @@ type SessionRow = {
 };
 
 /**
- * Per-viewer comment rate limiting (tech §6, TUNABLE ~1/5s).
- * Server process memory is acceptable for Phase 2 single-runtime deployments;
- * a shared store (e.g. Upstash) is the TUNABLE upgrade path for multi-instance.
+ * A-02 (migration 0052): `live_input_id` and `idempotency_key` are no longer
+ * SELECT-granted to anon/authenticated, so every caller-session read must name
+ * the safe columns explicitly. Provider-sensitive reads go through the server's
+ * service-role connection instead (never through the caller's RLS session).
  */
-const commentTimestamps = new Map<string, number[]>();
-
-function enforceCommentRateLimit(viewerKey: string): void {
-  const now = Date.now();
-  const timestamps = (commentTimestamps.get(viewerKey) ?? []).filter(
-    (timestamp) => now - timestamp < LIVE_COMMENT_MIN_INTERVAL_MS,
-  );
-
-  if (timestamps.length >= 1) {
-    throw new LiveValidationError("live_comment_rate_limited");
-  }
-
-  timestamps.push(now);
-  commentTimestamps.set(viewerKey, timestamps);
-
-  if (commentTimestamps.size > 10_000) {
-    for (const [key, stamps] of commentTimestamps) {
-      if (stamps.every((timestamp) => now - timestamp >= LIVE_COMMENT_MIN_INTERVAL_MS)) {
-        commentTimestamps.delete(key);
-      }
-    }
-  }
-}
+const LIVE_SESSION_SAFE_COLUMNS =
+  "id, place_id, producer_id, stage_id, status, started_at, ended_at, ended_reason, end_note, viewer_peak";
 
 export type StartLiveSessionResult = {
   sessionId: string;
@@ -165,12 +143,14 @@ export async function endLiveSession(params: {
   // affects the committed session state (best-effort, fail-safe).
   try {
     // Pointer probe: the release RPC itself nulls live_input_id, so reading the
-    // pointer through the canonical row keeps the probe side-effect free. The
-    // read goes through RLS as the caller; a hidden/unknown session yields null
-    // and leaves the pointer untouched (the sweep remains the backstop).
-    const { data: rows } = await supabase
+    // pointer through the canonical row keeps the probe side-effect free. A-02:
+    // live_input_id is server-side only (no client column grant), so the probe
+    // runs on the SERVICE-ROLE connection — the same infrastructure connection
+    // that later calls release_live_input. The ended-state filter is kept, so
+    // the probe can never touch a session that is still live.
+    const { data: rows } = await createSupabaseServiceClient()
       .from("live_sessions")
-      .select("live_input_id")
+      .select("id, live_input_id")
       .eq("id", params.sessionId)
       .eq("status", "ended")
       .limit(1);
@@ -186,8 +166,13 @@ export async function endLiveSession(params: {
     const outcome: LiveInputDeleteOutcome = await deleteLiveInput(inputId);
     if (outcome === "deleted" || isLiveInputDeleteNotFound(outcome)) {
       // Provider confirmed clean (deleted, or 404 = already-cleaned): NOW
-      // release the pointer via the fail-closed ended-state RPC.
-      await supabase.rpc("release_live_input", { p_session_id: params.sessionId });
+      // release the pointer via the fail-closed ended-state RPC. A-03: the
+      // release RPC is service-role only (server infrastructure), so this
+      // call opens a service connection instead of riding the caller's
+      // session — the sweep remains the backstop on any failure.
+      await createSupabaseServiceClient().rpc("release_live_input", {
+        p_session_id: params.sessionId,
+      });
     }
     // outcome === "failed": pointer stays; the ended-input sweep retries later.
   } catch {
@@ -211,7 +196,111 @@ export async function admitLiveViewer(params: {
   });
 
   if (error) {
-    if (String(error.message).includes("live_capacity_full")) throw new LiveValidationError("live_capacity_full");
+    if (String(error.message).includes("live_capacity_full")) {
+      // A-13: the RPC's RAISE rolls back any audit row written inside it, so the
+      // denial is recorded OUT OF BAND — after the RPC refused, on the trusted
+      // service-role connection, on its own transaction. The denial decision is
+      // untouched (we still throw the same error). Best-effort: an audit miss
+      // must never turn a denial into an allow.
+      await recordAdmissionDenied(params.sessionId, params.userId, "capacity_full");
+      throw new LiveValidationError("live_capacity_full");
+    }
+    if (String(error.message).includes("live_session_not_live")) throw new LiveValidationError("live_session_not_live");
+    throw new LiveValidationError("live_viewer_denied");
+  }
+
+  return true;
+}
+
+/**
+ * A-13: record a refused admission on a transaction that the admitting RPC's
+ * rollback cannot reach. service_role only (migration 0056): the client can
+ * never call or forge this. Never throws — a missing audit row is a monitoring
+ * gap, not a reason to change the decision that already denied the viewer.
+ */
+async function recordAdmissionDenied(
+  sessionId: string,
+  actorId: string,
+  reason: string,
+): Promise<void> {
+  try {
+    await createSupabaseServiceClient().rpc("record_live_admission_denied", {
+      p_session_id: sessionId,
+      p_actor_id: actorId,
+      p_reason: reason,
+    });
+  } catch {
+    // Best-effort audit: the denial already happened and is unaffected.
+  }
+}
+
+/**
+ * A-10 / A-08: platform moderation actions plus the provider-revocation trigger.
+ *
+ * `moderate_live` (0008/0012) is the audited, `platform_moderator`-gated RPC that
+ * implements the policy §12.1 item 5 ladder. Every END-family action
+ * (`end`, `suspend`, `block_content`) sets the session to `ended`, which by
+ * itself only changes Supabase state — the provider live input is still alive.
+ * This wrapper therefore triggers the provider revocation using the capability
+ * the code ACTUALLY has (Cloudflare live-input delete, via the ended-input
+ * sweep), never an assumed provider feature. A production end / duration cap /
+ * stage unpublish is still covered by the status-route sweep.
+ */
+export async function moderateLiveSession(params: {
+  sessionId: string;
+  action: "warn" | "end" | "suspend" | "flag_review" | "resolve_review" | "block_content";
+  note?: string;
+}): Promise<{ revoked: number }> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.rpc("moderate_live", {
+    p_session_id: params.sessionId,
+    p_action: params.action,
+    p_note: params.note ?? null,
+  });
+
+  if (error) {
+    if (String(error.message).includes("platform_moderator_required")) {
+      throw new LiveValidationError("platform_moderator_required");
+    }
+    if (String(error.message).includes("live_session_not_found")) {
+      throw new LiveValidationError("live_session_not_found");
+    }
+    if (String(error.message).includes("live_moderation_action_invalid")) {
+      throw new LiveValidationError("live_moderation_action_invalid");
+    }
+    throw new LiveValidationError("live_moderation_failed");
+  }
+
+  let revoked = 0;
+  if (params.action === "end" || params.action === "suspend" || params.action === "block_content") {
+    // Provider revocation (best-effort, fail-safe): a cleanup failure never
+    // affects the committed moderation decision — the ended-input sweep retries.
+    revoked = await sweepEndedLiveInputs().catch(() => 0);
+  }
+
+  return { revoked };
+}
+
+/**
+ * Viewer presence heartbeat (A-04, migration 0053).
+ *
+ * Renews THIS caller's presence lease on the session it is already admitted to,
+ * so a viewer who keeps watching keeps counting toward the 100-concurrent cap
+ * and keeps receiving the private Realtime channel — instead of silently
+ * dropping out of the count five minutes after admission.
+ *
+ * Fail-closed: the server derives the actor from the session (auth.uid()); the
+ * RPC refuses an anonymous caller, a session that is no longer live, and any
+ * caller with no admitted ledger row for that session. This is presence only —
+ * admission still goes through admitLiveViewer's full gate.
+ */
+export async function touchLiveViewerPresence(params: { sessionId: string }): Promise<boolean> {
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase.rpc("touch_live_viewer_presence", {
+    p_session_id: params.sessionId,
+  });
+
+  if (error) {
     if (String(error.message).includes("live_session_not_live")) throw new LiveValidationError("live_session_not_live");
     throw new LiveValidationError("live_viewer_denied");
   }
@@ -228,8 +317,11 @@ export async function postLiveComment(params: {
     throw new LiveValidationError("live_comment_too_long");
   }
 
-  enforceCommentRateLimit(`${params.sessionId}:${params.userId}`);
-
+  // A-09: the ~1/5s per-viewer window is enforced by `post_live_comment`
+  // against the SHARED `live_comment_rate_limits` store (migration 0054), so it
+  // is identical across every server instance — there is deliberately NO
+  // process-memory limiter here, and nothing in this module keeps request
+  // state between calls.
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.rpc("post_live_comment", {
     p_session_id: params.sessionId,
@@ -237,6 +329,7 @@ export async function postLiveComment(params: {
   });
 
   if (error) {
+    if (String(error.message).includes("live_comment_rate_limited")) throw new LiveValidationError("live_comment_rate_limited");
     if (String(error.message).includes("live_session_not_live")) throw new LiveValidationError("live_session_not_live");
     throw new LiveValidationError("live_viewer_denied");
   }
@@ -266,19 +359,37 @@ export async function submitLiveReport(params: {
 
 export async function getLiveSession(sessionId: string): Promise<SessionRow | null> {
   const supabase = await createSupabaseServerClient();
+  // A-02: explicit safe columns — a `select *` would (correctly) fail on the
+  // non-granted provider columns for anon/authenticated callers.
   const { data } = await supabase
     .from("live_sessions")
-    .select("*")
+    .select(LIVE_SESSION_SAFE_COLUMNS)
     .eq("id", sessionId)
     .maybeSingle();
   return (data as SessionRow | null) ?? null;
+}
+
+/**
+ * Provider-input pointer (A-02): server-side only. Reads live_input_id on the
+ * service-role connection, so playback signing and publish-URL re-issuance keep
+ * working while the column stays invisible to every client role. Callers must
+ * have completed their own authorization/visibility checks first — this helper
+ * authorizes nothing by itself.
+ */
+export async function getLiveSessionInputId(sessionId: string): Promise<string | null> {
+  const { data } = await createSupabaseServiceClient()
+    .from("live_sessions")
+    .select("id, live_input_id")
+    .eq("id", sessionId)
+    .maybeSingle();
+  return ((data as { live_input_id: string | null } | null)?.live_input_id) ?? null;
 }
 
 export async function listLiveSessionsForPlace(placeId: string): Promise<SessionRow[]> {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase
     .from("live_sessions")
-    .select("*")
+    .select(LIVE_SESSION_SAFE_COLUMNS)
     .eq("place_id", placeId)
     .order("started_at", { ascending: false })
     .limit(10);

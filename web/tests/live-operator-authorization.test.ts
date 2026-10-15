@@ -40,16 +40,32 @@ test("Producer and Operator authority are checked separately and never merged", 
   assert.ok(operatorLib.includes("hasActiveLiveOperatorAssignment"));
   assert.ok(operatorLib.includes("isPlaceOwnerOrManager"));
   assert.ok(operatorLib.includes("canOperateLiveForPlace"));
-  assert.ok(operatorLib.includes("producer || operator"), "either authority may operate, but each is established on its own");
+  // Either authority may operate, but each is established on its own and the
+  // decision is a value (A-06), never a merged boolean: owner/manager returns
+  // first, then the operator branch is evaluated separately.
+  assert.ok(operatorLib.includes("decideLiveOperateAuthority"));
+  assert.ok(operatorLib.includes('authority: "owner_manager"'));
+  assert.ok(operatorLib.includes('authority: "live_operator"'));
+  const managerOffset = operatorLib.indexOf("isPlaceOwnerOrManager(supabase, userId, placeId)");
+  const operatorOffset = operatorLib.indexOf("hasActiveLiveOperatorAssignment(supabase, userId, placeId)");
+  assert.ok(
+    managerOffset > -1 && operatorOffset > managerOffset,
+    "the two authorities are resolved one after the other",
+  );
 });
 
 test("Live start requires Producer owner/manager OR a delegated operator for the Place", () => {
-  assert.ok(startRoute.includes("canOperateLiveForPlace"));
-  assert.ok(startRoute.includes("authentication_required"));
-  assert.ok(startRoute.includes("producer_authorization_required"));
+  assert.ok(startRoute.includes("requireLiveStartAuthority"));
+  assert.ok(startRoute.includes("liveStartAuthorityErrorResponse"));
   assert.doesNotMatch(startRoute, /select\("id"\)/);
-  // The Producer-only entry point is unchanged: it still requires owner/manager.
-  assert.ok(producerLiveRoute.includes('requireProducerAccess(request, placeId, ["owner", "manager"])'));
+  // A-07: the Producer console start endpoint calls THE SAME gate, so the two
+  // start routes cannot disagree about who may start Live for a Place.
+  assert.ok(producerLiveRoute.includes("requireLiveStartAuthority"));
+  assert.doesNotMatch(
+    producerLiveRoute,
+    /requireProducerAccess\(request, placeId/,
+    "the start path must not keep a second, Producer-only authority rule",
+  );
 });
 
 test("Live end derives the Place from the session, never from client input", () => {

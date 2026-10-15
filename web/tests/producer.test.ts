@@ -15,7 +15,10 @@ const experience = {
   placeId: place.id,
   schedules: [{ ...experiences[0].schedules[0], dayOfWeek: "Sunday" }],
 };
-const access: ProducerAccess = { producerId: "producer-1", role: "owner" };
+// Management authority is MEMBERSHIP-scoped (ADMIN-PLACE-REVOKE, 2026-10-14):
+// the access must carry the placeId of the membership it was resolved from, so
+// a revoked account cannot keep managing through `places.producer_id`.
+const access: ProducerAccess = { producerId: "producer-1", role: "owner", placeId: place.id };
 const now = new Date("2026-09-05T00:00:00.000Z");
 
 const intentInput: VisitIntentInput = {
@@ -32,6 +35,15 @@ test("Producer access is limited to linked Places", () => {
   assert.equal(canManagePlace(place, access), true);
   assert.equal(getProducerPlaces([place, places[1]], access).length, 1);
   assert.equal(getProducerPlaces([place], { producerId: "other", role: "owner" }).length, 0);
+  // ADMIN-PLACE-REVOKE: `places.producer_id` alone must NEVER authorize
+  // management. `place.producer.id` is "producer-1" above, yet an access with
+  // no membership-scoped placeId is refused — so a revoked account (whose
+  // membership row is gone but whose producer_id still matches) cannot manage.
+  assert.equal(
+    canManagePlace(place, { producerId: "producer-1", role: "owner" }),
+    false,
+    "producer-wide access cannot manage a Place without a membership-scoped placeId",
+  );
 });
 
 test("Place role permissions distinguish editing from publication", () => {

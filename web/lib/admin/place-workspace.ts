@@ -13,6 +13,7 @@ import {
 } from "@/lib/places";
 import { requirePlatformModerator } from "@/lib/live/platform";
 import { createSupabaseServiceClient } from "@/lib/supabase/admin";
+import { listAdminActorEmails } from "@/lib/admin/user-directory";
 import { getPublicPlaceExperienceRepository } from "@/lib/place-experience-repository";
 
 /**
@@ -128,10 +129,18 @@ export type AdminPlaceClaimRow = {
 };
 
 export type AdminPlaceMembershipRow = {
+  /**
+   * The membership's own identity (surrogate, migration 0057). This is the ONE
+   * value the revoke action sends to the server; the account and the Place are
+   * derived from the membership row in the database, never from the client.
+   */
+  membershipId: string;
   userId: string;
   producerId: string;
   role: string;
   createdAt: string;
+  /** Account email of the member — Admin context ONLY (safe display convention). */
+  userEmail: string | null;
 };
 
 export type AdminPlaceLiveSessionRow = {
@@ -187,7 +196,7 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
   const [memberships, claims, experiences, visitIntents, liveSessions, liveSessionCount, meta] = await Promise.all([
     admin
       .from("producer_memberships")
-      .select("user_id, producer_id, role, created_at")
+      .select("id, user_id, producer_id, role, created_at")
       .eq("place_id", id)
       .order("created_at", { ascending: true }),
     admin
@@ -210,6 +219,14 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
   for (const result of [memberships, claims, experiences, visitIntents, liveSessions, liveSessionCount, meta]) {
     if (result.error) throw result.error;
   }
+
+  // Account emails of the members, through the ONE safe Admin directory read
+  // (Platform Admin only, session-verified). A missing email is reported as
+  // null — never fabricated. Emails live in Supabase Auth, so the membership
+  // row itself never carries one.
+  const memberEmails = await listAdminActorEmails(
+    (memberships.data ?? []).map((row) => String(row.user_id)),
+  );
 
   // Live reports belong to a session, and a report is only about a Place
   // through the session it was filed against — so the report read is scoped
@@ -250,10 +267,12 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
       createdAt: String(row.created_at),
     })),
     memberships: (memberships.data ?? []).map((row) => ({
+      membershipId: String(row.id),
       userId: String(row.user_id),
       producerId: String(row.producer_id),
       role: String(row.role),
       createdAt: String(row.created_at),
+      userEmail: memberEmails.get(String(row.user_id)) ?? null,
     })),
     claims: (claims.data ?? []).map((row) => ({
       id: String(row.id),

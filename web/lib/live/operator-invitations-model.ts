@@ -79,6 +79,8 @@ export const LIVE_OPERATOR_INVITATION_MESSAGES: Readonly<Record<string, string>>
   authentication_required: "Sesi berakhir. Masuk kembali untuk melanjutkan.",
   producer_authorization_required:
     "Kamu tidak mengelola Tempat ini, jadi tidak dapat mengubah akses Live-nya.",
+  email_verification_required:
+    "Email kamu belum terverifikasi. Periksa email konfirmasi dari SINGGAH LOKAL, lalu coba lagi.",
   placeId_required: "Pilih Tempat terlebih dahulu.",
   email_required: "Masukkan email akun yang ingin diundang.",
   email_invalid: "Format email tidak valid.",

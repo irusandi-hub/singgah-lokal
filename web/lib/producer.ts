@@ -4,6 +4,25 @@ import type { VisitIntent, VisitIntentStatus } from "@/lib/visit-intents";
 
 export type ProducerRole = "owner" | "manager" | "editor";
 
+/**
+ * Locked Indonesian label per Producer membership role
+ * (docs/UI_TERMINOLOGY_STANDARD.md §2 — "Pengelola" is the Producer management
+ * role term and is never translated or reinvented). Used by Admin surfaces and
+ * notification copy; the stored value stays the canonical `owner|manager|editor`.
+ */
+export const PRODUCER_ROLE_LABEL: Record<ProducerRole, string> = {
+  owner: "Pemilik",
+  manager: "Pengelola",
+  editor: "Editor",
+};
+
+export function producerRoleLabel(role: string | null | undefined): string {
+  if (role === "owner" || role === "manager" || role === "editor") {
+    return PRODUCER_ROLE_LABEL[role];
+  }
+  return role ?? "—";
+}
+
 export type ProducerAccess = {
   producerId: string;
   role: ProducerRole;
@@ -41,11 +60,19 @@ export type ProducerVisitIntent = {
 };
 
 export function canManagePlace(place: Place, access: ProducerAccess): boolean {
-  if (!access.producerId.trim() || access.role === "editor" || (access.placeId && access.placeId !== place.id)) {
+  // Management authority is MEMBERSHIP-scoped: the access must have been
+  // resolved from a membership and must carry that membership's placeId, and
+  // it must be THIS Place. `places.producer_id` deliberately carries NO
+  // management authority — a revoked membership does not clear it, so
+  // authorizing on it would let an account whose access was revoked keep
+  // managing the Place. This is firewall-consistent with every RLS policy and
+  // every server gate (which all key on `producer_memberships.place_id`); see
+  // docs/audits/ADMIN_PLACE_DETAIL_REVOKE_AUDIT.md (§6, G-AUTH-1).
+  if (!access.producerId.trim() || access.role === "editor") {
     return false;
   }
 
-  return access.placeId === place.id || place.producer?.id === access.producerId;
+  return access.placeId === place.id;
 }
 
 export function getProducerPlaces(places: readonly Place[], access: ProducerAccess): Place[] {
