@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { validateSignUpInput } from "@/lib/auth/sign-up";
+import { LEGAL_DOCUMENT_IDS } from "@/lib/legal/documents";
 
 // Sign-up uses the project's existing Supabase Auth — no new auth system.
 // Deliberately no producer_id/role/membership input is accepted here:
@@ -46,6 +47,28 @@ export async function POST(request: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    // Dokumen hukum berversi (migration 0059): pendaftaran mensyaratkan
+    // persetujuan Ketentuan Penggunaan, dan persetujuannya dicatat atas akun
+    // yang BARU dibuat Supabase (id dari respons signUp, bukan dari klien).
+    // Versinya ditentukan server, bukan klien. Kegagalan mencatat persetujuan
+    // TIDAK membatalkan akun yang sudah dibuat: kartu persetujuan di /account
+    // akan meminta ulang, sehingga tidak pernah ada akun tanpa jalur persetujuan.
+    if (body.acceptedTerms === true && data.user?.id) {
+      try {
+        // Lazy import: the acceptance module is server-only and is only needed
+        // on this sign-up path (keeps the route module loadable in the test
+        // harness, the same reason lib/place-experience-repository.ts lazily
+        // imports the service client).
+        const { acceptCurrentLegalDocument } = await import("@/lib/legal/acceptance");
+        await acceptCurrentLegalDocument({
+          userId: data.user.id,
+          documentId: LEGAL_DOCUMENT_IDS.ketentuanPenggunaan,
+        });
+      } catch (acceptError) {
+        console.error("[api/auth/sign-up] legal acceptance not recorded:", acceptError);
+      }
     }
 
     // Session may or may not exist depending on the project's email

@@ -12,6 +12,13 @@ import { PageHeader, PageShell, backLinkClass } from "@/components/ui/kit";
  * between-the-parties dispute boundary, and the competent-authority rule for
  * legal determinations in the Place's jurisdiction (§1–§12). Nothing is
  * invented beyond the Master.
+ *
+ * The digital-management / revocation policy (permanent product policy,
+ * migration 0058) is DISCLOSED here as well, because it is the policy surface
+ * users already reach, and it links to the versioned Ketentuan Penggunaan
+ * (/ketentuan) where that policy is stated in full. The two surfaces never
+ * contradict each other: the same principles are repeated verbatim, and neither
+ * claims that the wording has been legally reviewed.
  */
 export default function PolicyPage() {
   return (
@@ -53,6 +60,29 @@ export default function PolicyPage() {
               Persetujuan klaim di SINGGAH LOKAL hanya memberikan kewenangan pengelolaan
               di dalam aplikasi. Persetujuan tersebut <strong>bukan</strong> penetapan
               kepemilikan hukum atas Tempat.
+            </p>
+          </section>
+
+          <section className="border-t border-black/10 pt-4 first:border-t-0 first:pt-0">
+            <h2 className="text-[15px] font-semibold">
+              Kewenangan pengelolaan digital dan pencabutannya
+            </h2>
+            <p className="mt-1.5 text-sm leading-6 text-black/60" data-testid="policy-digital-management">
+              Akses pengelolaan atas halaman Tempat adalah <strong>kewenangan digital</strong> sesuai
+              peran dan izin di platform, bukan pengakuan, penetapan, atau jaminan kepemilikan hukum
+              atas Tempat. Kepemilikan nyata tetap mengikuti bukti dan ketentuan hukum yang berlaku.
+              Singgah Lokal dapat meninjau, membatasi, menangguhkan, atau mencabut kewenangan
+              pengelolaan digital berdasarkan kebutuhan administratif, keamanan, kepatuhan, atau
+              laporan yang diterima — tanpa wajib menunjuk pengelola pengganti. Setelah pencabutan,
+              halaman dan data Tempat dapat tetap tersimpan tanpa pengelola digital aktif atau
+              diarsipkan; data dan riwayat administrasi yang perlu dipertahankan tidak ikut terhapus,
+              dan kepemilikan nyata tidak berubah dengan sendirinya. Pihak yang aksesnya dicabut dapat
+              mengajukan peninjauan lewat mekanisme yang disediakan Singgah Lokal. Ketentuan lengkapnya
+              ada di{" "}
+              <Link href="/ketentuan" className="font-bold text-brand-primary underline underline-offset-2">
+                Ketentuan Penggunaan
+              </Link>
+              .
             </p>
           </section>
 

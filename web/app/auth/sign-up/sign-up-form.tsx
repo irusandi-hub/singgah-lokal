@@ -17,6 +17,8 @@ const validationMessages: Record<string, string> = {
   password_too_short: "Password minimal 8 karakter.",
 };
 
+const TERMS_REQUIRED_MESSAGE = "Setujui Ketentuan Penggunaan untuk melanjutkan pendaftaran.";
+
 /**
  * Interactive registration form for the existing backend. Kept as a client
  * component; the route's server page wrapper owns `dynamic = "force-dynamic"`
@@ -31,6 +33,10 @@ export default function SignUpForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  // Ketentuan Penggunaan (migration 0059) — dokumen hukum BERVERSI. Nilai ini
+  // hanya menyatakan niat akun; VERSI yang dicatat ditentukan server dari
+  // register dokumen, tidak pernah dari form.
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [googlePending, setGooglePending] = useState(false);
   const [applePending, setApplePending] = useState(false);
@@ -54,13 +60,23 @@ export default function SignUpForm() {
       setError(validationMessages[validationError] ?? "Data pendaftaran belum benar.");
       return;
     }
+    if (!acceptedTerms) {
+      setError(TERMS_REQUIRED_MESSAGE);
+      return;
+    }
 
     setSubmitting(true);
     try {
       const response = await fetch("/api/auth/sign-up", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), password, passwordConfirmation }),
+        body: JSON.stringify({
+          name: name.trim(),
+          email: email.trim(),
+          password,
+          passwordConfirmation,
+          acceptedTerms: true,
+        }),
       });
       const result = await response.json().catch(() => null);
 
@@ -241,6 +257,31 @@ export default function SignUpForm() {
               value={passwordConfirmation}
               onChange={(event) => setPasswordConfirmation(event.target.value)}
             />
+          </label>
+
+          <label className="mt-4 flex items-start gap-2 text-xs leading-5 text-black/70" htmlFor="acceptedTerms">
+            <input
+              className="mt-0.5 h-4 w-4 shrink-0"
+              id="acceptedTerms"
+              name="acceptedTerms"
+              type="checkbox"
+              required
+              checked={acceptedTerms}
+              onChange={(event) => setAcceptedTerms(event.target.checked)}
+            />
+            <span>
+              Saya telah membaca dan menyetujui{" "}
+              <Link
+                className="font-bold text-brand-accent underline-offset-2 hover:underline"
+                href="/ketentuan"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Ketentuan Penggunaan
+              </Link>
+              , termasuk ketentuan bahwa peran Pengelola adalah kewenangan pengelolaan digital dan
+              bukan penetapan kepemilikan hukum atas Tempat.
+            </span>
           </label>
 
           {error ? (

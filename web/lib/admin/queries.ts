@@ -436,6 +436,68 @@ export async function listAdminPlaces(filter: { countryCode?: string | null; reg
   return rows;
 }
 
+/**
+ * One Place with NO active digital manager (kebijakan pengelolaan digital,
+ * migration 0058). A Place is managerless when it has zero
+ * `producer_memberships` rows — the ONLY source of management authority.
+ * `producerId` is reported for context only: since 0058 it carries NO
+ * management authority, and a Place whose last manager was revoked has it
+ * released to null.
+ */
+export type AdminManagerlessPlaceRow = {
+  id: string;
+  name: string;
+  countryCode: string | null;
+  regionName: string | null;
+  publicationStatus: string;
+  producerId: string | null;
+  createdAt: string;
+};
+
+/**
+ * Every Place without an active digital manager, in the canonical order
+ * country → region → place name. Management authority is the membership row, so
+ * the list is computed from the canonical membership set — never from a cached
+ * or derived flag (AGENTS.md: no cache/search index as source of truth). A
+ * managerless Place is a VALID state, not an anomaly: the admin is never forced
+ * to appoint a replacement, and recovery runs through the official claim
+ * process.
+ */
+export async function listAdminManagerlessPlaces(): Promise<AdminManagerlessPlaceRow[]> {
+  await requireAdmin();
+
+  const supabase = canonicalAdminClient();
+  const [membershipResult, placeResult] = await Promise.all([
+    supabase.from("producer_memberships").select("place_id").limit(CANONICAL_LIST_LIMIT),
+    supabase
+      .from("places")
+      .select("id, name, country_code, region_name, publication_status, producer_id, created_at")
+      .order("country_code", { ascending: true })
+      .order("region_name", { ascending: true })
+      .order("name", { ascending: true })
+      .limit(CANONICAL_LIST_LIMIT),
+  ]);
+  for (const result of [membershipResult, placeResult]) {
+    if (result.error) throw result.error;
+  }
+
+  const managedPlaceIds = new Set(
+    (membershipResult.data ?? []).map((row) => String(row.place_id)),
+  );
+
+  return (placeResult.data ?? [])
+    .filter((row) => !managedPlaceIds.has(String(row.id)))
+    .map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      countryCode: row.country_code === null ? null : String(row.country_code),
+      regionName: row.region_name === null ? null : String(row.region_name),
+      publicationStatus: String(row.publication_status),
+      producerId: row.producer_id === null ? null : String(row.producer_id),
+      createdAt: String(row.created_at),
+    }));
+}
+
 export async function listAdminExperiences(): Promise<AdminExperienceRow[]> {
   await requireAdmin();
 

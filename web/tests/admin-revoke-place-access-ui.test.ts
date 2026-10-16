@@ -25,6 +25,7 @@ const stripComments = (source: string) =>
 
 const route = read("../app/api/admin/producer-memberships/[membershipId]/revoke/route.ts");
 const service = read("../lib/admin/producer-membership-revoke.ts");
+const reasonPolicy = read("../lib/admin/revoke-reason.ts");
 const table = read("../app/admin/producer-membership/AdminPengelolaTable.tsx");
 // ADMIN-PLACE-REVOKE (2026-10-14): the dialog + request were EXTRACTED from the
 // table into ONE shared component, reused by the Place-detail "Pengelola"
@@ -58,25 +59,47 @@ test("route admin ada, dinamis, dan menjaga otorisasi di server", () => {
   const code = stripComments(route);
   assert.doesNotMatch(code, /userId/, "route tidak boleh menerima userId dari klien");
   assert.doesNotMatch(code, /placeId/, "route tidak boleh menerima placeId dari klien");
-  assert.doesNotMatch(code, /request\.json\(\)/, "route tidak boleh membaca body klien");
+  // Body klien dibaca HANYA untuk alasan pencabutan (kebijakan 0058). Tidak ada
+  // identitas, peran, atau id lain yang diambil dari klien.
+  assert.match(code, /await request\.json\(\)/);
+  assert.match(code, /reason = \(parsed as Record<string, unknown>\)\.reason;/);
+  assert.equal(
+    (code.match(/parsed as Record<string, unknown>/g) ?? []).length,
+    1,
+    "route hanya boleh mengambil SATU nilai dari body klien (reason)",
+  );
   // Pesan selalu dari server; tidak ada sukses yang dikarang.
-  assert.match(route, /revokeProducerPlaceAccess\(membershipId\)/);
+  assert.match(route, /revokeProducerPlaceAccess\(membershipId, reason\)/);
   assert.match(route, /revokeProducerPlaceAccessHttpStatus\(result\.status\)/);
 });
 
 test("route memetakan hasil server apa adanya (sukses hanya untuk status revoked)", () => {
-  const code = stripComments(service);
+  // Status → pesan → HTTP hidup di modul kebijakan MURNI (dipakai form klien dan
+  // route server), lalu di-ekspor ulang oleh modul server-only.
+  const code = stripComments(reasonPolicy);
   assert.match(code, /case "revoked":\s*\n\s*return 200;/);
   assert.match(code, /case "invalid_target":\s*\n\s*return 404;/);
-  assert.match(code, /case "already_revoked":\s*\n\s*case "last_owner":\s*\n\s*return 409;/);
+  assert.match(code, /case "invalid_reason":\s*\n\s*return 400;/);
+  assert.match(code, /case "already_revoked":\s*\n\s*return 409;/);
+  // "owner terakhir" BUKAN lagi keadaan yang bisa dikembalikan: kebijakan
+  // pengelolaan digital hanya memakai empat status ini.
+  assert.doesNotMatch(code, /last_owner/);
+  assert.doesNotMatch(stripComments(service), /last_owner/);
   // Pesan penolakan Indonesia milik server.
   for (const message of [
     "Hak akses Pengelola sudah dicabut sebelumnya.",
     "Data akses Pengelola tidak ditemukan.",
-    "Tidak dapat dicabut: Tempat ini akan tanpa Pemilik.",
   ]) {
-    assert.ok(service.includes(message), `server message missing: ${message}`);
+    assert.ok(reasonPolicy.includes(message), `server message missing: ${message}`);
   }
+  assert.match(reasonPolicy, /export function revokeProducerPlaceAccessStatusMessage/);
+  // Alasan wajib divalidasi di server SEBELUM RPC, dan RPC menerima alasannya.
+  assert.match(stripComments(service), /if \(reason === null\) return refusal\("invalid_reason"\);/);
+  assert.match(stripComments(service), /if \(!isMembershipId\(membershipId\)\) return refusal\("invalid_target"\);/);
+  assert.match(stripComments(service), /p_reason: reason,/);
+  // Modul server-only tetap mere-ekspor kebijakan murni supaya hanya ada satu
+  // sumber aturan.
+  assert.match(service, /from "@\/lib\/admin\/revoke-reason"/);
 });
 
 test("service layer: otorisasi dulu, id divalidasi, actor dari guard (bukan klien)", () => {
@@ -140,6 +163,22 @@ test("konfirmasi wajib: dialog menyebut Produser, email, Tempat, dan dampaknya",
   assert.match(code, /Cabut Hak Akses\?/);
   assert.match(code, /kehilangan akses mengelola Tempat tersebut/);
   assert.match(code, /akan diberi tahu lewat notifikasi/);
+  // Tempat boleh tetap ada tanpa pengelola: disebut di peringatan surface.
+  assert.match(code, /Pengelola pengganti tidak wajib ditunjuk/);
+  // KEBIJAKAN (aturan A) selalu dinyatakan dialog, di KEDUA surface: tindakan
+  // ini hanya kewenangan digital dan tidak menentukan kepemilikan hukum.
+  assert.match(dialog, /revoke-dialog-scope/);
+  assert.match(dialog, /hanya mencabut kewenangan pengelolaan digital/);
+  assert.match(dialog, /tidak menetapkan, menjamin, atau memindahkan kepemilikan hukum/);
+  assert.match(dialog, /tidak menghapus data Tempat atau riwayat administrasinya/);
+  // ALASAN wajib: pilihan alasan + teks bebas + tombol nonaktif tanpa alasan sah.
+  assert.match(dialog, /revoke-dialog-reason/);
+  assert.match(dialog, /Alasan pencabutan \(wajib\)/);
+  assert.match(dialog, /REVOKE_REASON_OPTIONS\.map/);
+  assert.match(dialog, /revoke-dialog-reason-detail/);
+  assert.match(dialog, /const reasonValid =/);
+  assert.match(dialog, /disabled=\{working \|\| !reasonValid\}/);
+  assert.match(dialog, /body: JSON\.stringify\(\{ reason \}\)/);
   // Tidak ada pemanggilan API sebelum konfirmasi eksplisit: fetch hanya satu,
   // di komponen dialog; tabel tidak memanggil API sendiri.
   const fetchCalls = dialog.match(/await fetch\(/g) ?? [];
@@ -156,6 +195,8 @@ test("tombol terkunci saat proses; sukses/error/peringatan memakai pesan server"
   assert.match(dialog, /if \(response\.ok\) \{/);
   // Peringatan bila notifikasi gagal (jalur in-transaction yang dikurung).
   assert.match(dialog, /Hak akses dicabut, tetapi notifikasi gagal dikirim\./);
+  // Hasil operasi dari server dipakai apa adanya, termasuk keadaan managerless.
+  assert.match(dialog, /managerless/);
   assert.match(dialog, /Hak akses dicabut\. Notifikasi sudah dikirim\./);
   // Penolakan: pesan server apa adanya, bukan sukses.
   assert.match(dialog, /payload\.message \?\? payload\.error \?\? "Hak akses gagal dicabut\."/);
@@ -256,7 +297,7 @@ test("tautan notifikasi hanya untuk target yang valid bagi penerima", () => {
   assert.match(model, /return placeId \? `\/places\/\$\{placeId\}` : null;/);
   // Penerima yang dicabut dikirim tanpa place_id (tanpa tautan ke Tempat itu);
   // pengelola lain memakai tautan Place yang sudah ada.
-  const migration = read("../supabase/migrations/0057_admin_revoke_producer_place_access.sql");
+  const migration = read("../supabase/migrations/0058_place_management_policy_managerless.sql");
   const revokedCall = migration.slice(
     migration.indexOf("'producer_place_access_revoked',"),
     migration.indexOf("'producer_place_management_changed',"),

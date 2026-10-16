@@ -1,5 +1,16 @@
 # ADMIN-PLACE-REVOKE — "Cabut Hak Pengelolaan" di halaman detail Place (perluasan di atas #45)
 
+> **SEBAGIAN DIGANTIKAN (2026-10-15).** Dokumen ini merekam keadaan pada PR #47, saat
+> kebijakan "owner terakhir tidak boleh dicabut" (**Policy Decision P-A2**) masih berlaku:
+> pengaman `last_owner`, tombol nonaktif "Tidak dapat dicabut: Pemilik terakhir", dan
+> `places.producer_id` yang tidak pernah berubah. **Kebijakan permanen kini berbeda:**
+> admin boleh mencabut pengelola TERAKHIR, Tempat boleh berdiri tanpa Pengelola digital,
+> alasan pencabutan menjadi WAJIB, dan penanda `places.producer_id` dilepas bila Tempat
+> kehilangan pengelola terakhir (migration `0058`). Yang masih berlaku dari dokumen ini:
+> temuan §1 (pemetaan `place_has_active_ownership`), alasan G-AUTH-1, dan bukti bahwa
+> jalur `places.producer_id` tidak pernah menjadi kewenangan kelola. Lihat
+> `docs/audits/PLACE_MANAGEMENT_POLICY_AUDIT.md` untuk keadaan sekarang.
+
 Date: 2026-10-14
 Branch: `feat/admin-place-detail-revoke-management`
 Base: `feat/admin-revoke-producer-place-access` (PR #45). PR #40–#45 masih **OPEN /

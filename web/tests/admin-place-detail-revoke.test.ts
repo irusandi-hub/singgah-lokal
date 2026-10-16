@@ -8,11 +8,13 @@ import { PGlite } from "@electric-sql/pglite";
  * (perluasan di atas #45; docs/audits/ADMIN_PLACE_DETAIL_REVOKE_AUDIT.md).
  *
  * Dua lapis, tanpa menduplikasi suite #45:
- * 1. PERILAKU pada Postgres nyata (PGlite + rantai migrasi nyata s/d 0057):
+ * 1. PERILAKU pada Postgres nyata (PGlite + rantai migrasi nyata s/d 0058):
  *    membership id yang disajikan payload detail Place memang mencabut baris
- *    yang TEPAT, Place/akun lain utuh, audit tertulis, `places.producer_id`
- *    TIDAK berubah, dan produser yang dicabut tidak lagi lolos predikat kelola
- *    membership-scoped; pencabutan ulang idempoten.
+ *    yang TEPAT, Place/akun lain utuh, audit tertulis, produser yang dicabut
+ *    tidak lagi lolos predikat kelola membership-scoped; pencabutan ulang
+ *    idempoten; dan pengelola TERAKHIR dapat dicabut tanpa penolakan sehingga
+ *    Tempat valid tanpa pengelola (kebijakan pengelolaan digital, migration
+ *    0058), dengan penanda `places.producer_id` dilepas hanya pada keadaan itu.
  * 2. KONTRAK statis untuk markup/wiring yang tidak bisa dijalankan di sandbox:
  *    komponen dialog BERSAMA dipakai dua permukaan, label per permukaan,
  *    payload detail membawa membership id, dan jalur `places.producer_id`
@@ -51,7 +53,11 @@ const CHAIN = [
   "0030_notifications_realtime_publication.sql",
   "0031_place_audit.sql",
   "0057_admin_revoke_producer_place_access.sql",
+  "0058_place_management_policy_managerless.sql",
 ];
+
+/** Alasan pencabutan sah (aturan B: alasan wajib, dicatat di trail audit). */
+const REASON = "Akun tidak lagi memiliki kewenangan mengelola Tempat ini.";
 
 const ADMIN = "aaaa0000-0000-4000-8000-0000000000a1";
 const OWNER_A = "bbbb0000-0000-4000-8000-0000000000a1";
@@ -115,13 +121,18 @@ async function createDb(): Promise<PGlite> {
   return db;
 }
 
-async function asService(db: PGlite, actorId: string, membershipId: string): Promise<Row> {
+async function asService(
+  db: PGlite,
+  actorId: string,
+  membershipId: string,
+  reason: string = REASON,
+): Promise<Row> {
   await db.exec("reset role;");
   await db.exec("set role service_role;");
   try {
     const result = await db.query(
-      `select public.revoke_producer_place_access($1::uuid, $2::uuid) as outcome`,
-      [actorId, membershipId],
+      `select public.revoke_producer_place_access($1::uuid, $2::uuid, $3::text) as outcome`,
+      [actorId, membershipId, reason],
     );
     const first = (result.rows?.[0] ?? {}) as Record<string, unknown>;
     return (first.outcome ?? {}) as Row;
@@ -245,11 +256,13 @@ test("detail Place: jalur alternatif places.producer_id TIDAK meloloskan yang di
 
   await asService(db, ADMIN, targetId);
 
-  // The revoke does NOT clear places.producer_id (Policy Decision P-A2) ...
+  // PLACE still has other memberships (two owners + an editor), so the Place is
+  // NOT managerless and the producer pointer is left exactly as it was —
+  // releasing it is reserved for the managerless case (0058 step 1.7).
   assert.equal(
     String((await rows(db, `select producer_id from public.places where id = $1`, [PLACE]))[0].producer_id),
     PRODUCER,
-    "revoke never changes places.producer_id (ownership signal, not a management grant)",
+    "revoke leaves places.producer_id alone while other managers remain",
   );
   // ... yet the revoked manager cannot manage the Place through ANY
   // membership-scoped predicate (the only authority).
@@ -259,6 +272,60 @@ test("detail Place: jalur alternatif places.producer_id TIDAK meloloskan yang di
     (await rows(db, `select public.place_has_active_ownership($1) as owned`, [PLACE]))[0].owned,
     true,
   );
+
+  await db.close();
+});
+
+test("detail Place: pengelola TERAKHIR dapat dicabut — Tempat valid tanpa pengelola", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+
+  // Revoke every membership on the Place, owner terakhir TERMASUK (aturan C).
+  const revocable = [OWNER_B, MANAGER, EDITOR, OWNER_A];
+  for (const userId of revocable) {
+    const id = await membershipIdFor(db, userId, PLACE);
+    const outcome = await asService(db, ADMIN, id);
+    assert.equal(outcome.status, "revoked", `pencabutan ${userId} harus berhasil`);
+    // Aturan C: managerless adalah keadaan SAH, bukan penolakan.
+    assert.notEqual(outcome.status, "last_owner");
+  }
+
+  // Tempat tetap ada, tanpa satu pun pengelola digital, dan penanda Produser
+  // yang sudah tidak berwenang dilepas sehingga Tempat dapat diklaim ulang
+  // lewat proses resmi (bukan dikunci pada Produser lama).
+  assert.equal(
+    (await rows(db, `select 1 from public.producer_memberships where place_id = $1`, [PLACE])).length,
+    0,
+    "Place boleh berdiri tanpa membership pengelola",
+  );
+  assert.equal(
+    (await rows(db, `select 1 from public.places where id = $1::text`, [PLACE])).length,
+    1,
+    "Tempat tidak dihapus (aturan C)",
+  );
+  assert.equal(
+    (await rows(db, `select producer_id from public.places where id = $1`, [PLACE]))[0].producer_id,
+    null,
+    "penanda Produser dilepas saat Tempat kehilangan pengelola terakhir",
+  );
+  assert.equal(
+    (await rows(db, `select public.place_has_active_ownership($1) as owned`, [PLACE]))[0].owned,
+    false,
+    "Tempat managerless kembali dapat diklaim lewat proses resmi",
+  );
+
+  // Empat baris audit, satu per pengelola, masing-masing dengan alasannya.
+  const audit = await rows(
+    db,
+    `select detail from public.place_audit where action = 'producer_place_access_revoked' order by id`,
+  );
+  assert.equal(audit.length, 4);
+  for (const entry of audit) {
+    assert.equal((entry.detail as Row).reason, REASON);
+  }
+  assert.equal((audit[3].detail as Row).managerless, true);
+  assert.equal((audit[3].detail as Row).producer_pointer_released, true);
+  assert.equal((audit[3].detail as Row).manager_count, 0);
 
   await db.close();
 });
@@ -395,11 +462,20 @@ test("label per permukaan: Data Pengelola 'Cabut Hak Akses', detail Place 'Cabut
   assert.match(table, /actionLabel="Cabut Hak Akses"/);
   assert.match(panel, /actionLabel="Cabut Hak Pengelolaan"/);
   assert.match(panel, /aria-label=\{`Cabut hak pengelolaan \$\{account\} atas \$\{placeName\}`\}/);
-  // Owner terakhir: nonaktif dengan alasan singkat, bukan disembunyikan.
-  assert.match(panel, /data-testid="place-member-locked"/);
-  assert.match(panel, /Tidak dapat dicabut: Pemilik terakhir\./);
-  // Empty state yang ada dipertahankan.
-  assert.match(panel, /Belum ada membership\./);
+  // Pengaman "owner terakhir" DIHAPUS: setiap membership bisa dicabut, tidak ada
+  // tombol yang dinonaktifkan karena alasan itu.
+  assert.doesNotMatch(panel, /place-member-locked/);
+  assert.doesNotMatch(panel, /Tidak dapat dicabut/);
+  assert.doesNotMatch(panel, /ownerCount/);
+  // Empty state kini menyatakan keadaan managerless sebagai keadaan yang SAH dan
+  // menunjuk proses pemulihan resmi.
+  assert.match(panel, /data-testid="place-managerless-notice"/);
+  assert.match(panel, /Tanpa Pengelola digital aktif\./);
+  assert.match(panel, /keadaan yang sah/i);
+  assert.match(panel, /persetujuan klaim Tempat/);
+  // Status arsip ditampilkan dari status publikasi kanonik.
+  assert.match(panel, /data-testid="place-archived-notice"/);
+  assert.match(panel, /publicationStatus\?: string \| null;/);
 });
 
 test("payload detail Place membawa membership id + email akun (konvensi aman)", () => {
@@ -411,7 +487,10 @@ test("payload detail Place membawa membership id + email akun (konvensi aman)", 
   assert.match(workspace, /listAdminActorEmails/);
   // Halaman detail merender panelnya.
   const page = stripComments(read("../app/admin/places/[placeId]/page.tsx"));
-  assert.match(page, /<AdminPlaceMembersPanel placeName=\{place\.name\} memberships=\{memberships\} \/>/);
+  assert.match(page, /<AdminPlaceMembersPanel/);
+  assert.match(page, /placeName=\{place\.name\}/);
+  assert.match(page, /memberships=\{memberships\}/);
+  assert.match(page, /publicationStatus=\{place\.publicationStatus\}/);
 });
 
 test("predikat kelola tidak lagi memakai places.producer_id (fail-closed)", () => {
