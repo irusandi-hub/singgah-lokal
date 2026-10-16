@@ -9,6 +9,30 @@ type StageOption = {
   sortOrder: number;
 };
 
+/**
+ * The EFFECTIVE Production Stage selection for the active Place, i.e. the ONE
+ * value the console displays and gates on:
+ *
+ *  - the Producer's own choice while it still belongs to the Place's eligible
+ *    (published) stages, because the Place may have changed under it; otherwise
+ *  - the FIRST eligible stage, which is what the select renders as its value;
+ *    otherwise
+ *  - no stage at all, which is the only state that may block progression.
+ *
+ * Deliberately pure and exported: the console's step-1 gate is a value read off
+ * real props, so the rule ("an eligible published stage means the Producer can
+ * proceed; an empty eligible list must keep the gate closed") is provable in
+ * plain Node, with no extra selection state to keep in sync.
+ */
+export function resolveEffectiveStageId(
+  stages: readonly { id: string }[],
+  selectedStageId: string,
+): string {
+  return stages.some((stage) => stage.id === selectedStageId)
+    ? selectedStageId
+    : stages[0]?.id ?? "";
+}
+
 type Props = {
   places: Array<{ id: string; name: string; stages: StageOption[] }>;
 };
@@ -76,9 +100,7 @@ export function LiveConsole({ places }: Props) {
 
   // Keep the stage selection valid when Place/Place stages change without
   // a setState-in-effect (lint rule react-hooks/set-state-in-effect).
-  const effectiveStageId = stages.some((stage) => stage.id === stageId)
-    ? stageId
-    : stages[0]?.id ?? "";
+  const effectiveStageId = resolveEffectiveStageId(stages, stageId);
 
   // Duration guard display: the locked 60-minute cap is enforced server-side
   // (self-healing cap); the console mirrors it so the Producer sees time left.
@@ -325,8 +347,13 @@ export function LiveConsole({ places }: Props) {
               </select>
             </label>
           </div>
+          {/* The gate is the EFFECTIVE selection, not the raw override state:
+              `stageId` stays "" until the Producer picks an option, so keying
+              the button on it left a valid, already-displayed stage (the
+              select's own value) unable to proceed — and with a single
+              eligible stage there is no other option to pick. */}
           <button
-            disabled={!stageId}
+            disabled={!effectiveStageId}
             onClick={() => {
               setStep("camera");
               void runCameraCheck();
