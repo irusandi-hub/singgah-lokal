@@ -38,9 +38,9 @@ export async function GET() {
     }
 
     // Gap fix 3: ends that happened OUTSIDE the service wrapper — duration-cap
-    // heal inside RPCs, the stage-unpublished trigger, moderation end — leave
-    // their provider inputs alive. Sweep the release backlog on every status
-    // poll (best-effort, idempotent; covers all three paths unconditionally).
+    // heal inside RPCs, moderation end — leave their provider inputs alive.
+    // Sweep the release backlog on every status poll (best-effort, idempotent;
+    // covers every such path unconditionally).
 
     await sweepEndedLiveInputs().catch(() => 0);
 

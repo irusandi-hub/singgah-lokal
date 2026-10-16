@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { AuthenticationRequiredError, ProducerAuthorizationRequiredError } from "@/lib/auth/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 import { sweepOrphanLiveInputs } from "@/lib/live/session-service-cap";
 import { endLiveSession, LiveValidationError, startLiveSession } from "@/lib/live/session-service";
 import {
@@ -12,7 +11,6 @@ import {
 
 type StartLiveBody = {
   placeId?: unknown;
-  stageId?: unknown;
   idempotencyKey?: unknown;
 };
 
@@ -46,11 +44,10 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as StartLiveBody;
     const placeId = typeof body.placeId === "string" ? body.placeId : "";
-    const stageId = typeof body.stageId === "string" ? body.stageId : "";
     const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
 
-    if (!placeId || !stageId || !idempotencyKey) {
-      return NextResponse.json({ error: "placeId_stage_idempotency_required" }, { status: 400 });
+    if (!placeId || !idempotencyKey) {
+      return NextResponse.json({ error: "placeId_idempotency_required" }, { status: 400 });
     }
 
     // THE shared start-Live authority gate (audit A-07): owner/manager OR an
@@ -60,11 +57,10 @@ export async function POST(request: Request) {
     // refused on the other.
     await requireLiveStartAuthority(request, placeId);
 
-    // Process is the subject: stage must exist, belong to the Place, and be published.
-    const stage = await (await getServerProductionStoryRepository()).getById(placeId, stageId);
-    if (!stage || stage.status !== "published") {
-      return NextResponse.json({ error: "live_stage_not_published" }, { status: 400 });
-    }
+    // NO Production Stage gate: Live is a Place-associated capability. A Place
+    // with zero stages (or with every stage paused/archived) starts exactly
+    // like any other — Kegiatan / Kelola Proses are informational and never
+    // authorize, gate, or end a Live session.
 
     // Orphan sweep (PO item 10): clean stale provider inputs from previously
     // failed starts before minting a new one. Best-effort; never blocks start.
@@ -72,7 +68,6 @@ export async function POST(request: Request) {
 
     const result = await startLiveSession({
       placeId,
-      stageId,
       idempotencyKey,
       actorKey: placeId,
     });

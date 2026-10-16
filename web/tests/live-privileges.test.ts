@@ -82,7 +82,9 @@ test("Development DB regression suite exists and covers all locked behaviors", (
     "check_caps",
     "check_viewer_admission_b1",
     "check_moderation",
-    "check_stage_auto_end",
+    // Decoupled 2026-10-16: informational Process changes must NOT end or
+    // block a Live (was check_stage_auto_end).
+    "check_stage_decoupled",
     "check_rls_baseline",
   ]) {
     assert.match(suite, new RegExp(marker));

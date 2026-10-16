@@ -3,11 +3,9 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// The two REAL modules behind the console contract: the component whose step-1
-// gate this change fixes, and the repository whose stage reads feed it. Both are
-// imported directly, so the behavioral checks below run against the same code
-// the page runs (no copy of the rule exists in this test).
-import { resolveEffectiveStageId } from "../app/producer/live/LiveConsole";
+// The REAL repository behind the informational Production-Story feature. It is
+// imported directly so the behavioral checks below run against the same code
+// the app runs (no copy of the rule exists in this test).
 import { SupabaseProductionStoryRepository } from "../lib/production-story-repository";
 
 /**
@@ -27,13 +25,12 @@ import { SupabaseProductionStoryRepository } from "../lib/production-story-repos
  *   other, and a delegated operator may operate Live for the assigned Place
  *   while being unable to edit any Producer resource.
  *
- * CONSOLE GATE (bug fix, this change): step 1 of the Live console gated its
- * "Lanjut ke pemeriksaan kamera" button on the RAW override state `stageId`,
- * which is deliberately "" until the Producer picks an option. An eligible
- * published stage that the select itself displays could therefore not proceed,
- * and a Place with exactly ONE published stage locked the console permanently
- * (there was no other option to pick). The gate is now the EFFECTIVE stage
- * selection — the same value the select renders and the start request sends.
+ * CONSOLE, DECOUPLED (product decision 2026-10-16): step 1 of the Live console
+ * offers the operable Places and NOTHING else. Kegiatan / Kelola Proses are
+ * informational, so the console has no Process selector, no stage state, no
+ * stage gate, and no "publish a Process first" message: an authorized Place
+ * starts a Live whether it has zero, one, or many Processes — and whether they
+ * are published, paused, or archived.
  */
 
 function read(relative: string): string {
@@ -347,84 +344,56 @@ test("the Live Operator is the operator of Live and nothing else", () => {
 // 7. Konsol Live — gerbang langkah 1 dan daftar Proses yang ditawarkan
 // ---------------------------------------------------------------------------
 
-test("the step-1 gate uses the EFFECTIVE stage selection, never the raw state", () => {
+test("the console offers Places only: no Process step, no Process gate", () => {
   const code = stripComments(liveConsole);
-  assert.match(code, /disabled=\{!effectiveStageId\}/, "the button is gated on the effective selection");
+  // The single gate is the PLACE — an authorized Place is the whole condition.
+  assert.match(code, /disabled=\{!placeId\}/, "the button is gated on the Place alone");
+  assert.equal(code.includes("stageId"), false, "the console carries no stage identifier");
   assert.equal(
-    code.includes("disabled={!stageId}"),
+    code.includes("effectiveStageId") || code.includes("resolveEffectiveStageId"),
     false,
-    "the uninitialized override state must never be the gate",
+    "the stage-selection rule is gone, not merely rewired",
   );
-  // ONE derived value, computed off the real props by a pure function — no
-  // second selection state and no setState-in-effect to keep it in sync.
-  assert.match(code, /const effectiveStageId = resolveEffectiveStageId\(stages, stageId\);/);
-  assert.equal(
-    (code.match(/setStageId\(/g) ?? []).length,
-    1,
-    "only the select's onChange writes the override (single source of truth)",
-  );
-  assert.ok(
-    code.indexOf("onChange={(event) => setStageId(event.target.value)}") > -1,
-    "the override is written only by a real user choice",
-  );
-  // The displayed value, the gate, and the start request are the same value.
-  assert.match(code, /value=\{effectiveStageId\}/);
-  assert.match(code, /stageId: effectiveStageId/);
-});
-
-test("an available published stage opens the gate; an empty list keeps it closed", () => {
-  // No eligible stage: no effective selection, so step 1 stays blocked.
-  assert.equal(resolveEffectiveStageId([], ""), "");
-  assert.equal(Boolean(resolveEffectiveStageId([], "")), false);
-  // A selection that no longer belongs to the list (the Place changed under it)
-  // can never open the gate either.
-  assert.equal(resolveEffectiveStageId([], "stage-lama"), "");
-
-  // EXACTLY the reported defect: a single eligible published stage is a valid
-  // effective selection with ZERO user interaction — the select already shows
-  // it, so the gate must be open.
-  const single = [{ id: "stage-a" }];
-  assert.equal(resolveEffectiveStageId(single, ""), "stage-a");
-  assert.equal(Boolean(resolveEffectiveStageId(single, "")), true);
-
-  // Several eligible stages: the Producer's own choice wins while it is still
-  // eligible, otherwise the FIRST eligible stage (canonical order from props).
-  const many = [{ id: "stage-a" }, { id: "stage-b" }];
-  assert.equal(resolveEffectiveStageId(many, "stage-b"), "stage-b");
-  assert.equal(resolveEffectiveStageId(many, "stage-a"), "stage-a");
-  assert.equal(resolveEffectiveStageId(many, ""), "stage-a");
-  // Switching Place keeps the rule: only the NEW Place's stages can be selected.
-  assert.equal(resolveEffectiveStageId([{ id: "stage-lain" }], "stage-a"), "stage-lain");
-});
-
-test("only published stages are ever offered or accepted for Live", () => {
-  const code = stripComments(liveConsole);
-  // Server side: the console reads the assigned Place's stages PUBLISHED-ONLY,
-  // and keeps the published filter as a second, explicit guard on the props.
-  assert.match(livePage, /listForPlace\(membership\.place_id, true\)/);
-  assert.match(livePage, /\.filter\(\(stage\) => stage\.status === "published"\)/);
-  // Console side: the option list is the SELECTED Place's own stages, and no
-  // unpublished status is ever named (there is no draft/paused/archived path).
-  assert.match(code, /places\.find\(\(place\) => place\.id === placeId\)\?\.stages \?\? \[\]/);
-  assert.doesNotMatch(code, /"draft"|"paused"|"archived"/);
-  // Last authority layer stays in the database: the start RPC requires the
-  // stage to belong to the SAME Place and to still be Published.
-  assert.match(authorityMigration, /where id = p_stage_id and place_id = p_place_id/);
-  assert.match(authorityMigration, /v_stage_status <> 'published'/);
-  assert.match(authorityMigration, /raise exception 'live_stage_not_published'/);
-});
-
-test("the offered stages are always scoped to the selected Place", () => {
-  const code = stripComments(liveConsole);
-  // One Place → one stage read, keyed on that membership's own place_id.
-  assert.match(livePage, /placeRepository\.getById\(membership\.place_id\)/);
-  assert.match(livePage, /listForPlace\(membership\.place_id, true\)/);
-  assert.match(code, /places\.find\(\(place\) => place\.id === placeId\)\?\.stages/);
-  // The request carries the SAME Place and the SAME selected stage.
-  assert.match(
+  // …nor any message telling the Producer to publish a Process first.
+  assert.doesNotMatch(
     code,
-    /body: JSON\.stringify\(\{ placeId, stageId: effectiveStageId, idempotencyKey \}\)/,
+    /Proses \(harus Tayang\)|Tidak ada Proses yang Tayang|harus berstatus Tayang/,
   );
+  // The request carries the Place and the idempotency key, nothing else.
+  assert.match(code, /body: JSON\.stringify\(\{ placeId, idempotencyKey \}\)/);
+  // Step 1 still leads into the unchanged camera check.
+  assert.match(code, /Lanjut ke pemeriksaan kamera/);
+  assert.match(code, /void runCameraCheck\(\)/);
+});
+
+test("the console page reads no Production Stage at all", () => {
+  const page = stripComments(livePage);
+  assert.equal(page.includes("listForPlace"), false, "no stage read feeds Live eligibility");
+  assert.equal(
+    page.includes("getServerProductionStoryRepository"),
+    false,
+    "the Live page must not depend on the Production-Story repository",
+  );
+  // It still resolves the operable Places itself (memberships + own active
+  // assignments) — the one authority input the console needs.
+  assert.match(page, /placeRepository\.getById\(membership\.place_id\)/);
+  assert.match(livePage, /from\("live_operators"\)/);
+  assert.match(livePage, /is\("revoked_at", null\)/);
+});
+
+test("the DB layer no longer gates Live on a published Process", () => {
+  // The historical migrations keep the record of the superseded rule…
+  assert.match(authorityMigration, /live_stage_not_published/);
+  // …and the decoupling migration removes it from the live definitions.
+  const decouple = read("supabase/migrations/0060_live_decouple_production_stage.sql");
+  const startBody = decouple.slice(
+    decouple.indexOf("create or replace function public.start_live_session"),
+    decouple.indexOf("-- 6. end_live_session"),
+  );
+  assert.doesNotMatch(startBody, /live_stage_not_published|v_stage_status/);
+  assert.match(startBody, /\(p_place_id, v_membership, null, 'live', p_live_input_id, p_idempotency_key\)/);
+  // Authority inside the RPC is untouched: the same ONE predicate guards start.
+  assert.match(startBody, /can_operate_live_for_place\(auth\.uid\(\), p_place_id\)/);
 });
 
 /**
@@ -445,8 +414,8 @@ function stageQueryStub(result: { data: unknown; error: unknown }) {
 }
 
 test("a repository error is never silently turned into an empty stage list", async () => {
-  // (1) The stage read fails: the console must see a FAILURE, not "Tidak ada
-  //     Proses yang Tayang", because the two are not the same thing.
+  // (1) The stage read fails: Kelola Proses must see a FAILURE, never an empty
+  //     list — the two are not the same thing.
   const failingStages = {
     from: () => stageQueryStub({ data: null, error: new Error("permission denied") }),
   } as unknown as SupabaseClient;

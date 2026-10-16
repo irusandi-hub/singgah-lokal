@@ -130,7 +130,8 @@ export type AdminLiveSessionRow = {
   id: string;
   placeId: string;
   producerId: string;
-  stageId: string;
+  /** Historical/none — Live no longer references a Process (2026-10-16). */
+  stageId: string | null;
   status: string;
   startedAt: string;
   endedAt: string | null;
@@ -561,7 +562,7 @@ export async function listAdminLiveSessions(): Promise<AdminLiveSessionRow[]> {
     id: String(row.id),
     placeId: String(row.place_id),
     producerId: String(row.producer_id),
-    stageId: String(row.stage_id),
+    stageId: row.stage_id === null ? null : String(row.stage_id),
     status: String(row.status),
     startedAt: String(row.started_at),
     endedAt: row.ended_at === null ? null : String(row.ended_at),

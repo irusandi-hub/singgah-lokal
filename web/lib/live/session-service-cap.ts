@@ -61,9 +61,8 @@ export async function sweepOrphanLiveInputs(): Promise<number> {
 
 /**
  * Ended-input sweep (gap fix 3 + hardening order): ends that happened OUTSIDE
- * the service wrapper — duration-cap heal inside RPCs, the stage-unpublished
- * trigger, moderate_live — leave their provider inputs alive because only
- * Supabase state changed.
+ * the service wrapper — duration-cap heal inside RPCs, moderate_live — leave
+ * their provider inputs alive because only Supabase state changed.
  *
  * Ordering contract (same as endLiveSession): provider delete FIRST, pointer
  * release ONLY on provider-confirmed cleanup ("deleted" or HTTP 404 =

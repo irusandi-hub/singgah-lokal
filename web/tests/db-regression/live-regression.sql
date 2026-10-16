@@ -2,7 +2,7 @@
 -- DB REGRESSION SUITE — Live (MASTER_LIVE_POLICY_v1.0 / MASTER_LIVE_TECH_v1.0)
 -- Target: Supabase DEVELOPMENT project ONLY. NEVER production.
 --
--- Run AFTER migrations 0001..0012 are applied, via Supabase SQL Editor or:
+-- Run AFTER migrations 0001..0060 are applied, via Supabase SQL Editor or:
 --   psql "$SUPABASE_DEV_DB_URL" -f tests/db-regression/live-regression.sql
 --
 -- Design (PostgreSQL-valid harness):
@@ -356,7 +356,8 @@ end;
 $func$;
 
 -- ===========================================================================
--- CHECK 4 — Caps: per-Place 1, global 5, stage must be published (tech §7)
+-- CHECK 4 — Caps: per-Place 1, global 5, and NO stage requirement (tech §7;
+-- decoupled 2026-10-16: a draft/unpublished Process changes nothing)
 -- ===========================================================================
 create or replace function _live_regression.check_caps()
 returns void
@@ -374,10 +375,23 @@ begin
     format('select public.start_live_session(%L, %L, %L, %L)', f.place_id, f.stage_id, 'reg_cap_2', 'input-2'),
     'P0001', 'live_place_busy%');
 
-  -- Stage must be published.
-  perform _live_regression.expect_error(
-    format('select public.start_live_session(%L, %L, %L, %L)', f.place_id, f.draft_stage_id, 'reg_cap_draft', 'input-draft'),
-    'P0001', 'live_stage_not_published%');
+  -- A DRAFT Process is not a blocker: the stage argument is legacy-only and is
+  -- ignored entirely. End the first session as its owner, then start again
+  -- while passing a DRAFT stage id — it must succeed and store no stage.
+  perform _live_regression.reset_actor();
+  update public.live_sessions
+     set status = 'ended', ended_at = now(), ended_reason = 'producer_ended', end_note = 'check_caps cleanup'
+   where place_id = f.place_id and status <> 'ended';
+  perform _live_regression.act_as(f.user_a);
+  perform _live_regression.expect_ok(format(
+    'select public.start_live_session(%L, %L, %L, %L)', f.place_id, f.draft_stage_id, 'reg_cap_draft', 'input-draft'));
+  if exists (
+    select 1 from public.live_sessions
+     where idempotency_key = 'reg_cap_draft' and stage_id is not null
+  ) then
+    raise exception 'assertion_failed: a decoupled start must store NO stage';
+  end if;
+  perform _live_regression.reset_actor();
 
   -- Global: 5 concurrent lives allowed, the 6th denied. The fixture Place
   -- session above is live #1; build 4 more independent producer/place/stage
@@ -522,29 +536,61 @@ end;
 $func$;
 
 -- ===========================================================================
--- CHECK 7 — Stage auto-end (policy §12.1 item 4): pause/archive ends the Live.
+-- CHECK 7 — DECOUPLED (2026-10-16): informational Process changes must NOT
+-- end or block a Live. Pausing/archiving the Process leaves the session live,
+-- the removed end reason is refused, and the guard trigger no longer exists.
 -- ===========================================================================
-create or replace function _live_regression.check_stage_auto_end()
+create or replace function _live_regression.check_stage_decoupled()
 returns void
 language plpgsql
 as $func$
-declare f record; v_sid text; v_reason text; v_status text;
+declare f record; v_sid text; v_reason text; v_status text; v_stage_id text;
 begin
   select * into f from _live_regression.fixture();
   perform _live_regression.act_as(f.user_a);
+  -- The legacy stage argument is omitted (named notation): the DEFAULT applies.
   v_sid := coalesce(_live_regression.expect_json(format(
-    'select public.start_live_session(%L, %L, %L, %L)', f.place_id, f.stage_id, 'reg_key_stage', 'input-stage'))->>'sessionId', '');
+    'select public.start_live_session(p_place_id => %L, p_idempotency_key => %L, p_live_input_id => %L)',
+    f.place_id, 'reg_key_stage', 'input-stage'))->>'sessionId', '');
   perform _live_regression.reset_actor();
 
-  -- Unpublish the stage mid-live (as DBA in dev; the trigger must fire).
+  select stage_id into v_stage_id from public.live_sessions where id = v_sid;
+  if v_stage_id is not null then
+    raise exception 'assertion_failed: a decoupled start stored a stage (%)', v_stage_id;
+  end if;
+
+  -- The coupling itself must be gone: no guard trigger, no guard function, no
+  -- same-Place stage FK.
+  if exists (select 1 from pg_trigger where tgname = 'live_stage_guard_trigger') then
+    raise exception 'assertion_failed: the stage guard trigger is still installed';
+  end if;
+  if exists (select 1 from pg_proc where proname = 'live_stage_guard') then
+    raise exception 'assertion_failed: the stage guard function is still installed';
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'live_sessions_stage_place_fkey') then
+    raise exception 'assertion_failed: the Live↔stage composite FK is still installed';
+  end if;
+
+  -- Unpublish the Process mid-live (as DBA in dev): nothing may happen.
   update public.production_stages set status = 'paused' where id = f.stage_id;
 
   select status, ended_reason into v_status, v_reason
   from public.live_sessions where id = v_sid;
-  if v_status is distinct from 'ended' or v_reason is distinct from 'source_stage_unpublished' then
-    raise exception 'assertion_failed: stage guard did not auto-end (status=%, reason=%)', v_status, v_reason;
+  if v_status is distinct from 'live' or v_reason is not null then
+    raise exception 'assertion_failed: an informational change ended a Live (status=%, reason=%)', v_status, v_reason;
   end if;
-  perform _live_regression.record('stage_auto_end', true);
+
+  -- The legacy end reason is no longer producible, while remaining valid data
+  -- for historical rows.
+  perform _live_regression.act_as(f.user_a);
+  perform _live_regression.expect_error(
+    format('select public.end_live_session(%L, %L, %L, %L)', v_sid, 'reg_key_stage_end', 'source_stage_unpublished', null),
+    'P0001', 'live_end_reason_invalid%');
+  perform _live_regression.expect_ok(
+    format('select public.end_live_session(%L, %L, %L, %L)', v_sid, 'reg_key_stage_end_ok', 'producer_ended', null));
+  perform _live_regression.reset_actor();
+
+  perform _live_regression.record('stage_decoupled', true);
 end;
 $func$;
 
@@ -687,11 +733,11 @@ rollback to sp_check_7;
 savepoint sp_check_8;
 do $run$
 begin
-  perform _live_regression.check_stage_auto_end();
-  raise notice 'LIVE-REGRESSION PASS — stage_auto_end';
+  perform _live_regression.check_stage_decoupled();
+  raise notice 'LIVE-REGRESSION PASS — stage_decoupled';
 exception when others then
   perform set_config('_live_regression.failed', (coalesce(nullif(current_setting('_live_regression.failed', true), ''), '0')::int + 1)::text, false);
-  raise notice 'LIVE-REGRESSION FAIL — stage_auto_end: %', sqlerrm;
+  raise notice 'LIVE-REGRESSION FAIL — stage_decoupled: %', sqlerrm;
 end
 $run$;
 rollback to sp_check_8;

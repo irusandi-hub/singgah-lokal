@@ -18,7 +18,13 @@ type SessionRow = {
   id: string;
   place_id: string;
   producer_id: string;
-  stage_id: string;
+  /**
+   * LEGACY, nullable, informational only (product decision 2026-10-16): a
+   * session created after the decoupling carries no stage reference, and a
+   * historical session keeps whatever it recorded. Nothing in Live reads this
+   * value for authorization, eligibility, gating, or lifecycle.
+   */
+  stage_id: string | null;
   status: string;
   started_at: string;
   ended_at: string | null;
@@ -45,14 +51,18 @@ export type StartLiveSessionResult = {
 
 /**
  * Start a Live session (tech §4.2, amended §5 for WebRTC/WHIP): fail-closed
- * order is membership -> eligibility -> published stage -> caps -> provider
- * input -> single-transaction RPC commit. Provider failure persists nothing.
- * The WHIP publish URL is issued ONLY in the Producer's own start response —
- * never persisted, never logged (secret-bearing per provider docs).
+ * order is authority -> eligibility -> caps -> provider input -> single-
+ * transaction RPC commit. Provider failure persists nothing. The WHIP publish
+ * URL is issued ONLY in the Producer's own start response — never persisted,
+ * never logged (secret-bearing per provider docs).
+ *
+ * DECOUPLED from Kegiatan / Kelola Proses (product decision 2026-10-16): there
+ * is no published-stage precondition and no stage argument in the application
+ * surface. The RPC's legacy `p_stage_id` parameter is accepted for backward
+ * compatibility and is sent as NULL — a Live never requires a Production Stage.
  */
 export async function startLiveSession(params: {
   placeId: string;
-  stageId: string;
   idempotencyKey: string;
   actorKey: string;
 }): Promise<StartLiveSessionResult> {
@@ -67,7 +77,9 @@ export async function startLiveSession(params: {
 
   const { data, error } = await supabase.rpc("start_live_session", {
     p_place_id: params.placeId,
-    p_stage_id: params.stageId,
+    // Legacy parameter: the migration keeps it (with a DEFAULT) so existing
+    // callers and grants stay valid, and ignores it. NULL means "no stage".
+    p_stage_id: null,
     p_idempotency_key: params.idempotencyKey,
     p_live_input_id: liveInput.liveInputId,
   });
@@ -79,7 +91,6 @@ export async function startLiveSession(params: {
     if (String(error.message).includes("live_cap_denied")) throw new LiveValidationError("live_cap_denied");
     if (String(error.message).includes("live_place_busy")) throw new LiveValidationError("live_place_busy");
     if (String(error.message).includes("live_not_eligible")) throw new LiveValidationError("live_not_eligible");
-    if (String(error.message).includes("live_stage_not_published")) throw new LiveValidationError("live_stage_not_published");
     if (String(error.message).includes("producer_authorization_required")) throw new LiveValidationError("producer_authorization_required");
     if (String(error.message).includes("live_start_busy")) throw new LiveValidationError("live_start_busy");
     throw new LiveValidationError("live_start_failed");
@@ -244,7 +255,7 @@ async function recordAdmissionDenied(
  * This wrapper therefore triggers the provider revocation using the capability
  * the code ACTUALLY has (Cloudflare live-input delete, via the ended-input
  * sweep), never an assumed provider feature. A production end / duration cap /
- * stage unpublish is still covered by the status-route sweep.
+ * moderation end is still covered by the status-route sweep.
  */
 export async function moderateLiveSession(params: {
   sessionId: string;
