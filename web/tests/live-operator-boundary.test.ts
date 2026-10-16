@@ -489,6 +489,98 @@ test("RLS confines live_operators and live_operator_invitations to self or the m
   await db.close();
 });
 
+test("the operator reads ONLY its assigned Place's published stages (the console's stage list)", async () => {
+  const db = await createDb();
+  await seedWorld(db);
+  // PLACE_A is NOT published (the operator read policy is what makes it visible
+  // to its operator at all); PLACE_B is published, so its published stage is in
+  // the PUBLIC set every visitor already sees. PLACE_A also carries an
+  // unpublished stage in each locked non-live status.
+  await db.exec(`
+    update public.places set publication_status = 'draft' where id = '${PLACE_A}';
+    update public.places set publication_status = 'published' where id = '${PLACE_B}';
+    insert into public.production_stages (id, place_id, title, description, sort_order, status) values
+      ('stage-boundary-a-draft', '${PLACE_A}', 'Draf A', 'x', 1, 'draft'),
+      ('stage-boundary-a-paused', '${PLACE_A}', 'Paused A', 'x', 2, 'paused')
+    on conflict (id) do nothing;
+  `);
+  const invitationId = await delegate(db, MANAGER, PLACE_A, "operator@example.com", OPERATOR);
+
+  /** The EXACT read the console performs: published stages of one Place. */
+  const consoleStageRead = async (userId: string) =>
+    (
+      await callAs(
+        db,
+        userId,
+        `select id, status from public.production_stages
+          where place_id = '${PLACE_A}' and status = 'published'
+          order by sort_order, id`,
+      )
+    ).map((row) => String(row.id));
+
+  assert.deepEqual(
+    await consoleStageRead(OPERATOR),
+    [STAGE_A],
+    "the console receives the assigned Place's published stage",
+  );
+
+  // The Place row itself is readable for the operator while it is a draft (no
+  // membership, so only the operator policy can grant this) ...
+  assert.equal(
+    (await callAs(db, OPERATOR, `select id from public.places where id = '${PLACE_A}'`)).length,
+    1,
+    "the operator can read the Place it is assigned to, even unpublished",
+  );
+  // ... and NOT for an account with no authority over it.
+  assert.equal(
+    (await callAs(db, INTRUDER, `select id from public.places where id = '${PLACE_A}'`)).length,
+    0,
+  );
+
+  // Whatever the operator can read beyond the public set is EXACTLY the assigned
+  // Place's published stages: no draft, no paused, no other Place's extra row.
+  const operatorVisible = new Set(
+    (await callAs(db, OPERATOR, `select id from public.production_stages`)).map((row) => String(row.id)),
+  );
+  const publicVisible = new Set(
+    (await callAs(db, INTRUDER, `select id from public.production_stages`)).map((row) => String(row.id)),
+  );
+  assert.deepEqual([...publicVisible], [STAGE_B], "the public set is the published Place's stage only");
+  assert.deepEqual(
+    [...operatorVisible].filter((id) => !publicVisible.has(id)),
+    [STAGE_A],
+    "the operator's extra visibility is the assigned Place's published stage, nothing more",
+  );
+  for (const hidden of ["stage-boundary-a-draft", "stage-boundary-a-paused"]) {
+    assert.equal(operatorVisible.has(hidden), false, `${hidden} must stay invisible to the operator`);
+  }
+
+  // The owner/manager's own authority is untouched: it still sees EVERY stage of
+  // its Place, published or not.
+  assert.deepEqual(
+    (
+      await callAs(
+        db,
+        MANAGER,
+        `select id from public.production_stages where place_id = '${PLACE_A}' order by sort_order, id`,
+      )
+    ).map((row) => String(row.id)),
+    [STAGE_A, "stage-boundary-a-draft", "stage-boundary-a-paused"],
+    "a Pengelola keeps full visibility of its own Place's stages",
+  );
+
+  // Revocation removes the read on the very next query (no cached authority).
+  await callAs(db, MANAGER, `select public.revoke_live_operator_invitation('${invitationId}'::uuid)`);
+  assert.deepEqual(await consoleStageRead(OPERATOR), [], "a revoked assignment reads no stage");
+  assert.equal(
+    (await callAs(db, OPERATOR, `select id from public.places where id = '${PLACE_A}'`)).length,
+    0,
+    "a revoked assignment reads no Place either",
+  );
+
+  await db.close();
+});
+
 test("grants and EXECUTE: no anon access, no client write policy, predicate stays internal", async () => {
   const db = await createDb();
   await seedWorld(db);
