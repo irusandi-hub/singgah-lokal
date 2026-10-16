@@ -143,10 +143,15 @@ export type AdminPlaceMembershipRow = {
   userEmail: string | null;
 };
 
+/**
+ * `stageId` is historical/none: Live is decoupled from Kelola Proses
+ * (2026-10-16), so a session started now carries no Process reference and a
+ * legacy session keeps whatever it recorded. Never rendered as "null".
+ */
 export type AdminPlaceLiveSessionRow = {
   id: string;
   status: string;
-  stageId: string;
+  stageId: string | null;
   startedAt: string;
   endedAt: string | null;
   endedReason: string | null;
@@ -254,7 +259,7 @@ export async function getAdminPlaceDetail(placeId: string): Promise<AdminPlaceDe
     liveSessions: (liveSessions.data ?? []).map((row) => ({
       id: String(row.id),
       status: String(row.status),
-      stageId: String(row.stage_id),
+      stageId: row.stage_id === null ? null : String(row.stage_id),
       startedAt: String(row.started_at),
       endedAt: row.ended_at === null ? null : String(row.ended_at),
       endedReason: row.ended_reason === null ? null : String(row.ended_reason),

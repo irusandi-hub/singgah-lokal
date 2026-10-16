@@ -10,6 +10,8 @@ Definitive reference set for long-term implementation.
 6. MASTER AUTHORITY & ROLE STRUCTURE v1.0 — `MASTER_AUTHORITY_STRUCTURE_v1.0.md`
 7. MASTER DEVELOPER AUTHORITY & DUMMY PLACE v1.0 — `MASTER_DEVELOPER_AUTHORITY_DUMMY_PLACE_v1.0.md`
 8. MASTER DATA RETENTION & CLAIM ARCHIVE POLICY v1.0 — `MASTER_DATA_RETENTION_ARCHIVE_POLICY_v1.0.md`
+9. MASTER LIVE POLICY v1.0 — `MASTER_LIVE_POLICY_v1.0.md`
+10. MASTER LIVE TECH v1.0 — `MASTER_LIVE_TECH_v1.0.md`
 
 MASTER AUTHORITY & ROLE STRUCTURE v1.0 (`MASTER_AUTHORITY_STRUCTURE_v1.0.md`) is an **official Master** that must be used together with the other Masters. It is the source of truth for the Creator vs Platform Admin separation and the locked authority hierarchy: CREATOR / OWNER / DEVELOPER (highest authority, program + all infrastructure) → PLATFORM ADMIN (operational authority inside the app) → PRODUCER (own resources only) → USER (no operational authority).
 
@@ -34,6 +36,34 @@ masquerade as a real Producer. Any change to the operation set, the scope limit,
 guarantees, or the DEV-only boundary requires a product decision, a new Master version, and an
 update to this index.
 
+MASTER LIVE POLICY v1.0 (`MASTER_LIVE_POLICY_v1.0.md`) and MASTER LIVE TECH v1.0
+(`MASTER_LIVE_TECH_v1.0.md`) are the two **official Masters** for the Live feature and must be read
+together (policy = rules, tech = architecture of record). They cover the Live definition, the viewer
+and Producer gates, the eligibility paths, camera/production rules, safety/content/privacy
+prohibitions, moderation/enforcement and fail-closed behaviour, the locked capacity/duration limits,
+recording-off/monetization-off, the streaming-provider boundary, and the Live technical design
+(schema, RLS, security-definer RPCs, provider boundary, Realtime, and the TUNABLE/BLOCKED registry).
+Their decision history is recorded as dated amendment sections inside each file (policy §12.1–§12.6,
+tech §14); a locked rule is superseded by a NEW dated amendment with the old text retained, never by a
+silent rewrite, and the amendment is logged here.
+
+**Recorded amendment — 2026-10-16: Live is decoupled from Kegiatan / Kelola Proses (policy §12.6,
+tech §14).** Kegiatan, Kelola Proses, and Live are independent features. Kegiatan and Kelola Proses
+are **informational** tools for a Place's owner / authorized manager; Live is a **Place-associated**
+capability. Live requires no Production Story Process/stage to be created, selected, or published, and
+informational changes (create / update / publish / pause / archive / delete) never block starting a
+Live and never end an active Live. This **supersedes** policy §12.1 item 4 (the strict-MVP Process
+linkage with its `source_stage_unpublished` auto-end) and the matching technical clauses (tech §1.2,
+§4.2 #3, §4.5, §8, §9). Everything else in both Masters stays locked and enforced: Place
+ownership/manager authority, delegated Operator Live permissions, email/age/account eligibility, the
+global (5) and per-Place (1) Live caps, 100 concurrent viewers, the 60-minute cap, fail-closed
+gates, moderation/reports/enforcement, server-side-only credentials, the audit trail, idempotent
+start/end, and Supabase as the canonical Live state. Implementation of record: migration
+`web/supabase/migrations/0060_live_decouple_production_stage.sql`; verification:
+`web/tests/live-decouple-production-stage.test.ts`. The next reissue of each Live Master must fold
+these amendment sections into its body text; until then the amendment sections are authoritative for
+the decoupling.
+
 LOCKED principles:
 - Authority hierarchy is LOCKED: CREATOR / OWNER / DEVELOPER hold the highest authority over the program and all infrastructure; PLATFORM ADMIN holds operational authority inside the app; PRODUCER is limited to their own resources; USER has no operational authority. New permissions must preserve this hierarchy unless a new Master version says otherwise.
 - Infrastructure credentials/secrets are never delivered through the application to Admin, Producer, or User.
@@ -51,6 +81,7 @@ LOCKED principles:
 - Ticket/price/promotion are informational Producer data.
 - AI generation cost must be controlled per registered Producer account/email; platform must not carry uncontrolled Producer AI generation cost.
 - AI content is draft until Producer approval; AI may not invent facts.
+- Live is a Place-associated capability: Kegiatan and Kelola Proses are informational tools and are never a prerequisite for Live, and informational content changes never control Live availability or lifecycle (policy §12.6, 2026-10-16).
 - “Dari Sini” is dynamic production storytelling.
 - SINGGAH leads to Visit Intent, not checkout/payment.
 - Claim archive and claim evidence retention is exactly 30 days (internal operational traceability only); change requires a new master version (`MASTER_DATA_RETENTION_ARCHIVE_POLICY_v1.0.md`).

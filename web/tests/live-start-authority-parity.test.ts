@@ -290,7 +290,12 @@ function startRequest(body: unknown): Request {
   });
 }
 
-const validBody = { placeId: PLACE, stageId: "stage-1", idempotencyKey: "key-1" };
+/**
+ * The start contract carries the Place and the idempotency key ONLY (product
+ * decision 2026-10-16): there is no stage in the request body, so the same
+ * valid body is used for both endpoints below.
+ */
+const validBody = { placeId: PLACE, idempotencyKey: "key-1" };
 
 async function bothEndpoints(input: unknown): Promise<{
   start: { status: number; body: unknown };
@@ -448,12 +453,22 @@ test("A-07: the two start endpoints answer every refusal identically", async () 
   assert.deepEqual(anonymous.start.body, anonymous.producer.body);
 
   // Malformed input → the same validation answer on both (no client reached).
+  // A body WITHOUT a stage is VALID now; only the Place and the idempotency
+  // key are required.
   armScenario(OUTSIDER);
   const malformed = await bothEndpoints({ placeId: PLACE });
   assert.equal(malformed.start.status, 400);
   assert.equal(malformed.producer.status, 400);
-  assert.deepEqual(malformed.start.body, { error: "placeId_stage_idempotency_required" });
+  assert.deepEqual(malformed.start.body, { error: "placeId_idempotency_required" });
   assert.deepEqual(malformed.start, malformed.producer);
+
+  // The formerly required stage field is not a requirement anymore: a body
+  // with only { placeId, idempotencyKey } reaches the authority gate (403 for
+  // this editor) instead of failing validation (400).
+  armScenario(EDITOR);
+  const stageFree = await bothEndpoints(validBody);
+  assert.equal(stageFree.start.status, 403);
+  assert.deepEqual(stageFree.start, stageFree.producer);
 
   // Anonymous AND malformed: still identical between the two endpoints.
   armScenario(SIGNED_OUT);

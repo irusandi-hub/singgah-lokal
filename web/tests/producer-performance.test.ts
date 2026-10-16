@@ -9,7 +9,9 @@ import { readFileSync } from "node:fs";
  *
  * 1. SEQUENTIAL SERVER LOADS. `/producer` resolved its Places one membership
  *    at a time inside an `await` loop, and `/producer/live` did TWO sequential
- *    awaits per membership. Both are now ONE parallel batch. The batch must
+ *    awaits per membership (the Place and its published Process list — that
+ *    second read is gone since the 2026-10-16 Live decoupling). Both are now
+ *    ONE parallel batch. The batch must
  *    preserve the previous order and null filtering, and must not touch the
  *    authorization predicate, the repository behaviour, or the schema.
  * 2. NESTED SHELLS. The dashboard page wrapped the in-place Place editor in
@@ -82,17 +84,23 @@ test("/producer/live resolves every authorized Place in ONE parallel batch", () 
   assert.equal(
     /for \(const membership of[\s\S]{0,320}?await /.test(livePage),
     false,
-    "the per-membership Place/stage reads must not be sequential",
+    "the per-membership Place reads must not be sequential",
   );
-  // Both reads still happen per Place, and the order + null filtering match the
-  // previous sequential loop.
+  // ONE read per Place now (decoupled 2026-10-16: Live needs no Production
+  // Stage), and the order + null filtering match the previous loop.
   assert.match(livePage, /placeRepository\.getById\(membership\.place_id\)/);
-  assert.match(livePage, /stageRepository\.listForPlace\(membership\.place_id, true\)/);
   assert.match(livePage, /resolved\.filter\(\(place\): place is LivePlace => place !== null\)/);
-  // Authorization is untouched: still owner/manager memberships, still
-  // formatted published stages only.
+  // The stage read is GONE from the Live page: informational content is not a
+  // Live prerequisite and must not be fetched for it.
+  assert.equal(livePage.includes("listForPlace"), false, "no Production Stage read for Live");
+  assert.equal(
+    livePage.includes("getServerProductionStoryRepository"),
+    false,
+    "the Live page must not depend on the Production-Story repository",
+  );
+  // Authorization is untouched: still owner/manager memberships (plus the
+  // account's own active operator assignments).
   assert.match(livePage, /membership\.role === "owner" \|\| membership\.role === "manager"/);
-  assert.match(livePage, /filter\(\(stage\) => stage\.status === "published"\)/);
 });
 
 test("the public Live discovery endpoint resolves its rows concurrently", () => {

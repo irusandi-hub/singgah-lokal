@@ -1,40 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type StageOption = {
-  id: string;
-  title: string;
-  sortOrder: number;
-};
-
 /**
- * The EFFECTIVE Production Stage selection for the active Place, i.e. the ONE
- * value the console displays and gates on:
- *
- *  - the Producer's own choice while it still belongs to the Place's eligible
- *    (published) stages, because the Place may have changed under it; otherwise
- *  - the FIRST eligible stage, which is what the select renders as its value;
- *    otherwise
- *  - no stage at all, which is the only state that may block progression.
- *
- * Deliberately pure and exported: the console's step-1 gate is a value read off
- * real props, so the rule ("an eligible published stage means the Producer can
- * proceed; an empty eligible list must keep the gate closed") is provable in
- * plain Node, with no extra selection state to keep in sync.
+ * Step 1 offers exactly the Places this account may operate Live for (owner /
+ * manager memberships plus its own active Operator Live assignments, resolved
+ * server-side in the page). There is no Process/stage step: Kegiatan and Kelola
+ * Proses are informational Producer tools, and Live is a Place-associated
+ * capability that requires no stage to be created, selected, or published.
  */
-export function resolveEffectiveStageId(
-  stages: readonly { id: string }[],
-  selectedStageId: string,
-): string {
-  return stages.some((stage) => stage.id === selectedStageId)
-    ? selectedStageId
-    : stages[0]?.id ?? "";
-}
-
 type Props = {
-  places: Array<{ id: string; name: string; stages: StageOption[] }>;
+  places: Array<{ id: string; name: string }>;
 };
 
 type CameraCheck = {
@@ -77,7 +54,6 @@ function nextEndIdempotencyKey(): string {
 export function LiveConsole({ places }: Props) {
   const router = useRouter();
   const [placeId, setPlaceId] = useState(places[0]?.id ?? "");
-  const [stageId, setStageId] = useState("");
   const [step, setStep] = useState<"choose" | "camera" | "preview" | "live">("choose");
   const [camera, setCamera] = useState<CameraCheck | null>(null);
   const [attested, setAttested] = useState(false);
@@ -92,15 +68,6 @@ export function LiveConsole({ places }: Props) {
   const broadcastRef = useRef<Broadcast | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const endIdempotencyKeyRef = useRef<string | null>(null);
-
-  const stages = useMemo(
-    () => places.find((place) => place.id === placeId)?.stages ?? [],
-    [places, placeId],
-  );
-
-  // Keep the stage selection valid when Place/Place stages change without
-  // a setState-in-effect (lint rule react-hooks/set-state-in-effect).
-  const effectiveStageId = resolveEffectiveStageId(stages, stageId);
 
   // Duration guard display: the locked 60-minute cap is enforced server-side
   // (self-healing cap); the console mirrors it so the Producer sees time left.
@@ -160,7 +127,7 @@ export function LiveConsole({ places }: Props) {
   }
 
   async function startLive() {
-    if (!placeId || !effectiveStageId) return;
+    if (!placeId) return;
     setBusy(true);
     setError(null);
     const idempotencyKey = nextIdempotencyKey();
@@ -172,7 +139,7 @@ export function LiveConsole({ places }: Props) {
       const response = await fetch("/api/live/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ placeId, stageId: effectiveStageId, idempotencyKey }),
+        body: JSON.stringify({ placeId, idempotencyKey }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
         sessionId?: string;
@@ -315,7 +282,7 @@ export function LiveConsole({ places }: Props) {
       {step === "choose" && (
         <section className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
           <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent">Langkah 1</p>
-          <h2 className="mt-1 text-xl font-semibold tracking-tight">Pilih Proses yang akan ditayangkan</h2>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">Pilih Tempat untuk Live</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">
               Tempat
@@ -331,29 +298,17 @@ export function LiveConsole({ places }: Props) {
                 ))}
               </select>
             </label>
-            <label className="text-xs font-bold uppercase tracking-[0.14em] text-black/45">
-              Proses (harus Tayang)
-              <select
-                value={effectiveStageId}
-                onChange={(event) => setStageId(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-black/10 bg-brand-cream px-3 py-2.5 text-sm font-semibold text-brand-ink"
-              >
-                {stages.length === 0 && <option value="">Tidak ada Proses yang Tayang</option>}
-                {stages.map((stage) => (
-                  <option key={stage.id} value={stage.id}>
-                    Tahap {stage.sortOrder + 1} • {stage.title}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
-          {/* The gate is the EFFECTIVE selection, not the raw override state:
-              `stageId` stays "" until the Producer picks an option, so keying
-              the button on it left a valid, already-displayed stage (the
-              select's own value) unable to proceed — and with a single
-              eligible stage there is no other option to pick. */}
+          {/* No Process/stage step exists: Live is a Place-associated capability.
+              Kegiatan dan Kelola Proses are informational, so creating,
+              publishing, pausing or archiving them never gates this button and
+              never ends a running Live. */}
+          <p className="mt-3 text-xs text-black/55">
+            Live tidak memerlukan Proses yang Tayang. Kegiatan dan Kelola Proses
+            bersifat informasional dan tidak mengatur ketersediaan Live.
+          </p>
           <button
-            disabled={!effectiveStageId}
+            disabled={!placeId}
             onClick={() => {
               setStep("camera");
               void runCameraCheck();
@@ -452,8 +407,8 @@ export function LiveConsole({ places }: Props) {
           </div>
           <h2 className="mt-1 text-xl font-semibold tracking-tight">Live sedang berjalan</h2>
           <p className="mt-2 text-sm text-black/65">
-            Penonton maksimal 100 secara bersamaan • durasi maksimal 60 menit • Live berakhir otomatis bila
-            Proses ditarik dari status Tayang.
+            Penonton maksimal 100 secara bersamaan • durasi maksimal 60 menit • Live berakhir otomatis
+            pada batas 60 menit atau melalui moderasi.
           </p>
           <p className="mt-2 text-xs font-bold text-live">
             {publishing
@@ -490,8 +445,6 @@ function startErrorMessage(error?: string): string {
       return "Tempat ini sudah memiliki Live aktif (maksimal 1).";
     case "live_not_eligible":
       return "Tempat/Pengelola ini belum memenuhi syarat Live.";
-    case "live_stage_not_published":
-      return "Proses harus berstatus Tayang untuk ditayangkan.";
     case "producer_authorization_required":
       return "Kamu tidak memiliki akses Pengelola untuk Tempat ini.";
     case "email_verification_required":

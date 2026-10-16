@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
 type LiveRow = {
   id: string;
   place_id: string;
-  stage_id: string;
+  /** Legacy/none: Live is decoupled from Kelola Proses (2026-10-16). */
+  stage_id: string | null;
   started_at: string;
   viewer_peak: number;
 };
@@ -30,7 +31,8 @@ type LiveDiscoveryEntry = {
   placeId: string;
   placeName: string;
   placeArea: string;
-  stageId: string;
+  /** null when the session has no Process reference — never invented. */
+  stageId: string | null;
   processTitle: string | null;
   startedAt: string;
   viewerPeak: number;
@@ -84,7 +86,12 @@ export async function GET() {
       activeRows.map(async (row): Promise<LiveDiscoveryEntry | null> => {
         const place = await placeRepository.getPublishedPlaceById(row.place_id);
         if (!place) return null; // unpublished Place: never shown (fail-closed visibility)
-        const stage = await stageRepository.getById(row.place_id, row.stage_id, true);
+        // A session without a Process reference reads no stage at all: Live is
+        // a Place-associated capability and the Process is informational, so
+        // its absence is shown as "no Process" rather than hidden or faked.
+        const stage = row.stage_id
+          ? await stageRepository.getById(row.place_id, row.stage_id, true)
+          : undefined;
         return {
           sessionId: row.id,
           placeId: place.id,

@@ -42,7 +42,12 @@ export default async function LiveViewerPage({
     notFound();
   }
 
-  const stage = await (await getServerProductionStoryRepository()).getById(session.place_id, session.stage_id, true);
+  // The Process reference is OPTIONAL (Live is decoupled from Kelola Proses);
+  // when the session has none, the surface shows its generic label instead of
+  // inventing a Process.
+  const stage = session.stage_id
+    ? await (await getServerProductionStoryRepository()).getById(session.place_id, session.stage_id, true)
+    : undefined;
   const isEnded = status === "ended";
 
   return (

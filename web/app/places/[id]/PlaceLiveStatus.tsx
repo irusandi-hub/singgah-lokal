@@ -40,7 +40,11 @@ export async function PlaceLiveStatus({ placeId }: { placeId: string }) {
   }
 
   if (session) {
-    const stage = await (await getServerProductionStoryRepository()).getById(placeId, session.stage_id, true);
+    // Optional Process reference (Live is decoupled from Kelola Proses): a
+    // session without one shows the generic label — never an invented Process.
+    const stage = session.stage_id
+      ? await (await getServerProductionStoryRepository()).getById(placeId, session.stage_id, true)
+      : undefined;
 
     return (
       <section className="mt-8 overflow-hidden rounded-2xl border border-live/30 bg-live/5" aria-label="Status Live Tempat">

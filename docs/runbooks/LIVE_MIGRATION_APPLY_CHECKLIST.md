@@ -2,7 +2,8 @@
 
 Scope: applying the Live migrations (`0008_live_sessions.sql`, then
 `0047_account_center_live_operator.sql`, `0048_live_operator_invitations.sql`,
-`0049_live_operator_authority.sql`, then `0050_profile_phone_verification.sql`)
+`0049_live_operator_authority.sql`, then `0050_profile_phone_verification.sql`, and
+finally `0060_live_decouple_production_stage.sql` — see §13)
 to the **Supabase DEVELOPMENT project only**.
 Never run any step of this checklist against production. No Cloudflare configuration is part of this checklist (B4 stays a separate, explicit step).
 
@@ -61,7 +62,8 @@ select to_regclass('public.live_audit');        -- not null
 ## 4. Regression suite (development only)
 
 - [ ] Run `web/tests/db-regression/live-regression.sql` on the same DEVELOPMENT target. The file is wrapped in a single transaction and **rolls everything back** — it leaves no data behind and ends with `rollback;`.
-- [ ] Expected output ends with `LIVE REGRESSION SUITE: ALL CHECKS PASSED` and one `PASS` line per check (producer authorization, eligibility, start/end + idempotency, caps, B1 fail-closed admission, moderation, stage auto-end, RLS/privilege baseline).
+- [ ] Expected output ends with `LIVE REGRESSION SUITE: ALL CHECKS PASSED` and one `PASS` line per check (producer authorization, eligibility, start/end + idempotency, caps, B1 fail-closed admission, moderation, `stage_decoupled`, RLS/privilege baseline).
+  - `stage_decoupled` replaces the retired `stage_auto_end` check: it proves that pausing/archiving a Process does **NOT** end a Live, that a decoupled start stores no `stage_id`, that the guard trigger/function and the Live↔stage FK are gone, and that `source_stage_unpublished` is refused as a new end reason (policy §12.6 / tech §14, migration 0060).
 - [ ] Any `REGRESSION_FAIL` — stop, fix the migration in the repo, re-apply on a fresh target. Do not "fix forward" in the database.
 
 ## 5. Delegated Operator Live access — apply 0047, 0048, 0049 (DEV)
@@ -829,9 +831,95 @@ Automated equivalent (real Postgres engine via PGlite, plus the full
 - [ ] At 360 px and 390 px, the action button and the dialog are reachable with no
   horizontal overflow.
 
-## 13. Out of scope (explicitly NOT here)
+## 13. Decoupling Live from Kegiatan / Kelola Proses — apply `0060_live_decouple_production_stage.sql` (DEV)
+
+Scope: `web/supabase/migrations/0060_live_decouple_production_stage.sql`, enforcing the product
+decision recorded as `MASTER_LIVE_POLICY_v1.0.md` §12.6 and `MASTER_LIVE_TECH_v1.0.md` §14: Live is
+a Place-associated capability, Kegiatan / Kelola Proses are informational, and informational content
+changes can no longer gate or end a Live. **Apply to the Supabase DEVELOPMENT project only, as its own
+explicit step — never production, and never bundled into an application deploy.**
+
+### 13.1 Preconditions
+
+- [ ] Target re-confirmed: the Supabase **DEVELOPMENT** project ref.
+- [ ] `git pull` so the committed migration file is applied, never a local edit.
+- [ ] Migrations `0001…0059` are applied on the target (`0060` replaces two function bodies and
+alters one table that already exists).
+- [ ] A backup/snapshot of the DEVELOPMENT project exists (the migration alters a live table:
+it drops a NOT NULL and a FK, and re-states the `ended_reason` CHECK).
+
+### 13.2 Pre-apply checks (read-only)
+
+```sql
+-- The coupling that 0060 removes must still be present:
+select count(*) from pg_trigger where tgname = 'live_stage_guard_trigger';        -- expect 1
+select count(*) from pg_constraint where conname = 'live_sessions_stage_place_fkey'; -- expect 1
+select is_nullable from information_schema.columns
+ where table_schema = 'public' and table_name = 'live_sessions' and column_name = 'stage_id'; -- expect NO
+
+-- Rows whose reason the migration must NOT break (kept as legacy-valid):
+select count(*) from public.live_sessions where ended_reason = 'source_stage_unpublished';
+```
+
+### 13.3 Apply
+
+- [ ] Paste the whole `0060_live_decouple_production_stage.sql` file into the SQL Editor (or
+  `psql "$SUPABASE_DEV_DB_URL" -f web/supabase/migrations/0060_live_decouple_production_stage.sql`)
+  and run once. The file is wrapped in `begin … commit`.
+- [ ] Confirm success — no partial-commit errors. If anything fails: stop, capture the error, fix the
+  migration in the repo, and re-plan. **Do not** patch the database by hand.
+
+### 13.4 Post-apply verification
+
+```sql
+-- The coupling is gone:
+select count(*) from pg_trigger where tgname = 'live_stage_guard_trigger';            -- expect 0
+select count(*) from pg_proc where proname = 'live_stage_guard';                      -- expect 0
+select count(*) from pg_constraint where conname = 'live_sessions_stage_place_fkey'; -- expect 0
+select is_nullable from information_schema.columns
+ where table_schema = 'public' and table_name = 'live_sessions' and column_name = 'stage_id'; -- expect YES
+
+-- Historical rows survive unchanged and keep their recorded reason:
+select ended_reason, count(*) from public.live_sessions group by 1 order by 1;
+
+-- Nothing else about the Live posture moved:
+select has_function_privilege('anon', 'public.start_live_session(text,text,text,text)', 'EXECUTE');          -- expect false
+select has_function_privilege('authenticated', 'public.start_live_session(text,text,text,text)', 'EXECUTE'); -- expect true
+select has_function_privilege('anon', 'public.end_live_session(text,text,text,text)', 'EXECUTE');            -- expect false
+select has_function_privilege('authenticated', 'public.end_live_session(text,text,text,text)', 'EXECUTE');   -- expect true
+select prosecdef from pg_proc where proname in ('start_live_session','end_live_session'); -- expect true, true
+
+-- No Production Stage is left as a Live prerequisite or control surface:
+select count(*) from public.production_stages where status <> 'published';  -- informational data, unchanged
+```
+
+- [ ] `authenticated` still holds EXECUTE, `public`/`anon` still do not, and both RPCs are still
+  `SECURITY DEFINER` with `search_path = public`.
+- [ ] `live_sessions.stage_id` is nullable and existing rows are untouched.
+
+### 13.5 Behaviour verification on DEV
+
+- [ ] Run `web/tests/db-regression/live-regression.sql` again on the same target (one transaction,
+  ends with `rollback;`) — every check must still `PASS`, now including `stage_decoupled`.
+- [ ] Manual, on a Place with **zero** Production Stages (DEV): as an authorized owner/manager or an
+  active Operator Live, open `/producer/live`, confirm step 1 offers only the Place (no Process
+  selector, no "publish a Process first" message), pass the camera check, press `Mulai Live`, and
+  confirm the session starts and the Place's LIVE card/place page shows `LIVE SEKARANG`.
+- [ ] While it is live, create/update/publish/pause/archive a Process in Kelola Proses: the Live must
+  keep running, and its `live_sessions` row must keep `status = 'live'` with `ended_reason IS NULL`.
+- [ ] End the Live normally (`Akhiri Live`) — the row must end with `ended_reason = 'producer_ended'`.
+- [ ] Any failure — stop. Fix the cause in the repository (migration or application), re-apply on a
+  fresh target. Do not "fix forward" in the database, and never satisfy the decoupling by weakening
+  an authorization, eligibility, capacity, moderation, or audit control.
+
+Automated equivalent (real Postgres engine via PGlite, whole chain `0001…0060`):
+`web/tests/live-decouple-production-stage.test.ts` (20 tests), plus
+`web/tests/live-start-authority-parity.test.ts` and `web/tests/live-operator-management.test.ts`.
+
+## 14. Out of scope (explicitly NOT here)
 
 - No SMS/OTP provider and no vendor credential (B5 blocker stays open until the product owner supplies a provider; `PHONE_OTP_HASH_SECRET` / B6 is the matching server-side secret).
 - No Cloudflare account/credential configuration (B4 blocker stays open until the PO supplies `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` server-side).
 - No age-verification vendor or mechanism (B1 stays fail-closed DENY, Phase 2.1). The profile date of birth is NOT that mechanism: MASTER_LIVE_POLICY §12.1 item 3 states a self-declared date of birth does not satisfy the viewer gate.
 - No production apply, no production env changes, no scope/payment/monetization additions.
+- No application of `0060_live_decouple_production_stage.sql` as part of the change that introduced it: §13 is its own explicit, separately-authorized DEV step.

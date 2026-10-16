@@ -173,14 +173,16 @@ test("0057: dipakai setelah 0056, sekali, bersih, tanpa menyentuh 0046–0056", 
 
   // 7. Rantai tidak berubah: 0046–0056 tetap ada, tidak ada nomor yang bolong,
   // dan 0059 adalah nomor tertinggi (kebijakan 0058 + dokumen hukum 0059).
+  // 0060 (Live ↔ Kegiatan/Kelola Proses decoupling) ditambahkan setelah 0059
+  // dan TIDAK mengubah migrasi mana pun di atasnya.
   const numbers = ALL_MIGRATIONS.map(migrationNumber);
-  for (let n = 46; n <= 56; n += 1) {
+  for (let n = 46; n <= 59; n += 1) {
     assert.ok(numbers.includes(n), `migration ${n} must still exist`);
   }
   assert.equal(
     numbers[numbers.length - 1],
-    59,
-    "0059 is the highest migration number in the chain",
+    60,
+    "0060 is the highest migration number in the chain",
   );
   assert.deepEqual(
     numbers,

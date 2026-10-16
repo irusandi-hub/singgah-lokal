@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getServerProductionStoryRepository } from "@/lib/production-story-repository";
 import { getServerPlaceManagementRepository } from "@/lib/place-experience-repository";
 import ProducerSubNav from "@/components/producer-sub-nav";
 import { EmptyState, PageHeader, PageShell, backLinkClass } from "@/components/ui/kit";
@@ -9,11 +8,18 @@ import { LiveConsole } from "./LiveConsole";
 
 export const dynamic = "force-dynamic";
 
-/** The live console only needs a Place's identity and its published stages. */
+/**
+ * The live console needs a Place's identity and NOTHING else.
+ *
+ * Decoupled from Kegiatan / Kelola Proses (product decision 2026-10-16): the
+ * page no longer reads Production Stages at all, so a Place with zero stages —
+ * or with every stage paused/archived — is offered to the Producer exactly like
+ * any other. Informational content is a separate feature and never a Live
+ * prerequisite.
+ */
 type LivePlace = {
   id: string;
   name: string;
-  stages: Array<{ id: string; title: string; sortOrder: number }>;
 };
 
 export default async function ProducerLivePage() {
@@ -70,27 +76,20 @@ export default async function ProducerLivePage() {
     ...operatorOnly,
   ];
 
-  const stageRepository = await getServerProductionStoryRepository();
   const placeRepository = await getServerPlaceManagementRepository();
 
-  // PERFORMANCE (2026-10-08): each Place needs the same two independent reads
-  // (the Place record and its published stages). They run as ONE parallel
-  // batch per Place and all Places run concurrently, instead of two sequential
-  // awaits per Place. `Promise.all` preserves the memberships order and the
-  // same null filtering, so the console's Place list and stage order are
-  // identical. Authorization (owner/manager memberships plus the account's own
-  // active operator assignments) and both repositories are unchanged.
+  // PERFORMANCE (2026-10-08): one independent Place read per operable Place,
+  // all run concurrently. `Promise.all` preserves the memberships order and the
+  // same null filtering, so the console's Place list is identical.
+  // Authorization (owner/manager memberships plus the account's own active
+  // operator assignments) and the repository are unchanged.
   const resolved = await Promise.all(
     operable.map(async (membership): Promise<LivePlace | null> => {
       const place = await placeRepository.getById(membership.place_id);
       if (!place) return null;
-      const stages = await stageRepository.listForPlace(membership.place_id, true);
       return {
         id: place.id,
         name: place.name,
-        stages: stages
-          .filter((stage) => stage.status === "published")
-          .map((stage) => ({ id: stage.id, title: stage.title, sortOrder: stage.sortOrder })),
       };
     }),
   );

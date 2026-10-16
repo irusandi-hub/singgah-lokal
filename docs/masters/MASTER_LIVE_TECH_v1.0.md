@@ -3,6 +3,7 @@
 Status: **LOCKED** — technical master (Live Phase 2 architecture).
 Date: 2026-09-18
 Parent policy: `MASTER_LIVE_POLICY_v1.0.md` (all 7 §12.1 decisions RESOLVED).
+**Amended 2026-10-16 — §14:** Live is decoupled from Kegiatan / Kelola Proses (parent policy §12.6). Sections §1.2, §4.2, §4.5, §8, §9 and §12 below carry inline amendment notes; `stage_id` is no longer required and the stage auto-end hook is removed. The `TUNABLE`/`BLOCKED` registries of §10 are untouched.
 Scope: technical architecture for Live. This master defines **architecture only**; it authorizes no code, no migrations, and no UI work until a separate execution decision.
 
 Basis: `AGENTS.md` (fail-closed, server-side validation, Supabase-canonical, no cache-as-truth, idempotency), `MASTER_LIVE_POLICY_v1.0.md`, and existing repo patterns — Supabase migrations under `web/supabase/migrations/` (RLS-first, check constraints, security-definer RPCs with `search_path` fixed), `producer_memberships(user_id, place_id, role)` ownership, `production_stages` lifecycle, `visit_intents.idempotency_key` pattern.
@@ -40,12 +41,18 @@ One row per Live session. Canonical Live state (policy §8).
 id              text PK (generated server-side)
 place_id        text not null → places(id) on delete cascade
 producer_id     text not null → producers(id) on delete cascade
-stage_id        text not null → production_stages(id)   -- policy §12.1 item 4
+stage_id        text NULL → production_stages(id)   -- OPTIONAL, INFORMATIONAL ONLY (§14, 2026-10-16)
+  -- nullable since 0060; historical rows keep the Process they recorded, new
+  -- sessions record none, and no Live rule reads this value
 status          text not null check (status in ('scheduled','live','ended'))
   -- 'scheduled' reserved for Phase 3 scheduled Live; Phase 2 uses 'live' on creation
 live_input_id   text null   -- Cloudflare Stream live input UID (server-side only)
 created_at, started_at, ended_at timestamptz
 ended_reason    text null check (in ('producer_ended','duration_cap','source_stage_unpublished','moderation'))
+  -- ACTIVE reasons: producer_ended / duration_cap / moderation.
+  -- 'source_stage_unpublished' is LEGACY-ONLY since §14 (kept so historical
+  -- rows stay valid/auditable; no longer produced, refusing it raises
+  -- live_end_reason_invalid)
 end_note        text null
 idempotency_key text not null unique  -- start RPC replay guard (pattern: visit_intents.idempotency_key)
 viewer_peak     integer not null default 0 check (viewer_peak between 0 and 100)
@@ -53,7 +60,7 @@ audit...        -- no columns; audit lives in live_audit
 ```
 
 - Check constraint: a Place may hold **at most one session whose `status <> 'ended'`** — partial unique index `on live_sessions (place_id) where status <> 'ended'` (per-Place cap = 1, policy §6).
-- **Process is the subject** (policy §1): `stage_id` is NOT NULL; start RPC validates stage `published` + Place ownership via `producer_memberships`.
+- **Process is the subject** (policy §1) — *amended §14 (2026-10-16)*: the Process is the **real activity at the Place during the broadcast**, and it is **no longer a database reference**. `stage_id` is NULLABLE and informational; the start RPC does **not** validate a stage, and Place ownership via `producer_memberships` (or an active delegated Operator Live) remains the authority. The superseded rule was: `stage_id` NOT NULL and the start RPC validates the stage is `published` and belongs to the Place.
 - **Never** stores stream keys, tokens, or provider URLs exposed to clients; only opaque provider UIDs.
 - Live state is canonical in Supabase; provider state is never a source of truth (AGENTS: no cache/provider as canonical).
 
@@ -168,9 +175,9 @@ Single fail-closed gate used by admission/comment/report RPCs (identity is **alw
 
 ### 4.2 `start_live_session(...)`
 Preconditions (all fail-closed, in one transaction):
-1. `producer_memberships` role `owner`/`manager` for the Place.
+1. Authority for the Place: `producer_memberships` role `owner`/`manager`, **or** an ACTIVE delegated Operator Live assignment for that exact Place (0049/0056; account suspension denies both).
 2. `live_eligibility` has an `active` row for the producer.
-3. Stage check: `stage_id` resolves via `(id, place_id)` into a `production_stages` row with `status = 'published'`.
+3. ~~Stage check: `stage_id` resolves via `(id, place_id)` into a `production_stages` row with `status = 'published'`.~~ **REMOVED by §14 (2026-10-16):** there is no stage precondition. The legacy `p_stage_id` RPC argument is accepted (with `DEFAULT NULL`) for backward compatibility and is ignored — a Place with zero Production Stages starts exactly like any other.
 4. Caps: ≤5 `status='live'` globally (enforced under **`pg_advisory_xact_lock` on a fixed cap key** to prevent READ-COMMITTED races — audit B3); 0 `status<>'ended'` for the Place.
 5. Idempotency: replay of same `idempotency_key` returns the original result without side effects (pattern: `visit_intents.idempotency` + migration 0003 uniqueness).
 6. Cloudflare boundary call order (locked, §5): **validate → create provider live input → persist `live_input_id` + `status='live'` + audit `session_started` in one transaction**.
@@ -185,10 +192,10 @@ Preconditions (all fail-closed, in one transaction):
 - All run the full gate (§4.1) first; `post_live_comment` additionally enforces §7 tunables server-side.
 - `moderate_live` is restricted to **Platform Admin/Moderator** (PO, 2026-09-18) — verified server-side against the platform role (§2.1); it implements the policy §12.1 item 5 ladder: `moderation_warn` → `moderation_end` → `moderation_suspend`; each step appends audit. Suspension is account-level: sets `live_eligibility.active = false` for all paths of that producer. Producers can respond to warnings but cannot moderate.
 
-### 4.5 Mid-live stage unpublish hook
-Policy §12.1 item 4: if the referenced stage leaves `published` (paused/archived) mid-session, the Live auto-ends with `source_stage_unpublished`. Mechanism (**TUNABLE choice**, locked behavior): **trigger** `live_stage_guard` on `production_stages` UPDATE: when `old.status='published' and new.status in ('paused','archived')` and a `status='live'` session references it → call `end_live_session(..., 'source_stage_unpublished')` (idempotent). Fail-closed: trigger failure rolls back the stage update.
+### 4.5 Mid-live stage unpublish hook — **REMOVED by §14 (2026-10-16)**
+**Superseded mechanism (kept for the decision record):** policy §12.1 item 4 required that if the referenced stage left `published` (paused/archived) mid-session, the Live auto-ended with `source_stage_unpublished`, implemented by the trigger `live_stage_guard` on `production_stages` UPDATE → `end_live_session(..., 'source_stage_unpublished')`.
 
-**Alternative considered and rejected:** admission-time re-check only (viewer admission would fail rather than end the session) — violates the strict-MVP auto-end invariant; recorded for the record.
+**Current state (implementation of record):** the trigger AND its function are dropped by migration `0060_live_decouple_production_stage.sql`; `end_live_session` no longer accepts that reason; and the composite FK that bound a session to a stage of the same Place (whose `ON DELETE CASCADE` deleted Live sessions when a Process row was deleted) is dropped. Kegiatan / Kelola Proses changes therefore have **no** effect on a running Live. **Rejected alternative, unchanged:** admission-time re-checks must never be introduced as a way to let informational content gate or end a Live.
 
 ---
 
@@ -257,7 +264,7 @@ Policy §3: exactly 1 fixed/static camera; no handheld/vlog/panning/following/mu
   3. **Producer attestation** (checkbox): "1 fixed camera, no panning/following/multi-cam/drone/body-cam" — recorded as audit `camera_check_passed` with detail `{device_count: 1}`.
   4. **720p/30fps check** in the camera-check step (media constraints on getUserMedia).
   5. **Behavioral violations** (panning, handheld style, following, drone, body-cam) are **not machine-detectable in Phase 2** — they are handled by **moderation/reports** (policy §5), not automated validation. This is the honest technical limit; the attestation + single-track ingest is the full technical guarantee for Phase 2; content-level validation is moderation's job.
-- **Producer start flow (policy §9):** choose Process (published stage picker) → camera check (single video device, 720p/30fps constraint test) → preview → `Mulai Live` (calls start RPC) → `Akhiri Live` (end RPC).
+- **Producer start flow (policy §9, amended §14 2026-10-16):** choose **Place** (the Places the account may operate Live for) → camera check (single video device, 720p/30fps constraint test) → preview → `Mulai Live` (calls start RPC) → `Akhiri Live` (end RPC). The former first step ("choose Process (published stage picker)") is removed and must not be reintroduced: the console renders no Process selector, and no step may depend on a Production Story stage.
 
 ---
 
@@ -267,10 +274,10 @@ Policy §9 UI policy; **Map remains primary**; search preserved. **Home filter b
 
 - **Distance filter** (locked set per Policy §12.5 #1, 2026-09-20): `500 m` / `1 km` / `5 km` / `10 km+` — TUNABLE radius conversion (haversine, server-or-client computed — **TUNABLE** where computed). **`Di sekitar saya` is removed from the Home bar (supersedes the deferred-activation rule of PO 2026-09-19, Policy §12.3 #2); bounded radii match only Places with canonical lat/lng, and the unbounded `10 km+` remains the default so nothing is hidden on first load.**
 - **LIVE filter + markers:** the LIVE filter is **first/leftmost** in the Home bar and filters **Places with `status='live'` sessions** (a process/status filter — not a time filter); map markers for Places with `status='live'` sessions; the LIVE list is **derived data**, computed from Supabase live_sessions of published Places (canonical) — **never a cache/search index** (AGENTS).
-- **LIVE card:** `LIVE SEKARANG` + Process (stage title) + distance + Place open status (from Place data). **Open-status source (PO, 2026-09-19, Policy §12.3 #1): reuse the existing Place schedule/status source; when missing/absent, show no open status — never an invented default.**
+- **LIVE card:** `LIVE SEKARANG` + Process + distance + Place open status (from Place data). *Amended §14 (2026-10-16): the Process shown is the session's informational Process title when a historical session references one; a session with no reference shows **no** Process — never an invented one (same fail-closed display rule as the open status below).* **Open-status source (PO, 2026-09-19, Policy §12.3 #1): reuse the existing Place schedule/status source; when missing/absent, show no open status — never an invented default.**
 - **Place page:** live status + current Process + `Lihat Live Sekarang` — reads canonical `live_sessions status='live'` for the Place.
 - **Place flow preserved:** Place → Dari Sini → Experience → SINGGAH → Visit Intent untouched; LIVE entry points are additive (map markers, Place page strip); Live navigation added **only where compatible**.
-- **Producer app:** Live section lists the Place's stages (published only, for start flow), eligibility status, session history (metadata-only), moderation notices; editors see read-only (no start/end).
+- **Producer app:** Live section lists the Places the account may operate Live for, eligibility status, session history (metadata-only), moderation notices; editors see read-only (no start/end). *Amended §14 (2026-10-16): the published-stage list is gone from the start flow — Kegiatan / Kelola Proses remain available in their own informational surfaces and are not part of Live.*
 - **Ended sessions:** Place page returns to the pre-Live state; no replay/VOD anywhere (policy §7).
 - **Scheduled Live ('scheduled' status):** reserved for a future phase; Phase 2 creates sessions directly in `live`. Any scheduler UI is **BLOCKED** for Phase 2 scope.
 
@@ -329,7 +336,7 @@ All tunables are **server-side configuration, not hardcoded policy values**; def
 | §7 recording/monetization OFF | §1.5, §5, §7, §11 |
 | §8 Supabase-canonical/Realtime/credentials/audit/idempotency | §1.2, §1.5, §5, §6 |
 | §9 UI policy | §9 |
-| §12.1 item 4 auto-end | §4.5 |
+| §12.1 item 4 auto-end | §4.5 — **SUPERSEDED by policy §12.6 / tech §14 (2026-10-16): no stage reference, no auto-end** |
 | §12.1 items 5/6/7 | §4.4, §6, §7 |
 
 ---
@@ -340,3 +347,26 @@ All tunables are **server-side configuration, not hardcoded policy values**; def
 - Consistent with `MASTER_LIVE_POLICY_v1.0.md`: every policy section maps in §12; nothing here invents business facts — every value is either locked policy, repo-derived pattern, **TUNABLE** (server config), or **BLOCKED** (explicit registry, §10).
 - Repo-pattern fidelity: RLS-first migrations with explicit revokes (0002 pattern), security-definer RPCs with fixed `search_path` (0001/0007 pattern), partial unique index for per-Place cap, idempotency keys (0003 pattern), `producer_memberships` role checks (0001), `production_stages` published-check (0006).
 - No code, migrations, or UI authored in this phase; no commit/push performed.
+
+---
+
+## 14. Amendment — Live decoupled from Kegiatan / Kelola Proses (2026-10-16)
+
+Parent policy: `MASTER_LIVE_POLICY_v1.0.md` **§12.6** (product-owner decision). This section is the technical record of that decision; it supersedes §1.2's stage requirement, §4.2's stage precondition, §4.5's auto-end hook, §8's Process-picker step, and §9's stage list. **Nothing else in this master changes** — §10's `TUNABLE`/`BLOCKED` registries, §5's provider boundary, §6's Realtime rules, §7's limits, and §13's verification posture all still stand.
+
+### 14.1 Current architecture (implementation of record)
+
+- **Live is a Place-associated capability.** Authority is Place-scoped and unchanged: owner/manager `producer_memberships`, or an ACTIVE delegated Operator Live assignment for that exact Place (revocation effective on the very next call, no authorization cache), with account-level capability suspension denying both. Eligibility (`live_eligibility`) still required. Viewers still face the locked fail-closed gate.
+- **No Process reference is required.** `live_sessions.stage_id` is NULLABLE and informational only; the start RPC creates the session with `stage_id = NULL`, and the audit detail of `session_started` no longer claims a Process. Historical sessions keep whatever they recorded — no data is remapped or deleted.
+- **Nothing informational can affect Live:** no trigger on `production_stages` reaches Live, there is no FK between `live_sessions` and `production_stages` (so deleting a Process can no longer cascade-delete Live sessions), and `end_live_session` refuses `source_stage_unpublished` (legacy-valid on historical rows only).
+- **Start/end API contract:** `POST /api/live/start` and `POST /api/producer/live/sessions` accept `{ placeId, idempotencyKey }`. A `stageId` sent by an old client is ignored, never consulted. Error `live_stage_not_published` no longer exists; validation answers `placeId_idempotency_required`.
+- **Producer console:** step 1 is "choose Place" and its gate is the Place alone; the camera check, preview, streaming controls, duration display, and end controls are unchanged. The page performs no Production-Story read at all.
+- **Migration:** `0060_live_decouple_production_stage.sql` (forward-only, non-destructive). It drops the `live_stage_guard_trigger` + `live_stage_guard()` function, drops `live_sessions_stage_place_fkey`, makes `stage_id` nullable, re-states the `ended_reason` CHECK with `source_stage_unpublished` retained as legacy-valid, and replaces `start_live_session` / `end_live_session` with the stage-free definitions — same 4-argument signatures, same `SECURITY DEFINER`, same pinned `search_path`, same `revoke … from public, anon` + `grant … to authenticated` posture. It must be applied to DEV only as its own explicit step (`docs/runbooks/LIVE_MIGRATION_APPLY_CHECKLIST.md` §13).
+
+### 14.2 What must NOT be reintroduced
+
+A mandatory Process-selection step, a dummy/placeholder Process, a published-stage precondition, a stage-based auto-end, a stage FK/trigger, or any other workaround that makes informational content a prerequisite or a control surface for Live. Security and operational safeguards may never be relaxed to satisfy the decoupling.
+
+### 14.3 Verification
+
+`web/tests/live-decouple-production-stage.test.ts` executes the real migration chain on PGlite and proves: a Place with zero Production Stages starts a Live (session `stage_id` is NULL); pausing/archiving a Process leaves a running session live and deleting a Process no longer deletes Live history; the removed reason is refused; owner/manager + active-operator authority and every refusal path still hold; idempotency, the per-Place (1) and global (5) caps, the 60-minute cap, the audit trail and the end-reason vocabulary are unchanged; the trigger/function/FK are gone, `stage_id` is nullable, the legacy reason stays valid, and both RPCs keep `SECURITY DEFINER`, the pinned `search_path` and the exact ACL. `web/tests/live-start-authority-parity.test.ts`, `web/tests/live-operator-management.test.ts` and `web/tests/db-regression/live-regression.sql` (check `stage_decoupled`) cover the API/service/UI contract and the DEV runnable suite.

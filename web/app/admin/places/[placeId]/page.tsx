@@ -270,7 +270,12 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
                   selesai {session.endedAt ? formatAdminTimestamp(session.endedAt) : "—"}
                   {session.endedReason ? ` · ${session.endedReason}` : ""}
                 </span>
-                <span className="text-black/50">proses (tahap) {session.stageId}</span>
+                {/* A session may legitimately have no Process reference (Live is
+                    decoupled from Kelola Proses); say so instead of inventing
+                    one or rendering a bare "null". */}
+                <span className="text-black/50">
+                  {session.stageId ? `proses (tahap) ${session.stageId}` : "tanpa Proses"}
+                </span>
                 <span className="text-black/50">puncak {session.viewerPeak}</span>
               </li>
             ))}

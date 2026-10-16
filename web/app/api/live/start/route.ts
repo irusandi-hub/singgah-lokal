@@ -5,9 +5,16 @@ import {
   requireLiveStartAuthority,
 } from "@/lib/live/operator-authorization";
 
+/**
+ * The start request carries exactly the Place and the idempotency key.
+ *
+ * Decoupled from Kegiatan / Kelola Proses (product decision 2026-10-16): there
+ * is no `stageId` field, and an extra one sent by an old client is IGNORED
+ * rather than consulted — Live never depends on a Production Stage existing,
+ * being published, or being selected.
+ */
 type StartBody = {
   placeId?: unknown;
-  stageId?: unknown;
   idempotencyKey?: unknown;
 };
 
@@ -16,15 +23,13 @@ export async function POST(request: Request) {
     const body = (await request.json()) as StartBody;
     const placeId =
       typeof body.placeId === "string" ? body.placeId : "";
-    const stageId =
-      typeof body.stageId === "string" ? body.stageId : "";
     const idempotencyKey = typeof body.idempotencyKey === "string"
       ? body.idempotencyKey.trim()
       : "";
 
-    if (!placeId || !stageId || !idempotencyKey) {
+    if (!placeId || !idempotencyKey) {
       return NextResponse.json(
-        { error: "placeId_stage_idempotency_required" },
+        { error: "placeId_idempotency_required" },
         { status: 400 },
       );
     }
@@ -36,7 +41,6 @@ export async function POST(request: Request) {
 
     const result = await startLiveSession({
       placeId,
-      stageId,
       idempotencyKey,
       actorKey: placeId,
     });
@@ -59,12 +63,6 @@ export async function POST(request: Request) {
       }
       if (message.includes("live_not_eligible")) {
         return NextResponse.json({ error: "live_not_eligible" }, { status: 400 });
-      }
-      if (message.includes("live_stage_not_published")) {
-        return NextResponse.json(
-          { error: "live_stage_not_published" },
-          { status: 400 },
-        );
       }
       if (message.includes("producer_authorization_required")) {
         return NextResponse.json(

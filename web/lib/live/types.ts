@@ -1,12 +1,26 @@
 export type LiveSessionStatus = "scheduled" | "live" | "ended";
 
+/**
+ * Locked end reasons. `source_stage_unpublished` is LEGACY-ONLY: it is kept in
+ * the vocabulary (and in the database CHECK constraint) because historical rows
+ * already carry it and audit history must stay readable, but nothing in Live
+ * produces it any more — Kelola Proses is informational and cannot end a Live
+ * (product decision 2026-10-16). A new attempt to use it is refused by
+ * `end_live_session` with `live_end_reason_invalid`.
+ */
 export type LiveSessionEndReason = "producer_ended" | "duration_cap" | "source_stage_unpublished" | "moderation";
 
 export type LiveSession = {
   id: string;
   placeId: string;
   producerId: string;
-  stageId: string;
+  /**
+   * Optional Process reference, informational only: Live is a Place-associated
+   * capability and needs no Production Stage. Sessions created after
+   * 2026-10-16 carry null; historical sessions keep the stage they recorded.
+   * Never used for authorization, eligibility, gating, or lifecycle.
+   */
+  stageId: string | null;
   status: LiveSessionStatus;
   liveInputId: string | null;
   startedAt: string;
