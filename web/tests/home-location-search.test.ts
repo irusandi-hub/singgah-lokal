@@ -327,7 +327,11 @@ test("clearing the search resets the state in the clear handler, not in an effec
   // flight, or the old city would land right after the user cleared it.
   assert.match(clearBlock, /searchEpochRef\.current \+= 1;/);
   assert.match(clearBlock, /submittedSearchRef\.current = "";/);
-  assert.match(clearBlock, /setSearchPlaceName\(cleared\.placeName\);/);
+  // 2026-10-18: the resolved-name state existed only to label the removed
+  // information board, so it is gone. The center itself is still reset here,
+  // in the handler — never in an effect.
+  assert.match(clearBlock, /setSearchCenter\(cleared\.center\);/);
+  assert.doesNotMatch(clearBlock, /setSearchPlaceName/);
 });
 
 test("no View Intent, payment, or transaction wording leaked into the search flow", () => {

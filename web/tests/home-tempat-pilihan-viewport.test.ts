@@ -67,11 +67,11 @@ test("1: search coverage reads the canonical bounds, never the distance preset",
     /\(searchArea \? searchArea : searchCenter \? fallbackSearchArea\(searchCenter\) : null\)/,
   );
   assert.doesNotMatch(searchViewportMemo, /CAMERA_PRESET_RADIUS_M|distanceFilter/);
-  // A resolved answer claims the AREA caption, not the preset's radius.
-  assert.match(
-    pageCode,
-    /setSearchCenter\(\{ lat: latitude, lng: longitude \}\);[\s\S]{0,900}?setCameraCoverage\("area"\);/,
-  );
+  // A resolved answer sets the searched center and area. The caption state that
+  // used to describe the camera frame was removed with the "Tempat Pilihan"
+  // board (2026-10-18), so no rendered caption exists to contradict it.
+  assert.match(pageCode, /setSearchCenter\(\{ lat: latitude, lng: longitude \}\);/);
+  assert.doesNotMatch(pageCode, /setCameraCoverage|cameraCoverage/);
 });
 
 // ---------------------------------------------------------------------------
@@ -98,7 +98,9 @@ test("2 & 3: the curated tab cannot re-frame through any surviving mechanism", (
   // The camera radius is the ACTIVE DISTANCE PRESET in every mode, so entering
   // or leaving the curated tab cannot silently switch distance modes.
   assert.match(pageCode, /cameraRadiusMeters=\{CAMERA_PRESET_RADIUS_M\[distanceFilter\]\}/);
-  assert.match(pageCode, /const activeRadiusMeters = CAMERA_PRESET_RADIUS_M\[distanceFilter\];/);
+  // The removed caption was the only reader of a derived radius label, so that
+  // dead value is gone too; the camera itself still reads the preset directly.
+  assert.doesNotMatch(pageCode, /const activeRadiusMeters/);
   assert.doesNotMatch(pageCode, /curatedOnly \? CURATED_CAMERA_RADIUS_M/);
   // Both camera datasets are mode-independent, so neither can narrow coverage
   // because the curated tab happens to be selected.
@@ -227,7 +229,10 @@ test("7 & 8: clearing, a new search and Lokasi Saya each keep their own trigger"
   // An explicit Lokasi Saya establishes the local frame exactly once.
   assert.match(mapCode, /lastLocateNonceRef\.current = locateNonce;/);
   assert.match(mapCode, /const applied = await fitCamera\(map, candidates, LOCATE_FIT_MAX_ZOOM\);/);
-  assert.match(locatePress, /setCameraCoverage\("area"\);/);
+  // "Lokasi Saya" is still an explicit camera request (it releases the latch),
+  // while the removed caption state no longer exists.
+  assert.match(locatePress, /setCameraRequestNonce\(\(nonce\) => nonce \+ 1\);/);
+  assert.doesNotMatch(locatePress, /setCameraCoverage/);
   // A stale answer cannot restore an old frame.
   assert.match(pageCode, /if \(submittedSearchRef\.current !== trimmed\) return;/);
   assert.match(pageCode, /acceptSearchResponse\(\{/);
@@ -241,11 +246,12 @@ test("9: the three distance tabs keep their ordered, deterministic presets", () 
   assert.deepEqual(DISTANCE_FILTERS, ["1 km", "5 km", "10 km+"]);
   assert.ok(CAMERA_PRESET_RADIUS_M["1 km"] < CAMERA_PRESET_RADIUS_M["5 km"]);
   assert.ok(CAMERA_PRESET_RADIUS_M["5 km"] < CAMERA_PRESET_RADIUS_M["10 km+"]);
-  // A distance tab still sets its radius, leaves the curated layer, claims the
-  // radius caption and releases the latch.
+  // A distance tab still sets its radius, leaves the curated layer, and
+  // releases the latch. (The caption it used to claim was removed with the
+  // information board on 2026-10-18.)
   assert.match(distanceHandler, /setDistanceFilter\(filter\);/);
   assert.match(distanceHandler, /setCuratedOnly\(false\);/);
-  assert.match(distanceHandler, /setCameraCoverage\("radius"\);/);
+  assert.doesNotMatch(distanceHandler, /setCameraCoverage/);
   assert.match(distanceHandler, /setCameraRequestNonce\(\(nonce\) => nonce \+ 1\);/);
   // The curated tab no longer activates a radius of its own.
   assert.doesNotMatch(pageCode, /CURATED_CAMERA_RADIUS_M/);
@@ -285,8 +291,10 @@ test("the curated LIST, both rows and eligibility are untouched", () => {
   );
   // Pin styling is still per-Place and still reads canonical membership.
   assert.match(pageCode, /isCurated: curatedOnly && curatedIdSet\.has\(place\.id\),/);
-  // The tab row keeps exactly its five controls.
-  assert.match(pageCode, /grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
+  // The top filter row holds LIVE + the three radius tabs (four controls);
+  // the curated layer tab renders once, in the results transition band.
+  assert.match(pageCode, /grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
+  assert.equal((pageCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
   assert.match(pageCode, />\s*Tempat Pilihan\s*<\/button>/);
 });
 

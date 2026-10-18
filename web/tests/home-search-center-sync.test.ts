@@ -195,9 +195,10 @@ test("LOC-06: the locate handler resets the city search and releases the viewpor
   assert.match(handler, /setSearchPending\(cleared\.pending\);/);
   assert.match(handler, /setSearchError\(cleared\.error\);/);
   assert.match(handler, /setSearchCenter\(cleared\.center\);/);
-  // The resolved city name goes with it, so no caption can keep describing
-  // the abandoned city.
-  assert.match(handler, /setSearchPlaceName\(cleared\.placeName\);/);
+  // The resolved-name/caption state was removed with the "Tempat Pilihan"
+  // board (2026-10-18), so no caption can describe the abandoned city. The
+  // remaining city state is still reset as ONE value.
+  assert.doesNotMatch(handler, /setSearchPlaceName/);
   // Coverage returns to the REAL Leaflet bounds, and the camera follows the
   // fresh fix.
   assert.match(handler, /resetViewportLatch\(\);/);

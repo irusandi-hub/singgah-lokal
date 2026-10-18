@@ -411,22 +411,20 @@ test("AC 6: MANY Places are framed with padding that reserves the chrome and the
 // ---------------------------------------------------------------------------
 
 test("AC 7: the +/- stack is below both right-hand controls, and the zoom control is untouched", () => {
-  // VISUAL REFINEMENT (2026-10-05): the two React controls are 40px boxes now
-  // (they were 44px); their OFFSETS — which is what this ladder is about — are
-  // unchanged.
-  const compass = Number(/absolute right-3 top-\[(\d+)px\] z-\[1100\] inline-flex h-10 w-10/.exec(homeMap)?.[1] ?? "0");
-  const labeled = Number(/absolute right-3 top-\[(\d+)px\] z-\[1100\] inline-flex w-10 flex-col/.exec(homeMap)?.[1] ?? "0");
+  // UNIFIED COLUMN (2026-10-18): compass and "Lokasi Saya" are ONE flex column
+  // of identical 40×40 tiles, 8px apart, and Leaflet's own +/- stack is placed
+  // on the SAME rhythm below them — one 40px beat all the way down.
+  const columnTop = Number(
+    /absolute right-3 top-\[(\d+)px\] z-\[1100\] flex flex-col items-center gap-2/.exec(homeMap)?.[1] ?? "0",
+  );
   const zoomStack = Number(/\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: (\d+)px;/.exec(globals)?.[1] ?? "0");
-  // LOWER on the screen means a LARGER offset: the zoom stack is last.
-  assert.ok(compass > 150, "the compass clears the floating chrome");
-  assert.ok(labeled > compass, `"Lokasi Saya" (${labeled}px) sits below the compass (${compass}px)`);
-  assert.ok(zoomStack > labeled, `the +/- stack (${zoomStack}px) sits below "Lokasi Saya" (${labeled}px)`);
-  // No collision: the labeled control is ~34px tall (it was ~41px), so the
-  // stack still starts below it, and the whole ladder still ends above the
-  // bottom overlays on the shortest supported map (a 60vh map clamped at its
-  // 470px floor).
-  assert.ok(zoomStack >= labeled + 34, "the stack starts below the labeled control, never on it");
-  assert.ok(zoomStack + 60 <= 360, "the stack clears the floating results card on the shortest map");
+  assert.ok(columnTop > 150, "the control column clears the floating chrome");
+  // compass (40) + gap (8) + locate (40) + gap (8) = the zoom stack's top.
+  assert.equal(zoomStack, columnTop + 40 + 8 + 40 + 8, "one 8px-gapped 40px rhythm the whole way down");
+  // The whole column still ends above the bottom overlays on the shortest
+  // supported map (a 60vh map clamped at its 470px floor): two 40px zoom
+  // buttons plus the bar's 1px borders.
+  assert.ok(zoomStack + 82 <= 470, "the column clears the map's bottom band on the shortest map");
   // FUNCTIONALITY IS UNCHANGED: still Leaflet's own control, same position,
   // same two buttons, same titles and handlers.
   assert.match(
@@ -448,7 +446,7 @@ test("AC 7: the +/- stack is below both right-hand controls, and the zoom contro
 test("AC 8: the search info panel spans the screen and is fully opaque", () => {
   const panel = pageCode.slice(
     pageCode.indexOf("{(searchPending || searchError) && ("),
-    pageCode.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
+    pageCode.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"),
   );
   // It escapes BOTH the horizontal padding and the max-width cap of the
   // content column, and is re-centred on the VIEWPORT.
@@ -521,9 +519,9 @@ test("AC 10: no product boundary was crossed by the auto-fit change", () => {
   assert.match(locate, /id: VIEWER_FIT_POINT_ID,/);
   assert.doesNotMatch(locate, /radiusZoom/);
   assert.doesNotMatch(locate, /CAMERA_PRESET_RADIUS_M|CURATED_CAMERA_RADIUS_M|10_000/);
-  // The curated display radius is still a truthful DISPLAY value for the
-  // distance tabs, and the coverage caption names the real origin whenever a
-  // radius preset really owns the frame.
-  assert.match(pageCode, /const activeRadiusMeters = CAMERA_PRESET_RADIUS_M\[distanceFilter\];/);
-  assert.match(pageCode, /const coverageScope = describeCoverageScope\(\{/);
+  // The information board that carried the derived radius label and the
+  // coverage caption was REMOVED on 2026-10-18, so neither derived value
+  // remains in the component while the distance tabs keep their presets.
+  assert.doesNotMatch(pageCode, /const activeRadiusMeters/);
+  assert.doesNotMatch(pageCode, /const coverageScope = describeCoverageScope\(\{/);
 });

@@ -181,17 +181,17 @@ test("MOCKUP §2: the search field is dimensionally stable, empty and filled", (
   assert.equal(/onChange=\{\(event\) => handleSearchSubmit/.test(code), false, "no search-on-keystroke");
 });
 
-test("MOCKUP §3: filter stays a single row with the locked five controls in order", () => {
-  assert.match(code, /grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
-  // Order: LIVE -> Tempat Pilihan -> the three ordered distance tabs.
-  // Both mode buttons now go through the mutually exclusive transitions
-  // (bug fix 2026-10-01) instead of raw setters; the ORDER lock is unchanged.
+test("MOCKUP §3: filter stays a single row with LIVE and the ordered distance tabs", () => {
+  // 2026-10-18: "Tempat Pilihan" MOVED to the results transition band, so the
+  // top row now holds LIVE plus the three ordered radius presets on a
+  // four-column split. Order within the row is unchanged.
+  assert.match(code, /grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
   const liveIndex = code.indexOf("toggleLiveFilter(liveOnly, curatedOnly)");
-  const curatedIndex = code.indexOf("activateCuratedFilter()");
   const distanceIndex = code.indexOf("DISTANCE_FILTERS.map((filter) =>");
   assert.ok(liveIndex > -1, "LIVE control must exist");
-  assert.ok(curatedIndex > liveIndex, "Tempat Pilihan must follow LIVE");
-  assert.ok(distanceIndex > curatedIndex, "distance tabs must follow Tempat Pilihan");
+  assert.ok(distanceIndex > liveIndex, "distance tabs must follow LIVE");
+  const row = code.slice(code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"), code.indexOf("{/* MAP AREA"));
+  assert.doesNotMatch(row, /activateCuratedFilter/, "the curated tab left this row");
 });
 
 test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
@@ -219,12 +219,13 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
 
 test("filter controls use a compact 14px radius rather than full pills", () => {
   const filterRow = code.slice(
-    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
-    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]") + 2600,
+    code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"),
+    code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]") + 2400,
   );
   const roundedControls = filterRow.match(/rounded-\[14px\]/g) ?? [];
-  // LIVE, Tempat Pilihan, and the shared distance-tab class.
-  assert.equal(roundedControls.length, 3);
+  // LIVE and the shared distance-tab class (the curated tab moved out on
+  // 2026-10-18 and keeps the same 14px radius in its new band).
+  assert.equal(roundedControls.length, 2);
   // No pill styling may creep back onto the filter BUTTONS. The only
   // rounded-full left in the row is the tiny LIVE status dot, which is
   // existing LIVE semantics (a dot, not a pill) and stays untouched.
@@ -272,9 +273,9 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
     /<section\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1 shadow-\[0_-8px_24px_rgb\(0_0_0\/0\.05\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
   );
   assert.doesNotMatch(code, /relative z-10 -mt-5 rounded-t-\[24px\]/);
-  // The handle travels with the floating panel, so it keeps its shape but no
-  // longer carries the old `mb-1.5` in-flow spacing.
-  assert.match(code, /mx-auto mb-0\.5 block h-1 w-10 rounded-full bg-black\/10/);
+  // The handle lives at the top of the results sheet (2026-10-18) and keeps
+  // its shape; only the old in-flow spacing is gone.
+  assert.match(code, /block h-1 w-10 rounded-full bg-black\/10/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
@@ -284,7 +285,7 @@ test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
     "<HomeMap\n",
     "<SiteNav floating />",
     'aria-label="Cari tempat, cerita, produksi"',
-    "grid grid-cols-[auto_auto_1fr_1fr_1fr]",
+    "grid grid-cols-[auto_1fr_1fr_1fr]",
     'aria-labelledby="place-results-heading"',
     "Jangan hanya datang.",
   ].map((needle) => code.indexOf(needle));
@@ -384,35 +385,20 @@ test("MOCKUP §9/§18: the star gold tone follows the real rating value, never a
   assert.match(css, /\.singgah-star-empty \{\s*color: rgb\(0 0 0 \/ 0\.18\);/);
 });
 
-test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right are truthful", () => {
-  // Coverage box: white, rounded, icon, and a caption that describes the frame
-  // the camera ACTUALLY has.
-  // The caption is DYNAMIC (bug fix 2026-10-03): it names the origin that is
-  // really measuring — the searched city or the user's own location — instead
-  // of a hardcoded "dari lokasi Anda" that contradicted Riyadh results.
-  assert.match(code, /const coverageScope = describeCoverageScope\(\{/);
-  assert.match(code, /mode: activeSearch\.mode,/);
-  assert.match(code, /placeName: searchPlaceName,/);
-  // CORRECTED (2026-10-03): a radius may only be NAMED while a radius preset
-  // owns the frame. "Tempat Pilihan" and "Lokasi Saya" frame the viewer's local
-  // area, so the retired fixed "10 km" wording claimed a radius the camera was
-  // not using; those modes now render the neutral, always-true caption.
-  //
-  // SECOND HALF (fix, 2026-10-03): the same rule now covers the ORIGIN. With
-  // geolocation denied and nothing searched there is no center at all, the
-  // preset has no anchor, and the camera never applied it — yet the caption
-  // went on claiming "dari lokasi Anda" about the neutral world frame. Both
-  // halves are resolved by the ONE helper that owns them.
-  assert.match(code, /coverage: cameraCoverage,/);
-  assert.match(code, /hasCenter: hasActiveCenter,/);
-  assert.doesNotMatch(code, /cameraCoverage === "radius" \? radiusCaption/);
-  // The standalone floating coverage box is GONE (bug fix, 2026-10-03): its
-  // information now lives on the ONE consolidated line in the results panel
-  // header, so the map's bottom-left is free and the origin is stated once.
-  assert.doesNotMatch(code, /bottom-9 left-4 z-\[1100\]/);
+test("MOCKUP §8/§9: the coverage caption and scale are removed, not replaced", () => {
+  // 2026-10-18: the "Tempat Pilihan" information board — which carried the
+  // camera-scope caption and the per-layer count — is REMOVED with its whole
+  // line. The caption state that existed only to feed it (resolved place name,
+  // camera-coverage mode) is gone too, so no rendered surface can claim a
+  // radius or an origin.
+  assert.doesNotMatch(code, /const coverageScope = describeCoverageScope\(\{/);
+  assert.doesNotMatch(code, /placeName: searchPlaceName,/);
+  assert.doesNotMatch(code, /coverage: cameraCoverage,/);
+  assert.doesNotMatch(code, /\$\{nearOrigin\} · \$\{coverageScope\}/);
   assert.doesNotMatch(code, /\{coverageCaption\}/);
-  assert.match(code, /\$\{nearOrigin\} · \$\{coverageScope\}/);
   assert.doesNotMatch(code, /dari lokasi Anda/);
+  // The retired floating coverage box stays gone.
+  assert.doesNotMatch(code, /bottom-9 left-4 z-\[1100\]/);
   // APPROVED MOCKUP (2026-10-04): there is NO scale chip any more. The
   // bottom-right distance scale — its text and its bar — was removed together
   // with the space it reserved, and nothing replaced it.
@@ -420,12 +406,10 @@ test("MOCKUP §8/§9: coverage box bottom-left + scale bottom-right are truthful
   assert.doesNotMatch(code, /border-x-2 border-b-2 border-brand-ink\/70/);
   assert.doesNotMatch(code, /mapScale/);
   assert.doesNotMatch(code, /barPx/);
-  // The radius label still exists as a DERIVED value for the distance tabs
-  // (it never was invented state) — it is simply no longer drawn as a scale.
-  assert.match(
-    code,
-    /const activeRadiusMeters = CAMERA_PRESET_RADIUS_M\[distanceFilter\];/,
-  );
+  // The derived radius label fed only the removed caption, so it is gone too;
+  // the distance tabs still read their preset directly for the camera.
+  assert.doesNotMatch(code, /const activeRadiusMeters/);
+  assert.match(code, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
 });
 
 test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome AND below both locate buttons", () => {
@@ -437,7 +421,7 @@ test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome A
   // BELOW "Lokasi Saya" (240px), so the zoom buttons are reachable below the
   // locate controls and the three never collide at 360 / 390 / 430 / 1280.
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(css, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 290px;/);
+  assert.match(css, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 286px;/);
   // ...and the offset is SCOPED to the Home map container, so the Producer
   // Place location picker (a second Leaflet map with its own default zoom
   // control) is never affected.
@@ -445,28 +429,29 @@ test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome A
     readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8"),
   );
   assert.match(map, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
-  assert.match(map, /absolute right-3 top-\[190px\] z-\[1100\]/);
-  assert.match(map, /absolute right-3 top-\[240px\] z-\[1100\]/);
+  // 2026-10-18: the two React controls are ONE 40px-tile column at 190px with
+  // 8px gaps, and Leaflet's buttons are 40px on the same rhythm.
+  assert.match(
+    map,
+    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2">/,
+  );
+  assert.match(css, /\.singgah-home-map \.leaflet-bar a\.leaflet-control-zoom-in,[\s\S]{0,160}width: 40px;[\s\S]{0,80}height: 40px;/);
 });
 
-test("MOCKUP §11: result header keeps title + real-count subtitle + Ke hasil", () => {
-  // Subtitle uses the REAL per-layer count (the mockup's "10 tempat pilihan
-  // di sekitar Anda" shape) — never a fabricated number. The origin fragment
-  // is `nearOrigin`, which preserves that device wording verbatim and names a
-  // searched city when one is active (bug fix 2026-10-03).
-  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/);
-  // "Ke hasil" is the honest label for a SCROLL (bug fix 2026-10-01): there is
-  // no all-results page in the MVP, so the link must not claim to show every
-  // Place. The old label "Lihat semua" and the old self-referencing target
-  // (the heading it already sits next to) are both gone.
-  assert.match(code, /Ke hasil/);
+test("MOCKUP §11 board is REMOVED: no title, count, radius line, or 'Ke hasil'", () => {
+  // 2026-10-18: the floating board is gone in full — title, per-layer count,
+  // origin/scope wording, and the scroll action. Nothing re-created it in the
+  // results sheet either.
+  assert.doesNotMatch(code, /tempat pilihan \$\{nearOrigin\}/);
+  assert.doesNotMatch(code, /Hasil untuk/);
+  assert.doesNotMatch(code, /resultsAnchorId/);
+  assert.doesNotMatch(code, /Ke hasil <span aria-hidden>›/);
+  assert.doesNotMatch(code, /text-brand-ink\/35">Ke hasil/);
   assert.doesNotMatch(code, /Lihat semua/);
-  assert.doesNotMatch(code, /href="#place-results-heading"/);
-  // The link targets the resolved strip anchor, never a hard-coded id.
-  assert.match(code, /href=\{`#\$\{resultsAnchorId\}`\}/);
-  // ...and with no strip rendered the same label is plain text, so there is
-  // never a dead anchor.
-  assert.match(code, /<span className="shrink-0 text-\[11px\] font-bold text-brand-ink\/35">Ke hasil<\/span>/);
+  // The results section keeps its accessible name, and the moved curated tab
+  // gives the sheet its one control.
+  assert.match(code, /<h2 id="place-results-heading" className="sr-only">/);
+  assert.match(code, /aria-pressed=\{curatedOnly\}/);
 });
 
 test("BUG FIX: both result strips carry UNIQUE anchor ids and the link targets them", () => {

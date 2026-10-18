@@ -799,7 +799,11 @@ test("MOCKUP 2026-10-01 §5 (revised 2026-10-04): right-side control stack — C
   const locateButtons = mapCode.match(/onClick=\{onRequestLocate\}/g) ?? [];
   assert.equal(locateButtons.length, 1, "the labeled Lokasi Saya control, one handler, one entry point");
   assert.doesNotMatch(mapCode, /Pusatkan peta ke lokasi saya/);
-  assert.match(mapCode, /Lokasi Saya\n/);
+  // UNIFIED (2026-10-18): the control is an icon tile now (crosshair + the
+  // existing blue user dot) so it matches the compass and the zoom buttons
+  // exactly; `title` and the aria-label keep it named for pointer and
+  // assistive-technology users alike.
+  assert.match(mapCode, /title="Lokasi Saya"/);
   assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
   // The COMPASS: same box (offset 190px, white surface, radius, ring, soft
   // shadow) as the arrow it replaces, and an accurate north indicator — the
@@ -811,14 +815,20 @@ test("MOCKUP 2026-10-01 §5 (revised 2026-10-04): right-side control stack — C
   // click handler would advertise a capability that does not exist.
   assert.match(
     mapCode,
-    /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"\s*\n\s*className="absolute right-3 top-\[190px\] z-\[1100\] inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5"/,
+    /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"\s*\n\s*className="inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5"/,
   );
   assert.match(mapCode, /<path d="M12 4\.2 15\.1 13\.2H8\.9L12 4\.2Z" fill="#dc2626" \/>/);
   assert.match(mapCode, /<circle cx="12" cy="12" r="9" stroke="currentColor"/);
   // No location arrow or any other decorative glyph takes its place.
   assert.doesNotMatch(mapCode, /➤/);
-  // The blue dot on the labeled control is decorative.
-  assert.match(mapCode, /bg-\[#2563eb\] ring-2 ring-white/);
+  // The blue user dot now sits inside the locate tile's crosshair icon (it is
+  // still decorative — the accessible name stays on the button).
+  assert.match(mapCode, /<circle cx="12" cy="12" r="2\.4" fill="#2563eb" \/>/);
+  // Both overlays share ONE 40px-tile column at right-3/top-[190px].
+  assert.match(
+    mapCode,
+    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2">/,
+  );
   // Both overlays stay ABOVE the Leaflet control ceiling (z-[1100]).
   assert.match(mapCode, /z-\[1100\]/);
   // The Leaflet +/- stack keeps its locked topright position.

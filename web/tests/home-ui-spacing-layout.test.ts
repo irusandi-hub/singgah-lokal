@@ -73,7 +73,7 @@ test("T1.2 the banner renders ONLY while a search is running or failed", () => {
   // belongs to the "Tempat Pilihan" filter button elsewhere on the page.
   const banner = code.slice(
     code.indexOf("{(searchPending || searchError) && ("),
-    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
+    code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"),
   );
   // The two states that must keep working.
   assert.match(banner, /Mencari lokasi…/);
@@ -100,168 +100,149 @@ test("T1.3 removing the readout removed no geographic state", () => {
 });
 
 test("T1.4 nothing was put in the strip's place", () => {
-  // No substitute banner. The Home UI has exactly TWO live regions — the
-  // per-Place "not live" notice inside a card, and the search banner — which
-  // is the same count as before this work, so removing the coordinate strip
-  // added no new status surface to take its place.
-  assert.equal((code.match(/role="status"/g) ?? []).length, 2);
+  // No substitute banner for the removed coordinate strip. The Home UI has
+  // THREE live regions: the per-Place "not live" notice inside a card, the
+  // search banner, and (2026-10-17) the LIVE-feed FAILED card — an honest
+  // "could not load" surface so a failed first poll can no longer masquerade
+  // as "no Live exists". Nothing else was added.
+  assert.equal((code.match(/role="status"/g) ?? []).length, 3);
+  assert.equal(
+    (code.match(/Live belum dapat dimuat/g) ?? []).length,
+    1,
+    "exactly one failed-feed card, only when the tab is LIVE and empty",
+  );
   const banner = code.slice(
     code.indexOf("{(searchPending || searchError) && ("),
-    code.indexOf("grid grid-cols-[auto_auto_1fr_1fr_1fr]"),
+    code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"),
   );
   assert.equal((banner.match(/role="status"/g) ?? []).length, 1, "one status region inside the banner");
   assert.doesNotMatch(code, /Mencari area|Search area|canonical coordinate readout/);
 });
 
 // ---------------------------------------------------------------------------
-// TASK 2 — the results panel floats on the map.
+// TASK 2 — the floating information board is REMOVED (2026-10-18).
 // ---------------------------------------------------------------------------
 
-test("T2.1 the results panel is rendered INSIDE the map stage, above the map base", () => {
+test("T2.1 the map stage no longer holds a floating results panel", () => {
   assert.ok(stageStart > 0, "the map stage is locatable");
   assert.ok(stageEnd > stageStart, "the map stage closes after it opens");
-  assert.match(mapStage, /RESULTS INFO — FLOATING OVER THE MAP/);
-  // After the map base layer (z-0) and after the scale bar, so it paints on top.
-  assert.ok(
-    mapStage.indexOf("<HomeMap") < mapStage.indexOf("RESULTS INFO — FLOATING OVER THE MAP"),
-    "the floating panel renders after the map base layer",
-  );
-  assert.ok(
-    mapStage.indexOf("absolute bottom-9 right-4") < mapStage.indexOf("RESULTS INFO — FLOATING OVER THE MAP"),
-    "the floating panel renders after the scale bar",
-  );
+  // The board and its whole wrapper are gone from the stage.
+  assert.doesNotMatch(mapStage, /bottom-3 z-\[1100\] mx-auto/);
+  assert.doesNotMatch(mapStage, /place-results-heading/);
+  assert.doesNotMatch(mapStage, /pointer-events-auto rounded-\[18px\] bg-white\/95/);
+  // What legitimately remains in the stage: the map base layer, the chrome,
+  // and the compact gesture hint — all still present.
+  assert.ok(mapStage.indexOf("<HomeMap") > -1, "the map base layer is untouched");
+  assert.match(mapStage, /Dua jari untuk geser/);
 });
 
-test("T2.2 the panel keeps its title, count, context, and 'Ke hasil' action", () => {
-  const cardStart = mapStage.indexOf("RESULTS INFO — FLOATING OVER THE MAP");
-  const card = mapStage.slice(cardStart);
-  assert.match(card, /<h2 id="place-results-heading"/);
-  assert.match(card, /Hasil untuk/);
-  assert.match(card, /Tempat Pilihan/);
-  assert.match(card, /Discovery Place/);
-  // The consolidated single information line, per layer, unchanged.
-  assert.match(card, /\{curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`/);
-  assert.match(card, /\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}/);
-  // The action is still the same anchor to the same strips.
-  assert.match(card, /\{resultsAnchorId \? \(/);
-  assert.match(card, /href=\{`#\$\{resultsAnchorId\}`\}/);
-  assert.match(card, /Ke hasil <span aria-hidden>›<\/span>/);
-  // ...and the anchor ids it points at still exist below.
+test("T2.2 the removed board's title, count, radius line, and 'Ke hasil' are gone", () => {
+  // 2026-10-18: the board was removed in full rather than relocated, so none
+  // of its content may reappear anywhere in the Home surface.
+  assert.doesNotMatch(code, /place-results-heading" className="text-base/);
+  assert.doesNotMatch(code, /Hasil untuk/);
+  // The comments may still name the removed action, so the assertions target
+  // what used to RENDER it.
+  assert.doesNotMatch(code, /resultsAnchorId/);
+  assert.doesNotMatch(code, /Ke hasil <span aria-hidden>›/);
+  assert.doesNotMatch(code, /text-brand-ink\/35">Ke hasil/);
+  assert.doesNotMatch(code, /\$\{nearOrigin\} · \$\{coverageScope\}/);
+  // The curated LIST and both strips are intact — only the board is gone.
   assert.match(code, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
   assert.match(code, /id=\{DISCOVERY_RESULTS_ANCHOR_ID\}/);
+  assert.match(code, /\{curatedListed\.map\(\(place\) => \(/);
+  assert.match(code, /\{discoveryRowPlaces\.map\(\(place\) => \(/);
 });
 
 test("T2.3 the results section is still labelled and still below the map", () => {
   assert.match(resultsSection, /aria-labelledby="place-results-heading"/);
   assert.equal(resultsStart > stageEnd, true, "the results section follows the map stage in the DOM");
-  // The strips stayed in the section; only the info block floated away.
+  // The strips stayed in the section, and the accessible name now resolves to
+  // an in-section screen-reader heading instead of the removed board title.
   assert.match(resultsSection, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
   assert.match(resultsSection, /id=\{DISCOVERY_RESULTS_ANCHOR_ID\}/);
-  assert.equal(
-    resultsSection.includes('aria-labelledby="place-results-heading"') && !resultsSection.includes("<h2 id="),
-    true,
-    "the section keeps the accessible name while the heading itself floats",
-  );
+  assert.match(resultsSection, /<h2 id="place-results-heading" className="sr-only">/);
+  assert.match(resultsSection, /aria-pressed=\{curatedOnly\}/);
 });
 
-test("T2.4 the floating panel cannot swallow map gestures", () => {
-  const cardStart = mapStage.indexOf("RESULTS INFO — FLOATING OVER THE MAP");
-  const card = mapStage.slice(cardStart);
-  // Wrapper is click-through; only the card opts back in. The strip of map
-  // beside and under the card must keep panning and zooming.
-  assert.match(card, /pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\]/);
-  assert.match(card, /<div className="pointer-events-auto rounded-\[18px\]/);
-  // The map itself is untouched — still the real Leaflet surface.
+test("T2.4 the map surface stays fully interactive with no floating card", () => {
+  // Nothing floats over the map's bottom edge any more, and the map itself is
+  // untouched — still the real Leaflet surface with its own gestures.
+  assert.doesNotMatch(mapStage, /pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\]/);
   assert.match(mapCode, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
   assert.match(mapCode, /scrollWheelZoom: true/);
   assert.equal(mapCode.includes("dragging: false"), false);
+  // The gesture hint is click-through, so it cannot swallow the gesture it
+  // describes either.
+  assert.match(code, /pointer-events-none absolute bottom-12 left-3 z-\[1100\]/);
 });
 
-test("T2.5 the panel sits on the documented Home overlay ladder", () => {
-  const cardStart = mapStage.indexOf("RESULTS INFO — FLOATING OVER THE MAP");
-  const card = mapStage.slice(cardStart, cardStart + 4000);
-  // z-[1100]: above Leaflet's documented ceiling (1000), same tier as every
-  // other floating Home element — and deliberately NOT the header's tier, which
-  // stays exclusive to the floating header in site-nav.
-  assert.match(card, /z-\[1100\]/);
-  assert.equal(card.includes("z-[1200]"), false, "the header's z-index tier is not reused");
-  // It lives INSIDE the clipping stage, so it cannot become a second scroll
-  // layer or detach from the map on orientation change.
-  assert.equal(mapStage.includes(card.match(/pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\][^"]*/)![0]), true);
+test("T2.5 the moved curated tab lives in the results sheet, on no overlay tier", () => {
+  const tabStart = code.indexOf("aria-pressed={curatedOnly}");
+  // The button's handler precedes its aria-pressed attribute, so the slice has
+  // to reach BACK over the whole button, not only forward from the attribute.
+  const tab = code.slice(tabStart - 900, tabStart + 600);
+  assert.ok(tabStart > stageEnd, "the curated tab renders BELOW the map stage");
+  assert.doesNotMatch(tab, /z-\[1100\]|z-\[1200\]/);
+  // One control, with the same handler and exclusivity state.
+  assert.match(tab, /activateCuratedFilter\(\)/);
+  assert.match(tab, /setLiveOnly\(next\.liveOnly\);/);
+  assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
 });
 
-test("T2.6 the panel neither covers a map control nor the empty state", () => {
-  // Vertical: the card sits BELOW the empty state. The empty state was raised
-  // from `bottom-24` to `bottom-32` because the card's height is NOT fixed — a
-  // long search query wraps the panel title to a second line and grows it.
-  const CARD_BOTTOM_OFFSET = 12; // bottom-3
+test("T2.6 the cleared map bottom edge: empty state, hint, and attribution cannot collide", () => {
+  // Vertical stack from the bottom of the map: attribution (22px offset), the
+  // click-through gesture hint at bottom-12 (48px), the empty-state card at
+  // bottom-32 (128px). Each band is clear of the next.
+  const ATTRIBUTION_OFFSET = 22;
+  const HINT_BOTTOM_OFFSET = 48; // bottom-12
   const EMPTY_STATE_BOTTOM_OFFSET = 128; // bottom-32
-  // VISUAL REFINEMENT (2026-10-05): the card is COMPACTER than it was — 18px
-  // radius, `py-1.5`, a 4px handle, and a `text-base` title instead of
-  // `text-lg`. Re-measured at 360px: 12 + handle + title + count line ≈ 66px.
-  const ONE_LINE_TITLE_CARD_HEIGHT = 66;
-  const WRAPPED_TITLE_EXTRA = 20; // one more `text-base leading-tight` row
-  assert.ok(
-    CARD_BOTTOM_OFFSET + ONE_LINE_TITLE_CARD_HEIGHT + WRAPPED_TITLE_EXTRA <= EMPTY_STATE_BOTTOM_OFFSET,
-    "even a wrapped two-line title clears the empty state",
-  );
+  assert.ok(ATTRIBUTION_OFFSET < HINT_BOTTOM_OFFSET, "the hint clears the credit");
+  assert.ok(HINT_BOTTOM_OFFSET < EMPTY_STATE_BOTTOM_OFFSET, "the hint clears the empty state");
+  assert.match(code, /absolute bottom-12 left-3 z-\[1100\]/);
   assert.match(code, /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/);
-
-  // Horizontal (approved mockup, 2026-10-04): the bottom-right scale bar is
-  // gone, so the panel no longer reserves a strip for it. Its left and right
-  // edges now line up EXACTLY with the search bar above it — same column, same
-  // cap, same padding — at every supported width.
+  // No bottom-anchored panel remains, and the scale bar stays gone.
   assert.doesNotMatch(mapStage, /absolute bottom-9 right-4 z-\[1100\]/);
   assert.doesNotMatch(code, /mapScale/);
-  const cardStart = mapStage.indexOf("RESULTS INFO — FLOATING OVER THE MAP");
-  const card = mapStage.slice(cardStart);
-  assert.match(
-    card,
-    /absolute inset-x-0 bottom-3 z-\[1100\] mx-auto w-full max-w-6xl px-4/,
-    "the panel uses the SAME horizontal geometry as the search bar column",
-  );
-  assert.doesNotMatch(card.slice(0, 400), /pr-\[/, "no reserved right strip is left behind");
-  // The search bar itself is in that identical column.
+  // The search bar keeps the one floating chrome column.
   assert.match(code, /relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4/);
-  // The map control ladder is measured from the TOP of the stage and is far
-  // above a bottom-anchored card, so no zoom/locate control is covered.
-  assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 290px;/);
-  assert.match(mapCode, /absolute right-3 top-\[190px\]/);
-  assert.match(mapCode, /absolute right-3 top-\[240px\]/);
-  // The retired bottom-left coverage chip must not come back behind the card.
+  // The control column is measured from the TOP of the stage: compass/locate at
+  // 190px (one 40px-tile column) and Leaflet's stack at 286px in globals.css.
+  assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 286px;/);
+  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
+  // The retired bottom-left coverage chip must not come back.
   assert.equal(code.includes("bottom-9 left-4 z-[1100]"), false);
 });
 
-test("T2.6b the panel still fits the smallest supported viewport", () => {
-  // 360px is the documented floor. px-4 (16) on each side leaves a 328px card,
-  // and after its own px-3 padding a 304px text line: "Tempat Pilihan" +
-  // "Ke hasil" need about 226px, so the header stays on ONE line at every
-  // supported width and the card height stays predictable. (The card is wider
-  // than before 2026-10-04, when it reserved 88px for the scale bar — which is
-  // exactly the point of the change.)
+test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
+  // 360px is the documented floor. The tab is one compact, non-wrapping chip
+  // (11px bold, px-3) and it is the only control in its band, so it can neither
+  // wrap nor overflow at any supported width.
   const VIEWPORT = 360;
-  const textLine = VIEWPORT - 16 - 16 - 24;
-  const titlePlusAction = 226;
-  assert.ok(textLine >= titlePlusAction, "title and Ke hasil fit on one line at 360px");
-  // The title is allowed to wrap for a long query (nothing is truncated), which
-  // is exactly why T2.6 budgets the extra row.
-  assert.match(code, /<h2 id="place-results-heading" className="text-base font-bold leading-tight tracking-tight">/);
-  // Nothing overflows: the title column can shrink and truncate its own text,
-  // and the action never grows.
-  assert.match(code, /<div className="min-w-0">/);
-  assert.match(code, /className="inline-flex shrink-0 items-center gap-0\.5 text-\[11px\] font-bold/);
+  const chipWidth = 24 + 8 + 4 + "Tempat Pilihan".length * 6.2;
+  assert.ok(chipWidth < VIEWPORT - 32, "the tab fits inside a 360px viewport");
+  const tabStart = code.indexOf("aria-pressed={curatedOnly}");
+  const tab = code.slice(tabStart - 900, tabStart + 600);
+  assert.match(tab, /whitespace-nowrap/);
+  assert.match(tab, /text-\[11px\] font-bold/);
+  assert.equal((tab.match(/<button/g) ?? []).length, 1, "one control in the band");
 });
 
-test("T2.7 there is exactly ONE results information panel", () => {
+test("T2.7 there is exactly ONE results heading and ONE curated control", () => {
   assert.equal(
     (code.match(/<h2 id="place-results-heading"/g) ?? []).length,
     1,
-    "no duplicate information panel",
+    "no duplicate results heading",
   );
   assert.equal(
     (code.match(/id="place-results-heading"/g) ?? []).length,
     1,
     "the accessible name still resolves to exactly one element",
+  );
+  assert.equal(
+    (code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length,
+    1,
+    "the curated tab exists exactly once (no duplicate)",
   );
 });
 
@@ -298,14 +279,15 @@ test("T3.2 the larger floor still clears the whole floating control ladder", () 
 test("T3.3 the camera and geographic rules are untouched", () => {
   // The canvas grew; the frame did not. Every camera constant, preset, and
   // resolver import must still be exactly the locked ones.
+  // "describeCoverageScope"/"describeNearOrigin" used to be listed here: they
+  // fed the information board that was REMOVED on 2026-10-18, so their
+  // component-level use is gone while their lib implementations stay tested.
   for (const token of [
     "CAMERA_PRESET_RADIUS_M",
     "CURATED_CAMERA_RADIUS_M",
     "resolveLocalAreaCoverage",
     "narrowToViewport",
     "resolveActiveCenter",
-    "describeCoverageScope",
-    "describeNearOrigin",
   ]) {
     assert.equal(pageCode.includes(token), true, `${token} is still in use`);
   }
@@ -333,7 +315,7 @@ test("T3.4 the spacer stays a presentational, non-degenerate Leaflet box", () =>
 
 test("T4.1 search, filters, and the marker ladder are unchanged", () => {
   assert.match(code, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(code, /pointer-events-auto mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
+  assert.match(code, /pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
   assert.match(code, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
   assert.match(code, /setDistanceFilter\(filter\)/);
   assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);

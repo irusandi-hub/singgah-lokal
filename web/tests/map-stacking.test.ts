@@ -150,21 +150,19 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   const mapMount = pageCode.indexOf("<HomeMap\n");
   assert.ok(mapMount > 0, "HomeMap must be rendered by HomeDiscovery");
   // The in-map Place bottom sheet was removed (PO 2026-09-25), the duplicate
-  // filter chip was removed (2026-10-03), and the floating COVERAGE BOX was
-  // consolidated into the results panel (2026-10-03): the map stage now keeps
-  // only the empty-state card above the floating results panel. The bottom-right
-  // distance scale left the stage too, with its indicator, on 2026-10-04.
-  //
-  // The RESULTS panel floats on the map's bottom edge instead of sitting under
-  // it (2026-10-04). Like the empty state it is a sibling rendered AFTER the
-  // map, so the DOM-order fallback still holds for it too.
+  // filter chip was removed (2026-10-03), the floating COVERAGE BOX was
+  // consolidated into the results panel (2026-10-03), the bottom-right distance
+  // scale left the stage (2026-10-04), and the floating information board was
+  // REMOVED outright (2026-10-18): the map stage now keeps only the empty-state
+  // card and the two-finger gesture hint.
   const emptyCard = pageCode.indexOf("bottom-32 z-[1100]");
-  const floatingResults = pageCode.indexOf("absolute inset-x-0 bottom-3 z-[1100]");
+  const gestureHint = pageCode.indexOf("bottom-12 left-3 z-[1100]");
   assert.equal(pageCode.includes("bottom-9 left-4 z-[1100]"), false, "the floating coverage box is consolidated away");
   assert.equal(pageCode.indexOf("bottom-9 right-4 z-[1100]"), -1, "the distance scale is removed, not moved");
+  assert.equal(pageCode.indexOf("inset-x-0 bottom-3 z-[1100]"), -1, "the information board is removed, not moved");
   for (const [name, index] of [
     ["empty-state card", emptyCard],
-    ["floating results panel", floatingResults],
+    ["gesture hint", gestureHint],
   ] as const) {
     assert.ok(index > mapMount, `${name} must come after the map in DOM order`);
   }
@@ -183,7 +181,7 @@ test("MOCKUP §4/§5: the floating header, search, and filter stay above the map
   // them again; the search bar and filter row opt back in explicitly.
   assert.match(pageCode, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
   assert.match(pageCode, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5"/);
+  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5"/);
   const nav = stripComments(readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8"));
   assert.match(nav, /"absolute inset-x-0 top-0 z-\[1200\] border-b-0 bg-transparent"/);
 });

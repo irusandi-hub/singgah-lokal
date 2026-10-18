@@ -265,15 +265,23 @@ test("12.1 the consolidated line is accurate in EVERY mode", () => {
     count: number;
     noun: string;
   }) =>
-    `${input.count} ${input.noun} ${describeNearOrigin({
-      mode: input.mode,
-      placeName: input.placeName,
-      hasCenter: input.hasCenter,
-    })} · ${describeCoverageScope({
-      radiusLabel: input.radiusLabel,
-      coverage: input.coverage,
-      hasCenter: input.hasCenter,
-    })}`;
+    [
+      `${input.count} ${input.noun} ${describeNearOrigin({
+        mode: input.mode,
+        placeName: input.placeName,
+        hasCenter: input.hasCenter,
+      })}`,
+      describeCoverageScope({
+        radiusLabel: input.radiusLabel,
+        coverage: input.coverage,
+        hasCenter: input.hasCenter,
+      }),
+    ]
+      // Only non-empty fragments are joined: the scope is empty when the count
+      // itself already names the area, so no " · " (and no repeated fragment)
+      // can be printed.
+      .filter(Boolean)
+      .join(" · ");
 
   // Default nearby discovery — the active distance preset owns the frame.
   assert.equal(
@@ -291,28 +299,40 @@ test("12.1 the consolidated line is accurate in EVERY mode", () => {
     "4 tempat pilihan di sekitar Anda · di area peta",
   );
   // Loading/denied-location state: no origin, so no radius and no "Anda".
+  // The count sentence names the area ONCE; the scope adds nothing, so the
+  // doubled "di area peta · di area peta" can never be printed again.
+  const noOrigin = line({
+    radiusLabel: "1 km",
+    coverage: "radius",
+    hasCenter: false,
+    mode: "device_location",
+    placeName: null,
+    count: 74,
+    noun: "tempat",
+  });
+  assert.equal(noOrigin, "74 tempat di area peta");
+  assert.doesNotMatch(noOrigin, /di area peta · di area peta/);
   assert.equal(
-    line({ radiusLabel: "1 km", coverage: "radius", hasCenter: false, mode: "device_location", placeName: null, count: 74, noun: "tempat" }),
-    `74 tempat di area peta · ${AREA_SCOPE_LABEL}`,
+    (noOrigin.match(/di area peta/g) ?? []).length,
+    1,
+    "the area wording is stated exactly once",
   );
+  assert.equal(describeCoverageScope({ radiusLabel: "1 km", coverage: "radius", hasCenter: false }), "");
   // The scope label is derived from the approved area wording.
   assert.equal(AREA_SCOPE_LABEL, "di area peta");
 });
 
-test("12.2 the line cannot duplicate a count or contradict itself", () => {
-  // The count and the origin come from ONE array each; the scope adds neither.
-  assert.match(
-    pageCode,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/,
-  );
-  // The two layers are never summed (the approved OVERLAP rule).
+test("12.2 the removed information board cannot duplicate a count or contradict itself", () => {
+  // 2026-10-18: the board's count / origin / scope line was REMOVED with the
+  // board. There is no rendered count left to duplicate, contradict, or feed
+  // a radius claim — and the two layers are still never summed (OVERLAP rule).
+  assert.doesNotMatch(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.doesNotMatch(pageCode, /tempat pilihan \$\{nearOrigin\}/);
   assert.doesNotMatch(pageCode, /curatedListed\.length \+ discoveryRowPlaces\.length/);
-  // The scope fragment carries NO origin and NO count, so the place name is
-  // stated exactly once and the number can never be printed twice.
-  assert.doesNotMatch(pageCode, /coverageScope.*(placeName|length)/);
-  for (const label of ["dalam radius 1 km", "di area peta"]) {
-    assert.doesNotMatch(label, /Anda|Riyadh/);
-  }
+  // The geographic arrays the rules use are untouched: the curated row reads
+  // curatedListed, the Discovery row reads discoveryRowPlaces.
+  assert.match(pageCode, /\{curatedOnly && curatedListed\.length > 0 && \(/);
+  assert.match(pageCode, /\{discoveryRowPlaces\.length > 0 \? \(/);
 });
 
 test("12.3 the redundant floating panel is gone and result access is intact", () => {
@@ -325,8 +345,15 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
   assert.doesNotMatch(pageCode, /absolute bottom-9 right-4 z-\[1100\]/);
   assert.doesNotMatch(pageCode, /mapScale/);
   assert.doesNotMatch(pageCode, /barPx/);
-  // "Ke hasil" (access to the results), both strips, and the title are intact.
-  assert.match(pageCode, /Ke hasil/);
+  // The floating information board itself is gone too (2026-10-18), including
+  // its "Ke hasil" scroll action and title; both result strips are intact. The
+  // assertion targets the RENDERED constructs (the anchor target and the two
+  // label forms), because the component's comments may still name the removed
+  // action.
+  assert.doesNotMatch(pageCode, /resultsAnchorId/);
+  assert.doesNotMatch(pageCode, /Ke hasil <span aria-hidden>›/);
+  assert.doesNotMatch(pageCode, /text-brand-ink\/35">Ke hasil/);
+  assert.doesNotMatch(pageCode, /absolute inset-x-0 bottom-3 z-\[1100\]/);
   assert.match(pageCode, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
   assert.match(pageCode, /\{discoveryRowPlaces\.length > 0 \? \(/);
   assert.match(pageCode, /curatedOnly && curatedListed\.length > 0/);
@@ -339,24 +366,24 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
   assert.match(pageCode, /Saat ini belum ada Live yang sedang berlangsung\./);
 });
 
-test("12.4 the panel footprint shrank without losing a control", () => {
-  // One information area instead of two: the floating box is gone and the
-  // header block keeps exactly ONE line of context.
-  //
-  // 2026-10-04: the header block now lives in the FLOATING card on the map,
-  // so the slice is anchored on the card's own id rather than on the results
-  // section's `aria-labelledby` (which now follows it in the DOM).
+test("12.4 the removed board left no band, and the sheet keeps its one control", () => {
+  // 2026-10-18: the information board is REMOVED, so the sheet is the first
+  // surface under the map. It keeps the approved visual identity (cream sheet,
+  // rounded top, handle) and holds exactly ONE control — the curated layer tab
+  // that moved here from the top filter row. No count/origin line returns.
   const headerStart = pageCode.indexOf('<h2 id="place-results-heading"');
-  const header = pageCode.slice(headerStart, pageCode.indexOf("Ke hasil", headerStart));
-  assert.equal((header.match(/<p /g) ?? []).length, 1, "one consolidated information line");
-  assert.match(header, /\{nearOrigin\} · \$\{coverageScope\}/);
+  const band = pageCode.slice(headerStart, pageCode.indexOf("Baris 1", headerStart));
+  assert.equal((band.match(/<p /g) ?? []).length, 0, "no information line came back");
+  assert.doesNotMatch(band, /nearOrigin|coverageScope|Ke hasil/);
+  assert.match(band, /aria-pressed=\{curatedOnly\}/);
+  assert.equal((band.match(/aria-pressed=/g) ?? []).length, 1, "one control in the band");
   // The panel and its chrome keep the approved visual identity.
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.match(pageCode, /mx-auto mb-0\.5 block h-1 w-10 rounded-full bg-black\/10/);
+  assert.match(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
   assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
   // Nothing essential became scrollable or hidden.
-  assert.doesNotMatch(header, /line-clamp|max-h-\[|overflow-hidden/);
-  assert.doesNotMatch(header, /snap-x/);
+  assert.doesNotMatch(band, /line-clamp|max-h-\[|overflow-hidden/);
+  assert.doesNotMatch(band, /snap-x/);
 });
 
 // ---------------------------------------------------------------------------

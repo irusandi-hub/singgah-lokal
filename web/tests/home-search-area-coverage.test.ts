@@ -160,7 +160,6 @@ test("4: an empty submission follows the established clear semantics", () => {
     "setSearchError(cleared.error);",
     "setSearchCenter(cleared.center);",
     "setSearchArea(null);",
-    "setSearchPlaceName(cleared.placeName);",
   ]) {
     assert.ok(submit.includes(reset), `empty submit must run: ${reset}`);
   }
@@ -229,11 +228,13 @@ test("7: a submitted search is not narrowed by the previously chosen distance pr
     pageCode.indexOf("const liveCards"),
   );
   assert.doesNotMatch(searchViewportMemo, /CAMERA_PRESET_RADIUS_M|distanceFilter/);
-  // A resolved answer claims the AREA caption, not the preset's radius: the
-  // frame it produces is the searched place, not "N km from its centre".
-  assert.match(pageCode, /setSearchCenter\(\{ lat: latitude, lng: longitude \}\);[\s\S]{0,900}?setCameraCoverage\("area"\);/);
-  // Choosing a distance tab afterwards still owns its own radius caption.
-  assert.match(pageCode, /setDistanceFilter\(filter\);[\s\S]{0,400}?setCameraCoverage\("radius"\);/);
+  // A resolved answer sets the searched center and its area. The caption state
+  // that used to describe which frame owned the camera was removed with the
+  // "Tempat Pilihan" board (2026-10-18), so no rendered caption exists.
+  assert.match(pageCode, /setSearchCenter\(\{ lat: latitude, lng: longitude \}\);/);
+  assert.doesNotMatch(pageCode, /setCameraCoverage|cameraCoverage/);
+  // Choosing a distance tab afterwards still owns the camera frame.
+  assert.match(pageCode, /setDistanceFilter\(filter\);[\s\S]{0,400}?setCameraRequestNonce/);
 });
 
 test("8: search coverage spans the resolved AREA, not only what is near the centre", () => {
@@ -444,5 +445,15 @@ test("12: the search field keeps its approved geometry and both controls", () =>
 
 test("the search still runs on Enter only — never on keystroke", () => {
   assert.match(pageCode, /const handleSearchChange = useCallback\(\(value: string\) => \{\s*setSearchQuery\(value\);/);
-  assert.equal(/setTimeout|debounce/i.test(pageCode.slice(0, pageCode.indexOf("const handleSearchSubmit"))), false);
+  // Scoped to the typing handler itself: `handleSearchChange` must not create
+  // a timer of any kind. (2026-10-17: a whole-prefix scan was retired because
+  // the LIVE poll and the geocode submit now legitimately own bounded
+  // `window.setTimeout` aborts — those fire on requests, never on keystrokes.)
+  const typingBody = pageCode.slice(
+    pageCode.indexOf("const handleSearchChange"),
+    pageCode.indexOf("const handleSearchSubmit"),
+  );
+  assert.equal(/setTimeout|debounce/i.test(typingBody), false);
+  // Debouncing the search itself would postpone Enter too — banned everywhere.
+  assert.equal(/debounce/i.test(pageCode), false);
 });

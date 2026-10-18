@@ -576,13 +576,16 @@ test("AC 8: the panel and the map window above it are more compact", () => {
     pageCode,
     /<section\s*\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1/,
   );
-  assert.match(pageCode, /mx-auto mb-0\.5 block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(pageCode, /flex items-end justify-between gap-3/);
-  // NOTHING important was cut: the title, the count, the "Ke hasil" link, the
-  // category labels, and both (now vertical) result lists are all still there.
+  assert.match(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
+  // 2026-10-18: the information board (title, count, radius line, "Ke hasil")
+  // was REMOVED from that sheet; its handle now sits at the sheet's own top and
+  // the curated layer tab moved into that band. The category labels and both
+  // (vertical) result lists are all still there.
+  assert.doesNotMatch(pageCode, /resultsAnchorId|Hasil untuk/);
+  assert.doesNotMatch(pageCode, /Ke hasil <span aria-hidden>›/);
+  assert.doesNotMatch(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
   assert.match(pageCode, /id="place-results-heading"/);
-  assert.match(pageCode, /\{curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`/);
-  assert.match(pageCode, /Ke hasil <span aria-hidden>›<\/span>/);
+  assert.match(pageCode, /aria-pressed=\{curatedOnly\}/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*\n\s*<\/p>/);
   assert.match(pageCode, />\s*Discovery Place\s*\n\s*<\/p>/);
   // 2026-10-04: the carousel frames are gone — the rows are vertical lists now.
@@ -608,34 +611,36 @@ test("AC 8: the panel and the map window above it are more compact", () => {
 // 9. The overlay caption and the scale bar are accurate.
 // ---------------------------------------------------------------------------
 
-test("AC 9: the caption names a radius only while a radius preset owns the frame", () => {
-  // The neutral wording: no distance, no radius, no invented state.
+test("AC 9: the removable caption is gone and no radius/origin claim is rendered", () => {
+  // The neutral wording still exists as a lib constant (verified below), but
+  // 2026-10-18 removed the WHOLE caption line with the information board, so
+  // the component renders no scope/origin text at all.
   assert.equal(AREA_COVERAGE_CAPTION, "Menampilkan tempat di area peta");
   assert.doesNotMatch(AREA_COVERAGE_CAPTION, /km|m\b|radius/);
-  assert.match(pageCode, /const coverageScope = describeCoverageScope\(\{/);
-  assert.match(pageCode, /hasCenter: hasActiveCenter,/);
-  // The scope is rendered on the ONE consolidated information line, together
-  // with the count and the origin (bug fix, 2026-10-03) — the floating
-  // coverage box that used to restate it is gone.
-  assert.match(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.doesNotMatch(pageCode, /const coverageScope = describeCoverageScope\(\{/);
+  assert.doesNotMatch(pageCode, /hasActiveCenter/);
+  assert.doesNotMatch(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.doesNotMatch(pageCode, /dari lokasi Anda/);
   assert.doesNotMatch(pageCode, /bottom-9 left-4 z-\[1100\]/);
-  // Which rule owns the frame is set by the SAME handlers that move the camera —
-  // never inferred afterwards, and never from the radius constant.
+  // The camera still moves through the SAME handlers, with the caption state
+  // removed rather than re-routed: "Lokasi Saya" and the distance tabs are
+  // explicit camera requests, the curated tab is not.
   const locatePress = pageCode.slice(
     pageCode.indexOf("const handleLocatePress"),
     pageCode.indexOf("const liveByPlaceId"),
   );
-  assert.match(locatePress, /setCameraCoverage\("area"\)/);
+  assert.match(locatePress, /setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/);
+  assert.doesNotMatch(locatePress, /setCameraCoverage/);
   const curatedHandler = pageCode.slice(
     pageCode.indexOf("const next = activateCuratedFilter();"),
     pageCode.indexOf("const next = activateCuratedFilter();") + 500,
   );
-  assert.doesNotMatch(curatedHandler, /setCameraCoverage\("area"\)/);
+  assert.doesNotMatch(curatedHandler, /setCameraRequestNonce|setCameraCoverage/);
   const tabHandler = pageCode.slice(
     pageCode.indexOf("setDistanceFilter(filter);"),
     pageCode.indexOf("setDistanceFilter(filter);") + 400,
   );
-  assert.match(tabHandler, /setCameraCoverage\("radius"\)/);
+  assert.match(tabHandler, /setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/);
 });
 
 test("AC 9: the map distance scale is gone, and nothing replaced it", () => {
@@ -900,21 +905,23 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   // section clips its overflow — so the map window's FLOOR has to clear all of
   // it. This is the arithmetic the previous 240px minimum violated: the zoom
   // stack alone ends at 354px, so the "+/-" control was cut off.
-  const RE_CENTER_TOP = 190;
-  const LOCATE_TOP = 240;
-  const ZOOM_TOP = 290;
-  const LEAFLET_ZOOM_HEIGHT = 64;
-  const COVERAGE_BOTTOM_OFFSET = 36;
-  const COVERAGE_HEIGHT = 40;
-  assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 290px;/);
+  // UNIFIED COLUMN (2026-10-18): one 40px-tile stack, 8px apart at 190px,
+  // followed by Leaflet's own 40px buttons at 286px.
+  const COMPASS_TOP = 190;
+  const LOCATE_TOP = COMPASS_TOP + 40 + 8; // 238
+  const ZOOM_TOP = LOCATE_TOP + 40 + 8; // 286
+  const LEAFLET_ZOOM_HEIGHT = 82; // two 40px buttons plus the 1px border pair
+  assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 286px;/);
   assert.match(mapCode, /absolute right-3 top-\[190px\]/);
-  assert.match(mapCode, /absolute right-3 top-\[240px\]/);
+  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
   assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
   const floor = 470;
   assert.ok(floor >= ZOOM_TOP + LEAFLET_ZOOM_HEIGHT, "the zoom control must not be clipped");
-  assert.ok(floor >= COVERAGE_BOTTOM_OFFSET + COVERAGE_HEIGHT, "the coverage box must fit");
-  assert.ok(RE_CENTER_TOP < LOCATE_TOP, "the control ladder keeps its order");
+  assert.ok(COMPASS_TOP < LOCATE_TOP, "the control column keeps its order");
   assert.ok(LOCATE_TOP < ZOOM_TOP, "the zoom stack stays BELOW both locate controls");
+  // The gesture hint sits above the attribution band and below the empty state
+  // (nothing floats over the map's bottom edge any more).
+  assert.match(pageCode, /absolute bottom-12 left-3 z-\[1100\]/);
   // The camera padding reserves that same chrome, so a fit never hides a Place
   // under it.
   const padding = resolveCameraFitPadding({ x: 390, y: floor });
@@ -923,9 +930,9 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   assert.equal(padding.paddingBottomRight[0], 76);
   assert.equal(padding.paddingBottomRight[1], 84);
   assert.ok(padding.paddingTopLeft[1] >= 190, "the fitted area starts below the floating chrome");
-  // Nothing was hidden, collapsed, or made scrollable: the panel still renders
-  // both strips and the same count line.
+  // Nothing was hidden, collapsed, or made scrollable: the sheet still renders
+  // both strips (the removed board's count line left no substitute).
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.match(pageCode, /curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}/);
-  assert.match(pageCode, /discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.match(pageCode, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
+  assert.match(pageCode, /id=\{DISCOVERY_RESULTS_ANCHOR_ID\}/);
 });

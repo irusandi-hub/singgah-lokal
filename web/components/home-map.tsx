@@ -29,10 +29,11 @@ import {
  *   user position — before the first real fix the map starts on the neutral
  *   world overview (fitWorld), never on a stand-in country view.
  * - Camera authority (PO, 2026-09-29 + 2026-09-30 map-coverage fix and
- *   coverage decision): ONE deterministic radius mechanism — every mode
- *   (1 km / 5 km / 10 km+ / "Tempat Pilihan") is a radius preset and the
- *   camera moves INSTANTLY (setView, animate: false) so the frame covers
- *   exactly that radius around the real Current Location. Distance-tab radii
+ *   coverage decision): ONE deterministic radius mechanism — every distance
+ *   preset (1 km / 5 km / 10 km+) frames exactly that radius around the real
+ *   Current Location through `radiusZoom`, applied with the ONE shared
+ *   camera transition (`cameraAnimationOptions`, 2026-10-04: a short 0.6 s
+ *   ease, instant under prefers-reduced-motion). Distance-tab radii
  *   stay strictly ordered (1 < 5 < 10 km) and a preset zoom is derived from
  *   the radius alone — NEVER from the marker set. A newly chosen preset
  *   always applies (deterministic refocus); manual pan/zoom wins between
@@ -52,10 +53,11 @@ import {
  *     · the bounds dataset is a SEPARATE dataset from the rendered markers:
  *       the same canonical content filter WITHOUT the viewport gate, so
  *       viewport -> markers -> camera can never become a circular dependency;
- *     · the fit happens ONLY on an EXPLICIT refocus trigger (choosing
- *       "Tempat Pilihan", or a new search answer). Marker refreshes,
- *       discovery re-polls, and every viewport report can never re-frame the
- *       camera, so there is no recenter loop and no repeated zoom;
+ *     · the fit happens ONLY on an EXPLICIT refocus trigger (a new search
+ *       answer, or the "Lokasi Saya" press; the "Tempat Pilihan" tab stopped
+ *       framing anything on 2026-10-05). Marker refreshes, discovery
+ *       re-polls, and every viewport report can never re-frame the camera, so
+ *       there is no recenter loop and no repeated zoom;
  *     · manual pan/zoom still wins in between: no viewport or marker update
  *       can ever take the camera back;
  *     · ZERO Places with valid coordinates never invents a coordinate — a
@@ -76,8 +78,8 @@ import {
  *     replacement radius, and no fallback to the whole dataset: a "Lokasi
  *     Saya" or "Tempat Pilihan" focus can never frame West Java and Riyadh in
  *     one fit again.
- *   · LATCH: every explicit user request (a distance tab, "Tempat Pilihan",
- *     "Lokasi Saya", a new search answer) records the camera it produced.
+ *   · LATCH: every explicit user request (a distance tab, "Lokasi Saya", a
+ *     new search answer) records the camera it produced.
  *     Marker refreshes, discovery polls, viewport reports, and the next
  *     geolocation fix are then BLOCKED from taking it back — which is what
  *     removed the last "the frame jumps again a moment later" behaviour
@@ -106,8 +108,11 @@ import {
  *   the LIVE treatment (live red, pulsing core, small LIVE chip, top
  *   z-priority, navigates to /live/[sessionId]). The "Tempat Pilihan" map
  *   shows curated AND ordinary Places at once, so the treatment is per Place,
- *   never per mode. No emoji glyphs, no always-on name labels — names appear
- *   in hover/focus tooltips so dense maps stay readable.
+ *   never per mode. No emoji glyphs. Each pin carries its compact Place-name
+ *   chip beneath the anchor (always-on since 2026-10-04, held to the
+ *   deterministic on-screen budget of 2026-10-05 — see .singgah-pin-label in
+ *   globals.css and `selectAlwaysLabelledPlaceIds`), and the hover/focus
+ *   tooltip still carries the FULL name.
  */
 export type HomeMapPlace = {
   id: string;
@@ -140,18 +145,18 @@ type HomeMapProps = {
   onRequestLocate: () => void;
   /**
    * THE camera preset (PO, 2026-09-29; coverage unified 2026-09-30): when
-   * set, the camera moves instantly so the frame covers exactly this radius
-   * around the real Current Location — through ONE deterministic radiusZoom
-   * mechanism shared by every mode (1 km / 5 km / 10 km+ tabs, "Tempat
-   * Pilihan", and the "Lokasi Saya" recenter, all 10 km at the widest). The
-   * radius only ever changes the frame, never the marker set: it is decided
-   * upstream and never filters Places.
+   * set, the frame covers exactly this radius around the real Current
+   * Location — through ONE deterministic radiusZoom mechanism owned by the
+   * three distance tabs (1 km / 5 km / 10 km+) and applied with the shared
+   * camera transition (`cameraAnimationOptions`, 0.6 s ease, instant under
+   * prefers-reduced-motion). The radius only ever changes the frame, never
+   * the marker set: it is decided upstream and never filters Places.
    *
    * SUPERSEDED FOR THE CURATED LAYER AND FOR THE SCALE READOUT (2026-10-03):
-   * an explicit "Tempat Pilihan" choice is framed by `fitCamera` over the
-   * viewer's LOCAL AREA, and this value no longer describes that frame. It
-   * remains the camera preset the three distance tabs still own, and it is
-   * never rendered as a map scale.
+   * an explicit "Tempat Pilihan" choice used to be framed by `fitCamera` over
+   * the viewer's LOCAL AREA, and this value never described that frame. Since
+   * 2026-10-05 the curated tab moves no camera at all, so this value is purely
+   * the active distance-tab preset, and it is never rendered as a map scale.
    */
   cameraRadiusMeters?: number | null;
   /**
@@ -176,8 +181,9 @@ type HomeMapProps = {
   /**
    * LOCATION SEARCH center (PO 2026-10-02): the canonical coordinate pair
    * returned by the server-only geocoder. When it changes, the camera moves
-   * there INSTANTLY (animate: false — same rule as the preset mechanism, no
-   * fly-through) at a zoom that frames the search window. It carries geometry
+   * there through the ONE shared camera transition (`cameraAnimationOptions`,
+   * short and eased, instant under prefers-reduced-motion) at a zoom that
+   * frames the search window. It carries geometry
    * only: it never adds a marker, never touches the Current Location pin or
    * its pulse, never reads or writes the distance tabs, and never changes
    * the dataset. null = no search answer yet, so the camera is untouched.
@@ -215,9 +221,9 @@ type HomeMapProps = {
   locateFitPlaces?: HomeMapPlace[];
   /**
    * Short one-shot focus pulse on the EXISTING Current Location pin when a
-   * preset applies: the camera itself moves instantly with NO animation, so
-   * entering "Tempat Pilihan" is made visually obvious by this short pin
-   * pulse instead. No new marker, no marker redesign, no map animation;
+   * preset applies: the camera moves through the shared camera transition,
+   * and this short pin pulse is the affirmative feedback on top of it. No new
+   * marker, no marker redesign, no map animation of its own;
    * prefers-reduced-motion disables it.
    */
   pulsePinOnPresetChange?: boolean;
@@ -279,18 +285,19 @@ const USER_PANE = "singgah-user-pane";
 
 /**
  * ONE-SHOT locate feedback window (PO, 2026-09-30): how long the Current
- * Location pin pulses after "Lokasi Saya". It must cover the whole short
- * camera transition (LOCATE_TRANSITION_MS) so the pulse is still running
- * while the map settles, and it must stay BOUNDED — one short burst, never
- * a permanent animation. Mirrors .singgah-locate-pulse in globals.css.
+ * Location pin pulses after "Lokasi Saya". It covers the whole camera apply
+ * (the shared 0.6 s transition of `cameraAnimationOptions`, which is instant
+ * under prefers-reduced-motion), and it must stay BOUNDED — one short burst,
+ * never a permanent animation. Mirrors .singgah-locate-pulse in globals.css.
  */
 const LOCATE_PULSE_MS = 900;
 /**
- * The short, light camera transition that "Lokasi Saya" used to ease through
- * (PO, 2026-09-30). RETIRED 2026-10-03: the action now frames the local Place
- * distribution, and a zoom-out across a whole neighbourhood is not something
- * to animate — every camera apply in this component is instant and the one-shot
- * pin pulse is the feedback. Nothing here may reintroduce a duration.
+ * HISTORY: "Lokasi Saya" once owned its own short camera easing
+ * (LOCATE_TRANSITION_MS, PO 2026-09-30). That per-path constant was RETIRED
+ * 2026-10-03 when the action began framing the local Place distribution, and
+ * on 2026-10-04 camera motion returned through ONE shared helper —
+ * `cameraAnimationOptions` below (0.6 s ease, instant under
+ * prefers-reduced-motion). No per-path timing may come back here.
  */
 /**
  * CLOSEST USABLE FOCUS for "Lokasi Saya" (product decision, 2026-10-01).
@@ -361,6 +368,13 @@ const LOCATE_AREA_RADIUS_M = 350;
  * budget stay in the DOM, revealed by the existing hover/keyboard-focus state.
  * Nothing is filtered, nothing is removed, and labels are never ALL hidden:
  * the budget always keeps at least one.
+ *
+ * SCOPE (audit 2026-10-17): the budget ranks PLACE chips only. The Current
+ * Location disc deliberately carries NO name chip — its identity is the blue
+ * disc, its glow, and the surrounding-area ring (MOCKUP §6), so it can never
+ * consume a Place's label budget, collide with a Place chip, or hide behind
+ * the declutter state. The user marker and the Place labels therefore never
+ * compete for the same pixels or the same priority.
  */
 const PIN_LABEL_ON_DEMAND_ATTRIBUTE = "data-label-state";
 
@@ -556,11 +570,12 @@ export default function HomeMap({
     report(viewport);
   }, []);
 
-  // Short pin focus feedback (PO, 2026-09-30 instant-camera rule): the
-  // camera applies INSTANTLY (no flyTo, no duration/easing anywhere), so the
-  // ONLY motion feedback is this one-shot pulse on the EXISTING Current
-  // Location pin — on every "Lokasi Saya" recenter and on entering the
-  // "Tempat Pilihan" preset. The pin is Leaflet SVG (a Path accepts a
+  // Short pin focus feedback (PO, 2026-09-30; camera motion unified
+  // 2026-10-04): the camera moves through the ONE shared transition helper
+  // (short 0.6 s ease, instant under prefers-reduced-motion), so the pin
+  // pulse remains the affirmative feedback on top of it — on every "Lokasi
+  // Saya" recenter and on a preset change. The pin is Leaflet SVG (a Path
+  // accepts a
   // className): the temporary class (globals.css .singgah-locate-pulse,
   // disabled by prefers-reduced-motion) is added for ONE animation cycle and
   // removed again. No new marker, no marker-system change, no map animation.
@@ -584,8 +599,8 @@ export default function HomeMap({
     }, LOCATE_PULSE_MS);
   }, []);
 
-  // Jump to the real user position WITHOUT changing the frame width —
-  // INSTANTLY (setView with animate: false; no duration/easing/animation).
+  // Jump to the real user position WITHOUT changing the frame width, through
+  // the shared camera transition (instant under prefers-reduced-motion).
   // Used ONLY by the no-preset path (cameraRadiusMeters === null, which no
   // Home mode reaches): the one-shot fallback focus. The "Lokasi Saya"
   // recenter uses the same zoom-preserving rule (see the locate effect
@@ -882,9 +897,11 @@ export default function HomeMap({
   //  - many Places     -> fitBounds with the reserved chrome/control padding,
   //    so the whole spread is visible in the AREA the user can really see.
   //
-  // The move is INSTANT (`animate: false`), like every other camera apply here,
-  // and it flags itself as programmatic so its own moveend/zoomend events can
-  // never be mistaken for a user interaction (which would latch the camera).
+  // The move goes through the shared camera transition
+  // (`cameraAnimationOptions`, short 0.6 s ease, instant under
+  // prefers-reduced-motion), and it flags itself as programmatic so its own
+  // moveend/zoomend events can never be mistaken for a user interaction
+  // (which would latch the camera).
   //
   // `maxZoom` is the ONLY per-path difference, and it is a zoom level rather
   // than a radius: it lets a caller stop an extremely tight box from becoming
@@ -984,14 +1001,13 @@ export default function HomeMap({
 
     let cancelled = false;
     (async () => {
-      // ONE preset path for every mode (PO, 2026-09-29): distance tabs and
-      // "Tempat Pilihan" all apply through the same radiusZoom preset — a
-      // new preset always applies (deterministic), manual pan/zoom in
-      // between is respected (latch re-arms only on the new preset choice).
-      // The application is INSTANT (setView, animate: false): no duration,
-      // no easing, no animation — entering "Tempat Pilihan" (or any preset
-      // change) is made visually obvious by the one-shot pin focus pulse
-      // instead (instant-camera rule, PO 2026-09-30).
+      // ONE preset path for every distance tab (PO, 2026-09-29): each tab
+      // applies through the same radiusZoom preset — a new preset always
+      // applies (deterministic), manual pan/zoom in between is respected
+      // (the latch re-arms only on a new explicit request). The apply goes
+      // through the shared camera transition (`cameraAnimationOptions`, short
+      // 0.6 s ease, instant under prefers-reduced-motion); the one-shot pin
+      // pulse is the affirmative feedback on top of it (PO 2026-09-30).
       if (cameraRadiusMeters !== null) {
         const zoom = await radiusZoom(map, anchor, cameraRadiusMeters);
         if (cancelled || mapRef.current !== map || userInteractedRef.current) return;
@@ -1117,9 +1133,9 @@ export default function HomeMap({
   //    resolves on the first real one; a denied or failed fix leaves the camera
   //    exactly where it is.
   //
-  // It is INSTANT (animate: false), like every other camera apply here, and the
-  // one-shot pin pulse is the feedback — so a zoom-out across a whole
-  // neighbourhood never becomes a long animated flight.
+  // It applies through the shared camera transition (short 0.6 s ease,
+  // instant under prefers-reduced-motion) and the one-shot pin pulse is the
+  // affirmative feedback — never a long, attention-grabbing flight.
   useEffect(() => {
     const map = mapRef.current;
     if (!locateNonce || lastLocateNonceRef.current === locateNonce) return;
@@ -1175,10 +1191,11 @@ export default function HomeMap({
 
   // LOCATION SEARCH camera (PO 2026-10-02; AUTO-FIT extended by the product
   // decision of 2026-10-03): the moment a NEW server geocode answer arrives,
-  // the camera frames the SPREAD of the Places relevant to the searched region,
-  // instantially and with the chrome/control padding reserved — it no longer
-  // only centers on the geocoder's city point, so Places scattered across the
-  // searched region are all visible instead of the ones near the midpoint.
+  // the camera frames the SPREAD of the Places relevant to the searched
+  // region — chrome/control padding reserved, through the shared camera
+  // transition — instead of only centering on the geocoder's city point, so
+  // Places scattered across the searched region are all visible instead of
+  // the ones near the midpoint.
   //
   // It stays keyed on `searchNonce`, not on the coordinates or on the Place
   // array, so a repeated search for the SAME place re-frames exactly once and
@@ -1307,10 +1324,11 @@ export default function HomeMap({
         // accent) — on the SAME shape. The treatment follows the Place's own
         // canonical `is_curated` flag, NOT the mode: the curated map shows
         // curated and ordinary Places side by side, so a mode-level flag
-        // could not tell them apart. No emoji, no always-on name label: the
-        // name appears in a tooltip on hover/focus/selection (decluttered
-        // dense maps). A Place that is Live keeps its normal pin right next
-        // to its LIVE pin.
+        // could not tell them apart. Each pin carries its compact name chip
+        // beneath the anchor (always-on since 2026-10-04, held to the
+        // deterministic on-screen budget computed above); the hover/focus
+        // tooltip still carries the full name. A Place that is Live keeps its
+        // normal pin right next to its LIVE pin.
         const isCurated = place.isCurated === true;
         const pinColor = isCurated ? BRAND_SECONDARY : BRAND_BROWN;
         // DENSE-FRAME LABEL STATE (2026-10-05): `always` paints the compact
@@ -1403,65 +1421,65 @@ export default function HomeMap({
           (max control z-index = 1000): 1100+ keeps the React layer strictly
           on top in any drag/zoom state.
 
-          MOCKUP §5/§9 (2026-10-01; re-ordered by the product decision of
-          2026-10-03; NAVIGATION ARROW → COMPASS, 2026-10-04): the right-side
-          control stack reads as ONE white rounded column, ordered from the
-          floating chrome downwards — the COMPASS, then the labeled "Lokasi
-          Saya" control, then Leaflet's own +/- zoom control BELOW them
-          (position "topright", restyled white in globals.css). The dot on the
-          labeled control is decorative (aria-hidden) — the accessible name
-          stays on the button.
+          UNIFIED CONTROL COLUMN (2026-10-18): the compass and "Lokasi Saya"
+          are now ONE flex column of identical 40×40 tiles, 8px apart, with
+          the same white surface, 14px radius, hairline ring, and soft shadow
+          (`gap-2`). Leaflet's own +/- stack is placed on the SAME 8px rhythm
+          and given the SAME 40px box by globals.css (top: 286px, margins 0),
+          so compass → locate → zoom in → zoom out read as one group instead
+          of three separately-offset controls. Functions are untouched: the
+          compass still only states orientation and the locate button still
+          calls `onRequestLocate`.
 
-          THE COMPASS replaces the old Re-center navigation arrow in the SAME
-          box (same offset, same 44px size, same surface, ring and shadow), as
-          the approved mockup requires. It states orientation and NOTHING else:
-          this Leaflet build (1.9.x core, no rotation plugin) cannot rotate the
-          map at all — there is no `setBearing`/bearing state to read and no
-          rotation to undo — so the map is ALWAYS north-up and the compass
-          always points north. That is why it is a plain `role="img"` with an
-          accessible name instead of a button: wiring a click to "restore
-          north-up" would advertise a rotation capability this map does not
-          have, i.e. invented behaviour. Re-centering is still ONE press away on
-          the labeled "Lokasi Saya" control below it, with its geolocation
-          behaviour untouched.
+          190px is where the floating header/search/filter chrome ends. The
+          column then runs 190..230 (compass), 238..278 ("Lokasi Saya"), and
+          the zoom stack starts at 286 — the numbers in globals.css and this
+          block are ONE layout and must change together.
 
-          POSITION (product decision, 2026-10-03): the map is the full-bleed
-          background of Home, so the whole ladder is pushed DOWN to clear the
-          floating header/search/filter chrome (~190px). The offsets below and
-          the .leaflet-top offset in globals.css form ONE ladder and must move
-          together: Re-center 190px → "Lokasi Saya" 240px (≈41px tall, ends
-          ≈281px) → Leaflet's +/- stack 290px (ends ≈350px). The zoom control
-          therefore sits BELOW both buttons and never collides with them, with
-          the coverage box / scale at the bottom-right, or with the map surface
-          — at every supported width (360 / 390 / 430 / 1280). Same controls,
-          same handlers, same sizes: only the offsets changed. */}
-      {/* COMPASS — orientation indicator (approved mockup, 2026-10-04).
-          Replaces the old Re-center arrow in the SAME position, with the SAME
-          44px box, white surface, radius, ring and shadow, so the control
-          column keeps its exact geometry. NOT interactive: this map cannot
-          rotate, so a click could not restore north-up and must not pretend
-          to. The needle's red half points at true north; the accessible name
-          states the same fact for a screen reader. */}
-      <div
-        role="img"
-        aria-label="Arah peta: utara ke atas"
-        className="absolute right-3 top-[190px] z-[1100] inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5"
-      >
-        <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
-          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-          <path d="M12 4.2 15.1 13.2H8.9L12 4.2Z" fill="#dc2626" />
-          <path d="M12 19.8 8.9 10.8h6.2L12 19.8Z" fill="currentColor" opacity="0.35" />
-        </svg>
+          THE COMPASS is NOT interactive: this Leaflet build (1.9.x core, no
+          rotation plugin) cannot rotate the map at all — there is no
+          `setBearing`/bearing state to read and no rotation to undo — so the
+          map is ALWAYS north-up. A button that "restored north-up" would
+          advertise a capability this map does not have, i.e. invented
+          behaviour. Its red needle half points at true north and the
+          accessible name states the same fact for a screen reader. */}
+      <div className="absolute right-3 top-[190px] z-[1100] flex flex-col items-center gap-2">
+        {/* COMPASS — orientation indicator (approved mockup, 2026-10-04). */}
+        <div
+          role="img"
+          aria-label="Arah peta: utara ke atas"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5"
+        >
+          <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
+            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M12 4.2 15.1 13.2H8.9L12 4.2Z" fill="#dc2626" />
+            <path d="M12 19.8 8.9 10.8h6.2L12 19.8Z" fill="currentColor" opacity="0.35" />
+          </svg>
+        </div>
+        {/* "LOKASI SAYA" — the one locate control, on the SAME handler. It is
+            an icon tile now (crosshair + the existing blue user dot) so it
+            matches the compass and the zoom buttons exactly; `title` and the
+            aria-label keep the control named for sighted-hover and
+            screen-reader use alike. */}
+        <button
+          type="button"
+          onClick={onRequestLocate}
+          title="Lokasi Saya"
+          aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
+        >
+          <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
+            <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+            <circle cx="12" cy="12" r="2.4" fill="#2563eb" />
+            <path
+              d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={onRequestLocate}
-        className="absolute right-3 top-[240px] z-[1100] inline-flex w-10 flex-col items-center gap-0.5 rounded-[14px] bg-white px-1 py-1.5 text-[9px] font-bold leading-tight text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
-        aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
-      >
-        <span aria-hidden className="h-2 w-2 rounded-full bg-[#2563eb] ring-2 ring-white" />
-        Lokasi Saya
-      </button>
     </div>
   );
 }

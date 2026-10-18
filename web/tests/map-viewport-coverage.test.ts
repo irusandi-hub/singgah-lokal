@@ -231,11 +231,12 @@ test("7. Discovery and Tempat Pilihan keep the approved overlap behaviour", () =
   assert.doesNotMatch(discoverySlice, /curatedIdSet/);
   // The per-Place curated marker treatment still flows from canonical membership.
   assert.match(pageCode, /isCurated: curatedOnly && curatedIdSet\.has\(place\.id\),/);
-  // The header counter stays per layer.
-  assert.match(
-    pageCode,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/,
-  );
+  // The per-layer header counter was removed WITH the information board
+  // (2026-10-18), so no rendered number can fold the two layers together. Each
+  // row still renders from its own array.
+  assert.doesNotMatch(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.match(pageCode, /\{curatedListed\.map\(\(place\) => \(/);
+  assert.match(pageCode, /\{discoveryRowPlaces\.map\(\(place\) => \(/);
 });
 
 // ---------------------------------------------------------------------------
@@ -351,31 +352,23 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // pinch. It is click-through now; only the real controls opt back in.
   assert.match(pageCode, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
   assert.match(pageCode, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5"/);
+  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5"/);
   // The map surface keeps touch-action: none on its own container, so a pinch
   // starting on the map zooms the MAP, never the page — and page scrolling
   // outside the map is untouched.
   assert.match(homeMap, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
-  // The informational overlays never block a gesture either. The duplicate
-  // map-area filter chip (2026-10-03) and the floating coverage box
-  // (consolidated into the results panel, 2026-10-03) are both gone, so TWO
-  // click-through overlays remain: the empty state and — since 2026-10-04 — the
-  // WRAPPER of the floating results card. (The bottom-right distance scale left
-  // the stage with its indicator on 2026-10-04.)
-  //
-  // The count is 2, because the floating card's WRAPPER is click-through and
-  // only the card itself opts back in with `pointer-events-auto`. That is the
-  // point: the strip of map beside and below the card must still pan and zoom,
-  // otherwise a floating panel would have quietly become a dead zone on the map.
+  // The informational overlays never block a gesture. The removed information
+  // board took its wrapper with it (2026-10-18), so TWO click-through overlays
+  // remain: the empty state and the two-finger gesture hint.
   assert.equal(
     (pageCode.match(/pointer-events-none absolute/g) ?? []).length,
     2,
-    "the empty state and the floating results wrapper are both click-through",
+    "the empty state and the gesture hint are both click-through",
   );
   assert.match(
     pageCode,
-    /pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\][^"]*">\s*<div className="pointer-events-auto/,
-    "the floating results wrapper is click-through while the card itself is not",
+    /pointer-events-none absolute bottom-12 left-3 z-\[1100\][^"]*">\s*Dua jari untuk geser/,
+    "the gesture hint is click-through so it cannot eat the gesture it describes",
   );
   // Real Leaflet zoom control, with accessible names, plus the ONE locate
   // control (the Re-center arrow became a non-interactive compass on
@@ -410,8 +403,9 @@ test("13. Eligibility, scoring, RLS, and server-side canonical reads are untouch
   assert.match(page, /loadDiscoveryViewModel\(\)/);
   assert.match(page, /export const dynamic = "force-dynamic";/);
   assert.equal(pageCode.includes("/api/places"), false, "the client never refetches the published list");
-  // The LIVE feed stays on its own authenticated, server-side endpoint.
-  assert.match(pageCode, /fetch\("\/api\/live\/discovery"\)/);
+  // The LIVE feed stays on its own authenticated, server-side endpoint
+  // (aborted by its per-request AbortController since the 2026-10-17 hardening).
+  assert.match(pageCode, /fetch\("\/api\/live\/discovery", \{ signal: controller\.signal \}\)/);
 });
 
 // ---------------------------------------------------------------------------

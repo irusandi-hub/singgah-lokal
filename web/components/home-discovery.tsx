@@ -10,7 +10,6 @@ import type { Place } from "@/lib/places";
 import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
   CAMERA_PRESET_RADIUS_M,
-  
   CURATED_RESULTS_ANCHOR_ID,
   DISCOVERY_RESULTS_ANCHOR_ID,
   DISTANCE_FILTERS,
@@ -19,8 +18,6 @@ import {
   buildDirectionsUrl,
   clearCitySearch,
   distanceMeters,
-  describeCoverageScope,
-  describeNearOrigin,
   fallbackSearchArea,
   formatDistance,
   isSameViewport,
@@ -30,7 +27,6 @@ import {
   resolveActiveCenter,
   resolveExploreFitPlaces,
   resolveLocalAreaCoverage,
-  resolveResultsAnchorId,
   stopNestedCardAction,
   toggleLiveFilter,
   type DistanceFilter,
@@ -48,6 +44,22 @@ import {
  * AGENTS.md: never fabricate a position). Nothing here reads eligibility,
  * ranking, or membership.
  */
+// LIVE poll request budget (audit fix, 2026-10-17): a hung `/api/live/
+// discovery` request must never hold the tab in limbo. The timeout is well
+// under the 15 s poll interval, so two ticks can never overlap; on expiry the
+// AbortController cancels the request and the feed simply stays on its last
+// successful data until the next tick.
+const LIVE_REQUEST_TIMEOUT_MS = 10_000;
+
+// GEOCODE request budget (audit fix, 2026-10-17). The server bounds its own
+// outbound geocoder call (`GEOCODE_TIMEOUT_MS` in lib/live/photon.ts, 5 s),
+// but the browser→server leg could still stall on a flaky network, freezing
+// `searchPending` — and, through the in-flight guard, an identical retry —
+// until reload. The client budget is comfortably above the server's so a slow
+// but healthy answer is never cut off, while a hung one still settles as an
+// honest failure.
+const GEOCODE_TIMEOUT_MS = 10_000;
+
 function toCameraCandidate(place: Place): {
   id: string;
   name: string;
@@ -110,8 +122,9 @@ export default function HomeDiscovery({
   // Places come from the server wrapper (initialPlaces) and never change
   // client-side — no setter, no post-hydration fetch, no stale client copy.
   const [places] = useState<Place[]>(initialPlaces);
-  // Home filter bar — ONE row on mobile (PO 2026-09-26): LIVE leftmost,
-  // "Tempat Pilihan" beside it, then the distance tabs. Default = "1 km":
+  // Home filter bar — ONE row on mobile (PO 2026-09-26): LIVE leftmost, then
+  // the distance tabs ("Tempat Pilihan" moved to the results transition band
+  // on 2026-10-18). Default = "1 km":
   // the smallest remaining bounded radius anchors on the real Current
   // Location (PO: Current Location is the map center; no invented viewport).
   // "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26): it
@@ -149,13 +162,19 @@ export default function HomeDiscovery({
   // `null` means "no canonical area was published", in which case the narrower
   // documented fallback below applies. It is never a radius we guessed.
   const [searchArea, setSearchArea] = useState<MapViewport | null>(null);
-  // The RESOLVED place name the geocoder returned for searchCenter. It is
-  // server output, not the raw typed text, so the radius caption can name the
-  // city the search actually resolved instead of guessing. Cleared together
-  // with the center by every reset path.
-  const [searchPlaceName, setSearchPlaceName] = useState<string | null>(null);
   const [searchNonce, setSearchNonce] = useState(0);
   const [liveItems, setLiveItems] = useState<LiveDiscoveryItem[]>([]);
+  // LIVE FEED STATUS (audit fix, 2026-10-17): the feed keeps its LAST
+  // SUCCESSFUL payload, so its state is tracked separately from the data.
+  //   "loading" — the tab is active and no answer has settled yet;
+  //   "ready"   — the last settled request SUCCEEDED (its payload may be
+  //               empty, which is a real empty state);
+  //   "failed"  — the last settled request FAILED; any previously loaded
+  //               items stay in `liveItems` untouched (stale-but-real data
+  //               instead of an emptied list), and the next poll retries.
+  // The status only decides which EMPTY-STATE copy renders when there are no
+  // items at all; it never hides loaded data and adds no banner.
+  const [liveFeedStatus, setLiveFeedStatus] = useState<"loading" | "ready" | "failed">("loading");
   // Viewer position — Current Location. Geolocation is the primary map
   // anchor: when available the Home Map centers on it and shows the user
   // marker. Silently absent when denied; no fallback point is ever invented.
@@ -180,13 +199,6 @@ export default function HomeDiscovery({
   // so the frame those actions produce STAYS put: no marker refresh, discovery
   // poll, viewport report, or later geolocation fix can take it back.
   const [cameraRequestNonce, setCameraRequestNonce] = useState(0);
-  // WHICH RULE currently owns the camera frame (bug fix, 2026-10-03), used by
-  // the coverage caption. "radius" = a distance tab preset really does frame
-  // that radius (the caption may name it); "area" = the frame comes from the
-  // viewer's LOCAL AREA, so no radius value describes it and the caption must
-  // not claim one. Never a guess: it is set by the same handlers that move the
-  // camera, never inferred afterwards.
-  const [cameraCoverage, setCameraCoverage] = useState<"radius" | "area">("radius");
   // Which Place card currently shows the "not Live" notice (pressed state of
   // the permanent LIVE indicator). Live state itself is never invented — the
   // canonical liveByPlaceId feed is the only source.
@@ -263,18 +275,84 @@ export default function HomeDiscovery({
   // Tempat Pilihan, unmount/route change), so leaving LIVE mode always
   // stops the polling. LIVE badges (liveByPlaceId) stay correct for a full
   // poll cycle after leaving the tab and never invent Live state.
+  //
+  // FEED INTEGRITY (audit fix, 2026-10-17). The old `.catch(() =>
+  // setLiveItems([]))` turned every transient failure into an EMPTY list —
+  // valid LIVE cards, pins, and rows vanished and the UI claimed "belum ada
+  // Live" while the network was merely down. The rules now:
+  //  · a failed request NEVER writes `liveItems` — the last successful
+  //    payload stays on screen (stale-but-real), and only the internal
+  //    status marks it as not-freshly-updated;
+  //  · every request carries an AbortController with a bounded timeout, is
+  //    aborted on teardown, and an in-flight request is aborted when the
+  //    next tick starts, so slow responses can neither pile up nor land
+  //    after a newer answer (a per-load request number drops them);
+  //  · polling pauses while the tab is hidden and reloads immediately on
+  //    return, so a background tab keeps no requests running;
+  //  · loading / loaded-empty / failed stay DISTINCT states, so a legitimate
+  //    empty result is still shown as an empty state and a failure is never
+  //    shown as "no Live". The reset to "loading" deliberately lives in the
+  //    LIVE tab's click handler (the only path that turns the tab on), NOT in
+  //    this effect: a synchronous setState here would cascade a re-render per
+  //    mode entry, and a poll RETRY must keep the "failed" card visible
+  //    instead of flickering it away for one round trip.
   useEffect(() => {
     if (!liveOnly) return;
 
-    const load = () =>
-      fetch("/api/live/discovery")
-        .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Live discovery unavailable"))))
-        .then((payload: { live: LiveDiscoveryItem[] }) => setLiveItems(payload.live ?? []))
-        .catch(() => setLiveItems([]));
+    let cancelled = false;
+    let latestRequest = 0;
+    let inFlight: AbortController | null = null;
 
+    const load = () => {
+      // A hidden tab must not poll; the visibility listener below reloads the
+      // moment the tab becomes visible again.
+      if (document.visibilityState === "hidden") return;
+      const request = ++latestRequest;
+      // One request at a time: a new tick supersedes a still-running one.
+      inFlight?.abort();
+      const controller = new AbortController();
+      inFlight = controller;
+      const timeout = window.setTimeout(() => controller.abort(), LIVE_REQUEST_TIMEOUT_MS);
+      fetch("/api/live/discovery", { signal: controller.signal })
+        .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Live discovery unavailable"))))
+        .then((payload: { live: LiveDiscoveryItem[] }) => {
+          // Only the NEWEST request of the CURRENT tab session may write
+          // state — a late answer can never overwrite a newer one.
+          if (cancelled || request !== latestRequest) return;
+          setLiveItems(payload.live ?? []);
+          setLiveFeedStatus("ready");
+        })
+        .catch(() => {
+          // KEEP THE LAST GOOD DATA: a failure marks the feed as failed and
+          // changes nothing else. `liveItems` keeps whatever the last
+          // successful load returned, so a network blip can never empty the
+          // list or hide LIVE pins that were real a moment ago.
+          if (cancelled || request !== latestRequest) return;
+          setLiveFeedStatus("failed");
+        })
+        .finally(() => {
+          window.clearTimeout(timeout);
+          if (inFlight === controller) inFlight = null;
+        });
+    };
+
+    // Polling pauses with the hidden tab and resumes with one fresh load.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     load();
     const interval = window.setInterval(load, 15000);
-    return () => window.clearInterval(interval);
+    return () => {
+      cancelled = true;
+      // No state may land after teardown; the in-flight request is aborted
+      // and its answer is dropped by both the cancel flag and the request
+      // number.
+      latestRequest += 1;
+      inFlight?.abort();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.clearInterval(interval);
+    };
   }, [liveOnly]);
 
   // Real viewer position when permission is granted; no fallback point is
@@ -363,7 +441,6 @@ export default function HomeDiscovery({
         setSearchError(cleared.error);
         setSearchCenter(cleared.center);
         setSearchArea(null);
-        setSearchPlaceName(cleared.placeName);
         return;
       }
 
@@ -396,9 +473,19 @@ export default function HomeDiscovery({
           activeQuery: submittedSearchRef.current,
         });
 
+      // CLIENT-SIDE TIMEOUT (audit fix, 2026-10-17): one AbortController per
+      // submit, aborted on a bounded timeout. An aborted request settles into
+      // the EXISTING failure path below — same honest message, same state
+      // reset, `searchPending` dropped, `inFlightSearchRef` freed in
+      // `finally` — so the next search always works without a reload, and a
+      // cancellation is never treated as a valid search result.
+      let timeoutId: number | null = null;
       try {
+        const controller = new AbortController();
+        timeoutId = window.setTimeout(() => controller.abort(), GEOCODE_TIMEOUT_MS);
         const response = await fetch(`/api/geocode?q=${encodeURIComponent(trimmed)}`, {
           headers: { Accept: "application/json" },
+          signal: controller.signal,
         });
         if (submittedSearchRef.current !== trimmed) return;
         if (!isCurrent()) return;
@@ -419,8 +506,6 @@ export default function HomeDiscovery({
         const result = (await response.json()) as {
           latitude?: number;
           longitude?: number;
-          displayName?: string;
-          name?: string;
           bounds?: { north?: number; south?: number; east?: number; west?: number } | null;
         };
         if (submittedSearchRef.current !== trimmed) return;
@@ -442,19 +527,7 @@ export default function HomeDiscovery({
         // `null` and the documented fallback box is used instead — never a
         // radius this app invented, and never a fabricated boundary.
         setSearchArea(normalizeSearchArea(result.bounds));
-        setSearchPlaceName(
-          typeof result.displayName === "string" && result.displayName.trim()
-            ? result.displayName.trim()
-            : typeof result.name === "string" && result.name.trim()
-              ? result.name.trim()
-              : null,
-        );
         resetViewportLatch();
-        // The searched area now owns the frame, so the caption must stop
-        // claiming the distance preset that used to bound it: a search covers
-        // the resolved place, not "N km from its centre". A distance tab the
-        // user picks afterwards sets its own radius caption again.
-        setCameraCoverage("area");
       } catch {
         if (submittedSearchRef.current !== trimmed) return;
         if (!isCurrent()) return;
@@ -463,10 +536,19 @@ export default function HomeDiscovery({
         setSearchCenter(null);
         setSearchArea(null);
       } finally {
+        if (timeoutId !== null) window.clearTimeout(timeoutId);
         // The query is only free again once THIS request settled, so an
         // identical submit issued while it was in flight stays a no-op.
         if (inFlightSearchRef.current === trimmed) inFlightSearchRef.current = null;
-        setSearchNonce((nonce) => nonce + 1);
+        // The camera trigger bumps ONLY while this answer still owns the
+        // current intent (audit fix, 2026-10-17). A SUPERSEDED request that
+        // settles late used to bump `searchNonce` unconditionally, which
+        // re-fired the map's search-camera effect for the newer answer —
+        // re-fitting and re-latching a frame the user may have already panned
+        // away from, without any new search having answered. The three
+        // explicit invalidation paths (empty submit, clear ×, "Lokasi Saya")
+        // reset the center themselves, so they never needed this bump.
+        if (isCurrent()) setSearchNonce((nonce) => nonce + 1);
       }
     },
     [resetViewportLatch],
@@ -513,7 +595,6 @@ export default function HomeDiscovery({
     setSearchError(cleared.error);
     setSearchCenter(cleared.center);
     setSearchArea(null);
-    setSearchPlaceName(cleared.placeName);
   }, []);
 
   // "LOCATION MODE OWNERSHIP (bug fix 2026-10-02): ONE source of truth for
@@ -557,14 +638,11 @@ export default function HomeDiscovery({
     setSearchError(cleared.error);
     setSearchCenter(cleared.center);
     setSearchArea(null);
-    setSearchPlaceName(cleared.placeName);
     // Coverage goes back to the REAL Leaflet bounds; the synthetic bridge box
     // existed only for a city that no longer owns the viewport.
     resetViewportLatch();
-    // The frame this press produces is the viewer's LOCAL AREA, not a radius:
-    // the caption must stop claiming one, and the map must stop letting a
-    // later radius preset take the camera back.
-    setCameraCoverage("area");
+    // The frame this press produces is the viewer's LOCAL AREA; the map must
+    // not let a later radius preset take the camera back.
     setCameraRequestNonce((nonce) => nonce + 1);
     setLocateNonce((nonce) => nonce + 1);
     requestViewerPosition();
@@ -941,62 +1019,13 @@ export default function HomeDiscovery({
   const mapEmptyStateVisible =
     mapPlaces.length === 0 || (viewportReported && !viewportHasPlaces);
 
-  // Header link target (bug fix 2026-10-01): a SCROLL to the first visible
-  // strip — curated while the Tempat Pilihan mode is active and has results,
-  // otherwise the Discovery strip. No all-results route exists in the MVP and
-  // none may be created, so this never becomes a page link. null when no strip
-  // is rendered, so the label stays a non-navigating label.
-  const resultsAnchorId = resolveResultsAnchorId({
-    curatedOnly,
-    curatedCount: curatedListed.length,
-    discoveryCount: discoveryRowPlaces.length,
-  });
-
-  // MOCKUP §8/§9: the consolidated information line names the ACTIVE camera
-  // scope so the copy stays truthful — the exact preset that owns the camera
-  // (1 km / 5 km / 10 km). Display only; never an invented state.
-  //
-  // The radius is the ACTIVE DISTANCE PRESET in every mode (2026-10-05): the
-  // curated tab no longer switches the camera to `CURATED_CAMERA_RADIUS_M`, so
-  // naming that radius here would claim a frame the camera is not using. A
-  // resolved search keeps its own "area" caption through `cameraCoverage`.
-  const activeRadiusMeters = CAMERA_PRESET_RADIUS_M[distanceFilter];
-  const activeRadiusLabel =
-    activeRadiusMeters >= 1000 ? `${activeRadiusMeters / 1000} km` : `${activeRadiusMeters} m`;
-  // Whether there is an ORIGIN to measure from at all: the searched city, else
-  // the real device fix, else nothing (geolocation denied and nothing
-  // searched). The scope and the results count below both read it, so neither
-  // can claim a radius or an origin the camera/rows never used.
-  const hasActiveCenter = activeCenter !== null;
-  // SCOPE FRAGMENT (bug fix, 2026-10-03): a radius may only be named while a
-  // radius preset actually owns the frame. "Tempat Pilihan" and "Lokasi Saya"
-  // frame the viewer's LOCAL AREA, so the old fixed "10 km" wording claimed a
-  // radius the camera was not using; those modes now state the scope without
-  // any distance at all.
-  //
-  // `hasActiveCenter` is the second half of that rule. With geolocation denied
-  // and nothing searched, `activeCenter` is null, so the distance preset has NO
-  // anchor at all and the camera never applied it — the map simply kept the
-  // neutral world overview. No origin, no radius claim.
-  //
-  // It is a FRAGMENT, not a sentence: it carries no origin and no count, so
-  // the consolidated line states the place name and the number exactly once and
-  // cannot contradict itself.
-  const coverageScope = describeCoverageScope({
-    radiusLabel: activeRadiusLabel,
-    coverage: cameraCoverage,
-    hasCenter: hasActiveCenter,
-  });
-  // Results-count origin fragment (bug fix 2026-10-03). It resolves from the
-  // SAME active center as the scope above it, so the results panel can
-  // no longer say "di sekitar Anda" about a count that actually came from a
-  // searched city. The device wording is the Master/MOCKUP §11 copy and is
-  // preserved verbatim.
-  const nearOrigin = describeNearOrigin({
-    mode: activeSearch.mode,
-    placeName: searchPlaceName,
-    hasCenter: hasActiveCenter,
-  });
+  // The floating "Tempat Pilihan" information board was REMOVED (2026-10-18).
+  // It restated the layer name, a per-layer count, the camera radius, and a
+  // "Ke hasil" scroll action in a card that permanently covered the map's
+  // bottom edge, and it duplicated the results sheet that starts right below
+  // it. Its title, count, radius wording, and "Ke hasil" action are gone with
+  // it; the curated LIST, the curated cards, the filter state, and every
+  // camera/coverage rule they read stay exactly as they were.
 
   // ONE card renderer for every row: the existing card design verbatim; the
   // only addition is the optional "✦ Tempat Pilihan" marker so an overlap
@@ -1245,13 +1274,14 @@ export default function HomeDiscovery({
                geographic coverage source for the markers and for the Discovery
                Place / "Tempat Pilihan" rows. It carries geometry only — it
                never changes eligibility, membership, or the camera. */
-            /* ONE deterministic camera preset for every mode (PO,
+            /* ONE deterministic camera preset for the distance tabs (PO,
                2026-09-29; coverage unified by the product decision of
-               2026-09-30): distance tabs map to their ordered preset radii
-               (1 < 5 < 10 km) and "Tempat Pilihan" frames the SAME 10 km
-               coverage. CAMERA-ONLY — the curated membership (canonical
-               is_curated) and the curated LIST below stay independent of
-               this value. */
+               2026-09-30; curated decoupled 2026-10-05): the 1/5/10 km tabs
+               map to their ordered preset radii. "Tempat Pilihan" is a
+               PRESENTATION layer and no longer switches the camera to a 10 km
+               frame, so the prop carries only the active distance preset.
+               CAMERA-ONLY — the curated membership (canonical is_curated) and
+               the curated LIST below stay independent of this value. */
             cameraRadiusMeters={CAMERA_PRESET_RADIUS_M[distanceFilter]}
             /* The radius preset re-frames the ACTIVE center, not the device
                unconditionally: changing 1 km → 5 km while a city is searched
@@ -1291,11 +1321,15 @@ export default function HomeDiscovery({
                of only the geocoder's city point; an empty set keeps that
                center, and no coordinate is ever invented. */
             searchFitPlaces={searchFitPlaces}
-            /* Instant-camera rule (PO, 2026-09-30): the camera itself applies
-               with no animation at all, so entering "Tempat Pilihan" is made
-               visually obvious by a SHORT one-shot focus pulse on the
-               EXISTING Current Location pin — no new marker, no map
-               animation. */
+            /* One-shot pin focus feedback (PO, 2026-09-30): a SHORT pulse on
+               the EXISTING Current Location pin — no new marker, no map
+               animation of its own; the camera itself moves through the
+               shared 0.6 s transition (instant under prefers-reduced-motion,
+               see cameraAnimationOptions in home-map.tsx). Since the curated
+               tab became presentation-only (2026-10-05) it no longer changes
+               the preset radius, so this wiring fires no pulse on its own —
+               it is kept as the pinned presentation contract for whenever a
+               preset pulse is due again. */
             pulsePinOnPresetChange={curatedOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
             onViewportChange={handleViewportChange}
@@ -1470,27 +1504,23 @@ export default function HomeDiscovery({
             )}
           </div>
 
-          {/* Home filter bar — ONE row (PO 2026-09-26; MOCKUP §3): LIVE
-              leftmost, "Tempat Pilihan" directly beside it, then the
-              distance tabs. All controls share the row via grid columns — no
-              wrap, no second row, no page-level horizontal overflow at
-              360 px. Compact text [11px]/padding/gap keeps everything visible
-              on the smallest supported viewport; labels keep the master copy
-              ("10 km+" is master-locked). "Tempat Pilihan" opens ONE curated
-              discovery layer with no category tabs/chips.
+          {/* Home filter bar — ONE row (PO 2026-09-26; MOCKUP §3).
+              MOVED (2026-10-18): "Tempat Pilihan" left this row for the
+              results sheet at the bottom of the map, so the row now holds the
+              LIVE filter plus the three ordered distance tabs. LIVE stays
+              leftmost and the radius presets keep their master labels
+              ("10 km+" is master-locked) and their order. The same single-row
+              guarantee applies: no wrap, no second row, no page-level
+              horizontal overflow at 360 px.
 
               MOCKUP §3 selected state: the active control is BRAND GREEN
               (bg-brand-primary), the distance tabs keep their white surface,
               and LIVE keeps its red dot. Selection logic, handlers, and
               semantics are completely unchanged — only the colors moved.
 
-              THE ROW IS NOW COMPLETE AND FINAL (approved mockup, 2026-10-04):
-              the extra "Semua Tempat" row that used to sit below it is gone, and
-              no control replaces it. This row therefore still holds exactly
-              five controls in the same order, on the same `grid-cols-` split,
-              with the same 11px type, ~16px radii, brand-green selected state,
-              and no-scroller guarantee at 360px. */}
-          <div className="pointer-events-auto mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr] gap-1.5">
+              The four-column split replaces the old five-column one byte for
+              byte in spirit: `auto` for LIVE, then three equal radius cells. */}
+          <div className="pointer-events-auto mt-2.5 grid grid-cols-[auto_1fr_1fr_1fr] gap-1.5">
             <button
               onClick={() => {
                 // Mutually exclusive modes (lib/live/ui.ts): turning LIVE on
@@ -1499,6 +1529,11 @@ export default function HomeDiscovery({
                 const next = toggleLiveFilter(liveOnly, curatedOnly);
                 setLiveOnly(next.liveOnly);
                 setCuratedOnly(next.curatedOnly);
+                // Fresh session per entry (audit fix, 2026-10-17): entering
+                // LIVE resets the feed status here, in click context — the
+                // effect itself never sets state synchronously, and a stale
+                // "failed" from a previous visit can never greet a new one.
+                setLiveFeedStatus("loading");
               }}
               aria-pressed={liveOnly}
               className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[14px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:px-3 sm:text-xs ${
@@ -1510,45 +1545,16 @@ export default function HomeDiscovery({
               <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-live"}`} />
               LIVE
             </button>
-            <button
-              onClick={() => {
-                // Same exclusivity rule from the curated side: LIVE off,
-                // whatever was active before.
-                const next = activateCuratedFilter();
-                setCuratedOnly(next.curatedOnly);
-                setLiveOnly(next.liveOnly);
-                // NOTHING ELSE HAPPENS HERE (2026-10-05). This press used to
-                // bump `fitNonce` (a `fitBounds` over the curated Places),
-                // bump `cameraRequestNonce` (releasing the manual-interaction
-                // latch), and switch the camera to `CURATED_CAMERA_RADIUS_M`.
-                // All three are gone: a curated tab is a PRESENTATION choice,
-                // so it must not move, re-frame, or re-centre the camera and
-                // must not discard a frame the user set by hand. The explored
-                // area, the camera centre, and the zoom are all preserved
-                // exactly as they were — a Riyadh search keeps its searched
-                // area, and "Lokasi Saya" keeps the frame it established.
-              }}
-              aria-pressed={curatedOnly}
-              className={`whitespace-nowrap rounded-[14px] px-2 py-1.5 text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:px-3 sm:text-xs ${
-                curatedOnly
-                  ? "bg-brand-primary text-white"
-                  : "border border-black/5 bg-white text-brand-ink/70"
-              }`}
-            >
-              Tempat Pilihan
-            </button>
             {DISTANCE_FILTERS.map((filter) => (
               <button
                 key={filter}
                 onClick={() => {
                   setDistanceFilter(filter);
                   // A radius preset owns the map on its own, so it leaves the
-                  // curated place-set tab — the rule it has always had.
+                  // curated place-set tab — the rule it has always had. A
+                  // distance tab is also an explicit camera request, which
+                  // releases the map's interaction latch.
                   setCuratedOnly(false);
-                  // A distance tab really does frame this radius, so the
-                  // caption may name it again — and the tab is an explicit
-                  // camera request, which releases the latch.
-                  setCameraCoverage("radius");
                   setCameraRequestNonce((nonce) => nonce + 1);
                 }}
                 aria-pressed={distanceFilter === filter && !curatedOnly}
@@ -1580,24 +1586,25 @@ export default function HomeDiscovery({
               bottom of the zoom control, so on an ordinary phone the +/- stack
               was cut off by the section's own `overflow-hidden` — essential map
               context removed by the layout itself, and the map/results
-              relationship made unclear. The floor is now 440px, which fits the
-              entire ladder at every supported height (360 / 390 / 430 / 1280),
-              and 42vh / 46vh keeps the map the dominant field on taller
-              screens. (The bottom-right scale chip left this ladder with the
-              indicator on 2026-10-04; no offset here changed.)
+              relationship made unclear. The floor was raised to 440px, which
+              fits the entire ladder at every supported height (360 / 390 /
+              430 / 1280), and 42vh / 46vh kept the map the dominant field on
+              taller screens. (The bottom-right scale chip left this ladder
+              with the indicator on 2026-10-04; no offset here changed.)
 
               MAP WINDOW RE-SIZED (product decision, 2026-10-04): the band is
-              now `56vh` (`62vh` from `sm:`), floor 460px, ceiling 680px — up
+              now `60vh` (`66vh` from `sm:`), floor 470px, ceiling 700px — up
               from 42vh/46vh, 440px, 560px. The reclaimed height comes from the
               two layout changes around it, NOT from the camera:
                 · the coordinate strip no longer reserves a row, and
                 · the results info block floats ON the map instead of sitting
-                  under it in the flow.This is CANVAS ONLY. The geographic rules are untouched —
-              the distance-tab presets, the curated camera radius, the
-              local-area resolver, the ±0.05° search box, and every
+                  under it in the flow.
+              This is CANVAS ONLY. The geographic rules are untouched —
+              the distance-tab presets, the local-area resolver, the
+              documented ±0.05° fallback search box, and every
               fit-padding and zoom constant are exactly as before, so nothing is
               zoomed out or widened to make the map look bigger; the same frame
-              simply has more pixels to live in. The 460px floor still clears
+              simply has more pixels to live in. The 470px floor still clears
               the whole floating control ladder (190 / 240 / 290 + 64px) and now
               also carries the floating results card at every supported size. */}
           <div aria-hidden className="h-[60vh] min-h-[470px] max-h-[700px] sm:h-[66vh]" />
@@ -1617,7 +1624,8 @@ export default function HomeDiscovery({
           /* COMPACT overlay (bug fix 2026-10-03). The copy is unchanged — an
              empty state must stay an honest empty state — but the card no
              longer spans the map: the wrapper is a centered flex line, the
-             card itself is content-sized (w-fit) and capped at 20 rem, soit covers the smallest possible area and WRAPS instead of growing
+             card itself is content-sized (w-fit) and capped at 20 rem, so it
+             covers the smallest possible area and WRAPS instead of growing
              when the sentence is long or the screen is narrow. Padding, text
              size and shadow are reduced, and it stays clear of the Leaflet
              controls.
@@ -1629,7 +1637,7 @@ export default function HomeDiscovery({
              cards could touch when a search returned nothing (empty state up,
              floating results card down, both centered and overlapping
              horizontally). `bottom-32` clears a two-line title with room to
-             spare, and the 460px map floor leaves ample space above it. */
+             spare, and the 470px map floor leaves ample space above it. */
           <div className="pointer-events-none absolute inset-x-0 bottom-32 z-[1100] flex justify-center px-4">
             <div className="w-fit max-w-[min(20rem,100%)] rounded-[14px] bg-white/95 px-3 py-1.5 text-center shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5">
               <p className="text-[11px] font-semibold leading-4 text-brand-ink/85">
@@ -1644,110 +1652,32 @@ export default function HomeDiscovery({
           </div>
         )}
 
-        {/* CONSOLIDATED INFORMATION AREA (bug fix, 2026-10-03).
-            The floating coverage box that used to sit here is GONE. It restated
-            the same geographic fact the results panel one screen lower already
-            gave — the origin and the scope — in two different shapes, and it
-            permanently covered the bottom-left of the map. Both facts now live
-            on ONE compact line in the results panel header (count · origin ·
-            scope), so the map surface is free, the origin is stated exactly
-            once, and the two can never contradict each other.
-            The measured SCALE BAR below is deliberately untouched: it is map
-            chrome describing the visible map, not Home result context, and it
-            stays bottom-right where it never overlapped anything. */}
+        {/* CONSOLIDATED INFORMATION BOARD: REMOVED (2026-10-18).
+            The floating "Tempat Pilihan" card that used to sit on the map's
+            bottom edge — title, per-layer count, radius/coverage wording, and
+            the "Ke hasil" scroll action — is GONE, together with the height
+            it permanently covered. It restated the layer and its context in a
+            second surface directly above the results sheet, so nothing
+            replaces it: no count strip, no radius caption, no scroll action.
+            The map's bottom edge is now clear for the map itself and for the
+            OSM attribution, which keeps its existing fixed offset (there is no
+            floating card left to lift it above).
 
-        {/* MAP DISTANCE SCALE: REMOVED (approved mockup, 2026-10-04). The measured
-            scale bar — its distance text and its rule — is gone together with
-            the space it reserved: nothing is rendered in its place and no other
-            distance indicator, measurement label, or decorative graphic replaces
-            it. The Leaflet +/- zoom control, the OSM attribution, and every
-            camera, coverage, and radius rule are untouched: the scale was
-            display-only chrome that no geographic rule ever read. */}
+            The measured SCALE BAR was removed on 2026-10-04 and still renders
+            nothing in its place; no distance indicator replaces it either. */}
 
-        {/* RESULTS INFO — FLOATING OVER THE MAP (product decision,
-            2026-10-04).
-
-            WHAT CHANGED: only WHERE this block is painted. The result title,
-            the count, the origin/coverage context, and the "Ke hasil" action
-            are the same strings, the same numbers, and the same anchor as
-            before; it still scrolls to the same strips and still renders as
-            plain text when there is nothing to scroll to.
-
-            WHY: it used to sit in the page flow directly UNDER the map, so it
-            cost the map a full strip of height and pushed the cards down. It
-            now rides ON the map's own bottom edge, so the map keeps that
-            height and the panel no longer claims a second, separate band.
-
-            THE GEOMETRY, AND WHY IT COLLIDES WITH NOTHING:
-            · `bottom-3` — below the map's own bottom overlay, the empty-state
-              card (bottom-32), so that card stays fully readable above it.
-            · `max-w-6xl px-4`, `mx-auto` — THE SAME horizontal geometry as the
-              floating search bar, which lives in a `mx-auto w-full max-w-6xl
-              px-4` column directly above it. The panel's old reserved
-              right-hand strip for the scale bar is GONE, so the card's
-              left and right edges now line up exactly with the search field's at
-              every supported width (360 / 390 / 430 / 1280): it can be neither
-              narrower nor wider than the bar above it. The right-hand control
-              column sits far above this panel, so widening it never covers a
-              map control or a Place marker.
-            · `z-[1100]` — the documented overlay ladder, above Leaflet's
-              ceiling (1000), same as every other floating Home element. It is
-              deliberately NOT on the header's higher tier and NOT a
-              viewport-fixed element: it lives inside the `relative isolate
-              overflow-hidden` map stage, so it is clipped with the map, moves
-              with it, and cannot fight the top navigation or create a second
-              scroll layer.
-            · `bg-white/95` + `backdrop-blur-sm` — visually distinct from the
-              tiles while the map stays visible around it, rather than an
-              opaque bar that would read as "the map stops here".
-            · `pointer-events-none` on the wrapper, re-enabled on the card, so
-              the sliver of map beside the card still pans and zooms. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-[1100] mx-auto w-full max-w-6xl px-4">
-          <div className="pointer-events-auto rounded-[18px] bg-white/95 px-3.5 py-1.5 shadow-[0_8px_24px_rgb(0_0_0/0.10)] ring-1 ring-black/5 backdrop-blur-sm">
-            {/* Panel handle — small centered bar, mockup §10 (visual only). */}
-            <span aria-hidden className="mx-auto mb-0.5 block h-1 w-10 rounded-full bg-black/10" />
-            <div className="flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                <h2 id="place-results-heading" className="text-base font-bold leading-tight tracking-tight">
-                  {searchQuery.trim()
-                    ? `Hasil untuk “${searchQuery.trim()}”`
-                    : curatedOnly
-                      ? "Tempat Pilihan"
-                      : "Discovery Place"}
-                </h2>
-                <p className="mt-0.5 text-[11px] font-semibold leading-4 text-brand-ink/55">
-                  {/* Count semantics (PO, 2026-09-30): each layer counts ONLY
-                      its own rows — the Tempat Pilihan header counts the
-                      curated selection (Baris 1), never the Discovery Place row
-                      beneath it; normal modes keep the Discovery Place count.
-                      The numbers are the exact arrays each row renders from, so
-                      the count can never disagree with the cards on screen; the
-                      ORIGIN fragment follows the active search center (bug fix
-                      2026-10-03) instead of always claiming "di sekitar Anda". */}
-                  {curatedOnly
-                    ? `${curatedListed.length} tempat pilihan ${nearOrigin} · ${coverageScope}`
-                    : `${discoveryRowPlaces.length} tempat ${nearOrigin} · ${coverageScope}`}
-                </p>
-              </div>
-              {/* "Ke hasil" (bug fix 2026-10-01) — non-inventive affordance:
-                  there is NO separate all-results page in the MVP (only
-                  /places/[id] exists), so this only SCROLLS to the first
-                  visible strip and never claims to open every Place. The label
-                  says exactly that. With no results at all there is no strip to
-                  scroll to, so the same label renders as plain text (no dead
-                  anchor). */}
-              {resultsAnchorId ? (
-                <a
-                  href={`#${resultsAnchorId}`}
-                  className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-bold text-brand-ink/75 transition hover:text-brand-ink"
-                >
-                  Ke hasil <span aria-hidden>›</span>
-                </a>
-              ) : (
-                <span className="shrink-0 text-[11px] font-bold text-brand-ink/35">Ke hasil</span>
-              )}
-            </div>
-          </div>
+        {/* GESTURE HINT (2026-10-18): the only touch gestures this map keeps
+            are TWO-FINGER ones. Verified against the installed Leaflet 1.9
+            source: TouchZoom's `_onTouchMove` pans by the pinch MIDPOINT and
+            zooms by the pinch DISTANCE, while the touch-primary one-finger
+            lock (`dragging` / `doubleClickZoom` off) leaves a single finger to
+            scroll the page. The hint therefore states exactly the supported
+            pair — never a gesture the map cannot perform. It is one compact,
+            click-through pill: it cannot eat the gesture it describes, it sits
+            above the attribution band (bottom-12 > the 22px credit offset),
+            and it stays clear of the empty-state card at bottom-32. */}
+        <div className="pointer-events-none absolute bottom-12 left-3 z-[1100] rounded-full bg-white/85 px-2.5 py-1 text-[10px] font-semibold leading-4 text-brand-ink/55 shadow-[0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 backdrop-blur-sm">
+          Dua jari untuk geser · cubit untuk zoom
         </div>
 
       </section>
@@ -1757,9 +1687,10 @@ export default function HomeDiscovery({
             no category chips and no secondary category row — Place
             categories stay internal data, never a Home filter UI. */}
 
-        {/* LIVE filter empty state — a clear notice instead of an empty
-            screen. Based only on canonical discovery data; no fake Live. */}
-        {liveOnly && liveItems.length === 0 && (
+        {/* LIVE filter EMPTY state — shown ONLY when the feed really loaded
+            and the result really was empty (`ready`). Based only on canonical
+            discovery data; no fake Live. */}
+        {liveOnly && liveItems.length === 0 && liveFeedStatus === "ready" && (
           <div className="mt-4 rounded-[18px] border border-live/20 bg-white p-6 text-center shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
             <p className="text-sm font-bold text-brand-ink">Saat ini belum ada Live yang sedang berlangsung.</p>
             <p className="mt-1 text-xs text-brand-ink/60">
@@ -1772,6 +1703,28 @@ export default function HomeDiscovery({
             >
               Lihat Semua Tempat
             </button>
+          </div>
+        )}
+
+        {/* LIVE feed FAILED with NOTHING loaded yet (audit fix, 2026-10-17).
+            Before the first successful load there is no data to keep, so this
+            is the ONE honest case where the LIVE tab has genuinely nothing to
+            show AND cannot confirm whether any Live exists. It says so plainly
+            instead of claiming "belum ada Live", it adds no banner elsewhere,
+            and it needs no retry button: the running 15 s poll retries by
+            itself and swaps this card for the real list or the real empty
+            state as soon as an answer settles. Once ANY payload has loaded,
+            a later failure keeps that data on screen and this card never
+            appears. */}
+        {liveOnly && liveItems.length === 0 && liveFeedStatus === "failed" && (
+          <div
+            role="status"
+            className="mt-4 rounded-[18px] border border-live/20 bg-white p-6 text-center shadow-[0_1px_2px_rgb(0_0_0/0.04)]"
+          >
+            <p className="text-sm font-bold text-brand-ink">Live belum dapat dimuat.</p>
+            <p className="mt-1 text-xs text-brand-ink/60">
+              Periksa koneksi internet Anda. Daftar akan diperbarui otomatis.
+            </p>
           </div>
         )}
 
@@ -1828,34 +1781,74 @@ export default function HomeDiscovery({
             deduplicates the other: a Place in both layers appears in both
             rows (OVERLAP rule).
 
-            MOCKUP §10/§11 (2026-10-01): the results are a WHITE PANEL with
+            MOCKUP §10/§11 (2026-10-01): the results are a CREAM SHEET with
             rounded top corners and a small centered handle that VISUALLY
-            MERGES with the map above it (a small negative margin tucks it
-            under the map frame). It is still a normal section in the page
-            flow — the map keeps its full height and clipping boundary, and
+            MERGES with the map above it. It is still a normal section in the
+            page flow — the map keeps its full height and clipping boundary, and
             nothing ever covers the map surface (locked by
-            tests/map-stacking.test.ts). The count line doubles as the
-            mockup's "{n} tempat pilihan di sekitar Anda" subtitle.
-            COMPACTED (correction, 2026-10-03): the handle, the header block,
-            and both carousel frames each gave up ~8–10 px of vertical padding
-            they did not need, so the panel now sizes to its content. The title,
-            the count, the "Ke hasil" link, the category labels, and both strips
-            are UNCHANGED — nothing was hidden, truncated, or made scrollable. */}
+            tests/map-stacking.test.ts).
+
+            REVISED (2026-10-18): the floating information board was removed,
+            so this sheet owns the map → results seam again. It carries the
+            handle, this section's screen-reader heading, and the "Tempat
+            Pilihan" layer tab that MOVED here from the top filter row. The
+            board's title, count, radius wording, and "Ke hasil" action did not
+            move here — they were removed with it. */}
         <section
           className="relative z-10 rounded-t-[24px] bg-brand-cream pb-1 pt-1 shadow-[0_-8px_24px_rgb(0_0_0/0.05)]"
           aria-labelledby="place-results-heading"
         >
-          {/* The result TITLE / COUNT / "Ke hasil" block now FLOATS over the
-              map (product decision, 2026-10-04) — see the floating panel
-              inside the map stage above. It is still this section's accessible
-              name (`aria-labelledby` resolves by id across the tree), and the
-              "Ke hasil" anchor still scrolls to the strips rendered below, so
-              nothing about the panel's content or navigation changed — only
-              where the block is painted.
+          {/* The section's accessible name. It stays in the DOM so
+              `aria-labelledby` always resolves, but it is NOT a visible title:
+              the visible surface no longer repeats a "Tempat Pilihan"
+              heading/count block. */}
+          <h2 id="place-results-heading" className="sr-only">
+            Hasil Tempat
+          </h2>
 
-              This section therefore holds ONLY the Place-card strips, and the
-              `-mt-5` tuck that pulled it under the map frame is gone: the
-              floating card now owns that seam, and the two must not overlap. */}
+          {/* TRANSITION BAND (2026-10-18): the sheet handle (mockup §10,
+              visual only) plus the row that holds the "Tempat Pilihan" layer
+              tab that MOVED here from the top filter bar. This band is the
+              transition from the map to the card list, so the tab sits with
+              the results it filters and can never stack over a map control or
+              the OSM attribution. The handler, the state, and the
+              `aria-pressed` semantics are the ones the tab always had; it is
+              rendered exactly ONCE (no duplicate at the top). */}
+          <div className="mb-2 flex flex-col items-center gap-2">
+            <span aria-hidden className="block h-1 w-10 rounded-full bg-black/10" />
+            <div className="flex w-full items-center px-1">
+              <button
+                type="button"
+                onClick={() => {
+                  // Same exclusivity rule from the curated side: LIVE off,
+                  // whatever was active before.
+                  const next = activateCuratedFilter();
+                  setCuratedOnly(next.curatedOnly);
+                  setLiveOnly(next.liveOnly);
+                  // NOTHING ELSE HAPPENS HERE (2026-10-05). This press used to
+                  // bump `fitNonce` (a `fitBounds` over the curated Places),
+                  // bump `cameraRequestNonce` (releasing the manual-interaction
+                  // latch), and switch the camera to `CURATED_CAMERA_RADIUS_M`.
+                  // All three are gone: a curated tab is a PRESENTATION choice,
+                  // so it must not move, re-frame, or re-centre the camera and
+                  // must not discard a frame the user set by hand. The explored
+                  // area, the camera centre, and the zoom are all preserved
+                  // exactly as they were — a Riyadh search keeps its searched
+                  // area, and "Lokasi Saya" keeps the frame it established.
+                }}
+                aria-pressed={curatedOnly}
+                title="Tempat Pilihan"
+                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-[14px] px-3 py-1.5 text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:text-xs ${
+                  curatedOnly
+                    ? "bg-brand-primary text-white"
+                    : "border border-black/10 bg-white text-brand-ink/70 hover:bg-brand-cream"
+                }`}
+              >
+                <span aria-hidden>✦</span>
+                Tempat Pilihan
+              </button>
+            </div>
+          </div>
 
           {/* Baris 1 (curated layer only): the Admin-promoted selection.
               Renders nothing when no Place is curated — the curated layer

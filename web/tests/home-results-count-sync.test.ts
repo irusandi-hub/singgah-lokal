@@ -53,16 +53,15 @@ const discoveryCode = stripComments(homeDiscovery);
 // One origin resolver, two consumers — they can never diverge
 // ---------------------------------------------------------------------------
 
-test("D: the caption and the count resolve their origin from the SAME function", () => {
-  // If these ever diverged, the screen would contradict itself again.
-  assert.match(discoveryCode, /const coverageScope = describeCoverageScope\(\{/);
-  assert.match(discoveryCode, /const nearOrigin = describeNearOrigin\(\{\s*\n\s*mode: activeSearch\.mode,\s*\n\s*placeName: searchPlaceName,\s*\n\s*hasCenter: hasActiveCenter,/);
-  // Both read the identical inputs: the active mode and the resolved name —
-  // and both now also read whether an origin EXISTS, so the count can no
-  // longer say "di sekitar Anda" when there is no location at all.
-  assert.match(discoveryCode, /const hasActiveCenter = activeCenter !== null;/);
-  assert.match(discoveryCode, /describeCoverageScope\(\{\s*\n\s*radiusLabel: activeRadiusLabel,\s*\n\s*coverage: cameraCoverage,\s*\n\s*hasCenter: hasActiveCenter,/);
-  // No hardcoded user-origined copy may remain in either element.
+test("D: the removed count/caption left no origin state behind", () => {
+  // 2026-10-18: the count subtitle and the camera-scope caption were removed
+  // together with the "Tempat Pilihan" board. The shared resolvers still exist
+  // in lib/live/ui.ts (verified below), but the component no longer renders
+  // either line and carries no state that existed only to feed them.
+  assert.doesNotMatch(discoveryCode, /const coverageScope = describeCoverageScope\(\{/);
+  assert.doesNotMatch(discoveryCode, /const nearOrigin = describeNearOrigin\(\{/);
+  assert.doesNotMatch(discoveryCode, /searchPlaceName/);
+  assert.doesNotMatch(discoveryCode, /cameraCoverage/);
   assert.doesNotMatch(discoveryCode, /tempat di sekitar Anda`/);
   assert.doesNotMatch(discoveryCode, /tempat pilihan di sekitar Anda`/);
 });
@@ -101,16 +100,11 @@ test("SCENARIO city search: every element describes the Riyadh origin", () => {
   assert.ok(describeNearOrigin({ mode, placeName: name }).includes("Riyadh"));
 });
 
-test("SCENARIO city search: the count and the rendered cards come from one array per layer", () => {
-  // curated mode -> Baris 1 renders `curatedListed`; otherwise -> the Discovery
-  // row renders `discoveryRowPlaces`. The count MUST be the .length of exactly
-  // those, or the header would disagree with the visible cards.
-  assert.match(
-    discoveryCode,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/,
-  );
-  // Baris 1 renders exactly curatedListed, and the single row everywhere else
-  // renders exactly discoveryRowPlaces.
+test("SCENARIO city search: each layer still renders from its own array", () => {
+  // The board's count is gone (2026-10-18), so there is no header number that
+  // could disagree with the cards. The rows themselves are unchanged: Baris 1
+  // renders exactly `curatedListed`, the single row everywhere else renders
+  // exactly `discoveryRowPlaces`, and the two are never summed.
   assert.match(discoveryCode, /curatedOnly && curatedListed\.length > 0/);
   assert.match(discoveryCode, /\{discoveryRowPlaces\.length > 0 \? \(/);
   assert.match(discoveryCode, /\{curatedListed\.map\(\(place\) =>/);
@@ -180,11 +174,13 @@ test("SCENARIO Lokasi Saya: the count returns to the device origin and never kee
   assert.equal(describeNearOrigin({ mode: after.mode, placeName: cleared.placeName }).includes("Riyadh"), false);
 });
 
-test("SCENARIO Lokasi Saya: the reset clears the count's inputs at every call site", () => {
-  const clears = discoveryCode.match(/setSearchPlaceName\(cleared\.placeName\);/g) ?? [];
-  assert.ok(clears.length >= 3, `all reset paths must clear the name, found ${clears.length}`);
-  // And the count's origin derives from that same cleared state.
-  assert.match(discoveryCode, /placeName: searchPlaceName/);
+test("SCENARIO Lokasi Saya: every reset path still clears the search center", () => {
+  // The resolved-name state existed only for the removed count/caption, so it
+  // is gone. The search CENTER it travelled with must still be cleared by every
+  // reset path, or the map/rows would keep the abandoned city.
+  const clears = discoveryCode.match(/setSearchCenter\(cleared\.center\);/g) ?? [];
+  assert.ok(clears.length >= 3, `all reset paths must clear the center, found ${clears.length}`);
+  assert.doesNotMatch(discoveryCode, /searchPlaceName/);
 });
 
 // ---------------------------------------------------------------------------

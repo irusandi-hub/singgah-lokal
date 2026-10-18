@@ -102,34 +102,30 @@ test("R-A: the caption follows the SAME active center the results use", () => {
   );
 });
 
-test("R-A: the resolved place name comes from the server answer and is cleared with the center", () => {
-  // The client must read the geocoder's own name, not the raw typed text, so
-  // the caption can never claim a city the search did not resolve.
-  assert.match(discoveryCode, /displayName\?: string;/);
-  assert.match(discoveryCode, /name\?: string;/);
-  assert.match(discoveryCode, /setSearchPlaceName\(/);
+test("R-A: the removed caption left no resolved-name state behind", () => {
+  // 2026-10-18: the caption that named the resolved city was removed with the
+  // "Tempat Pilihan" board, so the client no longer keeps or renders a place
+  // name at all — there is nothing left that could name a city the search did
+  // not resolve.
+  assert.doesNotMatch(discoveryCode, /displayName\?: string;/);
+  assert.doesNotMatch(discoveryCode, /setSearchPlaceName|searchPlaceName/);
   // The status dot in the search-status line must still be a plain dot.
   assert.doesNotMatch(discoveryCode, /placeName: searchQuery/);
 
-  // Every reset path clears the name together with the center, so no caption
-  // can keep describing the abandoned city.
-  const resets = discoveryCode.match(/setSearchPlaceName\(cleared\.placeName\);/g) ?? [];
-  assert.ok(resets.length >= 3, `all reset paths must clear the name, found ${resets.length}`);
+  // Every reset path still clears the CENTER the caption used to travel with.
+  const resets = discoveryCode.match(/setSearchCenter\(cleared\.center\);/g) ?? [];
+  assert.ok(resets.length >= 3, `all reset paths must clear the center, found ${resets.length}`);
 });
 
-test("R-A: the hardcoded caption can never return", () => {
-  // The bug in one assertion: a fixed "dari lokasi Anda" in the JSX.
+test("R-A: no caption remains that could misname an origin", () => {
+  // The bug in one assertion: a fixed "dari lokasi Anda" in the JSX. The whole
+  // caption was removed on 2026-10-18 (together with the information board),
+  // so neither the hardcoded text nor a derived origin/scope line can return.
   assert.doesNotMatch(discoveryCode, /dari lokasi Anda/);
-  // The caption element renders the RESOLVED value, which is the radius
-  // caption while a distance preset owns the frame and the neutral area
-  // caption in the local-area modes ("Tempat Pilihan", "Lokasi Saya").
-  // The consolidated information line renders the RESOLVED origin and scope.
-  assert.match(discoveryCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
-  assert.match(discoveryCode, /const coverageScope = describeCoverageScope\(\{/);
-  // And the ORIGIN half: with no center there is nothing to measure a radius
-  // from, so the caption resolves to the always-true area caption instead of
-  // claiming "dari lokasi Anda" about a frame the preset never framed.
-  assert.match(discoveryCode, /hasCenter: hasActiveCenter,/);
+  assert.doesNotMatch(discoveryCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
+  assert.doesNotMatch(discoveryCode, /const coverageScope = describeCoverageScope\(\{/);
+  assert.doesNotMatch(discoveryCode, /describeNearOrigin\(/);
+  assert.doesNotMatch(discoveryCode, /hasActiveCenter/);
   // 2026-10-04: the result strips are now vertical lists, not horizontal carousels.
   assert.match(discoveryCode, /flex flex-col gap-2/);
   assert.doesNotMatch(discoveryCode, /snap-x snap-mandatory/);
@@ -196,50 +192,53 @@ test("R-C: the duplicate map-area filter chip is gone", () => {
   assert.doesNotMatch(discoveryCode, /absolute left-4 top-\[\d+px\] z-\[1100\] rounded-full bg-brand-primary/);
 });
 
-test("R-C: the real filter bar is untouched — one control per filter", () => {
-  // The DUPLICATE was removed, never the function: LIVE, "Tempat Pilihan" and
-  // the three radius tabs stay in the Master order in the single main bar.
+test("R-C: one control per filter — LIVE stays in the bar, curated renders once below the map", () => {
+  // 2026-10-18: the curated tab MOVED to the results transition band. It was
+  // not duplicated: LIVE stays in the top bar, the curated control exists once
+  // in the whole component, and both keep their own handlers/state.
   const bar = discoveryCode.slice(
     discoveryCode.indexOf("pointer-events-auto mt-2.5 grid"),
     discoveryCode.indexOf("DISTANCE_FILTERS.map"),
   );
   assert.ok(bar.length > 0, "the main filter bar must still exist");
   assert.match(bar, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
-  assert.match(bar, /activateCuratedFilter\(\)/);
   assert.match(bar, /aria-pressed=\{liveOnly\}/);
-  assert.match(bar, /aria-pressed=\{curatedOnly\}/);
+  assert.doesNotMatch(bar, /activateCuratedFilter\(\)/);
 
-  // Exactly ONE "Tempat Pilihan" control button in the whole filter bar, and
-  // the three radius tabs come from the single locked constant.
-  assert.equal((bar.match(/Tempat Pilihan/g) ?? []).length, 1);
+  // Exactly ONE curated control in the whole Home surface, and it lives in the
+  // results sheet (after the map stage's closing tag).
+  assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+  assert.equal((discoveryCode.match(/activateCuratedFilter\(\)/g) ?? []).length, 1);
+  assert.ok(
+    discoveryCode.indexOf("activateCuratedFilter()") > discoveryCode.indexOf("rounded-t-[24px] bg-brand-cream"),
+    "the curated tab lives in the results band, not the top filter row",
+  );
   assert.equal(DISTANCE_FILTERS.length, 3);
   assert.deepEqual(DISTANCE_FILTERS, ["1 km", "5 km", "10 km+"]);
 });
 
 test("R-C: the single filter bar stays one row with no mobile wrapping", () => {
-  // Five controls in one grid row: no wrap, no second row, no horizontal
-  // overflow at the smallest supported viewport.
+  // Four controls in one grid row (LIVE + three radius tabs): no wrap, no
+  // second row, no horizontal overflow at the smallest supported viewport.
   assert.match(
     discoveryCode,
-    /pointer-events-auto mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/,
+    /pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/,
   );
-  // Every control in the bar (LIVE, Tempat Pilihan, and the three radius tabs)
-  // is nowrap, so no control can ever wrap or clip on a narrow phone. The
-  // additional "Semua Tempat" tab that briefly sat in its OWN row below them
-  // was REMOVED on 2026-10-04 and nothing replaced it.
+  // Every control in the bar is nowrap, so no control can wrap or clip on a
+  // narrow phone.
   const bar = discoveryCode.slice(
     discoveryCode.indexOf("pointer-events-auto mt-2.5 grid"),
     discoveryCode.indexOf("{/* MAP AREA"),
   );
   assert.ok(bar.length > 0, "the filter bar region must exist");
-  // Three literal controls plus the shared class inside the radius-tab mapper.
-  // The count itself is what pins "every control is nowrap": a control added
-  // without it would fail here.
-  assert.equal((bar.match(/whitespace-nowrap/g) ?? []).length, 3);
-  // The row is still exactly one grid row with its original five-column split,
-  // and it is now FINAL: no sixth control, no second row, no scroller.
-  assert.match(bar, /grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
+  // One literal LIVE control plus the shared class inside the radius mapper.
+  assert.equal((bar.match(/whitespace-nowrap/g) ?? []).length, 2);
+  assert.match(bar, /grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
   assert.doesNotMatch(bar, /data-home-tab=/);
-  assert.equal((bar.match(/<button/g) ?? []).length, 3, "two literal buttons plus the one distance-tab mapper");
+  assert.equal((bar.match(/<button/g) ?? []).length, 2, "one literal button plus the one distance-tab mapper");
   assert.equal(bar.includes("overflow-x-auto"), false, "no horizontal scroller anywhere in the bar");
+  // The moved curated control is a single tab in the results sheet, and it is
+  // also nowrap so it cannot wrap on a 360px screen where it now lives.
+  const tabStart = discoveryCode.indexOf("aria-pressed={curatedOnly}");
+  assert.match(discoveryCode.slice(tabStart, tabStart + 700), /whitespace-nowrap/);
 });

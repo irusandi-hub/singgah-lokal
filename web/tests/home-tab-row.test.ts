@@ -122,49 +122,54 @@ test("no alternative entry point for the removed mode was invented", () => {
 // 2. The row that remains: five controls, same order, same handlers.
 // ---------------------------------------------------------------------------
 
-test("the tab row is still ONE row of the five approved controls", () => {
+test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
+  // MOVED (2026-10-18): "Tempat Pilihan" left this row for the results band,
+  // so the row is LIVE + the three radius tabs on a four-column split — and
+  // no control replaced the curated tab here.
   assert.match(
     discoveryCode,
-    /<div className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5">/,
-    "the single five-control row is unchanged",
+    /<div className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5">/,
+    "the single four-control row is the current approved layout",
   );
-  // Order in source: LIVE → Tempat Pilihan → the three distance tabs.
   const live = discoveryCode.indexOf("aria-pressed={liveOnly}");
-  const curated = discoveryCode.indexOf("aria-pressed={curatedOnly}");
   const distances = discoveryCode.indexOf("DISTANCE_FILTERS.map");
-  assert.ok(live > -1 && curated > live, "LIVE stays leftmost");
-  assert.ok(distances > curated, "'Tempat Pilihan' stays beside LIVE, distance tabs after it");
+  assert.ok(live > -1, "LIVE stays leftmost");
+  assert.ok(distances > live, "the distance tabs follow LIVE");
   assert.ok(discoveryCode.includes(LIVE_FILTER_LABEL), "LIVE keeps its master label");
   assert.equal((discoveryCode.match(/DISTANCE_FILTERS\.map/g) ?? []).length, 1, "exactly one distance-tab loop");
   assert.deepEqual(DISTANCE_FILTERS, ["1 km", "5 km", "10 km+"]);
-  // And no sixth control joined the row: two buttons plus the ONE distance loop
-  // that renders the three distance tabs.
-  const row = discoveryCode.slice(discoveryCode.indexOf('grid-cols-[auto_auto_1fr_1fr_1fr]'));
+  // The curated tab renders exactly once, BELOW the map stage, and the row
+  // itself carries no curated handler.
+  const row = discoveryCode.slice(discoveryCode.indexOf('grid-cols-[auto_1fr_1fr_1fr]'));
   const rowEnd = row.indexOf("</div>");
-  assert.equal((row.slice(0, rowEnd).match(/<button/g) ?? []).length, 2 + 1);
+  assert.equal((row.slice(0, rowEnd).match(/<button/g) ?? []).length, 1 + 1);
   assert.equal((row.slice(0, rowEnd).match(/DISTANCE_FILTERS\.map/g) ?? []).length, 1);
+  assert.doesNotMatch(row.slice(0, rowEnd), /activateCuratedFilter/);
+  assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
 });
 
 test("LIVE, 'Tempat Pilihan', and the distance tabs keep their own transitions", () => {
   assert.deepEqual(activateCuratedFilter(), { liveOnly: false, curatedOnly: true });
   assert.deepEqual(toggleLiveFilter(true, false), { liveOnly: false, curatedOnly: false });
   assert.deepEqual(toggleLiveFilter(false, true), { liveOnly: true, curatedOnly: false });
-  // The curated tab still fits the frame once and claims "area" coverage.
+  // The curated tab still only switches layers: it fits no frame, claims no
+  // caption (that state was removed with the board on 2026-10-18), and bumps
+  // no camera nonce.
   const curatedHandler = discoveryCode.slice(
     discoveryCode.indexOf("const next = activateCuratedFilter();"),
     discoveryCode.indexOf("const next = activateCuratedFilter();") + 500,
   );
   assert.doesNotMatch(curatedHandler, /setFitNonce\(\(nonce\) => nonce \+ 1\);/);
-  assert.doesNotMatch(curatedHandler, /setCameraCoverage\("area"\);/);
+  assert.doesNotMatch(curatedHandler, /setCameraCoverage/);
   assert.doesNotMatch(curatedHandler, /setCameraRequestNonce/);
-  // A distance tab sets its radius, leaves the curated layer, and claims the
-  // radius coverage — exactly the rules it had before.
+  // A distance tab sets its radius, leaves the curated layer, and releases the
+  // camera latch — exactly the rules it had before.
   const distanceHandler = discoveryCode.slice(
     discoveryCode.indexOf("setDistanceFilter(filter);"),
     discoveryCode.indexOf("setDistanceFilter(filter);") + 400,
   );
   assert.match(distanceHandler, /setCuratedOnly\(false\);/);
-  assert.match(distanceHandler, /setCameraCoverage\("radius"\);/);
+  assert.doesNotMatch(distanceHandler, /setCameraCoverage/);
   assert.match(distanceHandler, /setCameraRequestNonce\(\(nonce\) => nonce \+ 1\);/);
 });
 

@@ -36,8 +36,6 @@ const pageCode = stripComments(homeDiscovery);
 
 /** The floating chrome column the search bar lives in. */
 const SEARCH_COLUMN = 'className="relative z-[1100] pointer-events-none mx-auto w-full max-w-6xl px-4"';
-/** The same column, reused by the floating results panel. */
-const PANEL_COLUMN = 'className="pointer-events-none absolute inset-x-0 bottom-3 z-[1100] mx-auto w-full max-w-6xl px-4"';
 
 const bar = pageCode.slice(
   pageCode.indexOf("rounded-[18px] border border-black/5 bg-white"),
@@ -70,8 +68,9 @@ test("the only controls in the bar are the existing clear '×' and the real 'Car
   // No filter/settings affordance appeared anywhere on the search surface.
   assert.doesNotMatch(pageCode, /aria-label="(Setelan|Filter|Pengaturan)/);
   assert.equal(/onClick=\{\(\) => set(ShowFilters|FiltersOpen)/.test(pageCode), false);
-  // And the tab row — the one real filter surface — is unchanged in kind.
-  assert.match(pageCode, /grid grid-cols-\[auto_auto_1fr_1fr_1fr\] gap-1\.5/);
+  // And the tab row — the one real filter surface — is unchanged in kind
+  // (four columns since the curated tab moved below the map on 2026-10-18).
+  assert.match(pageCode, /grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
 });
 
 test("search stays submit-only: no search-on-keystroke", () => {
@@ -128,7 +127,7 @@ test("a long query cannot widen the field or overflow a narrow phone", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. The floating results panel matches the search field exactly.
+// 3. The results surface: no floating panel, one control in its band.
 test("the 'Cari' control is usable on touch and by keyboard", () => {
   // 2026-10-04 (review): the pill is 26px tall, which reads fine on desktop but
   // is a small thumb target, and it had NO visible keyboard focus. Both are
@@ -167,17 +166,18 @@ test("the extended 'Cari' hit area cannot eat the bar's other controls", () => {
 
 // ---------------------------------------------------------------------------
 
-test("panel and search field share ONE horizontal geometry", () => {
-  // The identical geometry, asserted as a literal: same centred column, same
-  // 72rem cap, same 16px padding on both sides, at every supported width. The
-  // only difference is that the panel is anchored to the map's bottom edge.
-  assert.ok(pageCode.includes(SEARCH_COLUMN), "search column");
-  assert.ok(pageCode.includes(PANEL_COLUMN), "panel column");
+test("the floating results panel and its column are GONE", () => {
+  // 2026-10-18: the "Tempat Pilihan" information board that floated on the
+  // map's bottom edge was removed in full, so no bottom-anchored panel column
+  // exists any more and the search column is the only floating chrome column.
+  assert.ok(pageCode.includes(SEARCH_COLUMN), "the search column is unchanged");
   assert.equal(
-    SEARCH_COLUMN.replace("relative z-[1100] pointer-events-none ", ""),
-    PANEL_COLUMN.replace("pointer-events-none absolute inset-x-0 bottom-3 z-[1100] ", ""),
-    "both columns are `mx-auto w-full max-w-6xl px-4`, byte for byte",
+    pageCode.includes('absolute inset-x-0 bottom-3 z-[1100] mx-auto w-full max-w-6xl px-4'),
+    false,
+    "no floating results panel column remains",
   );
+  assert.doesNotMatch(pageCode, /resultsPanelRef/);
+  assert.doesNotMatch(pageCode, /bottom-3 z-\[1100\] mx-auto/);
 });
 
 test("the reserved strip for the removed distance scale is gone", () => {
@@ -190,30 +190,52 @@ test("the reserved strip for the removed distance scale is gone", () => {
   assert.equal(pageCode.indexOf("bottom-9 right-4 z-[1100]"), -1);
 });
 
-test("the panel keeps its own content, actions, and interactions", () => {
-  const panel = pageCode.slice(pageCode.indexOf("absolute inset-x-0 bottom-3 z-[1100]"), pageCode.indexOf("</section>"));
-  // Card surface, radius, and handle keep the same SHAPE (VISUAL REFINEMENT
-  // 2026-10-05: 18px radius, `py-1.5`, a 4px handle, and a softer, deeper
-  // shadow so the panel reads as floating without shouting).
-  assert.match(panel, /pointer-events-auto rounded-\[18px\] bg-white\/95 px-3\.5 py-1\.5 shadow-\[0_8px_24px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5 backdrop-blur-sm/);
-  assert.match(panel, /<span aria-hidden className="mx-auto mb-0\.5 block h-1 w-10 rounded-full bg-black\/10" \/>/);
-  // Title, count, and the "Ke hasil" action are unchanged, including the
-  // plain-text fallback when there is nothing to scroll to.
-  assert.match(panel, /<h2 id="place-results-heading" className="text-base font-bold leading-tight tracking-tight">/);
-  assert.match(panel, /\$\{nearOrigin\} · \$\{coverageScope\}/);
-  assert.match(panel, /href=\{`#\$\{resultsAnchorId\}`\}/);
-  assert.match(panel, /<span className="shrink-0 text-\[11px\] font-bold text-brand-ink\/35">Ke hasil<\/span>/);
-  // The wrapper stays click-through and the card itself does not, so the map
-  // beside the panel still pans and zooms.
-  assert.match(pageCode, /<div className="pointer-events-none absolute inset-x-0 bottom-3 z-\[1100\]/);
-  assert.match(panel, /<div className="pointer-events-auto rounded-\[18px\]/);
+test("the results sheet keeps the handle and the moved curated tab", () => {
+  const sheetStart = pageCode.indexOf('className="relative z-10 rounded-t-[24px] bg-brand-cream');
+  const sheet = pageCode.slice(sheetStart, pageCode.indexOf('id={CURATED_RESULTS_ANCHOR_ID}'));
+  // The sheet keeps its cream surface, rounded top, and the small handle —
+  // now at the sheet's own top edge rather than on a floating card.
+  assert.match(sheet, /rounded-t-\[24px\] bg-brand-cream/);
+  assert.match(sheet, /block h-1 w-10 rounded-full bg-black\/10/);
+  // The board's title/count/radius/"Ke hasil" content is GONE (2026-10-18).
+  assert.doesNotMatch(sheet, /place-results-heading" className="text-base/);
+  assert.doesNotMatch(sheet, /nearOrigin|coverageScope|Ke hasil|resultsAnchorId/);
+  // The section's accessible name survives as a screen-reader heading, and the
+  // curated layer tab lives here — exactly once, with its documented handler.
+  assert.match(sheet, /<h2 id="place-results-heading" className="sr-only">/);
+  assert.equal((pageCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+  assert.match(sheet, /activateCuratedFilter\(\)/);
 });
 
-test("panel content cannot overflow the wider card", () => {
-  const panel = pageCode.slice(pageCode.indexOf("absolute inset-x-0 bottom-3 z-[1100]"), pageCode.indexOf("</section>"));
-  // The title column can shrink and clips its own text; the action is fixed.
-  assert.match(panel, /<div className="min-w-0">/);
-  assert.match(panel, /<a\s*\n\s*href=\{`#\$\{resultsAnchorId\}`\}\s*\n\s*className="inline-flex shrink-0 items-center gap-0\.5/);
-  // No fixed pixel width is imposed on the card, so it tracks its column.
-  assert.doesNotMatch(panel.slice(0, 200), /w-\[\d+px\]/);
+test("the moved curated tab cannot overflow or wrap on a narrow phone", () => {
+  const tabStart = pageCode.indexOf("aria-pressed={curatedOnly}");
+  // The handler precedes the attribute, so the slice reaches back over the
+  // whole button.
+  const tab = pageCode.slice(tabStart - 700, tabStart + 500);
+  // One compact, non-wrapping control — no fixed pixel width and no second
+  // tab beside it.
+  assert.match(tab, /whitespace-nowrap/);
+  assert.doesNotMatch(tab, /w-\[\d+px\]/);
+  assert.equal((tab.match(/<button/g) ?? []).length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// 4. The OSM attribution needs no panel-height lift any more
+// ---------------------------------------------------------------------------
+
+test("the OSM attribution keeps its base offset and no panel measurement remains", () => {
+  // The board that covered the map's bottom edge is removed (2026-10-18), so
+  // nothing can cover the credit and the measured/published lift is gone with
+  // it. The attribution keeps the pre-existing 22px offset.
+  const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.leaflet-control-attribution \{\s*margin-bottom: 22px;\s*\}/);
+  assert.doesNotMatch(css, /--singgah-results-panel-height/);
+  assert.doesNotMatch(pageCode, /--singgah-results-panel-height/);
+  assert.doesNotMatch(pageCode, /new ResizeObserver\(apply\)/);
+  // The gesture hint sits ABOVE the attribution band (bottom-12 = 48px, vs the
+  // credit's 22px offset + its own line), so it can never cover it either.
+  assert.match(pageCode, /absolute bottom-12 left-3 z-\[1100\][\s\S]{0,220}Dua jari untuk geser/);
+  // The attribution itself is untouched: Leaflet's own control, fed by the
+  // tile layer's OSM attribution string (pinned in live-hardening /
+  // map-local-area-coverage) — never removed or replaced.
 });

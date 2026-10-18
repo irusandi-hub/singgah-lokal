@@ -66,7 +66,9 @@ test("C3 an empty submit never geocodes — it only resets", async () => {
   assert.match(emptyBranch, /if \(!trimmed\) \{/);
   assert.doesNotMatch(emptyBranch, /fetch\(/);
   assert.match(emptyBranch, /setSearchCenter\(cleared\.center\);/);
-  assert.match(emptyBranch, /setSearchPlaceName\(cleared\.placeName\);/);
+  // The resolved-name state existed only for the removed information board
+  // (2026-10-18), so an empty submit no longer writes one.
+  assert.doesNotMatch(emptyBranch, /setSearchPlaceName/);
 });
 
 // ---------------------------------------------------------------------------
@@ -84,7 +86,7 @@ test("C4 the clear control is the approved \"×\" button", () => {
   assert.match(clear, /searchEpochRef\.current \+= 1;/);
   assert.match(clear, /submittedSearchRef\.current = "";/);
   assert.match(clear, /setSearchCenter\(cleared\.center\);/);
-  assert.match(clear, /setSearchPlaceName\(cleared\.placeName\);/);
+  assert.doesNotMatch(pageCode, /setSearchPlaceName/);
 });
 
 // ---------------------------------------------------------------------------
@@ -175,6 +177,32 @@ test("C10 2026-10-05: there is NO curated camera pool to memoise", () => {
   // It is not derived inside the render body and not stored in state, so a
   // keystroke can never rebuild a camera dataset.
   assert.equal((pageCode.match(/setCuratedFit|setCuratedCamera/g) ?? []).length, 0);
+});
+
+test("C12 the geocode is bounded by an AbortController timeout cleared on every path", () => {
+  // AUDIT FIX (2026-10-17). The server bounds its own outbound geocoder call,
+  // but the browser→server leg could stall on a flaky network, freezing
+  // `searchPending` — and, through the in-flight guard, an identical retry —
+  // until reload.
+  const submit = pageCode.slice(pageCode.indexOf("const handleSearchSubmit"), pageCode.indexOf("const handleSearchKeyDown"));
+  // One controller per submit; the timeout aborts a hung request.
+  assert.match(submit, /const controller = new AbortController\(\);/);
+  assert.match(submit, /window\.setTimeout\(\(\) => controller\.abort\(\), GEOCODE_TIMEOUT_MS\)/);
+  assert.match(submit, /signal: controller\.signal,/);
+  // The timer is cleared on every settle path (success, failure, abort), and
+  // the request budget sits above the server's own 5 s provider bound so a
+  // slow-but-healthy answer is never cut off.
+  assert.match(submit, /if \(timeoutId !== null\) window\.clearTimeout\(timeoutId\);/);
+  assert.match(pageCode, /const GEOCODE_TIMEOUT_MS = 10_000;/);
+  // A cancellation is never a valid search result: it lands in the EXISTING
+  // failure path with the same honest, non-technical message, and the next
+  // search works without a reload because `finally` frees the in-flight ref.
+  assert.match(submit, /Layanan lokasi sedang tidak tersedia\. Coba lagi nanti\./);
+  assert.match(submit, /if \(inFlightSearchRef\.current === trimmed\) inFlightSearchRef\.current = null;/);
+  // The camera trigger bumps ONLY while this answer still owns the intent: a
+  // SUPERSEDED request settling late can never re-fire the search-camera
+  // effect for the newer answer and yank a frame the user panned away from.
+  assert.match(submit, /if \(isCurrent\(\)\) setSearchNonce\(\(nonce\) => nonce \+ 1\);/);
 });
 
 test("C11 contextual framing narrows the camera dataset instead of re-selecting Places", () => {

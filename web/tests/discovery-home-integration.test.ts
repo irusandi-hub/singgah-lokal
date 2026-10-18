@@ -71,8 +71,14 @@ function makeInput(
 
 test("default mode headings and row are the canonical Discovery layer", () => {
   const code = stripComments(home);
-  // The default results heading is "Discovery Place" (engine-backed layer).
-  assert.match(code, /curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Discovery Place"/);
+  // The floating information board that used to print "Discovery Place" /
+  // "Tempat Pilihan" as a title was REMOVED (2026-10-18). What remains is the
+  // section's screen-reader heading and the canonical row itself — no visible
+  // title, count, radius wording, or "Ke hasil" action is rendered.
+  assert.doesNotMatch(code, /curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Discovery Place"/);
+  assert.doesNotMatch(code, /Hasil untuk/);
+  assert.doesNotMatch(code, /Ke hasil/);
+  assert.match(code, /<h2 id="place-results-heading" className="sr-only">\n\s*Hasil Tempat\n\s*<\/h2>/);
   // The default row renders the canonical engine list (no re-sort client-side):
   // the ranked engine order from the server view model. Each entry is wrapped
   // in a fixed-width flex track (MOCKUP §12/§19, 2026-10-01) so the card can
@@ -357,15 +363,14 @@ test("P0: empty curated set produces an empty Tempat Pilihan result (no publishe
     code,
     /const curatedListed = useMemo\(\s*\(\) => narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/,
   );
-  // The header count stays per-layer (PO fix, 2026-09-30). The NUMBERS are
-  // unchanged and still per-layer; the ORIGIN fragment is now `nearOrigin`
-  // (bug fix 2026-10-03), which keeps the MOCKUP §11 device wording verbatim
-  // and names a searched city when one is active.
-  assert.match(
-    code,
-    /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`\n\s*: `\$\{discoveryRowPlaces\.length\} tempat \$\{nearOrigin\} · \$\{coverageScope\}`/,
-  );
+  // The board's per-layer COUNTER was removed together with the board
+  // (2026-10-18). No count is rendered anywhere now, so no count can ever
+  // display a size the curated row does not render — and the old "sum both
+  // layers" mistake remains impossible because there is no sum at all.
+  assert.doesNotMatch(code, /tempat pilihan \$\{nearOrigin\}/);
   assert.doesNotMatch(code, /curatedListed\.length \+ discoveryRowPlaces\.length/);
+  // The curated ROW itself still exists and still reads the curated array.
+  assert.match(code, /\{curatedOnly && curatedListed\.length > 0 && \(/);
 });
 
 test("P0: curated map coverage is the REAL VISIBLE VIEWPORT, independent of membership", () => {
@@ -489,7 +494,10 @@ test("P0: ordinary coverage Places never leak into the curated list or its count
   // separate statements: the coverage Places exist ONLY inside mapPlaces.
   const curatedListSlice = code.slice(code.indexOf("const curatedListed"), code.indexOf("const curatedCoveragePlaces"));
   assert.doesNotMatch(curatedListSlice, /curatedCoveragePlaces|CURATED_MAP_COVERAGE_RADIUS_M/);
-  assert.match(code, /curatedOnly\n\s*\? `\$\{curatedListed\.length\} tempat pilihan \$\{nearOrigin\} · \$\{coverageScope\}`/);
+  // The removed board's counter is gone (2026-10-18); no count remains that
+  // could even be fed the coverage-only Places.
+  assert.doesNotMatch(code, /tempat pilihan \$\{nearOrigin\}/);
+  assert.match(code, /\{curatedListed\.map\(\(place\) => \(/);
   // The coverage memo is referenced by exactly ONE consumer — the map dataset.
   const uses = code.match(/curatedCoveragePlaces/g) ?? [];
   assert.equal(uses.length, 3, "declaration + the curated dataset union + its dependency list only");

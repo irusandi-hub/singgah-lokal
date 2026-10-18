@@ -45,13 +45,14 @@ test("Tempat Pilihan is ONE curated discovery layer with no category filter UI",
   assert.equal(code.includes(">Kopi<"), false);
   assert.equal(code.includes(">Teh<"), false);
   assert.equal(/place\.category ===/.test(code), false);
-  // Stage 3 renamed the default heading to "Discovery Place". The locked
-  // properties: exactly ONE curated-state-gated heading ternary exists, and
-  // every "Discovery Place" occurrence is either that heading, the Baris 2
-  // row label, or its empty state — never a filter or a category chip.
+  // Stage 3 renamed the default heading to "Discovery Place". 2026-10-18: the
+  // information board that printed that title was REMOVED, so the
+  // curated-state-gated heading ternary is gone and "Discovery Place" now
+  // survives only as the Baris 2 row label / empty-state copy — never a filter
+  // or a category chip.
   assert.match(code, /Discovery Place/);
-  const conditional = (code.match(/curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Discovery Place"/g) ?? []).length;
-  assert.equal(conditional, 1, "the heading is the single curated-state-gated occurrence");
+  assert.doesNotMatch(code, /curatedOnly\s*\?\s*"Tempat Pilihan"\s*:\s*"Discovery Place"/);
+  assert.match(code, />\s*Discovery Place\s*\n\s*<\/p>/);
   // Curated mode carries its own 50 km camera preset (PO, 2026-09-29) and
   // the Live-now cards are not part of the curated layer.
   assert.match(code, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
@@ -131,23 +132,24 @@ test("Producer Place form no longer carries a cover-URL input (media moved to St
 
 // --- Home filter bar (PO 2026-09-26): ONE row, no overflow, fixed order ---
 
-test("Home filter bar is a single row: LIVE leftmost, Tempat Pilihan beside it, distance tabs after", () => {
+test("Home filter bar is a single row: LIVE leftmost, distance tabs after", () => {
   const code = stripComments(homePage);
   // The two former bars are merged into ONE grid row (PO 2026-09-26): no
-  // separate primary row and no separate distance row. MOCKUP §3
-  // (2026-10-01) then turned that row into floating chrome over the full-bleed
-  // map, so its bottom margin became a top margin (mt-2.5); the single-row
-  // grid and the fixed order are unchanged.
-  assert.match(code, /mt-2\.5 grid grid-cols-\[auto_auto_1fr_1fr_1fr\]/);
+  // separate primary row and no separate distance row. 2026-10-18: the curated
+  // tab moved out of this row to the results band, so the row is LIVE + the
+  // three radius tabs on a four-column split.
+  assert.match(code, /mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\]/);
   assert.equal(code.includes("grid-cols-[auto_1fr]"), false, "old two-row primary bar is gone");
   assert.equal(code.includes("grid-cols-4"), false, "old separate distance bar is gone");
-  // Order is locked: LIVE leftmost, Tempat Pilihan directly beside it, then
-  // the distance tabs.
-  const filterBar = code.indexOf("mt-2.5 grid grid-cols-[auto_auto_1fr_1fr_1fr]");
+  // Order is locked inside the bar: LIVE leftmost, then the distance tabs. The
+  // curated layer control renders exactly once, below the map.
+  const filterBar = code.indexOf("mt-2.5 grid grid-cols-[auto_1fr_1fr_1fr]");
   const liveBtn = code.indexOf("toggleLiveFilter(liveOnly, curatedOnly)", filterBar);
   const curatedBtn = code.indexOf("activateCuratedFilter()", filterBar);
   const distanceBtn = code.indexOf("DISTANCE_FILTERS.map", filterBar);
-  assert.ok(liveBtn >= 0 && curatedBtn > liveBtn && distanceBtn > curatedBtn, "LIVE | Tempat Pilihan | distance tabs, in order");
+  assert.ok(liveBtn >= 0 && distanceBtn > liveBtn, "LIVE | distance tabs, in order");
+  assert.ok(curatedBtn > distanceBtn, "the curated tab lives below the map, in the results band");
+  assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
   // The filter bar never horizontally scrolls (the old overflow strip).
   assert.equal(/mb-5 flex gap-2 overflow-x-auto/.test(code.slice(0, filterBar)), false);
   // The curated-chips row was REMOVED (PO 2026-09-26): "Tempat Pilihan"

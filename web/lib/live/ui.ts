@@ -315,8 +315,8 @@ export const CAMERA_PRESET_RADIUS_M: Record<DistanceFilter, number> = {
  * - `boundsOfPoints` returns `null` for ZERO Points, so an empty dataset can
  *   never be turned into a coordinate;
  * - `resolveCameraFitPadding` reserves the floating chrome (header, search
- *   bar, filter row) and the map controls (re-center, "Lokasi Saya", +/−,
- *   coverage box, scale) so a fitted frame is never hidden underneath them.
+ *   bar, filter row) and the map controls (re-center, "Lokasi Saya", +/−
+ *   ladder) so a fitted frame is never hidden underneath them.
  *
  * The padding is expressed as a SHARE of the real container size as well as an
  * absolute cap: on a short mobile map the reserved chrome must never eat the
@@ -368,8 +368,14 @@ export function boundsOfPoints(points: readonly GeoPoint[]): MapViewport | null 
 /**
  * Reserved camera padding in CSS pixels, matching the Home layout ladder:
  * header + search bar + filter row at the top, the right-hand control column
- * (re-center, "Lokasi Saya", and the +/− stack below it) on the right, and
- * the coverage box + scale at the bottom. Left is only the natural map inset.
+ * (compass, "Lokasi Saya", and the +/− stack below it — ONE 40px-tile column
+ * at 190px since 2026-10-18) on the right, and the map's bottom band below:
+ * the OSM attribution (22px) and the click-through two-finger gesture hint
+ * (bottom-12). The old coverage box, distance scale, and the floating results
+ * panel all left the map's bottom edge (2026-10-04 / 2026-10-18), so the 84px
+ * reserve is now deliberately CONSERVATIVE — it keeps a fitted frame clear of
+ * the credit and the hint with room to spare, and shrinking it is a comfort
+ * choice, never a correctness rule. Left is only the natural map inset.
  */
 export const CAMERA_FIT_PADDING = {
   top: 190,
@@ -1112,6 +1118,13 @@ export function describeCoverageCaption(input: {
  * "area peta" wording as AREA_COVERAGE_CAPTION, reduced to the fragment the
  * line needs; a radius is named only while a preset owns the frame AND an
  * origin exists — the same two conditions as `describeCoverageCaption`.
+ *
+ * NO ORIGIN → EMPTY (bug fix, 2026-10-18). With no center, `describeNearOrigin`
+ * already answers "di area peta" for the count itself, so adding the same scope
+ * fragment printed "74 tempat di area peta · di area peta". The count sentence
+ * has already named the area, so the scope contributes NOTHING in that state;
+ * a caller joins only the fragments that are non-empty and never emits the
+ * separator alone. Every other state still returns a fragment.
  */
 export const AREA_SCOPE_LABEL = "di area peta";
 
@@ -1120,7 +1133,8 @@ export function describeCoverageScope(input: {
   coverage: "radius" | "area";
   hasCenter: boolean;
 }): string {
-  if (input.coverage !== "radius" || !input.hasCenter) return AREA_SCOPE_LABEL;
+  if (!input.hasCenter) return "";
+  if (input.coverage !== "radius") return AREA_SCOPE_LABEL;
   return `dalam radius ${input.radiusLabel}`;
 }
 

@@ -36,12 +36,17 @@ const mapCode = stripComments(homeMap);
 // ---------------------------------------------------------------------------
 
 test("the compass keeps the retired arrow's box position and refines its size", () => {
-  // VISUAL REFINEMENT (2026-10-05): the compass is now a 40px control on the
-  // shared radius/shadow ladder. The OFFSET (190px) is the part the ladder
-  // arithmetic depends on and it is unchanged — see the ladder test below.
+  // VISUAL REFINEMENT (2026-10-05): the compass is a 40px control on the
+  // shared radius/shadow ladder. UNIFIED COLUMN (2026-10-18): it is now the
+  // first tile of the control column, so the 190px offset lives on the column
+  // wrapper while the tile keeps the exact same 40×40 white surface.
   assert.match(
     mapCode,
-    /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"\s*\n\s*className="absolute right-3 top-\[190px\] z-\[1100\] inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5"/,
+    /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"\s*\n\s*className="inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5"/,
+  );
+  assert.match(
+    mapCode,
+    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2">/,
   );
 });
 
@@ -110,13 +115,15 @@ test("the map has no rotation capability for a compass to reflect or restore", (
 
 test("'Lokasi Saya' is still the one working locate control, on the SAME handler", () => {
   assert.equal((mapCode.match(/onClick=\{onRequestLocate\}/g) ?? []).length, 1);
+  // UNIFIED (2026-10-18): the locate control is an icon tile in the shared
+  // 40×40 column instead of a labeled 44px stack — same surface, same handler,
+  // and now the same geometry as the compass and the zoom buttons.
   assert.match(
     mapCode,
-    /onClick=\{onRequestLocate\}\s*\n\s*className="absolute right-3 top-\[240px\] z-\[1100\] inline-flex w-10 flex-col items-center gap-0\.5 rounded-\[14px\] bg-white px-1 py-1\.5 text-\[9px\] font-bold leading-tight text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5 transition hover:bg-brand-cream"/,
-    "the labeled locate control keeps its position, size, and surface",
+    /onClick=\{onRequestLocate\}\s*\n\s*title="Lokasi Saya"\s*\n\s*aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"\s*\n\s*className="inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5 transition hover:bg-brand-cream"/,
+    "the locate control keeps its handler, its surface, and the shared tile size",
   );
   assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
-  assert.match(mapCode, /Lokasi Saya\n/);
   // Its geolocation path is untouched: the REAL browser fix and the explicit
   // locate nonce still drive the camera, and nothing about the compass is
   // allowed to feed them.
@@ -129,22 +136,25 @@ test("'Lokasi Saya' is still the one working locate control, on the SAME handler
 // 5. The control ladder the compass sits in is unchanged.
 // ---------------------------------------------------------------------------
 
-test("the right-hand ladder is compass 190 → Lokasi Saya 240 → zoom 290", () => {
-  // VISUAL REFINEMENT (2026-10-05): the two React controls are 40px wide
-  // boxes now (they were 44px). The ladder still clears: 190 + 40 = 230 < 240,
-  // and the Leaflet stack is untouched at 290.
-  const compassTop = Number(/absolute right-3 top-\[(\d+)px\] z-\[1100\] inline-flex h-10 w-10/.exec(mapCode)?.[1] ?? "0");
-  const locateTop = Number(/absolute right-3 top-\[(\d+)px\] z-\[1100\] inline-flex w-10 flex-col/.exec(mapCode)?.[1] ?? "0");
+test("the right-hand column is compass 190 → Lokasi Saya 238 → zoom 286, 8px apart", () => {
+  // UNIFIED COLUMN (2026-10-18): one 40px-tile column with 8px gaps — the
+  // compass and "Lokasi Saya" in the React stack, Leaflet's own +/- buttons on
+  // the same rhythm from globals.css.
+  const columnTop = Number(
+    /<div className="absolute right-3 top-\[(\d+)px\] z-\[1100\] flex flex-col items-center gap-2">/.exec(mapCode)?.[1] ?? "0",
+  );
   const zoomTop = Number(/\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: (\d+)px;/.exec(globalsCss)?.[1] ?? "0");
-  assert.equal(compassTop, 190, "the compass keeps the retired arrow's offset");
-  assert.equal(locateTop, 240);
-  assert.equal(zoomTop, 290);
-  assert.ok(locateTop > compassTop, "'Lokasi Saya' still sits below the compass");
-  assert.ok(zoomTop > locateTop, "the +/- stack is still last");
-  // The controls do not overlap each other at the refined 40px size.
-  assert.ok(compassTop + 40 <= locateTop, "the compass does not touch 'Lokasi Saya'");
-  // Both overlays stay above Leaflet's documented control ceiling.
-  assert.match(mapCode, /role="img"[\s\S]{0,200}?z-\[1100\]/);
+  assert.equal(columnTop, 190, "the column keeps the retired arrow's offset");
+  assert.equal(zoomTop, columnTop + 40 + 8 + 40 + 8, "one 8px-gapped 40px rhythm");
+  // The controls do not overlap each other, and the React tiles really are the
+  // same 40px box the zoom buttons are given in globals.css.
+  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 2, "compass + locate tiles");
+  assert.match(
+    globalsCss,
+    /\.singgah-home-map \.leaflet-bar a\.leaflet-control-zoom-in,[\s\S]{0,160}width: 40px;[\s\S]{0,80}height: 40px;/,
+  );
+  // The overlays stay above Leaflet's documented control ceiling.
+  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
   // The zoom control itself is Leaflet's own, untouched.
   assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/);
 });
