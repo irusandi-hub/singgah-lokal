@@ -410,33 +410,26 @@ test("AC 6: MANY Places are framed with padding that reserves the chrome and the
 // 7. Zoom controls sit BELOW "Lokasi Saya" and still work.
 // ---------------------------------------------------------------------------
 
-test("AC 7: the +/- stack is below both right-hand controls, and the zoom control is untouched", () => {
-  // UNIFIED COLUMN (2026-10-18): compass and "Lokasi Saya" are ONE flex column
-  // of identical 40×40 tiles, 8px apart, and Leaflet's own +/- stack is placed
-  // on the SAME rhythm below them — one 40px beat all the way down.
+test("AC 7: the right-hand column clears the chrome, and zoom is gesture-only", () => {
+  // 2026-10-18: the Leaflet +/- stack was REMOVED from the Home map. The
+  // column is compass + "Lokasi Saya" only, at 190px with 8px gaps, ending at
+  // 278px — well inside the 470px map floor.
   const columnTop = Number(
     /absolute right-3 top-\[(\d+)px\] z-\[1100\] flex flex-col items-center gap-2/.exec(homeMap)?.[1] ?? "0",
   );
-  const zoomStack = Number(/\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: (\d+)px;/.exec(globals)?.[1] ?? "0");
   assert.ok(columnTop > 150, "the control column clears the floating chrome");
-  // compass (40) + gap (8) + locate (40) + gap (8) = the zoom stack's top.
-  assert.equal(zoomStack, columnTop + 40 + 8 + 40 + 8, "one 8px-gapped 40px rhythm the whole way down");
-  // The whole column still ends above the bottom overlays on the shortest
-  // supported map (a 60vh map clamped at its 470px floor): two 40px zoom
-  // buttons plus the bar's 1px borders.
-  assert.ok(zoomStack + 82 <= 470, "the column clears the map's bottom band on the shortest map");
-  // FUNCTIONALITY IS UNCHANGED: still Leaflet's own control, same position,
-  // same two buttons, same titles and handlers.
-  assert.match(
-    mapCode,
-    /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/,
-  );
+  assert.equal(columnTop, 190);
+  assert.ok(columnTop + 40 + 8 + 40 <= 470, "the column clears the map's bottom band");
+  // No Leaflet control offset of our own remains, and the Producer picker is
+  // therefore untouched.
+  assert.doesNotMatch(globals, /\.singgah-home-map \.leaflet-top\.leaflet-right \{/);
+  // FUNCTIONALITY: pinch/two-finger pan and wheel zoom remain; the Home map
+  // configures no button zoom control.
+  assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
+  assert.match(mapCode, /zoomControl: false/);
   assert.match(mapCode, /scrollWheelZoom: true/);
-  assert.equal(mapCode.includes("dragging: false"), false);
+  assert.match(mapCode, /dragging: !touchPrimary/);
   assert.equal(mapCode.includes("touchZoom: false"), false);
-  // The offset stays SCOPED to the Home map, so the Producer location picker
-  // map keeps its default zoom control.
-  assert.match(globals, /\.singgah-home-map \.leaflet-top\.leaflet-right \{/);
 });
 
 // ---------------------------------------------------------------------------
@@ -446,7 +439,7 @@ test("AC 7: the +/- stack is below both right-hand controls, and the zoom contro
 test("AC 8: the search info panel spans the screen and is fully opaque", () => {
   const panel = pageCode.slice(
     pageCode.indexOf("{(searchPending || searchError) && ("),
-    pageCode.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"),
+    pageCode.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
   );
   // It escapes BOTH the horizontal padding and the max-width cap of the
   // content column, and is re-centred on the VIEWPORT.

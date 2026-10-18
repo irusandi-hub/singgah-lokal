@@ -210,7 +210,8 @@ test("6: a real pan/zoom latches the camera and only an explicit request re-arms
   assert.match(mapCode, /if \(!programmaticMoveRef\.current\) userInteractedRef\.current = true;/);
   // Zoom controls and the map surface are untouched: wheel zoom stays on and
   // the touch-primary gesture rules are unchanged by this correction.
-  assert.match(mapCode, /L\.control\.zoom\(\{/);
+  assert.doesNotMatch(mapCode, /L\.control\.zoom\(/, "zoom is gesture-only");
+  assert.match(mapCode, /scrollWheelZoom: true/);
   assert.match(mapCode, /scrollWheelZoom: true,/);
   assert.match(mapCode, /dragging: !touchPrimary,/);
 });
@@ -293,9 +294,10 @@ test("the curated LIST, both rows and eligibility are untouched", () => {
   assert.match(pageCode, /isCurated: curatedOnly && curatedIdSet\.has\(place\.id\),/);
   // The top filter row holds LIVE + the three radius tabs (four controls);
   // the curated layer tab renders once, in the results transition band.
-  assert.match(pageCode, /grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
+  assert.match(pageCode, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
   assert.equal((pageCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
   assert.match(pageCode, />\s*Tempat Pilihan\s*<\/button>/);
+  assert.match(pageCode, /absolute -top-11 left-4 z-20 inline-flex min-h-11/);
 });
 
 // ---------------------------------------------------------------------------

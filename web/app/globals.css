@@ -80,44 +80,13 @@ select {
   overflow: hidden;
 }
 
-/* UNIFIED MAP CONTROL COLUMN (2026-10-18). The right-hand column is ONE
-   stack of 40px tiles, 8px apart, all sharing the same white surface, 14px
-   radius, hairline ring, and soft shadow:
-
-     floating header / search / filter chrome  ...ends ~190px
-     compass (React overlay)                   190px .. 230px
-     "Lokasi Saya" (React overlay)             238px .. 278px
-     Leaflet's +/- zoom stack                  286px .. ~368px
-
-   The React half is one `flex flex-col gap-2` at right-3 / top-[190px] in
-   components/home-map.tsx; this block places Leaflet's own control on the
-   SAME 8px rhythm and gives its two buttons the SAME 40px box, so the four
-   controls read as one group instead of three separate ladders. Leaflet's
-   default 10px control margins are zeroed because they would break the 8px
-   gap and its 10px right margin would sit 2px off the React tiles' 12px.
-   Position "topright", both buttons, and every handler stay exactly as they
-   were (locked by tests/map-current-location.test.ts and
-   tests/home-map-gesture.test.ts).
-
-   SCOPED to .singgah-home-map (the Home map container) on purpose: the
-   Producer Place location picker is a second Leaflet map with its own
-   default zoom control, and none of this Home-only geometry may move it. */
-.singgah-home-map .leaflet-top.leaflet-right {
-  top: 286px;
-}
-
-.singgah-home-map .leaflet-top .leaflet-control,
-.singgah-home-map .leaflet-right .leaflet-control {
-  margin: 0;
-}
-
-.singgah-home-map .leaflet-bar a.leaflet-control-zoom-in,
-.singgah-home-map .leaflet-bar a.leaflet-control-zoom-out {
-  width: 40px;
-  height: 40px;
-  line-height: 40px;
-  font-size: 19px;
-}
+/* MAP CONTROL COLUMN (2026-10-18). The Home map's right-hand controls are
+   one `flex flex-col gap-2` at right-3 / top-[190px] in
+   components/home-map.tsx: the compass (40px) and "Lokasi Saya" (40px),
+   8px apart. The Leaflet +/- stack these rules used to position was removed
+   with gesture-only zoom, so there is no Home-scoped Leaflet control offset
+   left to maintain. The generic .leaflet-bar surface above still styles the
+   Producer location picker's own zoom control. */
 
 /* MOCKUP §6: Current Location reads as the BLUE user marker with a soft
    glow, clearly above the brown/green Place pins. Visual only — the

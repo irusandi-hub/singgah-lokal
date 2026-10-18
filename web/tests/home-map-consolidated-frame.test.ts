@@ -368,18 +368,19 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
 
 test("12.4 the removed board left no band, and the sheet keeps its one control", () => {
   // 2026-10-18: the information board is REMOVED, so the sheet is the first
-  // surface under the map. It keeps the approved visual identity (cream sheet,
-  // rounded top, handle) and holds exactly ONE control — the curated layer tab
-  // that moved here from the top filter row. No count/origin line returns.
+  // surface under the map. The retired handle band is removed too: exactly ONE
+  // control hangs on the sheet's top edge — the curated layer tab that moved
+  // here from the top filter row. No count/origin line returns.
   const headerStart = pageCode.indexOf('<h2 id="place-results-heading"');
   const band = pageCode.slice(headerStart, pageCode.indexOf("Baris 1", headerStart));
   assert.equal((band.match(/<p /g) ?? []).length, 0, "no information line came back");
   assert.doesNotMatch(band, /nearOrigin|coverageScope|Ke hasil/);
   assert.match(band, /aria-pressed=\{curatedOnly\}/);
-  assert.equal((band.match(/aria-pressed=/g) ?? []).length, 1, "one control in the band");
+  assert.equal((band.match(/aria-pressed=/g) ?? []).length, 1, "one control on the seam");
+  assert.doesNotMatch(band, /block h-1 w-10 rounded-full bg-black\/10/, "the old handle band is gone");
+  assert.match(band, /absolute -top-11 left-4/);
   // The panel and its chrome keep the approved visual identity.
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.match(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
   assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
   // Nothing essential became scrollable or hidden.
   assert.doesNotMatch(band, /line-clamp|max-h-\[|overflow-hidden/);

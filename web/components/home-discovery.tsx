@@ -1520,7 +1520,7 @@ export default function HomeDiscovery({
 
               The four-column split replaces the old five-column one byte for
               byte in spirit: `auto` for LIVE, then three equal radius cells. */}
-          <div className="pointer-events-auto mt-2.5 grid grid-cols-[auto_1fr_1fr_1fr] gap-1.5">
+          <div className="pointer-events-auto mt-2.5 grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))] gap-1.5">
             <button
               onClick={() => {
                 // Mutually exclusive modes (lib/live/ui.ts): turning LIVE on
@@ -1789,13 +1789,13 @@ export default function HomeDiscovery({
             tests/map-stacking.test.ts).
 
             REVISED (2026-10-18): the floating information board was removed,
-            so this sheet owns the map → results seam again. It carries the
-            handle, this section's screen-reader heading, and the "Tempat
-            Pilihan" layer tab that MOVED here from the top filter row. The
-            board's title, count, radius wording, and "Ke hasil" action did not
-            move here — they were removed with it. */}
+            so this sheet owns the map → results seam again. It carries this
+            section's screen-reader heading and ONE hanging "Tempat Pilihan"
+            tab; the retired handle band was removed with no space left behind.
+            The board's title, count, radius wording, and "Ke hasil" action did
+            not move here — they were removed with it. */}
         <section
-          className="relative z-10 rounded-t-[24px] bg-brand-cream pb-1 pt-1 shadow-[0_-8px_24px_rgb(0_0_0/0.05)]"
+          className="relative z-10 rounded-t-[24px] bg-brand-cream pb-1 pt-4 shadow-[0_-8px_24px_rgb(0_0_0/0.05)]"
           aria-labelledby="place-results-heading"
         >
           {/* The section's accessible name. It stays in the DOM so
@@ -1806,17 +1806,16 @@ export default function HomeDiscovery({
             Hasil Tempat
           </h2>
 
-          {/* TRANSITION BAND (2026-10-18): the sheet handle (mockup §10,
-              visual only) plus the row that holds the "Tempat Pilihan" layer
-              tab that MOVED here from the top filter bar. This band is the
-              transition from the map to the card list, so the tab sits with
-              the results it filters and can never stack over a map control or
-              the OSM attribution. The handler, the state, and the
-              `aria-pressed` semantics are the ones the tab always had; it is
-              rendered exactly ONCE (no duplicate at the top). */}
-          <div className="mb-2 flex flex-col items-center gap-2">
-            <span aria-hidden className="block h-1 w-10 rounded-full bg-black/10" />
-            <div className="flex w-full items-center px-1">
+          {/* HANGING LAYER TAB (2026-10-18). The old transition band (a
+              centered handle over a full-width row) was removed outright, so
+              no reserved band or leftover gap remains above the results. The
+              "Tempat Pilihan" tab is now a single tab attached to the sheet's
+              top edge, left-aligned and protruding upward over the seam — the
+              same surface language as the radius chips (white + border when
+              inactive, deep brand green + white text when active). It is ONE
+              instance (no duplicate in the top filter row), it keeps the
+              `aria-pressed` binding and the LIVE exclusivity handler, and its
+              44px minimum height keeps the touch target comfortable. */}
               <button
                 type="button"
                 onClick={() => {
@@ -1838,17 +1837,15 @@ export default function HomeDiscovery({
                 }}
                 aria-pressed={curatedOnly}
                 title="Tempat Pilihan"
-                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-[14px] px-3 py-1.5 text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:text-xs ${
+                className={`absolute -top-11 left-4 z-20 inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] border px-3.5 text-xs font-bold shadow-[0_-2px_10px_rgb(0_0_0/0.10)] transition active:scale-[0.98] ${
                   curatedOnly
-                    ? "bg-brand-primary text-white"
-                    : "border border-black/10 bg-white text-brand-ink/70 hover:bg-brand-cream"
+                    ? "border-brand-primary bg-brand-primary text-white shadow-[0_-2px_10px_rgb(14_107_79/0.28)]"
+                    : "border-black/10 bg-white text-brand-ink/70 hover:bg-brand-cream"
                 }`}
               >
                 <span aria-hidden>✦</span>
                 Tempat Pilihan
               </button>
-            </div>
-          </div>
 
           {/* Baris 1 (curated layer only): the Admin-promoted selection.
               Renders nothing when no Place is curated — the curated layer

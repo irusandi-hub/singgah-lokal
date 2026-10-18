@@ -222,7 +222,7 @@ test("R-C: the single filter bar stays one row with no mobile wrapping", () => {
   // second row, no horizontal overflow at the smallest supported viewport.
   assert.match(
     discoveryCode,
-    /pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/,
+    /pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/,
   );
   // Every control in the bar is nowrap, so no control can wrap or clip on a
   // narrow phone.
@@ -233,7 +233,7 @@ test("R-C: the single filter bar stays one row with no mobile wrapping", () => {
   assert.ok(bar.length > 0, "the filter bar region must exist");
   // One literal LIVE control plus the shared class inside the radius mapper.
   assert.equal((bar.match(/whitespace-nowrap/g) ?? []).length, 2);
-  assert.match(bar, /grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
+  assert.match(bar, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
   assert.doesNotMatch(bar, /data-home-tab=/);
   assert.equal((bar.match(/<button/g) ?? []).length, 2, "one literal button plus the one distance-tab mapper");
   assert.equal(bar.includes("overflow-x-auto"), false, "no horizontal scroller anywhere in the bar");

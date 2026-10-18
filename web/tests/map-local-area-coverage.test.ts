@@ -574,9 +574,11 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // ...and the panel's own padding went with it.
   assert.match(
     pageCode,
-    /<section\s*\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1/,
+    /<section\s*\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-4/,
   );
-  assert.match(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
+  // The old handle band is gone; the curated tab hangs above the sheet edge.
+  assert.doesNotMatch(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
+  assert.match(pageCode, /absolute -top-11 left-4/);
   // 2026-10-18: the information board (title, count, radius line, "Ke hasil")
   // was REMOVED from that sheet; its handle now sits at the sheet's own top and
   // the curated layer tab moved into that band. The category labels and both
@@ -658,11 +660,13 @@ test("AC 9: the map distance scale is gone, and nothing replaced it", () => {
   assert.doesNotMatch(pageCode, /barPx|metersPerPixel/);
 });
 
-test("AC 9: zoom controls, attribution, and map interaction are untouched", () => {
+test("AC 9: map attribution and interaction are untouched", () => {
   // The scale was display-only chrome. Everything that actually lets the user
-  // read or move the map must still be there, unchanged.
-  assert.match(mapCode, /L\.control\.zoom\(\{/);
-  assert.match(mapCode, /position: "topright"/);
+  // read or move the map must still be there. The +/- buttons were removed on
+  // 2026-10-18 with gesture-only zoom; pinch/pan and wheel stay untouched.
+  assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
+  assert.match(mapCode, /zoomControl: false/);
+  assert.match(mapCode, /scrollWheelZoom: true/);
   assert.match(mapCode, /L\.tileLayer\(OSM_TILE_URL, \{[\s\S]*?attribution: OSM_ATTRIBUTION,[\s\S]*?\}\)\.addTo\(map\);/);
   assert.match(mapCode, /OpenStreetMap<\/a> contributors/);
   assert.match(mapCode, /attribution: OSM_ATTRIBUTION/);
@@ -905,20 +909,19 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   // section clips its overflow — so the map window's FLOOR has to clear all of
   // it. This is the arithmetic the previous 240px minimum violated: the zoom
   // stack alone ends at 354px, so the "+/-" control was cut off.
-  // UNIFIED COLUMN (2026-10-18): one 40px-tile stack, 8px apart at 190px,
-  // followed by Leaflet's own 40px buttons at 286px.
+  // 2026-10-18: the Leaflet +/- stack was REMOVED (gesture-only zoom), so the
+  // column is the two 40px React tiles at 190px. No Home-scoped Leaflet
+  // control offset remains, and the 470px floor comfortably clears 278px.
   const COMPASS_TOP = 190;
   const LOCATE_TOP = COMPASS_TOP + 40 + 8; // 238
-  const ZOOM_TOP = LOCATE_TOP + 40 + 8; // 286
-  const LEAFLET_ZOOM_HEIGHT = 82; // two 40px buttons plus the 1px border pair
-  assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 286px;/);
+  const COLUMN_BOTTOM = LOCATE_TOP + 40; // 278
+  assert.doesNotMatch(globalsCss, /singgah-home-map \.leaflet-top\.leaflet-right/);
   assert.match(mapCode, /absolute right-3 top-\[190px\]/);
   assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
   assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
   const floor = 470;
-  assert.ok(floor >= ZOOM_TOP + LEAFLET_ZOOM_HEIGHT, "the zoom control must not be clipped");
+  assert.ok(floor > COLUMN_BOTTOM, "the remaining control column must not be clipped");
   assert.ok(COMPASS_TOP < LOCATE_TOP, "the control column keeps its order");
-  assert.ok(LOCATE_TOP < ZOOM_TOP, "the zoom stack stays BELOW both locate controls");
   // The gesture hint sits above the attribution band and below the empty state
   // (nothing floats over the map's bottom edge any more).
   assert.match(pageCode, /absolute bottom-12 left-3 z-\[1100\]/);

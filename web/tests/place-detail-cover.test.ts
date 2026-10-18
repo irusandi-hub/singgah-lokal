@@ -138,12 +138,12 @@ test("Home filter bar is a single row: LIVE leftmost, distance tabs after", () =
   // separate primary row and no separate distance row. 2026-10-18: the curated
   // tab moved out of this row to the results band, so the row is LIVE + the
   // three radius tabs on a four-column split.
-  assert.match(code, /mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\]/);
+  assert.match(code, /mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\]/);
   assert.equal(code.includes("grid-cols-[auto_1fr]"), false, "old two-row primary bar is gone");
   assert.equal(code.includes("grid-cols-4"), false, "old separate distance bar is gone");
   // Order is locked inside the bar: LIVE leftmost, then the distance tabs. The
   // curated layer control renders exactly once, below the map.
-  const filterBar = code.indexOf("mt-2.5 grid grid-cols-[auto_1fr_1fr_1fr]");
+  const filterBar = code.indexOf("mt-2.5 grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]");
   const liveBtn = code.indexOf("toggleLiveFilter(liveOnly, curatedOnly)", filterBar);
   const curatedBtn = code.indexOf("activateCuratedFilter()", filterBar);
   const distanceBtn = code.indexOf("DISTANCE_FILTERS.map", filterBar);

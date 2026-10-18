@@ -185,12 +185,12 @@ test("MOCKUP §3: filter stays a single row with LIVE and the ordered distance t
   // 2026-10-18: "Tempat Pilihan" MOVED to the results transition band, so the
   // top row now holds LIVE plus the three ordered radius presets on a
   // four-column split. Order within the row is unchanged.
-  assert.match(code, /grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
+  assert.match(code, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
   const liveIndex = code.indexOf("toggleLiveFilter(liveOnly, curatedOnly)");
   const distanceIndex = code.indexOf("DISTANCE_FILTERS.map((filter) =>");
   assert.ok(liveIndex > -1, "LIVE control must exist");
   assert.ok(distanceIndex > liveIndex, "distance tabs must follow LIVE");
-  const row = code.slice(code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"), code.indexOf("{/* MAP AREA"));
+  const row = code.slice(code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"), code.indexOf("{/* MAP AREA"));
   assert.doesNotMatch(row, /activateCuratedFilter/, "the curated tab left this row");
 });
 
@@ -219,8 +219,8 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
 
 test("filter controls use a compact 14px radius rather than full pills", () => {
   const filterRow = code.slice(
-    code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"),
-    code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]") + 2400,
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]") + 2400,
   );
   const roundedControls = filterRow.match(/rounded-\[14px\]/g) ?? [];
   // LIVE and the shared distance-tab class (the curated tab moved out on
@@ -270,12 +270,13 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // results surface and still carries the accessible name; only the seam moved.
   assert.match(
     code,
-    /<section\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-1 shadow-\[0_-8px_24px_rgb\(0_0_0\/0\.05\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
+    /<section\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-4 shadow-\[0_-8px_24px_rgb\(0_0_0\/0\.05\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
   );
   assert.doesNotMatch(code, /relative z-10 -mt-5 rounded-t-\[24px\]/);
-  // The handle lives at the top of the results sheet (2026-10-18) and keeps
-  // its shape; only the old in-flow spacing is gone.
-  assert.match(code, /block h-1 w-10 rounded-full bg-black\/10/);
+  // The old handle band was REMOVED (2026-10-18) with no space left behind;
+  // the one hanging control on the seam is the curated tab.
+  assert.doesNotMatch(code, /block h-1 w-10 rounded-full bg-black\/10/);
+  assert.match(code, /absolute -top-11 left-4 z-20 inline-flex min-h-11/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
@@ -285,7 +286,7 @@ test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
     "<HomeMap\n",
     "<SiteNav floating />",
     'aria-label="Cari tempat, cerita, produksi"',
-    "grid grid-cols-[auto_1fr_1fr_1fr]",
+    "grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]",
     'aria-labelledby="place-results-heading"',
     "Jangan hanya datang.",
   ].map((needle) => code.indexOf(needle));
@@ -412,30 +413,25 @@ test("MOCKUP §8/§9: the coverage caption and scale are removed, not replaced",
   assert.match(code, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
 });
 
-test("MOCKUP §9: Leaflet's own zoom stack is offset below the floating chrome AND below both locate buttons", () => {
-  // The map is full-bleed now, so the topright +/- control would sit under the
-  // search bar. Only the OFFSET moves — position and both buttons stay.
-  //
-  // RE-ORDERED (product decision, 2026-10-03): the +/- stack is now the LAST
-  // control of the right-hand ladder, BELOW the Re-center arrow (190px) and
-  // BELOW "Lokasi Saya" (240px), so the zoom buttons are reachable below the
-  // locate controls and the three never collide at 360 / 390 / 430 / 1280.
+test("MOCKUP §9: zoom is gesture-only — no Leaflet +/- stack is positioned on Home", () => {
+  // 2026-10-18: the +/- buttons were removed from the Home map. Pinch and
+  // two-finger pan stay functional (TouchZoom), and pointer devices keep the
+  // wheel. With no zoom control there is no Home-scoped offset rule left.
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(css, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 286px;/);
-  // ...and the offset is SCOPED to the Home map container, so the Producer
-  // Place location picker (a second Leaflet map with its own default zoom
-  // control) is never affected.
   const map = stripComments(
     readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8"),
   );
-  assert.match(map, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
-  // 2026-10-18: the two React controls are ONE 40px-tile column at 190px with
-  // 8px gaps, and Leaflet's buttons are 40px on the same rhythm.
+  assert.doesNotMatch(map, /L\.control\.zoom\(/);
+  assert.doesNotMatch(css, /leaflet-control-zoom-(in|out)/);
+  assert.doesNotMatch(css, /singgah-home-map \.leaflet-top\.leaflet-right/);
+  // The two React controls are ONE 40px-tile column at 190px with 8px gaps.
   assert.match(
     map,
     /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2">/,
   );
-  assert.match(css, /\.singgah-home-map \.leaflet-bar a\.leaflet-control-zoom-in,[\s\S]{0,160}width: 40px;[\s\S]{0,80}height: 40px;/);
+  // Gestures that remain: wheel on pointer devices and touch pinch/pan.
+  assert.match(map, /scrollWheelZoom: true/);
+  assert.match(map, /dragging: !touchPrimary/);
 });
 
 test("MOCKUP §11 board is REMOVED: no title, count, radius line, or 'Ke hasil'", () => {

@@ -18,8 +18,10 @@ import {
 /**
  * Real interactive map for Home discovery.
  * - Tiles: OpenStreetMap (attribution required). ONE basemap — no
- *   terrain/satellite/layer selector; +/- zoom, scroll and touch zoom are
- *   all functional. One-finger camera control (touch drag + double-tap) is
+ *   terrain/satellite/layer selector. Zoom is gesture-only since 2026-10-18
+ *   (pinch and two-finger pan; the Leaflet +/- buttons were removed), and
+ *   scroll-wheel zoom stays functional on pointer devices. One-finger camera
+ *   control (touch drag + double-tap) is
  *   LOCKED OFF on touch-primary devices (PO 2026-09-27): a single finger
  *   never pans/zooms the map — two-finger pan + pinch zoom stay available.
  * - Markers come ONLY from canonical Place lat/lng — a Place without
@@ -743,11 +745,10 @@ export default function HomeMap({
       }).addTo(map);
       tileLayerRef.current = tileLayer;
 
-      // Functional interactions: drag/touch pan, +/- zoom buttons, scroll
-      // and touch zoom (single basemap, no layer selector). The control is a
-      // real Leaflet zoom control (touch + keyboard operable); the titles are
-      // its accessible names.
-      L.control.zoom({ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" }).addTo(map);
+      // GESTURE-ONLY ZOOM (2026-10-18): the Leaflet +/- buttons were removed
+      // from the Home map. Pinch and two-finger pan remain fully functional
+      // (TouchZoom), and pointer devices keep the scroll wheel. There is no
+      // button zoom control left to offset in the right-hand column.
 
       map.on("moveend", () => {
         programmaticMoveRef.current = false;
@@ -1421,20 +1422,17 @@ export default function HomeMap({
           (max control z-index = 1000): 1100+ keeps the React layer strictly
           on top in any drag/zoom state.
 
-          UNIFIED CONTROL COLUMN (2026-10-18): the compass and "Lokasi Saya"
-          are now ONE flex column of identical 40×40 tiles, 8px apart, with
-          the same white surface, 14px radius, hairline ring, and soft shadow
-          (`gap-2`). Leaflet's own +/- stack is placed on the SAME 8px rhythm
-          and given the SAME 40px box by globals.css (top: 286px, margins 0),
-          so compass → locate → zoom in → zoom out read as one group instead
-          of three separately-offset controls. Functions are untouched: the
-          compass still only states orientation and the locate button still
-          calls `onRequestLocate`.
+          CONTROL COLUMN (2026-10-18): the compass and "Lokasi Saya" are ONE
+          flex column of identical 40×40 tiles, 8px apart, with the same white
+          surface, 14px radius, hairline ring, and soft shadow (`gap-2`). The
+          Leaflet +/- stack that used to continue this column was REMOVED on
+          2026-10-18 — zoom is gesture-only — so the column ends here and no
+          CSS offset has to keep a zoom control in place. Functions are
+          untouched: the compass still only states orientation and the locate
+          button still calls `onRequestLocate`.
 
           190px is where the floating header/search/filter chrome ends. The
-          column then runs 190..230 (compass), 238..278 ("Lokasi Saya"), and
-          the zoom stack starts at 286 — the numbers in globals.css and this
-          block are ONE layout and must change together.
+          column then runs 190..230 (compass) and 238..278 ("Lokasi Saya").
 
           THE COMPASS is NOT interactive: this Leaflet build (1.9.x core, no
           rotation plugin) cannot rotate the map at all — there is no

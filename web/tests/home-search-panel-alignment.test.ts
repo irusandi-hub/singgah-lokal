@@ -70,7 +70,7 @@ test("the only controls in the bar are the existing clear '×' and the real 'Car
   assert.equal(/onClick=\{\(\) => set(ShowFilters|FiltersOpen)/.test(pageCode), false);
   // And the tab row — the one real filter surface — is unchanged in kind
   // (four columns since the curated tab moved below the map on 2026-10-18).
-  assert.match(pageCode, /grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
+  assert.match(pageCode, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
 });
 
 test("search stays submit-only: no search-on-keystroke", () => {
@@ -193,10 +193,12 @@ test("the reserved strip for the removed distance scale is gone", () => {
 test("the results sheet keeps the handle and the moved curated tab", () => {
   const sheetStart = pageCode.indexOf('className="relative z-10 rounded-t-[24px] bg-brand-cream');
   const sheet = pageCode.slice(sheetStart, pageCode.indexOf('id={CURATED_RESULTS_ANCHOR_ID}'));
-  // The sheet keeps its cream surface, rounded top, and the small handle —
-  // now at the sheet's own top edge rather than on a floating card.
+  // The sheet keeps its cream surface and rounded top. The old handle band
+  // was removed in full (2026-10-18); the curated tab is the one hinged
+  // control on the seam and it protrudes above the sheet edge.
   assert.match(sheet, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.match(sheet, /block h-1 w-10 rounded-full bg-black\/10/);
+  assert.doesNotMatch(sheet, /block h-1 w-10 rounded-full bg-black\/10/);
+  assert.match(sheet, /absolute -top-11 left-4/);
   // The board's title/count/radius/"Ke hasil" content is GONE (2026-10-18).
   assert.doesNotMatch(sheet, /place-results-heading" className="text-base/);
   assert.doesNotMatch(sheet, /nearOrigin|coverageScope|Ke hasil|resultsAnchorId/);

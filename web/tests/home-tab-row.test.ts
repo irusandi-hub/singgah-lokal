@@ -128,7 +128,7 @@ test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
   // no control replaced the curated tab here.
   assert.match(
     discoveryCode,
-    /<div className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5">/,
+    /<div className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5">/,
     "the single four-control row is the current approved layout",
   );
   const live = discoveryCode.indexOf("aria-pressed={liveOnly}");
@@ -140,12 +140,28 @@ test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
   assert.deepEqual(DISTANCE_FILTERS, ["1 km", "5 km", "10 km+"]);
   // The curated tab renders exactly once, BELOW the map stage, and the row
   // itself carries no curated handler.
-  const row = discoveryCode.slice(discoveryCode.indexOf('grid-cols-[auto_1fr_1fr_1fr]'));
+  const row = discoveryCode.slice(discoveryCode.indexOf('grid-cols-[auto_repeat(3,minmax(0,1fr))]'));
   const rowEnd = row.indexOf("</div>");
   assert.equal((row.slice(0, rowEnd).match(/<button/g) ?? []).length, 1 + 1);
   assert.equal((row.slice(0, rowEnd).match(/DISTANCE_FILTERS\.map/g) ?? []).length, 1);
   assert.doesNotMatch(row.slice(0, rowEnd), /activateCuratedFilter/);
   assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+});
+
+test("the curated tab hangs on the sheet's top edge with a 44px touch target", () => {
+  const tabStart = discoveryCode.indexOf("aria-pressed={curatedOnly}");
+  const tab = discoveryCode.slice(tabStart - 900, tabStart + 700);
+  // Attached to the sheet's top edge, left-aligned, protruding upward.
+  assert.match(tab, /absolute -top-11 left-4 z-20/);
+  assert.match(tab, /inline-flex min-h-11 items-center justify-center/);
+  assert.match(tab, /rounded-\[14px\] border/);
+  // Inactive: white + border + ✦ + shadow. Active: deep brand green + white.
+  assert.match(tab, /border-black\/10 bg-white text-brand-ink\/70 hover:bg-brand-cream/);
+  assert.match(tab, /curatedOnly\s*\? "border-brand-primary bg-brand-primary text-white/);
+  assert.match(tab, /<span aria-hidden>✦<\/span>/);
+  // Exactly ONE instance, and the retired transition band left no handle.
+  assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+  assert.doesNotMatch(discoveryCode, /block h-1 w-10 rounded-full bg-black\/10/);
 });
 
 test("LIVE, 'Tempat Pilihan', and the distance tabs keep their own transitions", () => {

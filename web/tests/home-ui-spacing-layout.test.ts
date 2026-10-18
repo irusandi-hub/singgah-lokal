@@ -73,7 +73,7 @@ test("T1.2 the banner renders ONLY while a search is running or failed", () => {
   // belongs to the "Tempat Pilihan" filter button elsewhere on the page.
   const banner = code.slice(
     code.indexOf("{(searchPending || searchError) && ("),
-    code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"),
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
   );
   // The two states that must keep working.
   assert.match(banner, /Mencari lokasi…/);
@@ -113,7 +113,7 @@ test("T1.4 nothing was put in the strip's place", () => {
   );
   const banner = code.slice(
     code.indexOf("{(searchPending || searchError) && ("),
-    code.indexOf("grid grid-cols-[auto_1fr_1fr_1fr]"),
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
   );
   assert.equal((banner.match(/role="status"/g) ?? []).length, 1, "one status region inside the banner");
   assert.doesNotMatch(code, /Mencari area|Search area|canonical coordinate readout/);
@@ -207,8 +207,9 @@ test("T2.6 the cleared map bottom edge: empty state, hint, and attribution canno
   // The search bar keeps the one floating chrome column.
   assert.match(code, /relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4/);
   // The control column is measured from the TOP of the stage: compass/locate at
-  // 190px (one 40px-tile column) and Leaflet's stack at 286px in globals.css.
-  assert.match(globalsCss, /\.singgah-home-map \.leaflet-top\.leaflet-right \{\s*top: 286px;/);
+  // 190px, one 40px-tile column. The Leaflet +/- stack is gone (gesture-only
+  // zoom), so no Home-scoped Leaflet offset remains in globals.css.
+  assert.doesNotMatch(globalsCss, /singgah-home-map \.leaflet-top\.leaflet-right/);
   assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
   // The retired bottom-left coverage chip must not come back.
   assert.equal(code.includes("bottom-9 left-4 z-[1100]"), false);
@@ -216,16 +217,18 @@ test("T2.6 the cleared map bottom edge: empty state, hint, and attribution canno
 
 test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
   // 360px is the documented floor. The tab is one compact, non-wrapping chip
-  // (11px bold, px-3) and it is the only control in its band, so it can neither
-  // wrap nor overflow at any supported width.
+  // (12px bold, px-3.5, min 44px tall) hanging on the sheet's top edge, so it
+  // can neither wrap nor overflow at any supported width.
   const VIEWPORT = 360;
-  const chipWidth = 24 + 8 + 4 + "Tempat Pilihan".length * 6.2;
+  const chipWidth = 28 + 8 + 4 + "Tempat Pilihan".length * 6.6;
   assert.ok(chipWidth < VIEWPORT - 32, "the tab fits inside a 360px viewport");
   const tabStart = code.indexOf("aria-pressed={curatedOnly}");
   const tab = code.slice(tabStart - 900, tabStart + 600);
   assert.match(tab, /whitespace-nowrap/);
-  assert.match(tab, /text-\[11px\] font-bold/);
-  assert.equal((tab.match(/<button/g) ?? []).length, 1, "one control in the band");
+  assert.match(tab, /min-h-11/);
+  assert.match(tab, /absolute -top-11 left-4/);
+  assert.match(tab, /text-xs font-bold/);
+  assert.equal((tab.match(/<button/g) ?? []).length, 1, "one control on the seam");
 });
 
 test("T2.7 there is exactly ONE results heading and ONE curated control", () => {
@@ -262,18 +265,16 @@ test("T3.1 the map window is larger than it was, on mobile and on desktop", () =
   assert.doesNotMatch(code, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
 });
 
-test("T3.2 the larger floor still clears the whole floating control ladder", () => {
-  // The 2026-10-03 bug was a floor that clipped the Leaflet zoom stack. The
-  // new floor must clear it with more room than before, plus the floating card.
-  const RE_CENTER_TOP = 190;
-  const LOCATE_TOP = 240;
-  const ZOOM_TOP = 290;
-  const LEAFLET_ZOOM_HEIGHT = 64;
+test("T3.2 the larger floor clears the remaining control column", () => {
+  // The zoom stack that used to define the ladder's bottom was removed on
+  // 2026-10-18 (gesture-only zoom). The column now ends with "Lokasi Saya" at
+  // 238..278, which the 470px floor clears with room to spare.
+  const COMPASS_TOP = 190;
+  const LOCATE_TOP = COMPASS_TOP + 40 + 8;
+  const COLUMN_BOTTOM = LOCATE_TOP + 40;
   const FLOOR = 470;
-  assert.ok(FLOOR > 460, "the floor grew");
-  assert.ok(FLOOR >= ZOOM_TOP + LEAFLET_ZOOM_HEIGHT, "the zoom control is not clipped");
-  assert.ok(RE_CENTER_TOP < LOCATE_TOP, "the control ladder keeps its order");
-  assert.ok(LOCATE_TOP < ZOOM_TOP, "the zoom stack stays below both locate controls");
+  assert.ok(FLOOR > 460, "the floor keeps its size");
+  assert.ok(FLOOR > COLUMN_BOTTOM, "the control column is never clipped");
 });
 
 test("T3.3 the camera and geographic rules are untouched", () => {
@@ -315,11 +316,11 @@ test("T3.4 the spacer stays a presentational, non-degenerate Leaflet box", () =>
 
 test("T4.1 search, filters, and the marker ladder are unchanged", () => {
   assert.match(code, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(code, /pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5/);
+  assert.match(code, /pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
   assert.match(code, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
   assert.match(code, /setDistanceFilter\(filter\)/);
   assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
-  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright"/);
+  assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
 });
 
 test("T4.2 the vertical list bands and cards are untouched", () => {

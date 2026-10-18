@@ -72,10 +72,11 @@ test("Home Map keeps exactly one basemap and no layer/terrain/satellite selector
 test("Home Map enables functional pan, zoom, scroll and touch interactions", () => {
   const mapCode = stripComments(homeMap);
   assert.match(mapCode, /scrollWheelZoom: true/);
-  assert.match(mapCode, /L\.control\.zoom\(/);
-  // Leaflet's default drag/touch pan stays on (not disabled anywhere).
-  assert.equal(mapCode.includes("dragging: false"), false);
+  // 2026-10-18: zoom is gesture-only on Home — the Leaflet +/- buttons are
+  // gone, while pinch/two-finger pan and wheel zoom stay fully functional.
+  assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
   assert.equal(mapCode.includes("touchZoom: false"), false);
+  assert.match(mapCode, /dragging: !touchPrimary/);
 });
 
 test("One container = one Leaflet instance; teardown is complete", () => {
@@ -497,14 +498,17 @@ test("Exactly one tile layer exists for the map's whole lifetime", () => {
   assert.match(mapCode, /tileLayerRef\.current = null/);
 });
 
-test("Zoom controls stay available and user zoom/pan latches are re-armed per preset", () => {
+test("Gesture zoom stays available and user zoom/pan latches are re-armed per preset", () => {
   const mapCode = stripComments(homeMap);
-  // +/- controls remain a real Leaflet zoom control...
-  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/);
-  // ...and interactions are re-armed on an EXPLICIT preset choice (a distance
-  // tab, "Tempat Pilihan", or "Lokasi Saya" all bump the request nonce), so a
-  // new tab can refocus after the user dragged on the previous one. A bare
-  // change of the radius value may no longer re-arm it.
+  // 2026-10-18: the +/- buttons are gone; pinch/two-finger pan and wheel zoom
+  // remain, and the Leaflet zoom control is explicitly disabled.
+  assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
+  assert.match(mapCode, /zoomControl: false/);
+  assert.match(mapCode, /scrollWheelZoom: true/);
+  // Interactions are re-armed on an EXPLICIT preset choice (a distance tab,
+  // "Tempat Pilihan", or "Lokasi Saya" all bump the request nonce), so a new
+  // tab can refocus after the user dragged on the previous one. A bare change
+  // of the radius value may no longer re-arm it.
   assert.match(mapCode, /if \(requestChanged\) userInteractedRef\.current = false/);
   assert.match(mapCode, /lastRadiusRef\.current = cameraRadiusMeters/);
 });
@@ -831,6 +835,8 @@ test("MOCKUP 2026-10-01 §5 (revised 2026-10-04): right-side control stack — C
   );
   // Both overlays stay ABOVE the Leaflet control ceiling (z-[1100]).
   assert.match(mapCode, /z-\[1100\]/);
-  // The Leaflet +/- stack keeps its locked topright position.
-  assert.match(mapCode, /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/);
+  // 2026-10-18: the +/- stack was REMOVED; the column ends with "Lokasi Saya"
+  // and no Leaflet zoom control is configured or offset.
+  assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
+  assert.match(mapCode, /zoomControl: false/);
 });

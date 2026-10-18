@@ -352,7 +352,7 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // pinch. It is click-through now; only the real controls opt back in.
   assert.match(pageCode, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
   assert.match(pageCode, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid grid-cols-\[auto_1fr_1fr_1fr\] gap-1\.5"/);
+  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5"/);
   // The map surface keeps touch-action: none on its own container, so a pinch
   // starting on the map zooms the MAP, never the page — and page scrolling
   // outside the map is untouched.
@@ -370,13 +370,12 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
     /pointer-events-none absolute bottom-12 left-3 z-\[1100\][^"]*">\s*Dua jari untuk geser/,
     "the gesture hint is click-through so it cannot eat the gesture it describes",
   );
-  // Real Leaflet zoom control, with accessible names, plus the ONE locate
-  // control (the Re-center arrow became a non-interactive compass on
-  // 2026-10-04) and the compass itself.
-  assert.match(
-    mapCode,
-    /L\.control\.zoom\(\{ position: "topright", zoomInTitle: "Perbesar peta", zoomOutTitle: "Perkecil peta" \}\)/,
-  );
+  // 2026-10-18: no button zoom control remains (gesture-only zoom). The ONE
+  // locate control stays (the Re-center arrow became a non-interactive compass
+  // on 2026-10-04), next to the compass itself.
+  assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
+  assert.match(mapCode, /zoomControl: false/);
+  assert.match(mapCode, /scrollWheelZoom: true/);
   assert.equal((mapCode.match(/onClick=\{onRequestLocate\}/g) ?? []).length, 1);
   assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
   assert.match(mapCode, /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"/);
