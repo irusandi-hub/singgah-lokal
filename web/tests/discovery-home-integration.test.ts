@@ -234,9 +234,12 @@ test("LIVE behavior is untouched: poll gate, cards, filter, per-card affordances
   assert.match(code, /liveByPlaceId\.has\(place\.id\)/);
   // LIVE cards stay hidden inside the Tempat Pilihan layer.
   assert.match(code, /!curatedOnly && liveCards\.length > 0/);
-  // The permanent per-card LIVE affordances survive verbatim.
-  assert.match(code, /LIVE — Lihat proses sekarang/);
-  assert.match(code, /LIVE — Belum berlangsung/);
+  // The permanent per-card LIVE affordances survive: the live pill on the
+  // photo and the compact non-live chip, whose full sentence sits in the
+  // accessible name.
+  assert.match(code, /aria-label=\{`Buka Live di \$\{place\.name\}`\}/);
+  assert.match(code, /Belum LIVE/);
+  assert.match(code, /aria-label=\{`\$\{place\.name\}: Belum LIVE — belum ada proses Live yang berlangsung/);
 });
 
 // ---------------------------------------------------------------------------

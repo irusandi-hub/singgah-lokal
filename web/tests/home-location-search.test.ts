@@ -173,8 +173,9 @@ test("a resolved search center becomes the coverage viewport for markers and bot
     /narrowToViewport\(visiblePlaces\.filter\(\(place\) => curatedIdSet\.has\(place\.id\)\), coverageViewport\)/,
   );
   assert.match(discoveryCode, /narrowToViewport\(mapPlaces, coverageViewport\)/);
-  // 2026-10-04: the result strips are now vertical lists, not horizontal carousels.
-  assert.match(discoveryCode, /flex flex-col gap-2/);
+  // 2026-10-18: the result strips are a 2-column grid on a vertical scroll,
+  // not horizontal carousels.
+  assert.match(discoveryCode, /grid grid-cols-2 items-stretch gap-x-3 gap-y-4/);
   assert.doesNotMatch(discoveryCode, /snap-x snap-mandatory/);
 });
 

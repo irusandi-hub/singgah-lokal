@@ -357,9 +357,9 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
   assert.match(pageCode, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
   assert.match(pageCode, /\{discoveryRowPlaces\.length > 0 \? \(/);
   assert.match(pageCode, /curatedOnly && curatedListed\.length > 0/);
-  // Filter behaviour, the vertical list interaction, and the empty/error states are
-  // untouched by the consolidation.
-  assert.match(pageCode, /flex flex-col gap-2/);
+  // Filter behaviour, the 2-column grid interaction, and the empty/error
+  // states are untouched by the consolidation.
+  assert.match(pageCode, /grid grid-cols-2 items-stretch gap-x-3 gap-y-4/);
   assert.match(pageCode, /Lokasi tidak ditemukan\. Cek ejaan atau pilih dari daftar\./);
   assert.match(pageCode, /mapEmptyStateVisible &&/);
   assert.match(pageCode, /Belum ada Tempat Terdaftar di sekitar area ini/);

@@ -590,10 +590,10 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   assert.match(pageCode, /aria-pressed=\{curatedOnly\}/);
   assert.match(pageCode, />\s*Tempat Pilihan\s*\n\s*<\/p>/);
   assert.match(pageCode, />\s*Discovery Place\s*\n\s*<\/p>/);
-  // 2026-10-04: the carousel frames are gone — the rows are vertical lists now.
+  // 2026-10-18: the carousel frames are gone — the rows are 2-column grids now.
   assert.equal((pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []).length, 0);
   assert.equal(
-    (pageCode.match(/-mx-4 flex flex-col gap-2 px-4 pb-1"/g) ?? []).length,
+    (pageCode.match(/-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"/g) ?? []).length,
     2,
   );
   assert.equal(

@@ -75,12 +75,18 @@ test("Clicking Direction never opens the parent Place card", () => {
 
 // --- Permanent LIVE identity ----------------------------------------------
 
-test("Every Place card carries a LIVE affordance in BOTH states", () => {
-  // LIVE branch (active session)...
-  assert.match(code, /live \? \(/);
-  assert.match(code, /LIVE — Lihat proses sekarang/);
-  // ...and NOT LIVE branch (no session) — the indicator never disappears.
-  assert.match(code, /LIVE — Belum berlangsung/);
+test("Every Place card carries a compact LIVE affordance in BOTH states", () => {
+  // LIVE branch (active session): the red, pulsing pill on the photo.
+  assert.match(code, /\{live && \(/);
+  assert.match(code, /aria-label=\{`Buka Live di \$\{place\.name\}`\}/);
+  assert.match(code, /animate-pulse rounded-full bg-white motion-reduce:animate-none/);
+  // ...and NOT LIVE branch (no session): the compact "Belum LIVE" chip whose
+  // aria-label carries the full sentence.
+  assert.match(code, /Belum LIVE/);
+  assert.match(
+    code,
+    /aria-label=\{`\$\{place\.name\}: Belum LIVE — belum ada proses Live yang berlangsung\. Ketuk untuk keterangan\.`\}/,
+  );
   // The old card hid the LIVE affordance for non-live Places (chevron only);
   // the permanent identity renders it unconditionally per card.
   assert.match(code, /nonLiveNoticePlaceId/);
@@ -116,6 +122,57 @@ test("Card distance uses the real viewer fix and canonical Place coordinates", (
   assert.match(code, /activeCenter && place\.latitude != null && place\.longitude != null/);
   assert.doesNotMatch(code, /formatDistance\(\s*distanceMeters\(viewerPosition/);
   assert.doesNotMatch(code, /distance\s*=\s*\d/);
+});
+
+// --- 2-column card composition (2026-10-18) --------------------------------
+
+const cardSource = (() => {
+  const start = code.indexOf("const renderPlaceCard");
+  const end = code.indexOf("  return (", code.indexOf("</VisitedLink>", start));
+  return start >= 0 && end > start ? code.slice(start, end) : "";
+})();
+
+test("the 2-column card keeps every attribute except the description", () => {
+  assert.ok(cardSource.length > 0, "the card renderer must be locatable");
+  // Photo, ✦ curated badge, heart, real distance, name, category, stars,
+  // Follow, Direction, LIVE status — every attribute is still rendered.
+  assert.match(cardSource, /<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} \/>/);
+  assert.match(cardSource, /\{isCurated && \(/);
+  assert.match(cardSource, /aria-hidden[\s\S]{0,400}♡/);
+  assert.match(cardSource, /\{distance && \(/);
+  assert.match(cardSource, /\{place\.name\}<\/h3>/);
+  assert.match(cardSource, /displayPlaceCategory\(place\.category\)/);
+  assert.match(cardSource, /\[1, 2, 3, 4, 5\]\.map\(\(slot\) => \(/);
+  assert.match(cardSource, /<PlaceFollowButton placeId=\{place\.id\} iconOnly \/>/);
+  assert.match(cardSource, /Direction/);
+  assert.match(cardSource, /Belum LIVE/);
+  assert.match(cardSource, /aria-label=\{`Buka Live di \$\{place\.name\}`\}/);
+  // The description is GONE from the card (it stays on the detail page).
+  assert.doesNotMatch(cardSource, /place\.shortDescription/);
+  assert.doesNotMatch(cardSource, /processTitle/);
+  // Empty / test categories fall back instead of printing raw data.
+  assert.match(code, /const PLACE_CATEGORY_FALLBACK = "Kategori belum tersedia";/);
+  assert.match(code, /\(PLACE_CATEGORIES as readonly string\[\]\)\.includes\(trimmed\)/);
+  // Category is exactly one truncated line, the name at most two.
+  assert.match(cardSource, /line-clamp-2 text-\[13px\] font-bold/);
+  assert.match(cardSource, /truncate text-\[10px\] font-semibold/);
+});
+
+test("360/390px cards keep the actions and chips inside a ~160px column", () => {
+  for (const viewport of [360, 390]) {
+    const content = viewport - 32; // -mx-4 px-4
+    const cardWidth = (content - 12) / 2; // 2 columns, gap-x-3
+    assert.ok(cardWidth >= 155 && cardWidth <= 175, `card width ${cardWidth}px at ${viewport}px`);
+    // Direction is flex-1 next to the 40px Follow tile with a 6px gap.
+    const directionWidth = cardWidth - 20 /* p-2.5 */ - 40 - 6;
+    assert.ok(directionWidth >= 89, `Direction keeps room for its label at ${viewport}px`);
+    // The compact status chip and the distance/live pills fit the photo width.
+    const chipWidth = 12 + 6 + 4 + "Belum LIVE".length * 5.6;
+    assert.ok(chipWidth <= cardWidth - 20);
+    assert.match(cardSource, /w-fit items-center gap-1 rounded-full bg-live\/\[0\.08\]/);
+    assert.match(cardSource, /min-w-0 flex-1/);
+    assert.match(cardSource, /truncate">Direction/);
+  }
 });
 
 // --- Existing navigation preserved -----------------------------------------

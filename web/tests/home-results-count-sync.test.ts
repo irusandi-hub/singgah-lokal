@@ -112,8 +112,9 @@ test("SCENARIO city search: each layer still renders from its own array", () => 
   // The per-layer rule (PO 2026-09-30) is preserved — the counts are never
   // summed, which would double-count a Place present in both rows.
   assert.doesNotMatch(discoveryCode, /curatedListed\.length \+ discoveryRowPlaces\.length/);
-  // The result strips are now vertical lists, not horizontal carousels.
-  assert.match(discoveryCode, /flex flex-col gap-2/);
+  // The result strips are now a 2-column grid on a vertical scroll, not
+  // horizontal carousels.
+  assert.match(discoveryCode, /grid grid-cols-2 items-stretch gap-x-3 gap-y-4/);
   assert.doesNotMatch(discoveryCode, /snap-x snap-mandatory/);
 });
 

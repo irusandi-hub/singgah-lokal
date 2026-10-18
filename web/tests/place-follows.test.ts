@@ -197,7 +197,9 @@ const followButton = readFileSync(new URL("../components/place-follow-button.tsx
 
 test("Place Card shows the server-derived Follow/Following state", () => {
   assert.match(homeDiscovery, /PlaceFollowButton/, "the card must render the follow control");
+  assert.match(homeDiscovery, /<PlaceFollowButton placeId=\{place\.id\} iconOnly \/>/);
   assert.match(followButton, /"Following"/, "the followed state must be visually distinct");
+  assert.match(followButton, /border-brand-primary bg-brand-primary text-white/, "followed fills green");
   assert.match(followButton, /aria-pressed=\{followed\}/);
   // State comes from the database via the API — never invented client-side.
   assert.match(followButton, /\/api\/place-follows/);
@@ -212,10 +214,12 @@ test("signed-out user cannot create a follow from the card", () => {
 
 test("card navigation and design stay untouched by the follow control", () => {
   // The follow control must not become the card link and must not alter the
-  // LIVE/Direction affordances (scope lock).
+  // LIVE/Direction affordances (scope lock). The card's LIVE identity is the
+  // 2026-10-18 compact form: a pulsing pill on the photo for live sessions and
+  // a "Belum LIVE" chip otherwise.
   assert.match(homeDiscovery, /href=\{live \? `\/live\/\$\{live\.sessionId\}` : `\/places\/\$\{place\.id\}`\}/);
-  assert.match(homeDiscovery, /LIVE — Lihat proses sekarang/);
-  assert.match(homeDiscovery, /LIVE — Belum berlangsung/);
+  assert.match(homeDiscovery, /Buka Live di \$\{place\.name\}/);
+  assert.match(homeDiscovery, /Belum LIVE/);
   // The button suppresses the wrapping card action.
   assert.match(followButton, /preventDefault\(\)/);
   assert.match(followButton, /stopPropagation\(\)/);

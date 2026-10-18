@@ -468,17 +468,17 @@ test("AC 8: the search info panel spans the screen and is fully opaque", () => {
 // 9. The Place rows are vertical lists inside the results panel.
 // ---------------------------------------------------------------------------
 
-test("AC 9: both Place rows are vertical lists inside the panel", () => {
-  // 2026-10-04: the horizontal carousels became vertical lists. The same
-  // dataset, order, and cards remain; only the layout changed.
+test("AC 9: both Place rows are 2-column grids inside the panel", () => {
+  // 2026-10-18: both rows are 2-column grids on a vertical scroll. The same
+  // dataset, order, cards, and links remain; only the layout changed.
   const frames = (pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []);
   assert.equal(frames.length, 0, "the old carousel frames are gone");
-  const strips = (pageCode.match(/-mx-4 flex flex-col gap-2 px-4 pb-1"/g) ?? []);
-  assert.equal(strips.length, 2, "Baris 1 and Baris 2 are both vertical lists");
+  const strips = (pageCode.match(/-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"/g) ?? []);
+  assert.equal(strips.length, 2, "Baris 1 and Baris 2 are both 2-column grids");
   const tracks = (pageCode.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []);
   assert.equal(tracks.length, 0, "no fixed-width horizontal tracks remain");
-  // Cards stay wrapped in a full-width list item in BOTH rows.
-  assert.equal((pageCode.match(/className="w-full"/g) ?? []).length, 2);
+  // Cards stay wrapped in an equal-height grid item in BOTH rows.
+  assert.equal((pageCode.match(/className="h-full w-full"/g) ?? []).length, 2);
   const curated = pageCode.slice(pageCode.indexOf("{curatedOnly && curatedListed.length > 0 && ("));
   assert.match(curated, /\{curatedListed\.map\(\(place\) => \(/);
   // No page-level horizontal overflow is introduced: the list only cancels

@@ -323,18 +323,18 @@ test("T4.1 search, filters, and the marker ladder are unchanged", () => {
   assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
 });
 
-test("T4.2 the vertical list bands and cards are untouched", () => {
-  // 2026-10-04: the horizontal carousel frames were removed when both result
-  // rows became vertical lists — the dataset, order, and cards are unchanged.
+test("T4.2 the grid bands and cards are the 2-column layout", () => {
+  // 2026-10-18: both result rows are 2-column grids on a vertical scroll — the
+  // dataset, order, and card links are unchanged.
   assert.equal(
     (code.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5/g) ?? []).length,
     0,
     "the old carousel frames are gone",
   );
   assert.equal(
-    (code.match(/-mx-4 flex flex-col gap-2 px-4 pb-1/g) ?? []).length,
+    (code.match(/-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1/g) ?? []).length,
     2,
-    "both strips are vertical lists",
+    "both strips are 2-column grids",
   );
   assert.equal(
     (code.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []).length,
@@ -342,9 +342,9 @@ test("T4.2 the vertical list bands and cards are untouched", () => {
     "no horizontal carousel tracks remain",
   );
   assert.equal(
-    (code.match(/className="w-full"/g) ?? []).length,
+    (code.match(/className="h-full w-full"/g) ?? []).length,
     2,
-    "card wrappers are full-width list items",
+    "card wrappers are equal-height grid items",
   );
 });
 

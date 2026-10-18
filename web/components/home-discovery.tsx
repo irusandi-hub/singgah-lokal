@@ -6,7 +6,7 @@ import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import PlaceFollowButton from "@/components/place-follow-button";
 import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
-import type { Place } from "@/lib/places";
+import { PLACE_CATEGORIES, type Place } from "@/lib/places";
 import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
   CAMERA_PRESET_RADIUS_M,
@@ -97,6 +97,73 @@ function toHomeMapPlaces(
   source: readonly NonNullable<ReturnType<typeof toCameraCandidate>>[],
 ): HomeMapPlace[] {
   return source.map(({ id, name, latitude, longitude }) => ({ id, name, latitude, longitude }));
+}
+
+/**
+ * PLACE CATEGORY FOR THE CARD (2026-10-18). The card shows the canonical
+ * `places.category` on one truncated line. Values outside the canonical
+ * vocabulary — an empty string, a DEV fixture, or a raw test string — fall
+ * back to a neutral label instead of printing whatever was stored. It never
+ * invents a category, and the card never becomes a category filter.
+ */
+const PLACE_CATEGORY_FALLBACK = "Kategori belum tersedia";
+
+function displayPlaceCategory(category: string | null | undefined): string {
+  const trimmed = (category ?? "").trim();
+  return (PLACE_CATEGORIES as readonly string[]).includes(trimmed)
+    ? trimmed
+    : PLACE_CATEGORY_FALLBACK;
+}
+
+/**
+ * CARD COVER (2026-10-18) — a 4:5 photo with a skeleton/blur-up and a
+ * fail-closed placeholder. The canonical cover wins whenever it loads; the
+ * neutral local placeholder (PRESENTATION ONLY — never a Place photo) covers
+ * a missing OR failed image, so a card can never render a broken image. The
+ * component holds only local image-loading state; no data changes.
+ */
+function PlaceCardCover({ name, src }: { name: string; src: string | null | undefined }) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      /* eslint-disable-next-line @next/next/no-img-element */
+      <img
+        src="/place-cover-placeholder.svg"
+        alt=""
+        aria-hidden
+        loading="lazy"
+        className="h-full w-full object-cover"
+      />
+    );
+  }
+
+  return (
+    <>
+      {!loaded && (
+        <div
+          aria-hidden
+          className="absolute inset-0 animate-pulse bg-[#e5dfd1] motion-reduce:animate-none"
+        />
+      )}
+      {/* External producer-supplied image URL; next/image would require host
+          allowlisting that producers cannot configure. Same rationale and
+          pattern as the Place detail hero. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={`Gambar sampul ${name}`}
+        loading="lazy"
+        decoding="async"
+        onLoad={() => setLoaded(true)}
+        onError={() => setFailed(true)}
+        className={`h-full w-full object-cover transition-[opacity,filter,transform] duration-500 group-hover:scale-[1.03] motion-reduce:transition-none ${
+          loaded ? "scale-100 opacity-100 blur-0" : "scale-105 opacity-0 blur-md"
+        }`}
+      />
+    </>
+  );
 }
 
 // Home discovery (Map-first) — rendered by the / route (app/page.tsx,
@@ -1027,10 +1094,11 @@ export default function HomeDiscovery({
   // it; the curated LIST, the curated cards, the filter state, and every
   // camera/coverage rule they read stay exactly as they were.
 
-  // ONE card renderer for every row: the existing card design verbatim; the
-  // only addition is the optional "✦ Tempat Pilihan" marker so an overlap
-  // Place stays recognizable inside the Discovery row. No numeric score is
-  // ever rendered anywhere.
+  // ONE card renderer for every row (2026-10-18): the compact 2-column card.
+  // It keeps every previous attribute — cover, ✦ curated badge, decorative
+  // heart, real distance, name, category, stars, Follow, Direction, LIVE
+  // status — except the short description, which now lives only on the
+  // Place detail page. No numeric score is ever rendered anywhere.
   const renderPlaceCard = (place: Place, isCurated: boolean) => {
     const live = liveByPlaceId.get(place.id);
     // Star slots (MOCKUP §16): canonical engine stars only (1–4). Anything
@@ -1056,53 +1124,23 @@ export default function HomeDiscovery({
       <VisitedLink
         key={place.id}
         href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
-        className="group flex h-full w-full flex-col overflow-hidden rounded-[16px] border border-black/5 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition hover:shadow-[0_8px_20px_rgb(0_0_0/0.08)]"
+        className="group flex h-full w-full flex-col overflow-hidden rounded-[22px] border border-black/5 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-200 hover:shadow-[0_8px_20px_rgb(0_0_0/0.08)] motion-safe:active:scale-[0.99]"
         visitedClassName={live ? "border-live/50 bg-[#fdf6f2]" : "border-brand-accent/30 bg-[#faf6ee]"}
       >
-        {/* CARD IMAGE — MOCKUP §13: every card carries an image area. When
-            the Place has no canonical cover yet, a NEUTRAL DUMMY area keeps
-            the mockup composition (visual placeholder only — no data change,
-            no invented imagery, and the canonical cover still wins when it
-            exists). */}
-        <div className="relative h-[92px] w-full shrink-0 overflow-hidden bg-[#ece7db] sm:h-[108px]">
-          {place.coverImageUrl ? (
-            // External producer-supplied image URL; next/image would require
-            // host allowlisting that producers cannot configure. Same
-            // rationale and pattern as the Place detail hero.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={place.coverImageUrl}
-              alt={`Gambar sampul ${place.name}`}
-              className="h-full w-full object-cover transition group-hover:scale-[1.03]"
-              loading="lazy"
-            />
-          ) : (
-            // MOCKUP §16 (2026-10-01): the card image area must ALWAYS look
-            // filled, so a Place without a canonical cover renders the LOCAL
-            // neutral craft/production placeholder photo from
-            // /public/place-cover-placeholder.svg (no icon block, no broken
-            // image, no blank fill). It is PRESENTATION ONLY: a decorative
-            // asset shipped with the app, never a Place photo, never stored,
-            // never written to the database, and it never replaces the
-            // canonical cover above. alt is empty and the element is
-            // aria-hidden so it can never be announced as Place imagery.
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src="/place-cover-placeholder.svg"
-              alt=""
-              aria-hidden
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-          )}
+        {/* CARD COVER — 4:5 full-bleed (2026-10-18). The canonical cover wins;
+            a missing or failed image falls back to the neutral local
+            placeholder, and a real cover blur-ups from a skeleton. */}
+        <div className="relative aspect-[4/5] w-full shrink-0 overflow-hidden bg-[#ece7db]">
+          <PlaceCardCover name={place.name} src={place.coverImageUrl} />
 
-          {/* CARD OVERLAYS — MOCKUP §14: curated badge top-left, decorative
-              heart top-right, REAL distance bottom-right. The distance stays
-              fail-closed: it renders ONLY when the real fix and canonical
+          {/* OVERLAYS: ✦ curated badge top-left, decorative heart top-right,
+              real distance bottom-left on a glass pill, pulsing LIVE pill
+              bottom-right when a session is active. The distance stays
+              fail-closed: it renders ONLY when the real origin and canonical
               Place coordinates both exist — never a fabricated number. */}
           {isCurated && (
             <span
-              className="absolute left-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-[10px] bg-brand-secondary text-[10px] leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.18)] ring-1 ring-white/60"
+              className="absolute left-1.5 top-1.5 inline-flex h-[22px] w-[22px] items-center justify-center rounded-[11px] bg-brand-secondary text-[11px] leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.18)] ring-1 ring-white/60"
               title="Tempat Pilihan"
             >
               <span aria-hidden>✦</span>
@@ -1114,34 +1152,50 @@ export default function HomeDiscovery({
               It must never read as a saved-state control. */}
           <span
             aria-hidden
-            className="absolute right-1.5 top-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/90 text-[10px] leading-none text-brand-ink/70 shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
+            className="absolute right-1.5 top-1.5 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full bg-white/90 text-[11px] leading-none text-brand-ink/70 shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
           >
             ♡
           </span>
           {distance && (
-            <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 rounded-full bg-brand-ink/70 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.16)]">
+            <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-full bg-brand-ink/60 px-1.5 py-1 text-[10px] font-bold leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.24)] ring-1 ring-white/25 backdrop-blur-md">
               <span aria-hidden>➤</span>
               {distance}
             </span>
           )}
+          {live && (
+            <button
+              type="button"
+              onClick={(event) => {
+                stopNestedCardAction(event);
+                router.push(`/live/${live.sessionId}`);
+              }}
+              className="absolute bottom-1.5 right-1.5 z-10 inline-flex items-center gap-1 rounded-full bg-live px-2 py-1 text-[10px] font-bold uppercase tracking-wide leading-none text-white shadow-[0_2px_8px_rgb(0_0_0/0.24)] transition hover:opacity-90"
+              aria-label={`Buka Live di ${place.name}`}
+            >
+              <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white motion-reduce:animate-none" />
+              LIVE
+            </button>
+          )}
         </div>
 
-        {/* CARD TEXT — MOCKUP §15/§17: name, short description, then the
-            5-slot star row. Stars come ONLY from the canonical Discovery
-            engine output (stars alone — the numeric score never leaves the
-            server); a Place outside the engine (e.g. Live cards) shows five
-            empty slots. NEVER a rating number, NEVER a review count — no
-            such data exists in this product. */}
-        <div className="flex flex-1 flex-col p-3">
-          <h3 className="line-clamp-2 text-sm font-bold leading-snug text-brand-ink">{place.name}</h3>
-          <p className="mt-1 line-clamp-2 text-xs leading-[18px] text-brand-ink/60">
-            {live?.processTitle ?? place.shortDescription}
+        {/* CARD TEXT — name (max 2 lines), category (1 truncated line), the
+            5-slot star row, then the compact LIVE status chip. Stars come
+            ONLY from the canonical Discovery engine output (stars alone —
+            the numeric score never leaves the server); a Place outside the
+            engine shows five empty slots. NEVER a rating number, NEVER a
+            review count — no such data exists in this product. The short
+            description is NOT rendered on the card any more; it stays on the
+            Place detail page. */}
+        <div className="flex flex-1 flex-col p-2.5">
+          <h3 className="line-clamp-2 text-[13px] font-bold leading-snug text-brand-ink">{place.name}</h3>
+          <p className="mt-0.5 truncate text-[10px] font-semibold tracking-wide text-brand-ink/55">
+            {displayPlaceCategory(place.category)}
           </p>
           {/* MOCKUP §9/§18: five star slots, always. The active slots take the
               gold tone OF THE ACTUAL rating value (1→4 from the canonical
               engine), the empty slots stay light gray, and no rating number
               or review count is ever rendered — neither exists in the data. */}
-          <p className="mt-1.5 flex items-center gap-px" aria-hidden>
+          <p className="mt-1 flex items-center gap-px" aria-hidden>
             {[1, 2, 3, 4, 5].map((slot) => (
               <span
                 key={slot}
@@ -1154,92 +1208,68 @@ export default function HomeDiscovery({
             ))}
           </p>
 
-        {/* Card meta row (PO 2026-09-26): real distance (only
-            when the real viewer fix exists) + Direction from the
-            Place's canonical coordinates. No operating-hours
-            status: the Place model has no operating-hours field
-            yet (DATA GAP), and no hours are ever invented.
-            MOCKUP §8 moved the distance and the curated badge ONTO the cover
-            image, so they are no longer repeated here — the same canonical
-            values, shown once, and still only when they really exist. */}
-        <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
-          {/* Follow control (User → Place follow foundation for
-              MASTER 10 notifications): server-derived state only
-              — Follow / Following, signed-out → /auth. Sits next
-              to Direction; card navigation/design untouched. */}
-          {!live && <PlaceFollowButton placeId={place.id} />}
-          {directionsUrl ? (
+          {/* LIVE STATUS (PO 2026-09-26, compacted 2026-10-18): every card
+              keeps its honest status. With an active session the red pulsing
+              pill sits ON the photo (above); without one this compact chip
+              says "Belum LIVE" and carries the full sentence in its
+              aria-label. Pressing it still shows the honest non-live notice;
+              live state itself is never invented — the canonical
+              liveByPlaceId feed is the only source. */}
+          {!live && (
             <button
               type="button"
+              aria-pressed={nonLiveNoticePlaceId === place.id}
               onClick={(event) => {
                 stopNestedCardAction(event);
-                window.open(directionsUrl, "_blank", "noopener,noreferrer");
+                setNonLiveNoticePlaceId((current) => (current === place.id ? null : place.id));
               }}
-              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-brand-accent/30 px-2.5 py-1 text-[11px] font-bold text-brand-accent transition hover:bg-brand-accent/10"
-              aria-label={`Petunjuk arah ke ${place.name} di aplikasi peta`}
+              className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-live/[0.08] px-1.5 py-0.5 text-[10px] font-bold leading-none text-live transition hover:bg-live/[0.14]"
+              aria-label={`${place.name}: Belum LIVE — belum ada proses Live yang berlangsung. Ketuk untuk keterangan.`}
             >
-              <span aria-hidden>➤</span> Direction
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-live/60" />
+              Belum LIVE
             </button>
-          ) : (
-            // Fail-closed: no canonical coordinates → no
-            // navigation target is ever invented.
-            <span
-              aria-disabled="true"
-              title="Koordinat Tempat belum tersedia"
-              className="ml-auto inline-flex shrink-0 cursor-not-allowed items-center gap-1 rounded-full border border-black/5 px-2.5 py-1 text-[11px] font-bold text-brand-ink/30"
-            >
-              <span aria-hidden>➤</span> Direction
-            </span>
           )}
-        </div>
-
-        {/* Permanent Live identity (PO 2026-09-26): every Place
-            card carries its own LIVE affordance in BOTH states.
-            With an active session it opens the existing
-            /live/[sessionId] flow; without one it shows the
-            honest not-live status when pressed. Live state is
-            never invented — liveByPlaceId (canonical
-            live_sessions feed) is the only source. */}
-        <div className="mt-1.5">
-          {live ? (
-            <button
-              type="button"
-              onClick={(event) => {
-                stopNestedCardAction(event);
-                router.push(`/live/${live.sessionId}`);
-              }}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-[14px] bg-live px-3 py-1.5 text-[11px] font-bold text-white shadow-[0_2px_8px_rgb(0_0_0/0.10)] transition hover:opacity-90"
-              aria-label={`Buka Live di ${place.name}`}
+          {!live && nonLiveNoticePlaceId === place.id && (
+            <p
+              role="status"
+              className="mt-1.5 rounded-[10px] bg-live/[0.08] px-2 py-1 text-[10px] font-semibold leading-snug text-live"
             >
-              <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-              LIVE — Lihat proses sekarang
-            </button>
-          ) : (
-            <>
+              {place.name} sedang tidak Live. Tempat ini dapat memulai Live kapan saja.
+            </p>
+          )}
+
+          {/* ONE ACTION ROW: Direction is the primary deep-green control
+              (flex-1, icon + text); Follow is the outline icon button next
+              to it. Both are at least 40px tall. */}
+          <div className="mt-auto flex items-center gap-1.5 pt-2">
+            {directionsUrl ? (
               <button
                 type="button"
-                aria-pressed={nonLiveNoticePlaceId === place.id}
                 onClick={(event) => {
                   stopNestedCardAction(event);
-                  setNonLiveNoticePlaceId((current) => (current === place.id ? null : place.id));
+                  window.open(directionsUrl, "_blank", "noopener,noreferrer");
                 }}
-                className="inline-flex w-full items-center justify-center gap-1.5 rounded-[14px] border border-live/25 bg-white px-3 py-1.5 text-[11px] font-bold text-live transition hover:bg-live/[0.06]"
-                aria-label={`Status Live ${place.name}`}
+                className="inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-1 rounded-[12px] bg-brand-primary px-2 text-[11px] font-bold text-white shadow-[0_2px_8px_rgb(14_107_79/0.18)] transition hover:bg-brand-primary-deep"
+                aria-label={`Petunjuk arah ke ${place.name} di aplikasi peta`}
               >
-                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-live/60" />
-                LIVE — Belum berlangsung
+                <span aria-hidden>➤</span>
+                <span className="truncate">Direction</span>
               </button>
-              {nonLiveNoticePlaceId === place.id && (
-                <p
-                  role="status"
-                  className="mt-1.5 rounded-[10px] bg-live/[0.08] px-3 py-1.5 text-[11px] font-semibold text-live"
-                >
-                  {place.name} sedang tidak Live. Tempat ini dapat memulai Live kapan saja.
-                </p>
-              )}
-            </>
-          )}
-        </div>
+            ) : (
+              // Fail-closed: no canonical coordinates → no navigation target
+              // is ever invented.
+              <span
+                aria-disabled="true"
+                title="Koordinat Tempat belum tersedia"
+                className="inline-flex h-10 min-w-0 flex-1 cursor-not-allowed items-center justify-center gap-1 rounded-[12px] bg-brand-ink/[0.06] px-2 text-[11px] font-bold text-brand-ink/30"
+              >
+                <span aria-hidden>➤</span>
+                <span className="truncate">Direction</span>
+              </span>
+            )}
+            <PlaceFollowButton placeId={place.id} iconOnly />
+          </div>
         </div>
       </VisitedLink>
     );
@@ -1782,11 +1812,10 @@ export default function HomeDiscovery({
             rows (OVERLAP rule).
 
             MOCKUP §10/§11 (2026-10-01): the results are a CREAM SHEET with
-            rounded top corners and a small centered handle that VISUALLY
-            MERGES with the map above it. It is still a normal section in the
-            page flow — the map keeps its full height and clipping boundary, and
-            nothing ever covers the map surface (locked by
-            tests/map-stacking.test.ts).
+            rounded top corners that VISUALLY MERGES with the map above it.
+            It is still a normal section in the page flow — the map keeps its
+            full height and clipping boundary, and nothing ever covers the map
+            surface (locked by tests/map-stacking.test.ts).
 
             REVISED (2026-10-18): the floating information board was removed,
             so this sheet owns the map → results seam again. It carries this
@@ -1850,9 +1879,9 @@ export default function HomeDiscovery({
           {/* Baris 1 (curated layer only): the Admin-promoted selection.
               Renders nothing when no Place is curated — the curated layer
               never substitutes the full published set.
-              MOCKUP §12 (2026-10-01): the row is a VERTICAL LIST at every
-              viewport — same dataset, same order, same cards; presentation
-              only. */}
+              MOCKUP §12 / 2026-10-18: the row is a 2-column card GRID on a
+              vertical scroll — same dataset, same order, same cards;
+              presentation only. */}
           {curatedOnly && curatedListed.length > 0 && (
             <>
               <p className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-brand-ink/55">
@@ -1860,10 +1889,10 @@ export default function HomeDiscovery({
               </p>
               <div
                 id={CURATED_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex flex-col gap-2 px-4 pb-1"
+                className="-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"
               >
                 {curatedListed.map((place) => (
-                  <div key={place.id} className="w-full">
+                  <div key={place.id} className="h-full w-full">
                     {renderPlaceCard(place, place.isCurated)}
                   </div>
                 ))}
@@ -1882,15 +1911,15 @@ export default function HomeDiscovery({
                   Discovery Place
                 </p>
               )}
-              {/* MOCKUP §12 (2026-10-01): vertical list at EVERY viewport —
-                  the same vertical-list pattern as Baris 1. Same dataset, same
-                  order, same cards (presentation only). */}
+              {/* 2026-10-18: the same 2-column grid as Baris 1 — a vertical
+                  scroll of compact cards. Same dataset, same order, same
+                  cards (presentation only). */}
               <div
                 id={DISCOVERY_RESULTS_ANCHOR_ID}
-                className="-mx-4 flex flex-col gap-2 px-4 pb-1"
+                className="-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"
               >
                 {discoveryRowPlaces.map((place) => (
-                  <div key={place.id} className="w-full">
+                  <div key={place.id} className="h-full w-full">
                     {renderPlaceCard(place, curatedIdSet.has(place.id))}
                   </div>
                 ))}
