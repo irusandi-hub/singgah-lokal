@@ -150,6 +150,21 @@ test("the DELETE handler clears the cover only after the reference is deleted", 
   assert.ok(deleteIdx >= 0 && syncIdx > deleteIdx, "the cover is cleared only after the reference is gone");
 });
 
+test("editing saved metadata without a file never touches the cover or Storage", () => {
+  // 2026-10-19: photos upload on pick, so the endpoint also accepts a
+  // file-less metadata edit. That path must leave the stored object and the
+  // Hook cover exactly as they are — the URL did not change.
+  const branchStart = routeCode.indexOf("if (!file) {");
+  const uploadStart = routeCode.indexOf("await uploadPlacePhoto(");
+  assert.ok(branchStart > 0 && uploadStart > branchStart, "the metadata branch must precede the file upload");
+  const branch = routeCode.slice(branchStart, uploadStart);
+  assert.match(branch, /title: meta\.title/);
+  assert.match(branch, /description: meta\.description/);
+  assert.doesNotMatch(branch, /resolvePlaceCoverSync|cover_image_url|uploadPlacePhoto|removePlacePhotoObject/);
+  // It is still fail-closed: no metadata row may exist without a photo.
+  assert.match(branch, /if \(!previous\.data\) throw new PlaceMediaError\("place_photo_file_required"\)/);
+});
+
 test("the cover column is written in exactly the two places the rule allows", () => {
   const coverWrites = routeCode.match(/update\(coverSync\)/g) ?? [];
   assert.equal(coverWrites.length, 2, "one write in POST, one in DELETE");

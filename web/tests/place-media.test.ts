@@ -95,8 +95,13 @@ test("Upload sends file + title + description to the server-side multipart endpo
   assert.match(code, /body\.append\("title", title\)/);
   assert.match(code, /body\.append\("description", description\)/);
   assert.match(code, /\/api\/producer\/places\/\$\{place\.id\}\/photos\/\$\{slotKey\}/);
-  // Replace and remove flows exist alongside upload.
-  assert.match(code, /"replace"/);
+  // Replace, metadata-edit, and remove flows exist alongside upload.
+  // 2026-10-19: a saved slot replaces by picking a new file (no mode string),
+  // and its saved metadata can be edited through the same endpoint.
+  assert.match(code, /hasSavedMeta\s*\?\s*"Pilih foto pengganti"/);
+  assert.match(code, /saveSlotMeta/);
+  assert.match(code, /body\.append\("title", title\)/);
+  assert.match(code, /body\.append\("description", description\)/);
   assert.match(code, /removeSlot/);
 });
 

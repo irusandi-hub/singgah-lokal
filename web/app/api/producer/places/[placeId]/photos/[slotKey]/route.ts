@@ -8,13 +8,19 @@ import { createSupabaseServiceClient } from "@/lib/supabase/admin";
  * PLACE MEDIA UPLOAD — one standard slot of a Place (PO request, 2026-09-25).
  *
  * POST /api/producer/places/[placeId]/photos/[slotKey]
- *   multipart/form-data: file + title + description
+ *   multipart/form-data: file + title + description   (upload/replace)
+ *   multipart/form-data: title + description          (metadata only)
  *
  * Server-side, fail-closed:
  * - the session must hold a producer_membership for the Place
  *   (owner/manager/editor — the Place-management write surface);
  * - file type + size are validated server-side (lib/place-media limits);
  * - title + description are required (Production Story content structure);
+ *   the Producer UI supplies safe defaults, so they are not a prerequisite
+ *   for picking a photo;
+ * - a request WITHOUT a file is a metadata edit for an ALREADY saved slot:
+ *   it updates only title/description, touches no Storage object, and is
+ *   refused when the slot has no reference yet (no orphan metadata row).
  * - the file goes to Supabase Storage via the SERVICE-ROLE client; the saved
  *   reference (slot key, storage path, title, description) lands in
  *   `place_photos` (0021) keyed by (place_id, slot_key) — so a reload
@@ -36,9 +42,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ pla
     await requireProducerAccess(request, placeId, ["owner", "manager", "editor"]);
 
     const form = await request.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) throw new PlaceMediaError("place_photo_file_required");
-    validatePlaceMediaFile({ type: file.type, size: file.size });
+    const fileEntry = form.get("file");
+    const file = fileEntry instanceof File ? fileEntry : null;
+    if (file) validatePlaceMediaFile({ type: file.type, size: file.size });
     const meta = validatePlacePhotoMeta(form.get("title"), form.get("description"));
 
     const supabase = createSupabaseServiceClient();
@@ -50,6 +56,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ pla
       .eq("slot_key", slot.key)
       .maybeSingle<{ id: string; place_id: string; slot_key: string; storage_path: string; title: string; description: string; sort_order: number }>();
     if (previous.error) throw new Error("place_media_unavailable");
+
+    // METADATA-ONLY EDIT (2026-10-19): the photo uploads as soon as it is
+    // picked, so editing its title/description afterwards must not require
+    // re-uploading the image. With no file this updates ONLY the existing
+    // reference — same endpoint, same validation, same Producer gate. A slot
+    // that has no saved reference is still refused: there is nothing to edit
+    // and a metadata-only row must never be invented.
+    if (!file) {
+      if (!previous.data) throw new PlaceMediaError("place_photo_file_required");
+      const edited = await supabase
+        .from("place_photos")
+        .update({ title: meta.title, description: meta.description, updated_at: new Date().toISOString() })
+        .eq("id", previous.data.id)
+        .select("id, place_id, slot_key, storage_path, title, description, sort_order")
+        .single();
+      if (edited.error || !edited.data) throw new Error("place_media_upload_failed");
+      // No Storage write and no cover sync: the stored object is unchanged,
+      // so the Hook cover already points at the correct URL.
+      return NextResponse.json(mapPlacePhotoRow(edited.data as never));
+    }
 
     const uploaded = await uploadPlacePhoto({ placeId, slotKey: slot.key, file });
 
@@ -168,15 +194,26 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ p
 
     const removed = await supabase.from("place_photos").delete().eq("id", existing.data.id);
     if (removed.error) throw new Error("place_media_upload_failed");
-    await removePlacePhotoObject(existing.data.storage_path);
 
     // Hook ⇄ cover: with its reference gone the Place has no cover any more.
     // Every other slot resolves to `null` and leaves the cover untouched.
+    //
+    // ORDER FIX (2026-10-19): the cover is cleared BEFORE the Storage object is
+    // deleted. The old order removed the object first, so a failure while
+    // clearing the cover left `places.cover_image_url` pointing at an object
+    // that no longer existed — a permanently broken Home cover. Now the public
+    // reference is reconciled while its object still exists; a failed clear
+    // reports failure with the old URL still resolvable.
     const coverSync = resolvePlaceCoverSync({ slotKey: slot.key, action: "delete" });
     if (coverSync) {
       const cover = await supabase.from("places").update(coverSync).eq("id", placeId);
       if (cover.error) throw new Error("place_media_upload_failed");
     }
+
+    // LAST, best-effort: the canonical reference and (for Hook) the cover are
+    // already gone, so a Storage hiccup cannot turn a completed delete into a
+    // reported failure or leave the public surface pointing at dead media.
+    await removePlacePhotoObject(existing.data.storage_path).catch(() => {});
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -60,7 +60,9 @@ const deleteSource = routeSource.slice(routeSource.indexOf("export async functio
 const SAVE = postSource.indexOf("const saved = previous.data");
 const COVER = postSource.indexOf("const coverSync = resolvePlaceCoverSync");
 const PREVIOUS_REMOVAL = postSource.indexOf("removePlacePhotoObject(previous.data.storage_path)");
-const RESPONSE = postSource.indexOf("return NextResponse.json(mapPlacePhotoRow");
+// The file path's success response — the metadata-only branch returns a row
+// earlier in the source and must not satisfy the ordering assertions.
+const RESPONSE = postSource.indexOf("return NextResponse.json(mapPlacePhotoRow", PREVIOUS_REMOVAL);
 
 /** Anchors must all exist, or every ordering assertion below is meaningless. */
 assert.ok(SAVE > 0, "POST must compute the canonical place_photos save");
@@ -90,11 +92,28 @@ test("the fail-closed preconditions run before any Storage write", () => {
   );
 });
 
-test("a missing file is rejected before anything is uploaded", () => {
+test("a request without a file is a metadata edit on an existing slot, never a new upload", () => {
+  // 2026-10-19: photo uploads happen the moment the file is picked, so the
+  // endpoint also accepts a file-less POST for editing title/description.
+  // A slot with NO saved reference is still refused — a metadata-only row
+  // must never be invented, and no Storage write may happen without a file.
+  const previousLookup = postSource.indexOf("const previous = await supabase");
+  const metadataBranch = postSource.indexOf("if (!file) {");
+  const upload = postSource.indexOf("await uploadPlacePhoto(");
+
+  assert.ok(previousLookup > 0, "the endpoint must look up the saved reference first");
+  assert.ok(metadataBranch > previousLookup, "the metadata branch must know whether a slot exists");
+  assert.ok(upload > metadataBranch, "the Storage upload stays on the file path only");
   assert.ok(
-    postSource.includes('if (!(file instanceof File)) throw new PlaceMediaError("place_photo_file_required")'),
-    "a missing file must fail closed before the Storage upload",
+    postSource.includes('if (!previous.data) throw new PlaceMediaError("place_photo_file_required")'),
+    "a missing file on an unsaved slot must fail closed",
   );
+
+  const block = postSource.slice(metadataBranch, upload);
+  assert.ok(block.includes("title: meta.title") && block.includes("description: meta.description"));
+  assert.ok(block.includes('update({ title: meta.title'), "the metadata edit updates the existing row");
+  assert.ok(!block.includes("uploadPlacePhoto"), "no Storage write on the metadata-only path");
+  assert.ok(!block.includes("resolvePlaceCoverSync"), "an unchanged object cannot change the cover");
 });
 
 // ---------------------------------------------------------------------------
@@ -286,6 +305,27 @@ test("DELETE clears the hook cover and reports a failed cover clear", () => {
     deleteSource.indexOf('from("place_photos").delete()') < deleteSource.indexOf('update(coverSync)'),
     "DELETE must remove the reference before clearing the cover",
   );
+});
+
+test("DELETE clears the cover before it deletes the object the cover points at", () => {
+  // ROOT CAUSE (2026-10-19): the Storage object used to be removed before the
+  // Hook cover was cleared. If clearing the cover failed (or the Storage call
+  // threw), places.cover_image_url was left pointing at a deleted object and
+  // Home showed a permanently broken cover. The public reference must be
+  // reconciled first; object cleanup is the LAST, best-effort step.
+  const referenceRemoval = deleteSource.indexOf('from("place_photos").delete()');
+  const coverClear = deleteSource.indexOf('update(coverSync)');
+  const objectRemoval = deleteSource.indexOf("removePlacePhotoObject(existing.data.storage_path)");
+
+  assert.ok(referenceRemoval >= 0 && coverClear > referenceRemoval);
+  assert.ok(objectRemoval > coverClear, "the object must outlive the reference that points at it");
+  assert.ok(
+    deleteSource.includes("await removePlacePhotoObject(existing.data.storage_path).catch(() => {})"),
+    "object cleanup must be best-effort after the canonical state is committed",
+  );
+  // No failure response may follow the cleanup: it cannot fail the delete.
+  const tail = deleteSource.slice(objectRemoval);
+  assert.ok(tail.indexOf("NextResponse.json({ ok: true })") > 0);
 });
 
 // ---------------------------------------------------------------------------
