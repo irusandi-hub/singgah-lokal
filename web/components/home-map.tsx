@@ -260,6 +260,24 @@ type HomeMapProps = {
    * a "recenter loop" impossible without any debounce or timer.
    */
   cameraRequestNonce?: number;
+  /**
+   * MARKER ↔ CARD (2026-10-18). The Place whose pin is highlighted because its
+   * card is being pressed or was selected from the map. Display only — it
+   * changes no marker identity, membership, coordinate, or camera state.
+   */
+  highlightedPlaceId?: string | null;
+  /**
+   * A BASE PIN TAP SELECTS ITS PLACE (2026-10-18) instead of navigating: the
+   * caller opens the results sheet and scrolls the matching card into view.
+   * When absent the legacy navigation is kept. A LIVE pin still opens the live
+   * session directly.
+   */
+  onSelectPlace?: (placeId: string) => void;
+  /**
+   * Visible sheet height in px (2026-10-18): the OSM attribution is lifted by
+   * this amount so the credit is never covered at the small/mid positions.
+   */
+  bottomInset?: number;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -418,6 +436,9 @@ export default function HomeMap({
   onViewportHasPlaces,
   onViewportChange,
   cameraRequestNonce = 0,
+  highlightedPlaceId = null,
+  onSelectPlace,
+  bottomInset = 0,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -1295,6 +1316,9 @@ export default function HomeMap({
         if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
         const position: [number, number] = [place.latitude, place.longitude];
         const live = liveByPlaceId.get(place.id);
+        // CARD ↔ PIN HIGHLIGHT (2026-10-18): display only. The class and the
+        // z-offset make the pin the one the pressed/selected card belongs to.
+        const isHighlighted = highlightedPlaceId === place.id;
 
         // LIVE treatment on the SAME base pin shape: a clean live-red teardrop
         // with a pulsing core and a small "LIVE" chip — instantly readable,
@@ -1302,7 +1326,7 @@ export default function HomeMap({
         if (live) {
           L.marker(position, {
             icon: L.divIcon({
-              className: "singgah-map-marker",
+              className: `singgah-map-marker${isHighlighted ? " is-highlighted" : ""}`,
               iconSize: [0, 0],
               html: `<div role="img" aria-label="Live sekarang di ${escapeHtml(place.name)} — lihat proses produksi" style="transform:translate(-50%,-100%);filter:drop-shadow(0 3px 4px rgb(0 0 0 / 0.3));">
                 <div style="position:relative;width:30px;height:38px;">
@@ -1312,7 +1336,7 @@ export default function HomeMap({
                 </div>
               </div>`,
             }),
-            zIndexOffset: 1000,
+            zIndexOffset: isHighlighted ? 2600 : 1000,
             keyboard: true,
           })
             .addTo(layer)
@@ -1352,7 +1376,7 @@ export default function HomeMap({
           </div>`;
         const marker = L.marker(position, {
           icon: L.divIcon({
-            className: "singgah-map-marker",
+            className: `singgah-map-marker${isHighlighted ? " is-highlighted" : ""}`,
             iconSize: [0, 0],
             html: placePin,
           }),
@@ -1371,11 +1395,16 @@ export default function HomeMap({
           // involved (no update loop is even possible). Artwork, colour, shape,
           // size, coordinates, click/keyboard behaviour, and the dedicated
           // `singgah-user-pane` user disc are all untouched.
-          zIndexOffset: isCurated ? 900 : live ? 0 : 500,
+          zIndexOffset: isHighlighted ? 2500 : isCurated ? 900 : live ? 0 : 500,
           keyboard: true,
         })
           .addTo(layer)
-          .on("click", () => router.push(`/places/${place.id}`));
+          // A base pin SELECTS its card (2026-10-18). The card remains the
+          // navigation target; without a caller-provided selector the legacy
+          // direct navigation is preserved.
+          .on("click", () =>
+            onSelectPlace ? onSelectPlace(place.id) : router.push(`/places/${place.id}`),
+          );
         // Name tooltip on hover/focus/selection ONLY (curated and normal) —
         // Leaflet opens it on hover and keyboard focus; click still navigates
         // to the Place, so 20–50 dense pins never stack name labels.
@@ -1396,12 +1425,19 @@ export default function HomeMap({
     };
     // places/liveByPlaceId are read through markerKey (exact same set);
     // router is stable in the App Router. Re-running on their identities
-    // would rebuild identical markers on unrelated state updates.
+    // would rebuild identical markers on unrelated state updates. The
+    // highlight is part of the marker PAINT, so it must rebuild when it
+    // changes; the callback is stable in the caller.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, markerKey]);
+  }, [ready, markerKey, highlightedPlaceId, onSelectPlace]);
 
   return (
-    <div className="relative h-full w-full">
+    <div
+      className="relative h-full w-full"
+      style={
+        { "--singgah-sheet-inset": `${Math.max(0, bottomInset)}px` } as React.CSSProperties
+      }
+    >
       {/* touch-none keeps drag/pinch inside the map container so page
           scroll/navigation never hijacks a map gesture. relative+z-0 makes
           THIS element a closed stacking context: Leaflet's own pane z-indexes

@@ -337,8 +337,12 @@ test("11. The Current Location marker renders in its own pane above every Place 
   // Place markers keep their own pane, and their z-priority is the explicit
   // ladder: LIVE chip 1000 · SELECTED (curated) 900 · ordinary 500.
   assert.equal(mapCode.includes("pane: USER_PANE"), true);
-  assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
-  assert.match(mapCode, /zIndexOffset: 1000/);
+  assert.match(
+    mapCode,
+    /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500/,
+  );
+  // The LIVE chip keeps its 1000 offset (raised only while card-linked).
+  assert.match(mapCode, /zIndexOffset: isHighlighted \? 2600 : 1000/);
 });
 
 // ---------------------------------------------------------------------------
@@ -367,7 +371,7 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   );
   assert.match(
     pageCode,
-    /pointer-events-none absolute bottom-12 left-3 z-\[1100\][^"]*">\s*Dua jari untuk geser/,
+    /pointer-events-none absolute left-3 z-\[1100\][^"]*"[\s\S]{0,300}style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}[\s\S]{0,120}Dua jari untuk geser/,
     "the gesture hint is click-through so it cannot eat the gesture it describes",
   );
   // 2026-10-18: no button zoom control remains (gesture-only zoom). The ONE

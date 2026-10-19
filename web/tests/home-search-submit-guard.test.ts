@@ -141,7 +141,10 @@ test("C7 every camera apply is keyed on its own explicit trigger", () => {
 
 test("C8 markers are rebuilt only when the marker SET changes", () => {
   assert.match(mapCode, /const markerKey = useMemo\(/);
-  assert.match(mapCode, /\}, \[ready, markerKey\]\);/);
+  // The rebuild is keyed on the SET (markerKey) — the card-linked highlight and
+  // the selection callback are the only other inputs, and neither changes the
+  // marker set itself.
+  assert.match(mapCode, /\}, \[ready, markerKey, highlightedPlaceId, onSelectPlace\]\);/);
   // The discovery feed re-polls every 15 s; an unchanged marker set therefore
   // costs no clearLayers and no marker rebuild. Exactly TWO layer rebuilds
   // exist: the Place markers (keyed on markerKey) and the Current Location

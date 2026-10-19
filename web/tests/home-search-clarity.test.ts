@@ -140,9 +140,12 @@ test("R-B: the empty state is content-sized, not a full-width panel", () => {
   // Centered flex line, and a card that hugs its own content and caps out.
   assert.match(
     discoveryCode,
-    /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/,
+    /pointer-events-none absolute inset-x-0 z-\[1100\] flex justify-center px-4/,
     "overlay must be a centered line, not a full-width panel",
   );
+  // 2026-10-18: it floats above the VISIBLE sheet edge instead of a constant
+  // bottom offset, so the sheet cannot cover it in small/mid.
+  assert.match(discoveryCode, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
   assert.match(discoveryCode, /w-fit max-w-\[min\(20rem,100%\)\]/);
   // Reduced padding and text scale versus the old panel.
   assert.doesNotMatch(discoveryCode, /absolute inset-x-6 bottom-32/);
@@ -174,12 +177,14 @@ test("R-B: the overlay stays clear of the coverage box and the Leaflet controls"
   // long search query wraps the panel title to a second line. At bottom-24 the
   // empty state and that card could touch on a no-results search, since both
   // are centered and overlap horizontally. bottom-32 clears a two-line title.
-  assert.match(discoveryCode, /bottom-32 z-\[1100\]/);
+  assert.match(discoveryCode, /inset-x-0 z-\[1100\] flex justify-center/);
   // The redundant floating coverage box is gone: its information is now on the
   // consolidated panel line, so nothing floats over the map's bottom-left.
   assert.doesNotMatch(discoveryCode, /bottom-9 left-4 z-\[1100\]/);
   // Click-through: the overlay can never swallow a pan or a pinch.
-  assert.match(discoveryCode, /pointer-events-none absolute inset-x-0 bottom-32/);
+  assert.match(discoveryCode, /pointer-events-none absolute inset-x-0 z-\[1100\]/);
+  // It is above the gesture hint (inset + 128 vs inset + 56).
+  assert.match(discoveryCode, /sheetVisiblePx \+ 56/);
 });
 
 // ---------------------------------------------------------------------------
@@ -229,7 +234,7 @@ test("R-C: the single filter bar stays one row with no mobile wrapping", () => {
   // narrow phone.
   const bar = discoveryCode.slice(
     discoveryCode.indexOf("pointer-events-auto mt-2.5 grid"),
-    discoveryCode.indexOf("{/* MAP AREA"),
+    discoveryCode.indexOf("{/* Viewport-aware map empty state"),
   );
   assert.ok(bar.length > 0, "the filter bar region must exist");
   // One literal LIVE control plus the shared class inside the radius mapper.

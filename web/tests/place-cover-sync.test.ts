@@ -194,7 +194,12 @@ test("the five standard slots are unchanged and hook is the cover slot", () => {
 
 test("Home still renders coverImageUrl and never reads place_photos directly", () => {
   const homeCode = stripComments(homeDiscovery);
-  assert.match(homeCode, /\{place\.coverImageUrl \? \(/);
+  // The canonical column is still the ONE source the card cover is handed:
+  // 2026-10-18 moved the <img> into the local `PlaceCardCover` helper (skeleton
+  // + fail-closed placeholder), so the contract is the call site's `src`.
+  assert.match(homeCode, /<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} \/>/);
+  assert.match(homeCode, /<img\s+src=\{src\}/);
+  assert.match(homeCode, /src="\/place-cover-placeholder\.svg"/);
   assert.doesNotMatch(homeCode, /place_photos/);
   // No new upload mechanism was introduced on the Home side.
   assert.doesNotMatch(homeCode, /uploadPlacePhoto|resolvePlaceCoverSync/);

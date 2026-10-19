@@ -372,16 +372,21 @@ test("12.4 the removed board left no band, and the sheet keeps its one control",
   // control hangs on the sheet's top edge — the curated layer tab that moved
   // here from the top filter row. No count/origin line returns.
   const headerStart = pageCode.indexOf('<h2 id="place-results-heading"');
-  const band = pageCode.slice(headerStart, pageCode.indexOf("Baris 1", headerStart));
+  // 2026-10-18: the sheet header is the seam band — everything between the
+  // accessible name and the scrollable list, and nothing else.
+  const band = pageCode.slice(headerStart, pageCode.indexOf("Only the LIST scrolls", headerStart));
+  assert.ok(band.length > 0, "the sheet header was located");
   assert.equal((band.match(/<p /g) ?? []).length, 0, "no information line came back");
   assert.doesNotMatch(band, /nearOrigin|coverageScope|Ke hasil/);
   assert.match(band, /aria-pressed=\{curatedOnly\}/);
   assert.equal((band.match(/aria-pressed=/g) ?? []).length, 1, "one control on the seam");
-  assert.doesNotMatch(band, /block h-1 w-10 rounded-full bg-black\/10/, "the old handle band is gone");
-  assert.match(band, /absolute -top-11 left-4/);
-  // The panel and its chrome keep the approved visual identity.
+  assert.doesNotMatch(band, /block h-1 w-10 rounded-full bg-black\/10/);
+  assert.match(band, /absolute z-30 inline-flex min-h-11 items-center justify-center gap-1\.5/);
+  assert.match(band, /sheetPosition === "full" \? "left-4 top-1\/2 -translate-y-1\/2" : "-top-11 left-4"/);
+  // The sheet and its chrome keep the approved visual identity: same cream
+  // surface and same 24px top radius, now floating over the map stage.
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
+  assert.match(pageCode, /className="relative h-\[100svh\] min-h-\[560px\] overflow-hidden bg-brand-cream text-brand-ink"/);
   // Nothing essential became scrollable or hidden.
   assert.doesNotMatch(band, /line-clamp|max-h-\[|overflow-hidden/);
   assert.doesNotMatch(band, /snap-x/);
@@ -393,9 +398,13 @@ test("12.4 the removed board left no band, and the sheet keeps its one control",
 
 test("13.1 the marker ladder puts SELECTED above ORDINARY, below LIVE", () => {
   // One expression over the canonical per-Place flags decides the order:
-  //   selected 900 > ordinary 500 > the pin of a Live Place 0, LIVE chip 1000.
-  assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
-  assert.match(mapCode, /zIndexOffset: 1000/);
+  //   card-linked highlight 2500 > selected 900 > ordinary 500 > the pin of
+  //   a Live Place 0, LIVE chip 1000 (2600 when highlighted).
+  assert.match(
+    mapCode,
+    /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500/,
+  );
+  assert.match(mapCode, /zIndexOffset: isHighlighted \? 2600 : 1000/);
   const offsets = { live: 1000, selected: 900, ordinary: 500 };
   assert.equal(offsets.selected > offsets.ordinary, true);
   assert.equal(offsets.live > offsets.selected, true);
@@ -406,17 +415,24 @@ test("13.1 the marker ladder puts SELECTED above ORDINARY, below LIVE", () => {
 });
 
 test("13.2 the order survives refresh, viewport changes and re-render", () => {
-  const markerEnd = mapCode.indexOf("}, [ready, markerKey]);");
+  const markerEnd = mapCode.indexOf("}, [ready, markerKey, highlightedPlaceId, onSelectPlace]);");
   const markerEffect = mapCode.slice(mapCode.lastIndexOf("useEffect(() => {", markerEnd), markerEnd);
   // The offset is set when the marker is CONSTRUCTED, so Leaflet re-applies it
   // on every pan, zoom, viewport report, poll, and marker rebuild. There is no
   // effect, listener, bringToFront call, or camera move anywhere near it — so
   // the stacking rule cannot cause a map update or a recenter loop.
-  assert.match(markerEffect, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
+  assert.match(
+    markerEffect,
+    /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500/,
+  );
   assert.doesNotMatch(markerEffect, /bringToFront|setZIndexOffset|panTo|setView|fitBounds/);
-  // The marker effect is still keyed on the stable marker signature, and the
-  // viewport report still never moves the camera.
-  assert.match(mapCode, /}, \[ready, markerKey\]\);/);
+  // The marker effect is keyed on the stable marker signature plus the two
+  // card-link inputs (highlight paint and selector); the viewport report still
+  // never moves the camera.
+  assert.match(
+    mapCode,
+    /}, \[ready, markerKey, highlightedPlaceId, onSelectPlace\]\);/,
+  );
   const reportViewport = mapCode.slice(
     mapCode.indexOf("const reportViewportBounds = useCallback"),
     mapCode.indexOf("const triggerLocatePulse"),
@@ -451,7 +467,7 @@ test("13.3 artwork, coordinates, interactions and the user marker are untouched"
 
 test("13.4 no regression to LIVE, search, or Place navigation", () => {
   // The LIVE treatment, its chip, and its top priority are intact.
-  assert.match(mapCode, /zIndexOffset: 1000/);
+  assert.match(mapCode, /zIndexOffset: isHighlighted \? 2600 : 1000/);
   assert.match(mapCode, /BRAND_LIVE/);
   assert.match(pageCode, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
   // The search flow keeps its server route and its search fit dataset. The box

@@ -183,7 +183,11 @@ test("4.2 every pin keeps its full text, accessible name, tooltip, and target", 
   // The accessible name and the full-name tooltip are unchanged.
   assert.match(mapCode, /role="img" aria-label="Lihat \$\{escapeHtml\(place\.name\)\}"/);
   assert.match(mapCode, /marker\.bindTooltip\(escapeHtml\(place\.name\), \{/);
-  assert.match(mapCode, /\.on\("click", \(\) => router\.push\(`\/places\/\$\{place\.id\}`\)\);/);
+  // A base pin now selects its card; the legacy route remains the fallback.
+  assert.match(
+    mapCode,
+    /onSelectPlace\s*\?\s*onSelectPlace\(place\.id\)\s*:\s*router\.push\(`\/places\/\$\{place\.id\}`\)/,
+  );
   assert.match(mapCode, /keyboard: true,/);
 });
 
@@ -199,9 +203,12 @@ test("5.1 the budget is computed ONCE per marker rebuild, never per frame", () =
     mapCode,
     /const markerKey = useMemo\(\s*\(\) =>\s*places\s*\.map\(/,
   );
-  assert.match(mapCode, /\}, \[ready, markerKey\]\);/);
+  assert.match(mapCode, /\}, \[ready, markerKey, highlightedPlaceId, onSelectPlace\]\);/);
   // ...and it is inside that effect, not in a render path or an event handler.
-  const markerEffect = mapCode.slice(mapCode.indexOf("const markerPositionsRef"), mapCode.indexOf("}, [ready, markerKey]);"));
+  const markerEffect = mapCode.slice(
+    mapCode.indexOf("const markerPositionsRef"),
+    mapCode.indexOf("}, [ready, markerKey, highlightedPlaceId, onSelectPlace]);"),
+  );
   // (2026-10-04: the "Semua Tempat" tab — the only caller that painted every name
   // and skipped the budget — was removed, so the budget call is once again a
   // plain statement. It is still INSIDE this one marker-rebuild effect, so it
@@ -219,13 +226,16 @@ test("5.2 no layout measurement is introduced anywhere in the map", () => {
   // ...and specifically not in the marker effect that computes the budget.
   const markerEffect = mapCode.slice(
     mapCode.indexOf("markerPositionsRef.current = markerPositions;"),
-    mapCode.indexOf("}, [ready, markerKey]);"),
+    mapCode.indexOf("}, [ready, markerKey, highlightedPlaceId, onSelectPlace]);"),
   );
   assert.doesNotMatch(markerEffect, /getBoundingClientRect|offsetWidth|clientWidth|requestAnimationFrame/);
 });
 
 test("5.3 the marker ladder, artwork, and coordinates are untouched", () => {
-  assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500,/);
+  assert.match(
+    mapCode,
+    /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500,/,
+  );
   assert.match(mapCode, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN;/);
   assert.match(mapCode, /BRAND_LIVE/);
   // No clustering, no marker removal, no new pane.
@@ -235,6 +245,6 @@ test("5.3 the marker ladder, artwork, and coordinates are untouched", () => {
 test("5.4 the LIVE chip is unaffected by the declutter", () => {
   // A Live Place keeps its LIVE treatment and its own chip; the declutter only
   // touches the compact Place NAME chip.
-  assert.match(mapCode, /zIndexOffset: 1000,\s*\n\s*keyboard: true,/);
+  assert.match(mapCode, /zIndexOffset: isHighlighted \? 2600 : 1000,\s*\n\s*keyboard: true,/);
   assert.equal((mapCode.match(/class="singgah-pin-label"/g) ?? []).length, 1);
 });

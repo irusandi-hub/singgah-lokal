@@ -477,8 +477,9 @@ test("AC 9: both Place rows are 2-column grids inside the panel", () => {
   assert.equal(strips.length, 2, "Baris 1 and Baris 2 are both 2-column grids");
   const tracks = (pageCode.match(/w-\[46vw\] max-w-\[200px\] min-w-\[132px\] shrink-0 snap-start/g) ?? []);
   assert.equal(tracks.length, 0, "no fixed-width horizontal tracks remain");
-  // Cards stay wrapped in an equal-height grid item in BOTH rows.
-  assert.equal((pageCode.match(/className="h-full w-full"/g) ?? []).length, 2);
+  // Cards stay wrapped in an equal-height grid item in BOTH rows (the wrapper
+  // keeps the selected-card ring on top of the same h-full/w-full box).
+  assert.equal((pageCode.match(/className={`h-full w-full rounded-\[24px\] /g) ?? []).length, 2);
   const curated = pageCode.slice(pageCode.indexOf("{curatedOnly && curatedListed.length > 0 && ("));
   assert.match(curated, /\{curatedListed\.map\(\(place\) => \(/);
   // No page-level horizontal overflow is introduced: the list only cancels

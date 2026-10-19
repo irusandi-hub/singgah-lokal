@@ -95,13 +95,50 @@ select {
   font-weight: 700;
 }
 
-/* OSM ATTRIBUTION (2026-10-18). The floating results board that used to sit
-   on the map's bottom edge was REMOVED, so nothing covers the credit any
-   more: the attribution keeps the base 22px offset above the map's bottom
-   edge and no longer needs a measured/published lift. The credit text, its
-   link, and Leaflet's own control are untouched. */
+/* OSM ATTRIBUTION (2026-10-18). The results sheet floats over the map, so the
+   credit must stay above the VISIBLE sheet edge in every position. The Home
+   map publishes the sheet's visible height as --singgah-sheet-inset on its
+   wrapper; the base 22px margin keeps the credit off the seam. The credit
+   text, its link, and Leaflet's own control are untouched. */
 .leaflet-control-attribution {
   margin-bottom: 22px;
+}
+
+.singgah-home-map .leaflet-bottom {
+  bottom: var(--singgah-sheet-inset, 0px);
+  transition: bottom 300ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .singgah-home-map .leaflet-bottom {
+    transition: none;
+  }
+}
+
+/* BOTTOM SHEET (2026-10-18): one transform transition for every snap. Drag
+   frames disable it inline through .singgah-sheet-dragging; reduced motion
+   removes it entirely. */
+.singgah-sheet {
+  transition: transform 300ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform;
+}
+
+.singgah-sheet-dragging {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .singgah-sheet {
+    transition: none;
+  }
+}
+
+/* CARD ↔ PIN SELECTION (2026-10-18): the pin belonging to the pressed or
+   map-selected card gets one crisp brand-green halo and rises above its
+   neighbours. No size, coordinate, or marker model changes. */
+.singgah-map-marker.is-highlighted {
+  z-index: 1100 !important;
+  filter: drop-shadow(0 0 6px rgb(14 107 79 / 0.85)) drop-shadow(0 0 2px rgb(255 255 255 / 0.9));
 }
 
 /* Home map marker system (PO, 2026-09-29; always-on name label 2026-10-04):

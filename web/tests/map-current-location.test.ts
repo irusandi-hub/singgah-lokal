@@ -665,13 +665,17 @@ test("LIVE treatment: same teardrop language, unmistakably live-red, still compa
   // pin now sits between the LIVE chip and the ordinary pin, so the selection
   // is never buried under an ordinary marker. LIVE keeps the very top.
   assert.match(mapCode, /aria-label="Live sekarang di \$\{escapeHtml\(place\.name\)\} — lihat proses produksi"/);
-  assert.match(mapCode, /zIndexOffset: 1000/);
+  assert.match(mapCode, /zIndexOffset: isHighlighted \? 2600 : 1000/);
   assert.match(mapCode, /router\.push\(`\/live\/\$\{live\.sessionId\}`\)/);
-  const liveOffset = mapCode.indexOf("zIndexOffset: 1000");
-  const placeOffset = mapCode.indexOf("zIndexOffset: isCurated ? 900 : live ? 0 : 500");
+  const liveOffset = mapCode.indexOf("zIndexOffset: isHighlighted ? 2600 : 1000");
+  const placeOffset = mapCode.indexOf("zIndexOffset: isHighlighted ? 2500 : isCurated ? 900 : live ? 0 : 500");
   assert.ok(liveOffset >= 0 && placeOffset > liveOffset);
-  // The whole ladder is one expression over the canonical per-Place flags.
-  assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
+  // The whole ladder is one expression over the canonical per-Place flags, and
+  // the card-linked highlight only lifts the pin it belongs to.
+  assert.match(
+    mapCode,
+    /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500/,
+  );
 });
 
 test("Every marker carries an accessible aria-label", () => {
@@ -741,7 +745,11 @@ test("Tempat Pilihan transition: instant 10 km preset camera + one-shot pin focu
   assert.match(globals, /\.singgah-locate-pulse \{\n  animation: singgah-locate-pulse 900ms ease-out 2;\n\}/);
   assert.doesNotMatch(globals, /singgah-locate-pulse[^\n]*infinite/);
   assert.equal((globals.match(/@keyframes/g) ?? []).length, 3, "the LIVE pulse + the locate pulse + the locate AREA");
-  assert.equal((globals.match(/prefers-reduced-motion/g) ?? []).length, 3, "reduced-motion opt-out: LIVE pulse + locate pulse + locate area");
+  assert.equal(
+    (globals.match(/prefers-reduced-motion/g) ?? []).length,
+    5,
+    "reduced-motion opt-out: LIVE pulse + locate pulse + locate area + sheet/attribution",
+  );
   // SURROUNDING AREA (2026-10-04): the Current Location pin carries a soft disc.
   assert.match(globals, /\.singgah-locate-area \{/);
   assert.match(globals, /@keyframes singgah-live-pulse/);

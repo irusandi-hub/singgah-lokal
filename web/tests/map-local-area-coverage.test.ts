@@ -561,24 +561,26 @@ test("CHANGE B: Selected Places fit the eligible SELECTED distribution, not the 
 // ---------------------------------------------------------------------------
 
 test("AC 8: the panel and the map window above it are more compact", () => {
-  // MOBILE MAP BUDGET (fix, 2026-10-03; re-sized 2026-10-04): the map
-  // window's FLOOR is sized from the floating control ladder, because at 240px
-  // the section ended above the bottom of the zoom control and clipped it on an
-  // ordinary phone. 2026-10-04 grew the CANVAS (42vh -> 56vh, 440 -> 460 floor)
-  // using the vertical space the coordinate strip and the in-flow results panel
-  // gave back. 2026-10-05 grew it once more (60vh, 470 floor, 700 ceiling) for
-  // the same reason: map presence is the approved priority. The camera rules
-  // are untouched — only the container grew.
-  assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
-  assert.doesNotMatch(pageCode, /min-h-\[240px\]|sm:h-\[38vh\]/);
-  // ...and the panel's own padding went with it.
+  // MOBILE MAP BUDGET (2026-10-18, 3-position sheet): the ad-hoc `60vh` map
+  // window is gone. The stage is the whole visible viewport and the sheet is a
+  // full-height surface translated over its lower half, so the map is never a
+  // separate, shorter box. The floor still guarantees the floating chrome fits.
+  assert.match(pageCode, /className="relative h-\[100svh\] min-h-\[560px\] overflow-hidden bg-brand-cream text-brand-ink"/);
+  assert.doesNotMatch(pageCode, /h-\[60vh\]|min-h-\[240px\]|sm:h-\[38vh\]|max-h-\[700px\]/);
+  // ...and the sheet owns the stage height instead of a padded in-flow panel.
   assert.match(
     pageCode,
-    /<section\s*\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-4/,
+    /className=\{`singgah-sheet absolute inset-x-0 bottom-0 z-20 flex h-full flex-col rounded-t-\[24px\] bg-brand-cream/,
   );
-  // The old handle band is gone; the curated tab hangs above the sheet edge.
+  // The snap positions are measured from the stage, not hardcoded per viewport.
+  assert.match(pageCode, /SHEET_MID_VISIBLE_RATIO = 0\.42/);
+  assert.match(pageCode, /stageHeight - SHEET_HEADER_PX/);
+  assert.match(pageCode, /transform: `translateY\(\$\{sheetOffset\}px\)`/);
+  // The old handle band is gone; the curated tab hangs above the sheet edge
+  // in small/mid and sits inside the header in full.
   assert.doesNotMatch(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(pageCode, /absolute -top-11 left-4/);
+  assert.match(pageCode, /absolute z-30 inline-flex min-h-11 items-center justify-center gap-1\.5/);
+  assert.match(pageCode, /sheetPosition === "full" \? "left-4 top-1\/2 -translate-y-1\/2" : "-top-11 left-4"/);
   // 2026-10-18: the information board (title, count, radius line, "Ke hasil")
   // was REMOVED from that sheet; its handle now sits at the sheet's own top and
   // the curated layer tab moved into that band. The category labels and both
@@ -606,7 +608,10 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // of the Place cards than before, which is the property this assertion used
   // to protect.
   assert.doesNotMatch(pageCode, /relative z-10 -mt-5 rounded-t-\[24px\]/);
-  assert.match(pageCode, /relative z-10 rounded-t-\[24px\]/);
+  // 2026-10-18: the panel left the flow entirely — the sheet now floats over
+  // the map at z-20 instead of tucking under it at z-10.
+  assert.match(pageCode, /absolute inset-x-0 bottom-0 z-20 flex h-full flex-col rounded-t-\[24px\] bg-brand-cream/);
+  assert.doesNotMatch(pageCode, /relative z-10 rounded-t-\[24px\]/);
 });
 
 // ---------------------------------------------------------------------------
@@ -918,13 +923,32 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   assert.doesNotMatch(globalsCss, /singgah-home-map \.leaflet-top\.leaflet-right/);
   assert.match(mapCode, /absolute right-3 top-\[190px\]/);
   assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
-  assert.match(pageCode, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
-  const floor = 470;
-  assert.ok(floor > COLUMN_BOTTOM, "the remaining control column must not be clipped");
+  assert.match(mapCode, /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2">/);
+  assert.match(mapCode, /<div[^>]*role="img"[^>]*aria-label="Arah peta: utara ke atas"[^>]*className="inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5"\s*>/);
+  // The compass itself is intentional visual-only; the control column's ONLY
+  // interactive element is the "Lokasi Saya" tile and it must be named for
+  // sighted hover AND screen-reader use. 2026-10-18: the compass cannot rotate
+  // this Leaflet map, so it stays a role="img" indicator; the locate tile is a
+  // real wired button on the SAME 40px surface.
+  assert.match(
+    mapCode,
+    /<button[^>]*type="button"[^>]*onClick=\{onRequestLocate\}[^>]*title="Lokasi Saya"[^>]*aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"[^>]*className="inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80[^"]*shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5[^"]*"/,
+  );
+  // The tile's face is the crosshair + user dot, not an emoji or a bare glyph.
+  assert.match(mapCode, /<button[^>]*onClick=\{onRequestLocate\}[^>]*>\s*<svg[^>]*aria-hidden[^>]*viewBox="0 0 24 24"[^>]*width="20"[^>]*height="20"[^>]*>/);
+  // 2026-10-18: the map stage is the whole viewport (the sheet floats over
+  // it), so the floor that the control column must clear is the stage minimum.
+  assert.match(pageCode, /className="relative h-\[100svh\] min-h-\[560px\] overflow-hidden bg-brand-cream text-brand-ink"/);
+  const floor = 560;
+  assert.ok(COLUMN_BOTTOM < floor, "the control column must not be clipped on the shortest supported stage (278 < 560)");
+  assert.ok(COLUMN_BOTTOM < 576, "the column clearing check is concrete, not a vague smoke assertion (278 < 576)");
   assert.ok(COMPASS_TOP < LOCATE_TOP, "the control column keeps its order");
   // The gesture hint sits above the attribution band and below the empty state
-  // (nothing floats over the map's bottom edge any more).
-  assert.match(pageCode, /absolute bottom-12 left-3 z-\[1100\]/);
+  // (nothing floats over the map's bottom edge any more). It now tracks the
+  // sheet's visible height, so it can never be covered in any snap position.
+  assert.match(pageCode, /className="pointer-events-none absolute left-3 z-\[1100\] rounded-full bg-white\/85/);
+  assert.match(pageCode, /style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}/);
+  assert.match(globalsCss, /bottom: var\(--singgah-sheet-inset, 0px\)/);
   // The camera padding reserves that same chrome, so a fit never hides a Place
   // under it.
   const padding = resolveCameraFitPadding({ x: 390, y: floor });

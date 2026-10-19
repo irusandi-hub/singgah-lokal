@@ -190,15 +190,18 @@ test("the reserved strip for the removed distance scale is gone", () => {
   assert.equal(pageCode.indexOf("bottom-9 right-4 z-[1100]"), -1);
 });
 
-test("the results sheet keeps the handle and the moved curated tab", () => {
-  const sheetStart = pageCode.indexOf('className="relative z-10 rounded-t-[24px] bg-brand-cream');
+test("the results sheet keeps its draggable handle and the moved curated tab", () => {
+  const sheetStart = pageCode.indexOf("singgah-sheet absolute");
   const sheet = pageCode.slice(sheetStart, pageCode.indexOf('id={CURATED_RESULTS_ANCHOR_ID}'));
-  // The sheet keeps its cream surface and rounded top. The old handle band
-  // was removed in full (2026-10-18); the curated tab is the one hinged
-  // control on the seam and it protrudes above the sheet edge.
+  // The sheet keeps its cream surface and rounded top. Its handle is now a
+  // real focusable/draggable button (2026-10-18) instead of a decorative bar;
+  // the curated tab is the one hinged control on the seam and it protrudes
+  // above the sheet edge in small/mid.
   assert.match(sheet, /rounded-t-\[24px\] bg-brand-cream/);
-  assert.doesNotMatch(sheet, /block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(sheet, /absolute -top-11 left-4/);
+  assert.match(sheet, /aria-label="Atur tinggi panel hasil"/);
+  assert.match(sheet, /onPointerDown=\{beginSheetDrag\}/);
+  assert.match(sheet, /onKeyDown=\{handleSheetKeyDown\}/);
+  assert.match(sheet, /-top-11 left-4/);
   // The board's title/count/radius/"Ke hasil" content is GONE (2026-10-18).
   assert.doesNotMatch(sheet, /place-results-heading" className="text-base/);
   assert.doesNotMatch(sheet, /nearOrigin|coverageScope|Ke hasil|resultsAnchorId/);
@@ -225,18 +228,30 @@ test("the moved curated tab cannot overflow or wrap on a narrow phone", () => {
 // 4. The OSM attribution needs no panel-height lift any more
 // ---------------------------------------------------------------------------
 
-test("the OSM attribution keeps its base offset and no panel measurement remains", () => {
-  // The board that covered the map's bottom edge is removed (2026-10-18), so
-  // nothing can cover the credit and the measured/published lift is gone with
-  // it. The attribution keeps the pre-existing 22px offset.
+test("the OSM attribution stays visible above the sheet edge", () => {
+  // The sheet floats over the map (2026-10-18), so the credit is lifted by the
+  // VISIBLE sheet height while keeping its pre-existing 22px base offset. It
+  // is never covered at small/mid, and no old panel measurement remains.
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(css, /\.leaflet-control-attribution \{\s*margin-bottom: 22px;\s*\}/);
+  assert.match(css, /\.singgah-home-map \.leaflet-bottom \{\s*bottom: var\(--singgah-sheet-inset, 0px\);/);
+  assert.match(pageCode, /bottomInset=\{sheetVisiblePx\}/);
+  assert.doesNotMatch(pageCode, /--singgah-sheet-inset/);
+  // ...and the MAP publishes that height as the CSS inset its own bottom
+  // band (controls + attribution) reads back.
+  const mapCode = stripComments(
+    readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8"),
+  );
+  assert.match(mapCode, /\{ "--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset\)\}px` \}/);
   assert.doesNotMatch(css, /--singgah-results-panel-height/);
   assert.doesNotMatch(pageCode, /--singgah-results-panel-height/);
   assert.doesNotMatch(pageCode, /new ResizeObserver\(apply\)/);
-  // The gesture hint sits ABOVE the attribution band (bottom-12 = 48px, vs the
-  // credit's 22px offset + its own line), so it can never cover it either.
-  assert.match(pageCode, /absolute bottom-12 left-3 z-\[1100\][\s\S]{0,220}Dua jari untuk geser/);
+  // The gesture hint is lifted ABOVE the attribution band and the tab, via the
+  // same visible-sheet inset, so it can never cover the credit either.
+  assert.match(
+    pageCode,
+    /pointer-events-none absolute left-3 z-\[1100\][\s\S]{0,260}style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}[\s\S]{0,120}Dua jari untuk geser/,
+  );
   // The attribution itself is untouched: Leaflet's own control, fed by the
   // tile layer's OSM attribution string (pinned in live-hardening /
   // map-local-area-coverage) — never removed or replaced.

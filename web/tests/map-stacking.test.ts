@@ -82,9 +82,12 @@ test("React map overlays sit above Leaflet's documented z-index ceiling (1000)",
   // box instead of a full-width panel that covered a large part of the map.
   assert.match(
     pageCode,
-    /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/,
+    /pointer-events-none absolute inset-x-0 z-\[1100\] flex justify-center px-4/,
     "empty-state card must ride above the Leaflet control ceiling",
   );
+  // 2026-10-18: its bottom offset follows the VISIBLE sheet edge instead of
+  // being a constant, so the sheet can never cover it in small/mid.
+  assert.match(pageCode, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
   assert.match(pageCode, /w-fit max-w-\[min\(20rem,100%\)\] rounded-\[14px\] bg-white\/95 px-3 py-1\.5/);
   // The DUPLICATE "Tempat Pilihan" chip is gone (bug fix 2026-10-03): the map
   // stage repeated the filter bar's own control as a second chip. The filter
@@ -137,7 +140,7 @@ test("Map frame remains the single clipping boundary; no masking workaround", ()
   // radius/border moved to the Result panel below — the architectural
   // requirement that makes this the single clipping boundary (relative +
   // isolate + overflow-hidden) is unchanged.
-  assert.match(pageCode, /<section className="relative isolate overflow-hidden bg-\[#d9dfd2\]">/);
+  assert.match(pageCode, /<section className="absolute inset-0 isolate overflow-hidden bg-\[#d9dfd2\]">/);
   const mapCode = stripComments(homeMap);
   // No pseudo/masking workaround and no drag disabling to hide the bug.
   assert.equal(mapCode.includes("pointer-events-none"), false);
@@ -155,8 +158,8 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   // scale left the stage (2026-10-04), and the floating information board was
   // REMOVED outright (2026-10-18): the map stage now keeps only the empty-state
   // card and the two-finger gesture hint.
-  const emptyCard = pageCode.indexOf("bottom-32 z-[1100]");
-  const gestureHint = pageCode.indexOf("bottom-12 left-3 z-[1100]");
+  const emptyCard = pageCode.indexOf("inset-x-0 z-[1100] flex justify-center");
+  const gestureHint = pageCode.indexOf("left-3 z-[1100]");
   assert.equal(pageCode.includes("bottom-9 left-4 z-[1100]"), false, "the floating coverage box is consolidated away");
   assert.equal(pageCode.indexOf("bottom-9 right-4 z-[1100]"), -1, "the distance scale is removed, not moved");
   assert.equal(pageCode.indexOf("inset-x-0 bottom-3 z-[1100]"), -1, "the information board is removed, not moved");

@@ -60,6 +60,24 @@ const LIVE_REQUEST_TIMEOUT_MS = 10_000;
 // honest failure.
 const GEOCODE_TIMEOUT_MS = 10_000;
 
+/**
+ * BOTTOM SHEET (2026-10-18) — three snap positions for the results surface.
+ *
+ *  · small: only the hanging tab + the 64px handle header — the map is the
+ *    screen and the sheet is a grab bar.
+ *  · mid: the default. The sheet covers 42% of the stage, leaving ~58% of the
+ *    map visible (the requested 55–60% band).
+ *  · full: the sheet fills the screen and the card list is the ONLY scrollable
+ *    area; the floating "Peta" button returns to mid.
+ *
+ * Heights are measured from the stage at runtime, so the same numbers work on
+ * every supported height; nothing is a fixed viewport assumption.
+ */
+type SheetPosition = "small" | "mid" | "full";
+const SHEET_HEADER_PX = 64;
+const SHEET_MID_VISIBLE_RATIO = 0.42;
+const SHEET_FLICK_VELOCITY = 0.45; // px/ms — a quick swipe advances one snap
+
 function toCameraCandidate(place: Place): {
   id: string;
   name: string;
@@ -322,6 +340,180 @@ export default function HomeDiscovery({
   }, []);
 
   const router = useRouter();
+
+  // BOTTOM SHEET STATE (2026-10-18). `scope` is the settled snap position;
+  // `dragOffset` is the live translate while a pointer drags the header (null
+  // when settled). The list scrolls ONLY in `full`; in mid/small the sheet
+  // shows its header and the first cards and nothing inside it scrolls.
+  const stageRef = useRef<HTMLElement | null>(null);
+  const sheetListRef = useRef<HTMLDivElement | null>(null);
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
+  const dragRef = useRef<{
+    startY: number;
+    startOffset: number;
+    lastY: number;
+    lastT: number;
+    velocity: number;
+  } | null>(null);
+  const [stageHeight, setStageHeight] = useState(640);
+  const [sheetPosition, setSheetPosition] = useState<SheetPosition>("mid");
+  const [dragOffset, setDragOffset] = useState<number | null>(null);
+  // Which card's marker is currently highlighted. `pressedPlaceId` is the
+  // transient press feedback from a card; `selectedPlaceId` persists after a
+  // marker tap so the chosen pin and its card stay visibly linked.
+  const [pressedPlaceId, setPressedPlaceId] = useState<string | null>(null);
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [pendingScrollPlaceId, setPendingScrollPlaceId] = useState<string | null>(null);
+
+  // Measure the stage so the three snap offsets are real pixels. A
+  // ResizeObserver covers mobile browser chrome, rotation, and the desktop
+  // window; the initial 640 is a paint-safe fallback that the first effect
+  // run replaces before the user can interact.
+  useEffect(() => {
+    const node = stageRef.current;
+    if (!node) return;
+    const measure = () => setStageHeight(Math.max(320, node.clientHeight));
+    measure();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    observer?.observe(node);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  const sheetOffsets = useMemo(() => {
+    const small = Math.max(0, stageHeight - SHEET_HEADER_PX);
+    const mid = Math.min(small, Math.round(stageHeight * (1 - SHEET_MID_VISIBLE_RATIO)));
+    return { full: 0, mid, small };
+  }, [stageHeight]);
+  const settledOffset = sheetOffsets[sheetPosition];
+  const sheetOffset = dragOffset ?? settledOffset;
+  const sheetVisiblePx = Math.max(0, stageHeight - sheetOffset);
+
+  const setSheetSnap = useCallback((next: SheetPosition) => {
+    dragRef.current = null;
+    setDragOffset(null);
+    setSheetPosition(next);
+  }, []);
+
+  const beginSheetDrag = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      dragRef.current = {
+        startY: event.clientY,
+        startOffset: settledOffset,
+        lastY: event.clientY,
+        lastT: performance.now(),
+        velocity: 0,
+      };
+      setDragOffset(settledOffset);
+    },
+    [settledOffset],
+  );
+
+  const moveSheetDrag = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const now = performance.now();
+      const delta = event.clientY - drag.startY;
+      const next = Math.min(Math.max(drag.startOffset + delta, sheetOffsets.full), sheetOffsets.small);
+      const elapsed = now - drag.lastT;
+      if (elapsed > 0) drag.velocity = (event.clientY - drag.lastY) / elapsed;
+      drag.lastY = event.clientY;
+      drag.lastT = now;
+      setDragOffset(next);
+    },
+    [sheetOffsets.full, sheetOffsets.small],
+  );
+
+  const endSheetDrag = useCallback(() => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    dragRef.current = null;
+    const current = Math.min(
+      Math.max(drag.startOffset + (drag.lastY - drag.startY), sheetOffsets.full),
+      sheetOffsets.small,
+    );
+    // FAST GESTURE: a flick moves exactly one snap in its direction; a slower
+    // drag settles on the nearest snap. Both paths end on a real position.
+    const order: SheetPosition[] = ["full", "mid", "small"];
+    let next: SheetPosition;
+    if (Math.abs(drag.velocity) >= SHEET_FLICK_VELOCITY) {
+      const index = order.indexOf(sheetPosition);
+      const step = drag.velocity > 0 ? 1 : -1;
+      next = order[Math.min(order.length - 1, Math.max(0, index + step))];
+    } else {
+      next = order.reduce((best, candidate) =>
+        Math.abs(sheetOffsets[candidate] - current) < Math.abs(sheetOffsets[best] - current)
+          ? candidate
+          : best,
+      );
+    }
+    setDragOffset(null);
+    setSheetPosition(next);
+  }, [sheetOffsets, sheetPosition]);
+
+  const handleSheetKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      const order: SheetPosition[] = ["small", "mid", "full"];
+      const index = order.indexOf(sheetPosition);
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setSheetSnap(order[Math.min(order.length - 1, index + 1)]);
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setSheetSnap(order[Math.max(0, index - 1)]);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        setSheetSnap("full");
+      } else if (event.key === "End") {
+        event.preventDefault();
+        setSheetSnap("small");
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setSheetSnap(sheetPosition === "full" ? "mid" : "full");
+      }
+    },
+    [setSheetSnap, sheetPosition],
+  );
+
+  // MARKER → CARD (2026-10-18). A base-pin tap selects the Place: the marker
+  // is highlighted, the sheet opens to full so the list can actually scroll,
+  // and the matching card is scrolled into view only when it is not already
+  // visible. The card link remains the only navigation target.
+  const selectPlaceFromMap = useCallback((placeId: string) => {
+    setSelectedPlaceId(placeId);
+    setPressedPlaceId(null);
+    setPendingScrollPlaceId(placeId);
+    setSheetPosition("full");
+  }, []);
+
+  useEffect(() => {
+    if (!pendingScrollPlaceId || sheetPosition !== "full") return;
+    const node = cardRefs.current.get(pendingScrollPlaceId);
+    const list = sheetListRef.current;
+    if (!node || !list) {
+      setPendingScrollPlaceId(null);
+      return;
+    }
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+    // Let the snap transition settle before measuring; reduced motion skips
+    // the wait and the smooth scroll together.
+    const timer = window.setTimeout(() => {
+      const listRect = list.getBoundingClientRect();
+      const cardRect = node.getBoundingClientRect();
+      const alreadyVisible = cardRect.top >= listRect.top && cardRect.bottom <= listRect.bottom;
+      if (!alreadyVisible) {
+        node.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+      }
+      setPendingScrollPlaceId(null);
+    }, reduced ? 0 : 320);
+    return () => window.clearTimeout(timer);
+  }, [pendingScrollPlaceId, sheetPosition]);
 
   // Stage 3: server-built Discovery view model (engine output) + the
   // Tempat Pilihan flag ids (migration 0035, read through the canonical
@@ -1126,6 +1318,10 @@ export default function HomeDiscovery({
         href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
         className="group flex h-full w-full flex-col overflow-hidden rounded-[22px] border border-black/5 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-200 hover:shadow-[0_8px_20px_rgb(0_0_0/0.08)] motion-safe:active:scale-[0.99]"
         visitedClassName={live ? "border-live/50 bg-[#fdf6f2]" : "border-brand-accent/30 bg-[#faf6ee]"}
+        onPointerDown={() => setPressedPlaceId(place.id)}
+        onPointerUp={() => setPressedPlaceId(null)}
+        onPointerCancel={() => setPressedPlaceId(null)}
+        onPointerLeave={() => setPressedPlaceId(null)}
       >
         {/* CARD COVER — 4:5 full-bleed (2026-10-18). The canonical cover wins;
             a missing or failed image falls back to the neutral local
@@ -1276,7 +1472,10 @@ export default function HomeDiscovery({
   };
 
   return (
-    <main className="relative min-h-screen bg-brand-cream text-brand-ink">
+    <main
+      ref={stageRef}
+      className="relative h-[100svh] min-h-[560px] overflow-hidden bg-brand-cream text-brand-ink"
+    >
       {/* MAP-FIRST STAGE (MOCKUP §4/§5/§7, 2026-10-01) — the map is now ONE
           continuous visual field: it starts at the very top of the app and
           runs down to the edge of the Result panel, and the Header, Search
@@ -1291,7 +1490,7 @@ export default function HomeDiscovery({
           paint over the chrome, and the chrome never intercepts the map
           surface itself. Presentation only — camera, markers, filters,
           search, and handlers are untouched. */}
-      <section className="relative isolate overflow-hidden bg-[#d9dfd2]">
+      <section className="absolute inset-0 isolate overflow-hidden bg-[#d9dfd2]">
         {/* Map base layer — full-bleed behind ALL floating chrome. */}
         <div className="absolute inset-0 z-0">
           <HomeMap
@@ -1363,6 +1562,14 @@ export default function HomeDiscovery({
             pulsePinOnPresetChange={curatedOnly}
             onViewportHasPlaces={handleViewportHasPlaces}
             onViewportChange={handleViewportChange}
+            /* MARKER ↔ CARD (2026-10-18): a base pin tap selects its Place —
+               the pin is highlighted and the matching card is scrolled into
+               view. A transient press on a card highlights the same pin. */
+            highlightedPlaceId={pressedPlaceId ?? selectedPlaceId}
+            onSelectPlace={selectPlaceFromMap}
+            /* The OSM attribution is lifted above the visible sheet edge, so
+               the credit is never covered at any snap position. */
+            bottomInset={sheetVisiblePx}
             /* EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): the three
                hand-driven camera actions bump this nonce, which releases the
                map's interaction latch so the frame THEY produce stays. Nothing
@@ -1599,45 +1806,12 @@ export default function HomeDiscovery({
             ))}
           </div>
 
-          {/* MAP AREA (MOCKUP §4/§8) — the visible map window under the floating
-              chrome. The stage height is chrome + this area, so the Result
-              panel always starts inside the initial viewport at every
-              supported size (360 / 390 / 430 / 1280) while the map stays the
-              dominant field. Sized in vh + clamp: never the old flat 64vh,
-              and never so tall that Result is pushed out of sight. The
-              container keeps a valid, non-degenerate Leaflet size.
-              MOBILE MAP BUDGET (fix, 2026-10-03): the band is
-              now sized from the floating control ladder, which is a FIXED
-              amount of the stage's height and was simply being clipped:
-                · compass                top 190px → ends 234px
-                · "Lokasi Saya" control  top 240px → ends ~281px
-                · Leaflet +/- stack      top 290px → ends ~354px
-              At the previous min-height of 240px the section ended ABOVE the
-              bottom of the zoom control, so on an ordinary phone the +/- stack
-              was cut off by the section's own `overflow-hidden` — essential map
-              context removed by the layout itself, and the map/results
-              relationship made unclear. The floor was raised to 440px, which
-              fits the entire ladder at every supported height (360 / 390 /
-              430 / 1280), and 42vh / 46vh kept the map the dominant field on
-              taller screens. (The bottom-right scale chip left this ladder
-              with the indicator on 2026-10-04; no offset here changed.)
-
-              MAP WINDOW RE-SIZED (product decision, 2026-10-04): the band is
-              now `60vh` (`66vh` from `sm:`), floor 470px, ceiling 700px — up
-              from 42vh/46vh, 440px, 560px. The reclaimed height comes from the
-              two layout changes around it, NOT from the camera:
-                · the coordinate strip no longer reserves a row, and
-                · the results info block floats ON the map instead of sitting
-                  under it in the flow.
-              This is CANVAS ONLY. The geographic rules are untouched —
-              the distance-tab presets, the local-area resolver, the
-              documented ±0.05° fallback search box, and every
-              fit-padding and zoom constant are exactly as before, so nothing is
-              zoomed out or widened to make the map look bigger; the same frame
-              simply has more pixels to live in. The 470px floor still clears
-              the whole floating control ladder (190 / 240 / 290 + 64px) and now
-              also carries the floating results card at every supported size. */}
-          <div aria-hidden className="h-[60vh] min-h-[470px] max-h-[700px] sm:h-[66vh]" />
+          {/* MAP SURFACE (2026-10-18): the map now fills the whole stage, and
+              the bottom sheet floats over its lower half. The old in-flow
+              `60vh` spacer is gone with the flow layout; the stage itself is
+              the Leaflet box, so it always has a valid, non-degenerate size.
+              The floating chrome still reserves its top band, and the sheet
+              reserves the bottom one — no camera rule changed. */}
         </div>
 
         {/* Viewport-aware map empty state (PO, 2026-09-30): shown when the
@@ -1668,7 +1842,10 @@ export default function HomeDiscovery({
              floating results card down, both centered and overlapping
              horizontally). `bottom-32` clears a two-line title with room to
              spare, and the 470px map floor leaves ample space above it. */
-          <div className="pointer-events-none absolute inset-x-0 bottom-32 z-[1100] flex justify-center px-4">
+          <div
+            className="pointer-events-none absolute inset-x-0 z-[1100] flex justify-center px-4 transition-[bottom] duration-300 motion-reduce:transition-none"
+            style={{ bottom: sheetVisiblePx + 128 }}
+          >
             <div className="w-fit max-w-[min(20rem,100%)] rounded-[14px] bg-white/95 px-3 py-1.5 text-center shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5">
               <p className="text-[11px] font-semibold leading-4 text-brand-ink/85">
                 {curatedOnly
@@ -1706,13 +1883,96 @@ export default function HomeDiscovery({
             click-through pill: it cannot eat the gesture it describes, it sits
             above the attribution band (bottom-12 > the 22px credit offset),
             and it stays clear of the empty-state card at bottom-32. */}
-        <div className="pointer-events-none absolute bottom-12 left-3 z-[1100] rounded-full bg-white/85 px-2.5 py-1 text-[10px] font-semibold leading-4 text-brand-ink/55 shadow-[0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 backdrop-blur-sm">
+        <div
+          className="pointer-events-none absolute left-3 z-[1100] rounded-full bg-white/85 px-2.5 py-1 text-[10px] font-semibold leading-4 text-brand-ink/55 shadow-[0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 backdrop-blur-sm transition-[bottom] duration-300 motion-reduce:transition-none"
+          style={{ bottom: sheetVisiblePx + 56 }}
+        >
           Dua jari untuk geser · cubit untuk zoom
         </div>
 
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 pb-8">
+      {/* RESULTS BOTTOM SHEET (2026-10-18) — three positions, one surface.
+          `small`, `mid`, and `full` are measured snap offsets (see
+          sheetOffsets); the sheet is always full-height and translated down,
+          so its header stays at the visible top edge in every position. The
+          floating "Peta" button is the only exit from `full`. The tab and
+          the handle live in the header and therefore travel with the sheet. */}
+      <section
+        className={`singgah-sheet absolute inset-x-0 bottom-0 z-20 flex h-full flex-col rounded-t-[24px] bg-brand-cream shadow-[0_-8px_24px_rgb(0_0_0/0.08)] ${
+          dragOffset !== null ? "singgah-sheet-dragging" : ""
+        }`}
+        style={{ transform: `translateY(${sheetOffset}px)` }}
+        aria-labelledby="place-results-heading"
+      >
+        <div className="relative flex h-16 shrink-0 items-center justify-center">
+          {/* The sheet's accessible name. It stays in the DOM so
+              `aria-labelledby` always resolves, but it is not a visible
+              title. */}
+          <h2 id="place-results-heading" className="sr-only">
+            Hasil Tempat
+          </h2>
+
+          {/* HANDLE (2026-10-18): the one drag target. It is a real button —
+              focusable, keyboard-operable (ArrowUp/ArrowDown/Home/End,
+              Enter/Space), named for assistive technology, and at least 44px
+              in both axes. Pointer capture keeps the drag on the handle even
+              when the finger leaves it. */}
+          <button
+            type="button"
+            aria-label="Atur tinggi panel hasil"
+            title="Geser untuk mengubah tinggi panel hasil"
+            aria-expanded={sheetPosition === "full"}
+            onPointerDown={beginSheetDrag}
+            onPointerMove={moveSheetDrag}
+            onPointerUp={endSheetDrag}
+            onPointerCancel={endSheetDrag}
+            onKeyDown={handleSheetKeyDown}
+            className="inline-flex h-11 w-16 touch-none cursor-grab items-center justify-center rounded-full text-brand-ink/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/50 active:cursor-grabbing"
+          >
+            <span aria-hidden className="block h-1.5 w-10 rounded-full bg-black/15" />
+            <span className="sr-only">Tarik atau gunakan tombol panah untuk mengubah tinggi panel</span>
+          </button>
+
+          {/* HANGING LAYER TAB (2026-10-18): ONE instance, attached to the
+              sheet's top edge and left-aligned. In small/mid it protrudes
+              above the seam; in full, where there is no map above it, it sits
+              inside the header. The handler, `aria-pressed`, and the LIVE
+              exclusivity rule are unchanged. */}
+          <button
+            type="button"
+            onClick={() => {
+              // Same exclusivity rule from the curated side: LIVE off.
+              const next = activateCuratedFilter();
+              setCuratedOnly(next.curatedOnly);
+              setLiveOnly(next.liveOnly);
+            }}
+            aria-pressed={curatedOnly}
+            title="Tempat Pilihan"
+            className={`absolute z-30 inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] border px-3.5 text-xs font-bold shadow-[0_-2px_10px_rgb(0_0_0/0.10)] transition active:scale-[0.98] ${
+              sheetPosition === "full" ? "left-4 top-1/2 -translate-y-1/2" : "-top-11 left-4"
+            } ${
+              curatedOnly
+                ? "border-brand-primary bg-brand-primary text-white shadow-[0_-2px_10px_rgb(14_107_79/0.28)]"
+                : "border-black/10 bg-white text-brand-ink/70 hover:bg-brand-cream"
+            }`}
+          >
+            <span aria-hidden>✦</span>
+            Tempat Pilihan
+          </button>
+        </div>
+
+        {/* Only the LIST scrolls, and only in `full`; in small/mid the same
+            content is clipped by the sheet so a swipe can never fight the
+            sheet drag or the map. */}
+        <div
+          ref={sheetListRef}
+          className={`mx-auto flex w-full max-w-2xl min-h-0 flex-1 flex-col px-4 ${
+            sheetPosition === "full"
+              ? "overflow-y-auto overscroll-contain pb-24"
+              : "overflow-hidden pb-8"
+          }`}
+        >
         {/* "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
             no category chips and no secondary category row — Place
             categories stay internal data, never a Home filter UI. */}
@@ -1804,78 +2064,12 @@ export default function HomeDiscovery({
 
         {/* Place results — the DISCOVERY PLACE row is always built from the
             canonical `discovery.discovery` result (eligible Places only, in
-            engine order), narrowed by search and the list radius. Inside the
+            engine order), narrowed by search and the visible area. Inside the
             Tempat Pilihan layer the results render as TWO ordered rows —
             Baris 1: Tempat Pilihan, Baris 2: Discovery Place — while every
             other mode renders that single canonical row. No layer ever
             deduplicates the other: a Place in both layers appears in both
-            rows (OVERLAP rule).
-
-            MOCKUP §10/§11 (2026-10-01): the results are a CREAM SHEET with
-            rounded top corners that VISUALLY MERGES with the map above it.
-            It is still a normal section in the page flow — the map keeps its
-            full height and clipping boundary, and nothing ever covers the map
-            surface (locked by tests/map-stacking.test.ts).
-
-            REVISED (2026-10-18): the floating information board was removed,
-            so this sheet owns the map → results seam again. It carries this
-            section's screen-reader heading and ONE hanging "Tempat Pilihan"
-            tab; the retired handle band was removed with no space left behind.
-            The board's title, count, radius wording, and "Ke hasil" action did
-            not move here — they were removed with it. */}
-        <section
-          className="relative z-10 rounded-t-[24px] bg-brand-cream pb-1 pt-4 shadow-[0_-8px_24px_rgb(0_0_0/0.05)]"
-          aria-labelledby="place-results-heading"
-        >
-          {/* The section's accessible name. It stays in the DOM so
-              `aria-labelledby` always resolves, but it is NOT a visible title:
-              the visible surface no longer repeats a "Tempat Pilihan"
-              heading/count block. */}
-          <h2 id="place-results-heading" className="sr-only">
-            Hasil Tempat
-          </h2>
-
-          {/* HANGING LAYER TAB (2026-10-18). The old transition band (a
-              centered handle over a full-width row) was removed outright, so
-              no reserved band or leftover gap remains above the results. The
-              "Tempat Pilihan" tab is now a single tab attached to the sheet's
-              top edge, left-aligned and protruding upward over the seam — the
-              same surface language as the radius chips (white + border when
-              inactive, deep brand green + white text when active). It is ONE
-              instance (no duplicate in the top filter row), it keeps the
-              `aria-pressed` binding and the LIVE exclusivity handler, and its
-              44px minimum height keeps the touch target comfortable. */}
-              <button
-                type="button"
-                onClick={() => {
-                  // Same exclusivity rule from the curated side: LIVE off,
-                  // whatever was active before.
-                  const next = activateCuratedFilter();
-                  setCuratedOnly(next.curatedOnly);
-                  setLiveOnly(next.liveOnly);
-                  // NOTHING ELSE HAPPENS HERE (2026-10-05). This press used to
-                  // bump `fitNonce` (a `fitBounds` over the curated Places),
-                  // bump `cameraRequestNonce` (releasing the manual-interaction
-                  // latch), and switch the camera to `CURATED_CAMERA_RADIUS_M`.
-                  // All three are gone: a curated tab is a PRESENTATION choice,
-                  // so it must not move, re-frame, or re-centre the camera and
-                  // must not discard a frame the user set by hand. The explored
-                  // area, the camera centre, and the zoom are all preserved
-                  // exactly as they were — a Riyadh search keeps its searched
-                  // area, and "Lokasi Saya" keeps the frame it established.
-                }}
-                aria-pressed={curatedOnly}
-                title="Tempat Pilihan"
-                className={`absolute -top-11 left-4 z-20 inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] border px-3.5 text-xs font-bold shadow-[0_-2px_10px_rgb(0_0_0/0.10)] transition active:scale-[0.98] ${
-                  curatedOnly
-                    ? "border-brand-primary bg-brand-primary text-white shadow-[0_-2px_10px_rgb(14_107_79/0.28)]"
-                    : "border-black/10 bg-white text-brand-ink/70 hover:bg-brand-cream"
-                }`}
-              >
-                <span aria-hidden>✦</span>
-                Tempat Pilihan
-              </button>
-
+            rows (OVERLAP rule). */}
           {/* Baris 1 (curated layer only): the Admin-promoted selection.
               Renders nothing when no Place is curated — the curated layer
               never substitutes the full published set.
@@ -1892,7 +2086,20 @@ export default function HomeDiscovery({
                 className="-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"
               >
                 {curatedListed.map((place) => (
-                  <div key={place.id} className="h-full w-full">
+                  <div
+                    key={place.id}
+                    id={`place-card-${place.id}`}
+                    data-place-card-id={place.id}
+                    ref={(node) => {
+                      if (node) cardRefs.current.set(place.id, node);
+                      else cardRefs.current.delete(place.id);
+                    }}
+                    className={`h-full w-full rounded-[24px] ${
+                      selectedPlaceId === place.id
+                        ? "ring-2 ring-brand-primary ring-offset-2 ring-offset-brand-cream"
+                        : ""
+                    }`}
+                  >
                     {renderPlaceCard(place, place.isCurated)}
                   </div>
                 ))}
@@ -1919,7 +2126,20 @@ export default function HomeDiscovery({
                 className="-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"
               >
                 {discoveryRowPlaces.map((place) => (
-                  <div key={place.id} className="h-full w-full">
+                  <div
+                    key={place.id}
+                    id={`place-card-${place.id}`}
+                    data-place-card-id={place.id}
+                    ref={(node) => {
+                      if (node) cardRefs.current.set(place.id, node);
+                      else cardRefs.current.delete(place.id);
+                    }}
+                    className={`h-full w-full rounded-[24px] ${
+                      selectedPlaceId === place.id
+                        ? "ring-2 ring-brand-primary ring-offset-2 ring-offset-brand-cream"
+                        : ""
+                    }`}
+                  >
                     {renderPlaceCard(place, curatedIdSet.has(place.id))}
                   </div>
                 ))}
@@ -1944,20 +2164,38 @@ export default function HomeDiscovery({
               )}
             </div>
           )}
-        </section>
 
-        {/* Intro */}
-        <section className="px-1 pb-4 pt-7">
-          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent/90">
-            SINGGAH LOKAL
-          </p>
-          <h1 className="mt-2 max-w-xl text-[28px] font-semibold leading-tight tracking-tight text-brand-ink sm:text-[34px]">
-            Jangan hanya datang.
-            <br />
-            Kenali ceritanya.
-          </h1>
-        </section>
+          {/* Intro — kept at the end of the scrollable list, so the full
+              position really fills the screen with content. */}
+          <section className="mt-6 px-1 pb-4 pt-2">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-accent/90">
+              SINGGAH LOKAL
+            </p>
+            <h1 className="mt-2 max-w-xl text-[28px] font-semibold leading-tight tracking-tight text-brand-ink sm:text-[34px]">
+              Jangan hanya datang.
+              <br />
+              Kenali ceritanya.
+            </h1>
+          </section>
+        </div>
       </section>
+
+      {/* FLOATING "PETA" (2026-10-18): only in the full position, where the
+          map is covered and the only way back is this one explicit control. */}
+      {sheetPosition === "full" && (
+        <button
+          type="button"
+          onClick={() => setSheetSnap("mid")}
+          aria-label="Kembali ke peta"
+          className="absolute bottom-6 right-4 z-30 inline-flex min-h-11 items-center gap-1.5 rounded-full bg-brand-primary px-4 text-xs font-bold text-white shadow-[0_8px_20px_rgb(0_0_0/0.22)] transition hover:bg-brand-primary-deep active:scale-[0.98]"
+        >
+          <svg aria-hidden viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M9 4.5 3.5 6.8v12.2L9 16.7l6 2.3 5.5-2.3V4.5L15 6.8 9 4.5Z" strokeLinejoin="round" />
+            <path d="M9 4.5v12.2M15 6.8v12.2" />
+          </svg>
+          Peta
+        </button>
+      )}
     </main>
   );
 }

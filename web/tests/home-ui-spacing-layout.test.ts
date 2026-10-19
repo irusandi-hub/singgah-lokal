@@ -41,8 +41,8 @@ const code = stripComments(pageCode);
 
 // The map stage and the results section, located by their real anchors so the
 // DOM-order assertions cannot drift with unrelated edits.
-const stageStart = code.indexOf('<section className="relative isolate overflow-hidden bg-[#d9dfd2]">');
-const stageEnd = code.indexOf("\n      </section>", stageStart);
+const stageStart = code.indexOf('<section className="absolute inset-0 isolate overflow-hidden bg-[#d9dfd2]">');
+const stageEnd = code.indexOf("\n\n      {/* RESULTS BOTTOM SHEET", stageStart);
 const mapStage = code.slice(stageStart, stageEnd);
 const resultsStart = code.indexOf('aria-labelledby="place-results-heading"');
 const resultsSectionStart = code.lastIndexOf("<section", resultsStart);
@@ -174,7 +174,8 @@ test("T2.4 the map surface stays fully interactive with no floating card", () =>
   assert.equal(mapCode.includes("dragging: false"), false);
   // The gesture hint is click-through, so it cannot swallow the gesture it
   // describes either.
-  assert.match(code, /pointer-events-none absolute bottom-12 left-3 z-\[1100\]/);
+  assert.match(code, /pointer-events-none absolute left-3 z-\[1100\]/);
+  assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}/);
 });
 
 test("T2.5 the moved curated tab lives in the results sheet, on no overlay tier", () => {
@@ -190,17 +191,25 @@ test("T2.5 the moved curated tab lives in the results sheet, on no overlay tier"
   assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
 });
 
-test("T2.6 the cleared map bottom edge: empty state, hint, and attribution cannot collide", () => {
-  // Vertical stack from the bottom of the map: attribution (22px offset), the
-  // click-through gesture hint at bottom-12 (48px), the empty-state card at
-  // bottom-32 (128px). Each band is clear of the next.
-  const ATTRIBUTION_OFFSET = 22;
-  const HINT_BOTTOM_OFFSET = 48; // bottom-12
-  const EMPTY_STATE_BOTTOM_OFFSET = 128; // bottom-32
-  assert.ok(ATTRIBUTION_OFFSET < HINT_BOTTOM_OFFSET, "the hint clears the credit");
-  assert.ok(HINT_BOTTOM_OFFSET < EMPTY_STATE_BOTTOM_OFFSET, "the hint clears the empty state");
-  assert.match(code, /absolute bottom-12 left-3 z-\[1100\]/);
-  assert.match(code, /absolute inset-x-0 bottom-32 z-\[1100\] flex justify-center px-4/);
+test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () => {
+  // 2026-10-18: all three bottom overlays now ride the VISIBLE sheet edge.
+  //  · attribution: the sheet inset + its 22px base margin
+  //  · gesture hint: the inset + 56px (above the hanging tab)
+  //  · empty state:  the inset + 128px
+  // so no snap position can cover a control at the map's bottom edge.
+  const ATTRIBUTION_BASE = 22;
+  const HINT_LIFT = 56;
+  const EMPTY_LIFT = 128;
+  assert.ok(ATTRIBUTION_BASE < HINT_LIFT, "the hint clears the credit");
+  assert.ok(HINT_LIFT < EMPTY_LIFT, "the hint clears the empty state");
+  assert.match(
+    globalsCss,
+    /\.singgah-home-map \.leaflet-bottom \{\s*bottom: var\(--singgah-sheet-inset, 0px\);/,
+  );
+  assert.match(mapCode, /bottomInset = 0/);
+  assert.match(mapCode, /--singgah-sheet-inset/);
+  assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}/);
+  assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
   // No bottom-anchored panel remains, and the scale bar stays gone.
   assert.doesNotMatch(mapStage, /absolute bottom-9 right-4 z-\[1100\]/);
   assert.doesNotMatch(code, /mapScale/);
@@ -226,7 +235,7 @@ test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
   const tab = code.slice(tabStart - 900, tabStart + 600);
   assert.match(tab, /whitespace-nowrap/);
   assert.match(tab, /min-h-11/);
-  assert.match(tab, /absolute -top-11 left-4/);
+  assert.match(tab, /-top-11 left-4/);
   assert.match(tab, /text-xs font-bold/);
   assert.equal((tab.match(/<button/g) ?? []).length, 1, "one control on the seam");
 });
@@ -253,16 +262,16 @@ test("T2.7 there is exactly ONE results heading and ONE curated control", () => 
 // TASK 3 — the map canvas is bigger, and the camera was NOT changed.
 // ---------------------------------------------------------------------------
 
-test("T3.1 the map window is larger than it was, on mobile and on desktop", () => {
-  // VISUAL REFINEMENT (2026-10-05): the visible map window keeps growing —
-  // 60vh (66vh from `sm:`), floor 470px, ceiling 700px — because "map
-  // maximum visual presence within the existing layout" is the approved
-  // direction. The height still comes ONLY from the reclaimed bands: the
-  // floating panel got more compact in the same pass.
-  assert.match(code, /<div aria-hidden className="h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]" \/>/);
-  // The previous band is gone entirely.
+test("T3.1 the map now fills the full stage behind the sheet", () => {
+  // 2026-10-18: the sheet floats over a full-height map instead of sitting in
+  // the page flow. The map is the whole stage; no separate map band remains.
+  assert.match(code, /h-\[100svh\] min-h-\[560px\] overflow-hidden/);
+  assert.match(code, /<section className="absolute inset-0 isolate overflow-hidden bg-\[#d9dfd2\]">/);
+  assert.doesNotMatch(code, /aria-hidden className="h-\[60vh\]/);
   assert.doesNotMatch(code, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
   assert.doesNotMatch(code, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
+  // The default mid snap leaves ~58% of the stage to the map.
+  assert.match(code, /SHEET_MID_VISIBLE_RATIO = 0\.42/);
 });
 
 test("T3.2 the larger floor clears the remaining control column", () => {
@@ -272,8 +281,8 @@ test("T3.2 the larger floor clears the remaining control column", () => {
   const COMPASS_TOP = 190;
   const LOCATE_TOP = COMPASS_TOP + 40 + 8;
   const COLUMN_BOTTOM = LOCATE_TOP + 40;
-  const FLOOR = 470;
-  assert.ok(FLOOR > 460, "the floor keeps its size");
+  const FLOOR = 560;
+  assert.ok(FLOOR > 470, "the stage keeps a real floor");
   assert.ok(FLOOR > COLUMN_BOTTOM, "the control column is never clipped");
 });
 
@@ -300,14 +309,13 @@ test("T3.3 the camera and geographic rules are untouched", () => {
   assert.doesNotMatch(code, /min-h-\[240px\]|sm:h-\[38vh\]|h-\[64vh\]|max-h-\[760px\]|h-\[56vh\]/);
 });
 
-test("T3.4 the spacer stays a presentational, non-degenerate Leaflet box", () => {
-  const spacer = code.match(/<div aria-hidden className="(h-\[60vh\][^"]*)" \/>/);
-  assert.ok(spacer, "the map spacer is present and marked aria-hidden");
-  // vh-driven with a real floor and ceiling, so the Leaflet container is never
-  // zero-height at any supported viewport.
-  assert.match(spacer![1], /min-h-\[470px\]/);
-  assert.match(spacer![1], /max-h-\[700px\]/);
-  assert.match(spacer![1], /sm:h-\[66vh\]/);
+test("T3.4 the stage remains a non-degenerate Leaflet box", () => {
+  // The old in-flow spacer was retired with the bottom-sheet layout. The map
+  // is the stage itself: an absolute full-size layer with a real min height,
+  // so Leaflet is never measured at zero.
+  assert.doesNotMatch(code, /aria-hidden className="h-\[60vh\]/);
+  assert.match(code, /h-\[100svh\] min-h-\[560px\] overflow-hidden/);
+  assert.match(code, /<div className="absolute inset-0 z-0">/);
 });
 
 // ---------------------------------------------------------------------------
@@ -319,7 +327,10 @@ test("T4.1 search, filters, and the marker ladder are unchanged", () => {
   assert.match(code, /pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
   assert.match(code, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
   assert.match(code, /setDistanceFilter\(filter\)/);
-  assert.match(mapCode, /zIndexOffset: isCurated \? 900 : live \? 0 : 500/);
+  assert.match(
+    mapCode,
+    /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500/,
+  );
   assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
 });
 
@@ -342,21 +353,25 @@ test("T4.2 the grid bands and cards are the 2-column layout", () => {
     "no horizontal carousel tracks remain",
   );
   assert.equal(
-    (code.match(/className="h-full w-full"/g) ?? []).length,
+    (code.match(/className=\{\`h-full w-full rounded-\[24px\]/g) ?? []).length,
     2,
     "card wrappers are equal-height grid items",
   );
 });
 
 test("T4.3 the map stage remains the single clipping boundary", () => {
-  assert.match(code, /<section className="relative isolate overflow-hidden bg-\[#d9dfd2\]">/);
+  assert.match(code, /<section className="absolute inset-0 isolate overflow-hidden bg-\[#d9dfd2\]">/);
   assert.equal(mapCode.includes("clip-path"), false);
   assert.equal(mapCode.includes("pointer-events-none"), false, "the map itself is never made click-through");
 });
 
-test("T4.4 the results section no longer overlaps the map", () => {
-  // The old `-mt-5` tuck pulled the panel up under the map frame; the floating
-  // card now owns that seam, so the two must not share it.
-  assert.doesNotMatch(code, /relative z-10 -mt-5 rounded-t-\[24px\]/);
-  assert.match(code, /relative z-10 rounded-t-\[24px\] bg-brand-cream/);
+test("T4.4 the results sheet is the floating surface, not an overlapping panel", () => {
+  // The old `-mt-5` tuck never returns. The sheet is an explicit overlay with
+  // its own snap transform; the map is never pulled under a static panel.
+  assert.doesNotMatch(code, /-mt-5 rounded-t-\[24px\]/);
+  assert.match(
+    code,
+    /singgah-sheet absolute inset-x-0 bottom-0 z-20 flex h-full flex-col rounded-t-\[24px\] bg-brand-cream/,
+  );
+  assert.match(code, /style=\{\{ transform: `translateY\(\$\{sheetOffset\}px\)` \}\}/);
 });

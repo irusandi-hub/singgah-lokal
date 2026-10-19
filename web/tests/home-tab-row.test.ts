@@ -151,9 +151,13 @@ test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
 test("the curated tab hangs on the sheet's top edge with a 44px touch target", () => {
   const tabStart = discoveryCode.indexOf("aria-pressed={curatedOnly}");
   const tab = discoveryCode.slice(tabStart - 900, tabStart + 700);
-  // Attached to the sheet's top edge, left-aligned, protruding upward.
-  assert.match(tab, /absolute -top-11 left-4 z-20/);
-  assert.match(tab, /inline-flex min-h-11 items-center justify-center/);
+  // Attached to the sheet's top edge, left-aligned, protruding upward in
+  // small/mid and sitting inside the header in full.
+  assert.match(tab, /absolute z-30 inline-flex min-h-11 items-center justify-center/);
+  assert.match(
+    tab,
+    /sheetPosition === "full" \? "left-4 top-1\/2 -translate-y-1\/2" : "-top-11 left-4"/,
+  );
   assert.match(tab, /rounded-\[14px\] border/);
   // Inactive: white + border + ✦ + shadow. Active: deep brand green + white.
   assert.match(tab, /border-black\/10 bg-white text-brand-ink\/70 hover:bg-brand-cream/);
@@ -257,7 +261,13 @@ test("the pin-label density budget is still the only label rule", () => {
 });
 
 test("Place selection, navigation, and the canonical data source are untouched", () => {
-  assert.match(mapCode, /\.on\("click", \(\) => router\.push\(`\/places\/\$\{place\.id\}`\)\);/);
+  // A base pin now SELECTS its card (2026-10-18); the card stays the only
+  // navigation target. Without a selector the legacy direct route remains.
+  assert.match(
+    mapCode,
+    /onSelectPlace\s*\?\s*onSelectPlace\(place\.id\)\s*:\s*router\.push\(`\/places\/\$\{place\.id\}`\)/,
+  );
+  assert.match(mapCode, /onSelectPlace\?: \(placeId: string\) => void;/);
   assert.match(discoveryCode, /<VisitedLink/);
   assert.equal(discoveryCode.includes('href={`/places/${'), false, "no new Place route");
   assert.match(discoveryCode, /const \[places\] = useState<Place\[\]>\(initialPlaces\);/);

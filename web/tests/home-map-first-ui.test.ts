@@ -76,7 +76,7 @@ test("MOCKUP §4: the map is a full-bleed background field, not a standalone box
   // BOTTOM of the stacking order (z-0).
   assert.match(
     code,
-    /<section className="relative isolate overflow-hidden bg-\[#d9dfd2\]">/,
+    /<section className="absolute inset-0 isolate overflow-hidden bg-\[#d9dfd2\]">/,
   );
   assert.match(code, /<div className="absolute inset-0 z-0">/);
   // The map mount is the FIRST child of that base layer.
@@ -105,25 +105,16 @@ test("the retired standalone map-frame geometry is gone", () => {
 });
 
 test("MOCKUP §8: map height is responsive and always leaves the Result panel in view", () => {
-  // The visible map window sits UNDER the floating chrome inside the stage,
-  // sized in vh and clamped on both ends. The old flat 64vh is not used.
-  //
-  // MOBILE MAP BUDGET (fix, 2026-10-03): the FLOOR is now sized from the
-  // floating control ladder instead of the panel. At the previous 240px
-  // minimum the section ended ABOVE the bottom of the zoom control, so the
-  // "+/-" stack was clipped by the section's own overflow-hidden on an
-  // ordinary phone. Still responsive, still clamped, still a valid
-  // non-degenerate Leaflet box.
-  assert.match(code, /h-\[60vh\] min-h-\[470px\] max-h-\[700px\] sm:h-\[66vh\]/);
-  // The spacer is purely presentational — it reserves the visible map window
-  // and carries no data or behaviour.
-  assert.match(code, /<div aria-hidden className="h-\[60vh\]/);
-  // The floating control ladder (compass 190px / "Lokasi Saya" 240px /
-  // +/- 290px) MUST fit inside the shortest supported map — this is the
-  // arithmetic the old 240px floor violated. The bottom-right scale chip left
-  // the ladder with the indicator on 2026-10-04.
-  const ladderBottom = 290 + 64; // +/- stack offset + Leaflet's own control height
-  assert.ok(470 >= ladderBottom, "the control ladder fits the shortest map");
+  // 2026-10-18: the map is the full stage (100svh); the bottom sheet floats
+  // over its lower half. The old in-flow `60vh` spacer left with the flow
+  // layout, so the Leaflet box is now simply the measured stage.
+  assert.match(code, /h-\[100svh\] min-h-\[560px\] overflow-hidden/);
+  assert.doesNotMatch(code, /h-\[60vh\] min-h-\[470px\]/);
+  assert.match(code, /<section className="absolute inset-0 isolate overflow-hidden bg-\[#d9dfd2\]">/);
+  // The remaining control ladder (compass 190px → Lokasi Saya 238..278px)
+  // fits inside the shortest supported stage; the +/- stack is gone.
+  const ladderBottom = 238 + 40;
+  assert.ok(560 > ladderBottom, "the control ladder fits the shortest stage");
 });
 
 test("MOCKUP §2: search is a floating white bar with a real 'Cari' control", () => {
@@ -190,7 +181,10 @@ test("MOCKUP §3: filter stays a single row with LIVE and the ordered distance t
   const distanceIndex = code.indexOf("DISTANCE_FILTERS.map((filter) =>");
   assert.ok(liveIndex > -1, "LIVE control must exist");
   assert.ok(distanceIndex > liveIndex, "distance tabs must follow LIVE");
-  const row = code.slice(code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"), code.indexOf("{/* MAP AREA"));
+  const row = code.slice(
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
+    code.indexOf("{/* Viewport-aware map empty state"),
+  );
   assert.doesNotMatch(row, /activateCuratedFilter/, "the curated tab left this row");
 });
 
@@ -270,13 +264,14 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // results surface and still carries the accessible name; only the seam moved.
   assert.match(
     code,
-    /<section\n\s*className="relative z-10 rounded-t-\[24px\] bg-brand-cream pb-1 pt-4 shadow-\[0_-8px_24px_rgb\(0_0_0\/0\.05\)\]"\n\s*aria-labelledby="place-results-heading"\n\s*>/,
+    /className=\{\`singgah-sheet absolute inset-x-0 bottom-0 z-20 flex h-full flex-col rounded-t-\[24px\] bg-brand-cream/,
   );
   assert.doesNotMatch(code, /relative z-10 -mt-5 rounded-t-\[24px\]/);
   // The old handle band was REMOVED (2026-10-18) with no space left behind;
   // the one hanging control on the seam is the curated tab.
   assert.doesNotMatch(code, /block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(code, /absolute -top-11 left-4 z-20 inline-flex min-h-11/);
+  assert.match(code, /absolute z-30 inline-flex min-h-11/);
+  assert.match(code, /sheetPosition === "full" \? "left-4 top-1\/2 -translate-y-1\/2" : "-top-11 left-4"/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
@@ -509,19 +504,15 @@ test("MOCKUP §12/§19: every result row is a 2-column grid of equal-height card
   );
   // Every card in BOTH rows sits in an explicit sized item, never a direct
   // grid child (which is what collapsed cards before).
-  assert.match(code, /className="h-full w-full"/);
-  assert.match(
-    code,
-    /\{discoveryRowPlaces\.map\(\(place\) => \(\s*<div key=\{place\.id\} className="h-full w-full">\s*\{renderPlaceCard\(place, curatedIdSet\.has\(place\.id\)\)\}/,
-  );
+  assert.equal((code.match(/id=\{`place-card-\$\{place\.id\}`\}/g) ?? []).length, 2);
+  assert.equal((code.match(/\{renderPlaceCard\(/g) ?? []).length, 2);
+  assert.equal((code.match(/className=\{\`h-full w-full rounded-\[24px\]/g) ?? []).length, 2);
   // No card may ever be a direct grid child.
   assert.doesNotMatch(
     code,
     /\{discoveryRowPlaces\.map\(\(place\) =>\s*\n?\s*renderPlaceCard/,
     "Discovery cards must be wrapped in a sized item, never direct grid children",
   );
-  // Card wrapper keeps the equal-height item shape on the smallest viewport.
-  assert.equal((code.match(/className="h-full w-full"/g) ?? []).length, 2);
   // The card lists are vertical and the filter row keeps its
   // no-overflow guarantee.
   const filterRow = code.slice(
