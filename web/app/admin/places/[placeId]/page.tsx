@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AdminErrorState, AdminPageHeader, AdminStatusBadge, formatAdminTimestamp } from "@/components/admin/ui";
 import AdminPlaceEditor from "@/components/admin/place-editor";
+import AdminPlaceCoverEditor from "@/components/admin/place-cover-editor";
 import AdminPlaceModeration from "@/components/admin/place-moderation";
 import AdminPlaceCuration from "@/components/admin/place-curation";
 import AdminPlaceMembersPanel from "@/components/admin/place-members-panel";
@@ -20,8 +21,14 @@ export const dynamic = "force-dynamic";
  * ADMIN PLACE DETAIL — the operational workspace for one Place
  * (Authority Master §5).
  *
- * Six sections, one per operational need, and nothing beyond them:
+ * One section per operational need, and nothing beyond them:
  *   Informasi Tempat — edit the canonical Place data.
+ *   Foto Profil      — the Place's profile photo (the canonical cover_image_url),
+ *                      which the Admin can add or replace WITHOUT becoming its
+ *                      manager: the administrative path exists precisely for
+ *                      Places that still show a placeholder/fixture photo, have
+ *                      no active manager, or are archived. It changes no status
+ *                      and grants no management right.
  *   Publikasi        — the current status and whether it may be published.
  *   Pengelola        — the owner (if any) and the memberships on this Place.
  *   Klaim            — the claim history for THIS Place, read-only here:
@@ -101,6 +108,28 @@ export default async function AdminPlaceDetailPage({ params }: { params: Promise
           Data kanonik Tempat. Pengelola dan status publikasi tidak dapat diubah dari sini.
         </p>
         <AdminPlaceEditor place={place} />
+      </section>
+
+      {/* Foto Profil Tempat (Admin authority, 2026-10-19): the ONE place where
+          an Admin adds/replaces the canonical profile photo. Deliberately NOT
+          part of the Informasi form: that form edits Place data and would fail
+          the whole edit on an upload problem, while a photo change must be its
+          own attributable act with its own success/failure answer. The section
+          is available for every Place, manager or not. */}
+      <section aria-label="Foto Profil Tempat" className="rounded-2xl border border-black/10 bg-white p-5">
+        <h3 className="text-sm font-bold uppercase tracking-wide text-black/50">Foto Profil Tempat</h3>
+        <p className="mt-1 mb-4 text-xs text-black/55">
+          Tambah atau ganti foto profil Tempat. Foto ini yang dipakai Home dan halaman Tempat. Wajib untuk Tempat yang
+          masih memakai placeholder atau foto dummy, Tempat tanpa Pengelola, dan Tempat berstatus arsip. Tidak ada
+          Pengelola baru yang perlu ditunjuk untuk memperbarui foto.
+        </p>
+        <AdminPlaceCoverEditor
+          placeId={place.id}
+          placeName={place.name}
+          coverImageUrl={place.coverImageUrl}
+          publicationStatus={place.publicationStatus}
+          isDummy={place.isDummy}
+        />
       </section>
 
       <section aria-label="Publikasi" className="rounded-2xl border border-black/10 bg-white p-5">
