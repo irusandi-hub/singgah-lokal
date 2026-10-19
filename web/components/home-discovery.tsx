@@ -27,11 +27,15 @@ import {
   resolveActiveCenter,
   resolveExploreFitPlaces,
   resolveLocalAreaCoverage,
+  resolveSheetDrop,
+  resolveSheetOffsets,
+  SHEET_FLICK_VELOCITY,
   stopNestedCardAction,
   toggleLiveFilter,
   type DistanceFilter,
   type LiveDiscoveryItem,
   type MapViewport,
+  type SheetPosition,
 } from "@/lib/live/ui";
 
 /**
@@ -61,22 +65,22 @@ const LIVE_REQUEST_TIMEOUT_MS = 10_000;
 const GEOCODE_TIMEOUT_MS = 10_000;
 
 /**
- * BOTTOM SHEET (2026-10-18) — three snap positions for the results surface.
+ * BOTTOM SHEET (2026-10-18, short-viewport fix 2026-10-19) — three snap
+ * positions for the results surface.
  *
  *  · small: only the hanging tab + the 64px handle header — the map is the
  *    screen and the sheet is a grab bar.
  *  · mid: the default. The sheet covers 42% of the stage, leaving ~58% of the
- *    map visible (the requested 55–60% band).
+ *    map visible (the requested 55–60% band), capped on short stages so the
+ *    floating map controls stay uncovered.
  *  · full: the sheet fills the screen and the card list is the ONLY scrollable
  *    area; the floating "Peta" button returns to mid.
  *
- * Heights are measured from the stage at runtime, so the same numbers work on
- * every supported height; nothing is a fixed viewport assumption.
+ * Heights are measured from the stage at runtime (`resolveSheetOffsets`), so
+ * the same numbers work on every supported height; nothing is a fixed
+ * viewport assumption.
  */
-type SheetPosition = "small" | "mid" | "full";
-const SHEET_HEADER_PX = 64;
-const SHEET_MID_VISIBLE_RATIO = 0.42;
-const SHEET_FLICK_VELOCITY = 0.45; // px/ms — a quick swipe advances one snap
+
 
 function toCameraCandidate(place: Place): {
   id: string;
@@ -347,6 +351,10 @@ export default function HomeDiscovery({
   // shows its header and the first cards and nothing inside it scrolls.
   const stageRef = useRef<HTMLElement | null>(null);
   const sheetListRef = useRef<HTMLDivElement | null>(null);
+  // A Place can be listed in BOTH the curated row and the discovery row (the
+  // documented OVERLAP rule), so card refs and DOM ids are scoped per row.
+  // Selection prefers the curated card, then the discovery card, and the DOM
+  // never contains duplicate element ids.
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
   const dragRef = useRef<{
     startY: number;
@@ -368,11 +376,13 @@ export default function HomeDiscovery({
   // Measure the stage so the three snap offsets are real pixels. A
   // ResizeObserver covers mobile browser chrome, rotation, and the desktop
   // window; the initial 640 is a paint-safe fallback that the first effect
-  // run replaces before the user can interact.
+  // run replaces before the user can interact. The measured height is the
+  // REAL visible stage — no artificial floor may push the sheet below the
+  // viewport (the old 320px clamp did exactly that on very short stages).
   useEffect(() => {
     const node = stageRef.current;
     if (!node) return;
-    const measure = () => setStageHeight(Math.max(320, node.clientHeight));
+    const measure = () => setStageHeight(Math.max(0, node.clientHeight));
     measure();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     observer?.observe(node);
@@ -383,11 +393,7 @@ export default function HomeDiscovery({
     };
   }, []);
 
-  const sheetOffsets = useMemo(() => {
-    const small = Math.max(0, stageHeight - SHEET_HEADER_PX);
-    const mid = Math.min(small, Math.round(stageHeight * (1 - SHEET_MID_VISIBLE_RATIO)));
-    return { full: 0, mid, small };
-  }, [stageHeight]);
+  const sheetOffsets = useMemo(() => resolveSheetOffsets(stageHeight), [stageHeight]);
   const settledOffset = sheetOffsets[sheetPosition];
   const sheetOffset = dragOffset ?? settledOffset;
   const sheetVisiblePx = Math.max(0, stageHeight - sheetOffset);
@@ -400,6 +406,10 @@ export default function HomeDiscovery({
 
   const beginSheetDrag = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
+      // ONE pointer owns the drag. A second finger on the handle must not reset
+      // the origin while the first is still down (otherwise the first pointerup
+      // would settle using the second pointer's start point).
+      if (dragRef.current) return;
       if (event.pointerType === "mouse" && event.button !== 0) return;
       event.currentTarget.setPointerCapture?.(event.pointerId);
       dragRef.current = {
@@ -430,29 +440,36 @@ export default function HomeDiscovery({
     [sheetOffsets.full, sheetOffsets.small],
   );
 
-  const endSheetDrag = useCallback(() => {
+  const endSheetDrag = useCallback((event?: React.PointerEvent<HTMLButtonElement>) => {
     const drag = dragRef.current;
     if (!drag) return;
     dragRef.current = null;
+    // Explicit release: pointer capture is otherwise only released implicitly,
+    // and a lost capture must never leave the sheet stuck mid-drag.
+    if (event && event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    // The release point is the authoritative end of a slow drag; the last
+    // pointermove can be several pixels behind it.
+    const releasedY = event?.clientY ?? drag.lastY;
     const current = Math.min(
-      Math.max(drag.startOffset + (drag.lastY - drag.startY), sheetOffsets.full),
+      Math.max(drag.startOffset + (releasedY - drag.startY), sheetOffsets.full),
       sheetOffsets.small,
     );
+    // A flick is only a flick while the pointer is still moving. If the last
+    // move was long before the release (the finger stopped, then lifted), the
+    // stale velocity must not advance an extra snap.
+    const velocity = performance.now() - drag.lastT > 100 ? 0 : drag.velocity;
     // FAST GESTURE: a flick moves exactly one snap in its direction; a slower
     // drag settles on the nearest snap. Both paths end on a real position.
-    const order: SheetPosition[] = ["full", "mid", "small"];
-    let next: SheetPosition;
-    if (Math.abs(drag.velocity) >= SHEET_FLICK_VELOCITY) {
-      const index = order.indexOf(sheetPosition);
-      const step = drag.velocity > 0 ? 1 : -1;
-      next = order[Math.min(order.length - 1, Math.max(0, index + step))];
-    } else {
-      next = order.reduce((best, candidate) =>
-        Math.abs(sheetOffsets[candidate] - current) < Math.abs(sheetOffsets[best] - current)
-          ? candidate
-          : best,
-      );
-    }
+    // The decision is the shared, unit-tested `resolveSheetDrop`.
+    const next = resolveSheetDrop({
+      position: sheetPosition,
+      offsets: sheetOffsets,
+      offsetPx: current,
+      velocity,
+      flickVelocity: SHEET_FLICK_VELOCITY,
+    });
     setDragOffset(null);
     setSheetPosition(next);
   }, [sheetOffsets, sheetPosition]);
@@ -494,7 +511,9 @@ export default function HomeDiscovery({
 
   useEffect(() => {
     if (!pendingScrollPlaceId || sheetPosition !== "full") return;
-    const node = cardRefs.current.get(pendingScrollPlaceId);
+    const node =
+      cardRefs.current.get(`curated:${pendingScrollPlaceId}`) ??
+      cardRefs.current.get(`discovery:${pendingScrollPlaceId}`);
     const list = sheetListRef.current;
     if (!node || !list) {
       setPendingScrollPlaceId(null);
@@ -1474,7 +1493,11 @@ export default function HomeDiscovery({
   return (
     <main
       ref={stageRef}
-      className="relative h-[100svh] min-h-[560px] overflow-hidden bg-brand-cream text-brand-ink"
+      /* 100dvh is the area the user can actually see (it follows mobile
+         browser chrome). The old 560px minimum made the stage TALLER than a
+         short landscape viewport, pushing the sheet's handle and lower edge
+         below the visible screen; the stage now never exceeds the viewport. */
+      className="relative h-[100dvh] overflow-hidden bg-brand-cream text-brand-ink"
     >
       {/* MAP-FIRST STAGE (MOCKUP §4/§5/§7, 2026-10-01) — the map is now ONE
           continuous visual field: it starts at the very top of the app and
@@ -1927,6 +1950,7 @@ export default function HomeDiscovery({
             onPointerMove={moveSheetDrag}
             onPointerUp={endSheetDrag}
             onPointerCancel={endSheetDrag}
+            onLostPointerCapture={endSheetDrag}
             onKeyDown={handleSheetKeyDown}
             className="inline-flex h-11 w-16 touch-none cursor-grab items-center justify-center rounded-full text-brand-ink/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/50 active:cursor-grabbing"
           >
@@ -1934,11 +1958,14 @@ export default function HomeDiscovery({
             <span className="sr-only">Tarik atau gunakan tombol panah untuk mengubah tinggi panel</span>
           </button>
 
-          {/* HANGING LAYER TAB (2026-10-18): ONE instance, attached to the
-              sheet's top edge and left-aligned. In small/mid it protrudes
-              above the seam; in full, where there is no map above it, it sits
-              inside the header. The handler, `aria-pressed`, and the LIVE
-              exclusivity rule are unchanged. */}
+          {/* HANGING LAYER TAB (2026-10-18; full-position fix 2026-10-19):
+              ONE instance, attached to the sheet's top edge and left-aligned.
+              In small/mid it protrudes above the seam; in full it sits just
+              BELOW the handle header instead of beside the handle — at 360px
+              the 151px tab and the centred 64px handle overlapped by 19px,
+              so the tab could swallow part of the one drag target. The
+              handler, `aria-pressed`, and the LIVE exclusivity rule are
+              unchanged. */}
           <button
             type="button"
             onClick={() => {
@@ -1950,7 +1977,7 @@ export default function HomeDiscovery({
             aria-pressed={curatedOnly}
             title="Tempat Pilihan"
             className={`absolute z-30 inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] border px-3.5 text-xs font-bold shadow-[0_-2px_10px_rgb(0_0_0/0.10)] transition active:scale-[0.98] ${
-              sheetPosition === "full" ? "left-4 top-1/2 -translate-y-1/2" : "-top-11 left-4"
+              sheetPosition === "full" ? "left-4 top-16" : "-top-11 left-4"
             } ${
               curatedOnly
                 ? "border-brand-primary bg-brand-primary text-white shadow-[0_-2px_10px_rgb(14_107_79/0.28)]"
@@ -1969,7 +1996,7 @@ export default function HomeDiscovery({
           ref={sheetListRef}
           className={`mx-auto flex w-full max-w-2xl min-h-0 flex-1 flex-col px-4 ${
             sheetPosition === "full"
-              ? "overflow-y-auto overscroll-contain pb-24"
+              ? "overflow-y-auto overscroll-contain pb-24 pt-14"
               : "overflow-hidden pb-8"
           }`}
         >
@@ -2088,11 +2115,12 @@ export default function HomeDiscovery({
                 {curatedListed.map((place) => (
                   <div
                     key={place.id}
-                    id={`place-card-${place.id}`}
+                    id={`place-card-curated-${place.id}`}
                     data-place-card-id={place.id}
                     ref={(node) => {
-                      if (node) cardRefs.current.set(place.id, node);
-                      else cardRefs.current.delete(place.id);
+                      const key = `curated:${place.id}`;
+                      if (node) cardRefs.current.set(key, node);
+                      else cardRefs.current.delete(key);
                     }}
                     className={`h-full w-full rounded-[24px] ${
                       selectedPlaceId === place.id
@@ -2128,11 +2156,12 @@ export default function HomeDiscovery({
                 {discoveryRowPlaces.map((place) => (
                   <div
                     key={place.id}
-                    id={`place-card-${place.id}`}
+                    id={`place-card-discovery-${place.id}`}
                     data-place-card-id={place.id}
                     ref={(node) => {
-                      if (node) cardRefs.current.set(place.id, node);
-                      else cardRefs.current.delete(place.id);
+                      const key = `discovery:${place.id}`;
+                      if (node) cardRefs.current.set(key, node);
+                      else cardRefs.current.delete(key);
                     }}
                     className={`h-full w-full rounded-[24px] ${
                       selectedPlaceId === place.id

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { SHEET_MID_VISIBLE_RATIO, resolveSheetOffsets } from "@/lib/live/ui";
 
 /**
  * HOME UI SPACING & LAYOUT (product decision, 2026-10-04)
@@ -265,25 +266,34 @@ test("T2.7 there is exactly ONE results heading and ONE curated control", () => 
 test("T3.1 the map now fills the full stage behind the sheet", () => {
   // 2026-10-18: the sheet floats over a full-height map instead of sitting in
   // the page flow. The map is the whole stage; no separate map band remains.
-  assert.match(code, /h-\[100svh\] min-h-\[560px\] overflow-hidden/);
+  // 2026-10-19: the stage is the VISIBLE viewport (100dvh) and has no
+  // min-height that could push the sheet below a short screen.
+  assert.match(code, /h-\[100dvh\] overflow-hidden/);
+  assert.doesNotMatch(code, /min-h-\[560px\]/);
   assert.match(code, /<section className="absolute inset-0 isolate overflow-hidden bg-\[#d9dfd2\]">/);
   assert.doesNotMatch(code, /aria-hidden className="h-\[60vh\]/);
   assert.doesNotMatch(code, /h-\[56vh\] min-h-\[460px\] max-h-\[680px\] sm:h-\[62vh\]/);
   assert.doesNotMatch(code, /h-\[42vh\] min-h-\[440px\] max-h-\[560px\] sm:h-\[46vh\]/);
-  // The default mid snap leaves ~58% of the stage to the map.
-  assert.match(code, /SHEET_MID_VISIBLE_RATIO = 0\.42/);
+  // The default mid snap leaves ~58% of the stage to the map. The geometry
+  // moved to the shared, unit-tested helper on 2026-10-19.
+  assert.match(code, /resolveSheetOffsets\(stageHeight\)/);
+  assert.equal(SHEET_MID_VISIBLE_RATIO, 0.42);
+  const mid = resolveSheetOffsets(640);
+  assert.equal(640 - mid.mid, Math.round(640 * SHEET_MID_VISIBLE_RATIO));
 });
 
-test("T3.2 the larger floor clears the remaining control column", () => {
+test("T3.2 the shortest supported landscape stage clears the control column", () => {
   // The zoom stack that used to define the ladder's bottom was removed on
   // 2026-10-18 (gesture-only zoom). The column now ends with "Lokasi Saya" at
-  // 238..278, which the 470px floor clears with room to spare.
+  // 238..278. 2026-10-19: the stage has no artificial 560px floor, so the
+  // relevant floor is the shortest real landscape viewport (360px), which the
+  // column still clears; the mid snap is additionally capped below it.
   const COMPASS_TOP = 190;
   const LOCATE_TOP = COMPASS_TOP + 40 + 8;
   const COLUMN_BOTTOM = LOCATE_TOP + 40;
-  const FLOOR = 560;
-  assert.ok(FLOOR > 470, "the stage keeps a real floor");
-  assert.ok(FLOOR > COLUMN_BOTTOM, "the control column is never clipped");
+  const FLOOR = 360;
+  assert.ok(FLOOR > COLUMN_BOTTOM, "the control column is never clipped on a 360px stage");
+  assert.ok(COLUMN_BOTTOM < 576, "the column clearing check stays concrete (278 < 576)");
 });
 
 test("T3.3 the camera and geographic rules are untouched", () => {
@@ -314,7 +324,10 @@ test("T3.4 the stage remains a non-degenerate Leaflet box", () => {
   // is the stage itself: an absolute full-size layer with a real min height,
   // so Leaflet is never measured at zero.
   assert.doesNotMatch(code, /aria-hidden className="h-\[60vh\]/);
-  assert.match(code, /h-\[100svh\] min-h-\[560px\] overflow-hidden/);
+  // 2026-10-19: the stage is the VISIBLE viewport (100dvh) and has no
+  // min-height that could push the sheet below a short screen.
+  assert.match(code, /h-\[100dvh\] overflow-hidden/);
+  assert.doesNotMatch(code, /min-h-\[560px\]/);
   assert.match(code, /<div className="absolute inset-0 z-0">/);
 });
 

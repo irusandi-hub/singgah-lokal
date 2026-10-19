@@ -1220,3 +1220,70 @@ export function stopNestedCardAction(event: { preventDefault(): void; stopPropag
   event.preventDefault();
   event.stopPropagation();
 }
+
+/**
+ * RESULTS SHEET SNAP GEOMETRY (2026-10-19).
+ *
+ * The three positions are expressed as translate-Y offsets from the top of a
+ * full-height sheet, so the HEADER (handle + curated tab) is what stays on
+ * screen at `small`, the map keeps the majority at `mid`, and `full` is 0.
+ *
+ * SHORT VIEWPORT FIX: the old component assumed a 560px floor, which meant a
+ * landscape phone (<560px of visible height with browser chrome) positioned
+ * the mid sheet below the floating map-control column. The mid snap is now
+ * additionally capped so its top edge stays BELOW the control column
+ * (278px) with a 12px gap whenever the stage can afford it. On a viewport too
+ * short to fit both, the sheet falls back toward the header-only position
+ * instead of covering the controls.
+ */
+export type SheetPosition = "small" | "mid" | "full";
+
+export const SHEET_HEADER_PX = 64;
+export const SHEET_MID_VISIBLE_RATIO = 0.42;
+/** Bottom edge of the floating compass + "Lokasi Saya" column (home-map.tsx). */
+export const MAP_CONTROL_COLUMN_BOTTOM_PX = 278;
+export const MAP_CONTROL_SAFE_GAP_PX = 12;
+/** A pointer moving faster than this (px/ms) counts as a flick. */
+export const SHEET_FLICK_VELOCITY = 0.45;
+
+export function resolveSheetOffsets(stageHeightPx: number): { full: 0; mid: number; small: number } {
+  const stage = Math.max(0, Math.round(stageHeightPx));
+  const small = Math.max(0, stage - SHEET_HEADER_PX);
+  const controlClearTop = MAP_CONTROL_COLUMN_BOTTOM_PX + MAP_CONTROL_SAFE_GAP_PX;
+  const preferredVisible = Math.round(stage * SHEET_MID_VISIBLE_RATIO);
+  // Never hide the handle header, and never cover the control column unless
+  // the stage is physically too short for both.
+  const midVisible = Math.min(preferredVisible, Math.max(SHEET_HEADER_PX, stage - controlClearTop));
+  const mid = Math.max(0, Math.min(small, stage - midVisible));
+  return { full: 0, mid, small };
+}
+
+/**
+ * Where does the sheet land when the pointer is released?
+ *
+ * A slow drag settles on the NEAREST snap; a flick (|velocity| ≥ the
+ * threshold) moves exactly ONE snap in its direction, even if the drag itself
+ * was short. Both ends clamp, so a flick at `full` stays `full`. The caller
+ * passes 0 for a velocity sample that is too old to be a flick.
+ */
+export function resolveSheetDrop(input: {
+  position: SheetPosition;
+  offsets: { full: number; mid: number; small: number };
+  offsetPx: number;
+  velocity: number;
+  flickVelocity?: number;
+}): SheetPosition {
+  const order: SheetPosition[] = ["full", "mid", "small"];
+  const threshold = input.flickVelocity ?? SHEET_FLICK_VELOCITY;
+  const velocity = Number.isFinite(input.velocity) ? input.velocity : 0;
+  if (Math.abs(velocity) >= threshold) {
+    const index = order.indexOf(input.position);
+    const step = velocity > 0 ? 1 : -1;
+    return order[Math.min(order.length - 1, Math.max(0, index + step))];
+  }
+  return order.reduce((best, candidate) =>
+    Math.abs(input.offsets[candidate] - input.offsetPx) < Math.abs(input.offsets[best] - input.offsetPx)
+      ? candidate
+      : best,
+  );
+}

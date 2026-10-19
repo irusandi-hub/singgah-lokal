@@ -537,8 +537,10 @@ test("A new preset refocuses deterministically; manual pan/zoom wins between cho
 test("Remount/refresh safety: container claim, full teardown, and size re-measure", () => {
   const mapCode = stripComments(homeMap);
   // Synchronous container claim before the async import (no double init).
+  // 2026-10-19: only a READY map blocks a replay; "initializing" no longer
+  // deadlocks the Strict-Mode double-mount (see lifecycle-form-state.test).
   assert.match(mapCode, /container\.dataset\.singgahMap = "initializing"/);
-  assert.match(mapCode, /if \(!container \|\| container\.dataset\.singgahMap\) return/);
+  assert.match(mapCode, /if \(!container \|\| container\.dataset\.singgahMap === "ready"\) return/);
   // Teardown removes listeners, every layer, and the map itself.
   assert.match(mapCode, /map\.off\(\)/);
   assert.match(mapCode, /map\.remove\(\)/);

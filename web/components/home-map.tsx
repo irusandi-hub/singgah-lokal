@@ -690,18 +690,20 @@ export default function HomeMap({
 
     (async () => {
       const container = containerRef.current;
-      if (!container || container.dataset.singgahMap) return;
+      // STRICT-MODE FIX (2026-10-19): only a READY map blocks a new setup. The
+      // old guard also blocked on "initializing", which deadlocked the dev
+      // Strict-Mode replay — the first effect claimed the container, its
+      // cleanup released it, the replay saw "initializing" and gave up, and
+      // the cancelled first import then cleared the claim, so NO map was ever
+      // created. A cancelled setup now returns WITHOUT releasing the claim
+      // (the replay owns the container), and the ready map plus `mapRef`
+      // remain the single-instance gate.
+      if (!container || container.dataset.singgahMap === "ready") return;
       container.dataset.singgahMap = "initializing";
 
       const L = (await import("leaflet")).default;
-      if (cancelled) {
-        container.dataset.singgahMap = "";
-        return;
-      }
-      if (!containerRef.current || mapRef.current) {
-        container.dataset.singgahMap = "";
-        return;
-      }
+      if (cancelled) return;
+      if (!containerRef.current || mapRef.current) return;
 
       // Gesture lock (PO task 2026-09-27): ONE finger must never pan or zoom
       // the Home map — single-finger input stays available for page/UI

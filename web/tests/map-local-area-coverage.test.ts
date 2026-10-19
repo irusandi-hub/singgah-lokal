@@ -16,6 +16,9 @@ import {
   resolveActiveCenter,
   resolveCameraFitPadding,
   resolveLocalAreaCoverage,
+  resolveSheetOffsets,
+  SHEET_HEADER_PX,
+  SHEET_MID_VISIBLE_RATIO,
   type MapViewport,
 } from "../lib/live/ui";
 
@@ -565,7 +568,7 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // window is gone. The stage is the whole visible viewport and the sheet is a
   // full-height surface translated over its lower half, so the map is never a
   // separate, shorter box. The floor still guarantees the floating chrome fits.
-  assert.match(pageCode, /className="relative h-\[100svh\] min-h-\[560px\] overflow-hidden bg-brand-cream text-brand-ink"/);
+  assert.match(pageCode, /className="relative h-\[100dvh\] overflow-hidden bg-brand-cream text-brand-ink"/);
   assert.doesNotMatch(pageCode, /h-\[60vh\]|min-h-\[240px\]|sm:h-\[38vh\]|max-h-\[700px\]/);
   // ...and the sheet owns the stage height instead of a padded in-flow panel.
   assert.match(
@@ -573,14 +576,19 @@ test("AC 8: the panel and the map window above it are more compact", () => {
     /className=\{`singgah-sheet absolute inset-x-0 bottom-0 z-20 flex h-full flex-col rounded-t-\[24px\] bg-brand-cream/,
   );
   // The snap positions are measured from the stage, not hardcoded per viewport.
-  assert.match(pageCode, /SHEET_MID_VISIBLE_RATIO = 0\.42/);
-  assert.match(pageCode, /stageHeight - SHEET_HEADER_PX/);
+  // The 42% mid geometry lives in the shared helper (and is unit-tested
+  // there); the sheet still reads real measured pixels from it.
+  assert.match(pageCode, /resolveSheetOffsets\(stageHeight\)/);
+  assert.equal(SHEET_MID_VISIBLE_RATIO, 0.42);
+  assert.equal(SHEET_HEADER_PX, 64);
+  const offsets = resolveSheetOffsets(640);
+  assert.equal(640 - offsets.mid, Math.round(640 * SHEET_MID_VISIBLE_RATIO));
   assert.match(pageCode, /transform: `translateY\(\$\{sheetOffset\}px\)`/);
   // The old handle band is gone; the curated tab hangs above the sheet edge
   // in small/mid and sits inside the header in full.
   assert.doesNotMatch(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
   assert.match(pageCode, /absolute z-30 inline-flex min-h-11 items-center justify-center gap-1\.5/);
-  assert.match(pageCode, /sheetPosition === "full" \? "left-4 top-1\/2 -translate-y-1\/2" : "-top-11 left-4"/);
+  assert.match(pageCode, /sheetPosition === "full" \? "left-4 top-16" : "-top-11 left-4"/);
   // 2026-10-18: the information board (title, count, radius line, "Ke hasil")
   // was REMOVED from that sheet; its handle now sits at the sheet's own top and
   // the curated layer tab moved into that band. The category labels and both
@@ -938,9 +946,9 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   assert.match(mapCode, /<button[^>]*onClick=\{onRequestLocate\}[^>]*>\s*<svg[^>]*aria-hidden[^>]*viewBox="0 0 24 24"[^>]*width="20"[^>]*height="20"[^>]*>/);
   // 2026-10-18: the map stage is the whole viewport (the sheet floats over
   // it), so the floor that the control column must clear is the stage minimum.
-  assert.match(pageCode, /className="relative h-\[100svh\] min-h-\[560px\] overflow-hidden bg-brand-cream text-brand-ink"/);
-  const floor = 560;
-  assert.ok(COLUMN_BOTTOM < floor, "the control column must not be clipped on the shortest supported stage (278 < 560)");
+  assert.match(pageCode, /className="relative h-\[100dvh\] overflow-hidden bg-brand-cream text-brand-ink"/);
+  const floor = 360;
+  assert.ok(COLUMN_BOTTOM < floor, "the control column must not be clipped on the shortest supported stage (278 < 360)");
   assert.ok(COLUMN_BOTTOM < 576, "the column clearing check is concrete, not a vague smoke assertion (278 < 576)");
   assert.ok(COMPASS_TOP < LOCATE_TOP, "the control column keeps its order");
   // The gesture hint sits above the attribution band and below the empty state
@@ -951,12 +959,16 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   assert.match(globalsCss, /bottom: var\(--singgah-sheet-inset, 0px\)/);
   // The camera padding reserves that same chrome, so a fit never hides a Place
   // under it.
-  const padding = resolveCameraFitPadding({ x: 390, y: floor });
-  assert.equal(padding.paddingTopLeft[0], 24);
-  assert.equal(padding.paddingTopLeft[1], 190);
-  assert.equal(padding.paddingBottomRight[0], 76);
-  assert.equal(padding.paddingBottomRight[1], 84);
-  assert.ok(padding.paddingTopLeft[1] >= 190, "the fitted area starts below the floating chrome");
+  // On a 360px landscape stage the top reserve shrinks to 45% of the height
+  // instead of the fixed 190px chrome reserve, so the fit still leaves a real
+  // map area; the taller viewport keeps the full 190px reserve.
+  const shortPad = resolveCameraFitPadding({ x: 390, y: floor });
+  assert.equal(shortPad.paddingTopLeft[0], 24);
+  assert.equal(shortPad.paddingTopLeft[1], 162);
+  assert.equal(shortPad.paddingBottomRight[0], 76);
+  assert.equal(shortPad.paddingBottomRight[1], 84);
+  const tallPad = resolveCameraFitPadding({ x: 390, y: 560 });
+  assert.equal(tallPad.paddingTopLeft[1], 190, "the fitted area starts below the floating chrome on tall stages");
   // Nothing was hidden, collapsed, or made scrollable: the sheet still renders
   // both strips (the removed board's count line left no substitute).
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);

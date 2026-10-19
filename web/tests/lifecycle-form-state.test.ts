@@ -40,13 +40,21 @@ function stripComments(source: string): string {
 test("Leaflet initializes exactly once per mount with a synchronous container guard", () => {
   const mapCode = stripComments(homeMap);
   // The container is claimed synchronously before the async import resolves,
-  // so Strict Mode double-mounts and fast remounts cannot create a second map.
+  // so a fast remount cannot create a second map.
   assert.match(mapCode, /container\.dataset\.singgahMap = "initializing"/);
-  assert.match(mapCode, /if \(!container \|\| container\.dataset\.singgahMap\) return;/);
+  // 2026-10-19: only READY blocks a new setup. Blocking on "initializing"
+  // deadlocked the dev Strict-Mode replay (first effect claims, cleanup
+  // releases, replay is refused, cancelled import clears the claim) and left
+  // Home with no map at all. The ready flag + mapRef are the single gate.
+  assert.match(mapCode, /if \(!container \|\| container\.dataset\.singgahMap === "ready"\) return;/);
+  assert.doesNotMatch(mapCode, /if \(!container \|\| container\.dataset\.singgahMap\) return;/);
   // Marked ready only after successful initialization.
   assert.match(mapCode, /container\.dataset\.singgahMap = "ready"/);
-  // The claim is released when a cancelled setup loses the race.
+  // The claim is released by cleanup; a cancelled import must NOT release it
+  // (that is what let the replay lose its own claim).
   assert.match(mapCode, /container\.dataset\.singgahMap = ""/);
+  const cancelledBranch = mapCode.slice(mapCode.indexOf("if (cancelled) return;"));
+  assert.ok(!cancelledBranch.slice(0, 120).includes('singgahMap = ""'));
 });
 
 test("Map teardown destroys listeners, layers, and the instance itself", () => {

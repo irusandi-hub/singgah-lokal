@@ -105,16 +105,17 @@ test("the retired standalone map-frame geometry is gone", () => {
 });
 
 test("MOCKUP §8: map height is responsive and always leaves the Result panel in view", () => {
-  // 2026-10-18: the map is the full stage (100svh); the bottom sheet floats
-  // over its lower half. The old in-flow `60vh` spacer left with the flow
-  // layout, so the Leaflet box is now simply the measured stage.
-  assert.match(code, /h-\[100svh\] min-h-\[560px\] overflow-hidden/);
+  // 2026-10-18: the map is the full stage; the bottom sheet floats over its
+  // lower half. 2026-10-19: the stage tracks the VISIBLE viewport (100dvh) and
+  // no longer grows past a short screen with a 560px minimum.
+  assert.match(code, /h-\[100dvh\] overflow-hidden/);
+  assert.doesNotMatch(code, /min-h-\[560px\]/);
   assert.doesNotMatch(code, /h-\[60vh\] min-h-\[470px\]/);
   assert.match(code, /<section className="absolute inset-0 isolate overflow-hidden bg-\[#d9dfd2\]">/);
   // The remaining control ladder (compass 190px → Lokasi Saya 238..278px)
   // fits inside the shortest supported stage; the +/- stack is gone.
   const ladderBottom = 238 + 40;
-  assert.ok(560 > ladderBottom, "the control ladder fits the shortest stage");
+  assert.ok(360 > ladderBottom, "the control ladder fits a 360px landscape stage");
 });
 
 test("MOCKUP §2: search is a floating white bar with a real 'Cari' control", () => {
@@ -271,7 +272,7 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // the one hanging control on the seam is the curated tab.
   assert.doesNotMatch(code, /block h-1 w-10 rounded-full bg-black\/10/);
   assert.match(code, /absolute z-30 inline-flex min-h-11/);
-  assert.match(code, /sheetPosition === "full" \? "left-4 top-1\/2 -translate-y-1\/2" : "-top-11 left-4"/);
+  assert.match(code, /sheetPosition === "full" \? "left-4 top-16" : "-top-11 left-4"/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
@@ -504,7 +505,11 @@ test("MOCKUP §12/§19: every result row is a 2-column grid of equal-height card
   );
   // Every card in BOTH rows sits in an explicit sized item, never a direct
   // grid child (which is what collapsed cards before).
-  assert.equal((code.match(/id=\{`place-card-\$\{place\.id\}`\}/g) ?? []).length, 2);
+  // 2026-10-19: ids are scoped per row because one Place can appear in both
+  // rows; the DOM must never carry duplicate ids and marker selection must
+  // still find the right card.
+  assert.equal((code.match(/id=\{`place-card-curated-\$\{place\.id\}`\}/g) ?? []).length, 1);
+  assert.equal((code.match(/id=\{`place-card-discovery-\$\{place\.id\}`\}/g) ?? []).length, 1);
   assert.equal((code.match(/\{renderPlaceCard\(/g) ?? []).length, 2);
   assert.equal((code.match(/className=\{\`h-full w-full rounded-\[24px\]/g) ?? []).length, 2);
   // No card may ever be a direct grid child.
