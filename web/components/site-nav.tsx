@@ -179,7 +179,7 @@ export default function SiteNav({
               </Link>
               <Link
                 href="/auth"
-                className="shrink-0 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white transition hover:bg-brand-primary-deep"
+                className="inline-flex h-9 shrink-0 items-center rounded-full bg-brand-primary px-4 text-[13px] font-bold text-white transition hover:bg-brand-primary-deep sm:h-10 sm:px-5 sm:text-sm"
               >
                 Masuk
               </Link>

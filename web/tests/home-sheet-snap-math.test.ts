@@ -20,7 +20,7 @@ import {
  * the SAME function the component uses, not a copy of the formula.
  *
  * Supported phone geometry: 360×640 and 390×844 portrait, 360×360/390×390
- * landscape. `small` keeps the 64px header, `mid` keeps the map dominant while
+ * landscape. `small` keeps the 48px header, `mid` keeps the map dominant while
  * staying below the floating map controls, and `full` is always 0.
  */
 
@@ -71,7 +71,7 @@ test("mid never covers the floating map control column on supported short stages
 
 test("a 360px landscape stage still shows the handle and the hanging tab", () => {
   const offsets = resolveSheetOffsets(360);
-  // Header-only fallback: 70px visible, enough for the 64px header plus the
+  // Header-only fallback: 70px visible, enough for the 48px header plus the
   // tab that hangs 44px above the seam.
   assert.equal(360 - offsets.mid, 70);
   assert.ok(360 - offsets.mid >= SHEET_HEADER_PX);
@@ -94,16 +94,16 @@ test("absurdly short stages degrade safely instead of producing negative offsets
 // Release behaviour: slow drag settles nearest, a flick advances one snap.
 // ---------------------------------------------------------------------------
 
-const OFFSETS_640 = resolveSheetOffsets(640); // full 0 · mid 371 · small 576
+const OFFSETS_640 = resolveSheetOffsets(640); // full 0 · mid 371 · small 592
 
 function drop(position: "small" | "mid" | "full", offsetPx: number, velocity: number) {
   return resolveSheetDrop({ position, offsets: OFFSETS_640, offsetPx, velocity });
 }
 
 test("a slow drag settles on the nearest snap in both directions", () => {
-  // From mid: +100px is still nearest to mid (100 vs 105 to small).
+  // From mid: +100px is still nearest to mid (100 vs 121 to small).
   assert.equal(drop("mid", OFFSETS_640.mid + 100, 0.05), "mid");
-  // +150px is nearer to small (55 vs 150).
+  // +150px is nearer to small (71 vs 150).
   assert.equal(drop("mid", OFFSETS_640.mid + 150, 0.05), "small");
   // -200px is nearer to full (171 vs 200).
   assert.equal(drop("mid", OFFSETS_640.mid - 200, 0.05), "full");
@@ -134,7 +134,7 @@ test("the measured stage height is used directly, without a hidden floor", () =>
   // A 400px stage must yield a 400px geometry; an extra 320px clamp or 560px
   // minimum would make these differ.
   const offsets = resolveSheetOffsets(400);
-  assert.equal(offsets.small, 336);
+  assert.equal(offsets.small, 352);
   assert.equal(400 - offsets.mid, Math.min(Math.round(400 * SHEET_MID_VISIBLE_RATIO), 400 - 290));
   assert.equal(400 - offsets.mid, 110);
 });

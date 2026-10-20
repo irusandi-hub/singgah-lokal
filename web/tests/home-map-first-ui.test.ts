@@ -272,7 +272,7 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // the one hanging control on the seam is the curated tab.
   assert.doesNotMatch(code, /block h-1 w-10 rounded-full bg-black\/10/);
   assert.match(code, /absolute z-30 inline-flex min-h-11/);
-  assert.match(code, /sheetPosition === "full" \? "left-4 top-16" : "-top-11 left-4"/);
+  assert.match(code, /sheetPosition === "full" \? "left-4 top-12" : "-top-11 left-4"/);
 });
 
 test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {

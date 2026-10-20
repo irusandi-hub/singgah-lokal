@@ -580,7 +580,9 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // there); the sheet still reads real measured pixels from it.
   assert.match(pageCode, /resolveSheetOffsets\(stageHeight\)/);
   assert.equal(SHEET_MID_VISIBLE_RATIO, 0.42);
-  assert.equal(SHEET_HEADER_PX, 64);
+  // Compact handle band (2026-10-19): 44px drag target + 2px, so the seam no
+  // longer reserves 64px of vertical space above the first card on a phone.
+  assert.equal(SHEET_HEADER_PX, 48);
   const offsets = resolveSheetOffsets(640);
   assert.equal(640 - offsets.mid, Math.round(640 * SHEET_MID_VISIBLE_RATIO));
   assert.match(pageCode, /transform: `translateY\(\$\{sheetOffset\}px\)`/);
@@ -588,7 +590,7 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // in small/mid and sits inside the header in full.
   assert.doesNotMatch(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
   assert.match(pageCode, /absolute z-30 inline-flex min-h-11 items-center justify-center gap-1\.5/);
-  assert.match(pageCode, /sheetPosition === "full" \? "left-4 top-16" : "-top-11 left-4"/);
+  assert.match(pageCode, /sheetPosition === "full" \? "left-4 top-12" : "-top-11 left-4"/);
   // 2026-10-18: the information board (title, count, radius line, "Ke hasil")
   // was REMOVED from that sheet; its handle now sits at the sheet's own top and
   // the curated layer tab moved into that band. The category labels and both
@@ -953,9 +955,11 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   assert.ok(COMPASS_TOP < LOCATE_TOP, "the control column keeps its order");
   // The gesture hint sits above the attribution band and below the empty state
   // (nothing floats over the map's bottom edge any more). It now tracks the
-  // sheet's visible height, so it can never be covered in any snap position.
-  assert.match(pageCode, /className="pointer-events-none absolute left-3 z-\[1100\] rounded-full bg-white\/85/);
-  assert.match(pageCode, /style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}/);
+  // sheet's visible height, so it can never be covered in any snap position,
+  // and parks above this control column when a short stage forces it there.
+  assert.match(pageCode, /className="pointer-events-none absolute right-3 z-\[1100\] rounded-full bg-white\/85/);
+  assert.match(pageCode, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
+  assert.match(pageCode, /gestureHintEdgePx - 20 < MAP_CONTROL_COLUMN_BOTTOM_PX/);
   assert.match(globalsCss, /bottom: var\(--singgah-sheet-inset, 0px\)/);
   // The camera padding reserves that same chrome, so a fit never hides a Place
   // under it.

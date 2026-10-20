@@ -250,7 +250,7 @@ test("the OSM attribution stays visible above the sheet edge", () => {
   // same visible-sheet inset, so it can never cover the credit either.
   assert.match(
     pageCode,
-    /pointer-events-none absolute left-3 z-\[1100\][\s\S]{0,260}style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}[\s\S]{0,120}Dua jari untuk geser/,
+    /pointer-events-none absolute right-3 z-\[1100\][\s\S]{0,260}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,120}Dua jari untuk geser/,
   );
   // The attribution itself is untouched: Leaflet's own control, fed by the
   // tile layer's OSM attribution string (pinned in live-hardening /

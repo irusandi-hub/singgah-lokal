@@ -159,7 +159,7 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   // REMOVED outright (2026-10-18): the map stage now keeps only the empty-state
   // card and the two-finger gesture hint.
   const emptyCard = pageCode.indexOf("inset-x-0 z-[1100] flex justify-center");
-  const gestureHint = pageCode.indexOf("left-3 z-[1100]");
+  const gestureHint = pageCode.indexOf("right-3 z-[1100]");
   assert.equal(pageCode.includes("bottom-9 left-4 z-[1100]"), false, "the floating coverage box is consolidated away");
   assert.equal(pageCode.indexOf("bottom-9 right-4 z-[1100]"), -1, "the distance scale is removed, not moved");
   assert.equal(pageCode.indexOf("inset-x-0 bottom-3 z-[1100]"), -1, "the information board is removed, not moved");

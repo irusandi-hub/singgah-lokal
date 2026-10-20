@@ -175,8 +175,8 @@ test("T2.4 the map surface stays fully interactive with no floating card", () =>
   assert.equal(mapCode.includes("dragging: false"), false);
   // The gesture hint is click-through, so it cannot swallow the gesture it
   // describes either.
-  assert.match(code, /pointer-events-none absolute left-3 z-\[1100\]/);
-  assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}/);
+  assert.match(code, /pointer-events-none absolute right-3 z-\[1100\]/);
+  assert.match(code, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
 });
 
 test("T2.5 the moved curated tab lives in the results sheet, on no overlay tier", () => {
@@ -209,7 +209,12 @@ test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () =>
   );
   assert.match(mapCode, /bottomInset = 0/);
   assert.match(mapCode, /--singgah-sheet-inset/);
-  assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}/);
+  // 2026-10-20: the 56px lift is still the base (it rides the visible inset),
+  // and on a stage short enough for it to land inside the control column band
+  // it is capped 8px above that column instead of squeezing under it.
+  assert.match(code, /const gestureHintLiftBasePx = sheetVisiblePx \+ 56;/);
+  assert.match(code, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
+  assert.match(code, /gestureHintEdgePx - 20 < MAP_CONTROL_COLUMN_BOTTOM_PX/);
   assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
   // No bottom-anchored panel remains, and the scale bar stays gone.
   assert.doesNotMatch(mapStage, /absolute bottom-9 right-4 z-\[1100\]/);

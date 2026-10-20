@@ -371,7 +371,7 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   );
   assert.match(
     pageCode,
-    /pointer-events-none absolute left-3 z-\[1100\][^"]*"[\s\S]{0,300}style=\{\{ bottom: sheetVisiblePx \+ 56 \}\}[\s\S]{0,120}Dua jari untuk geser/,
+    /pointer-events-none absolute right-3 z-\[1100\][^"]*"[\s\S]{0,300}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,120}Dua jari untuk geser/,
     "the gesture hint is click-through so it cannot eat the gesture it describes",
   );
   // 2026-10-18: no button zoom control remains (gesture-only zoom). The ONE

@@ -22,6 +22,7 @@ import {
   formatDistance,
   isSameViewport,
   liveDurationLabel,
+  MAP_CONTROL_COLUMN_BOTTOM_PX,
   narrowToViewport,
   normalizeSearchArea,
   resolveActiveCenter,
@@ -397,6 +398,22 @@ export default function HomeDiscovery({
   const settledOffset = sheetOffsets[sheetPosition];
   const sheetOffset = dragOffset ?? settledOffset;
   const sheetVisiblePx = Math.max(0, stageHeight - sheetOffset);
+
+  // GESTURE HINT LIFT (2026-10-20) — the compact pill rides the visible sheet
+  // edge at `sheetVisiblePx + 56` (above the 22px OSM attribution band, below
+  // the 128px empty-state card). On a very short stage (landscape phones) that
+  // lift can land inside the floating control column band (top 190..bottom 278
+  // measured from the stage top), where only 12px are left under the column —
+  // less than the 20px pill — so there it parks 8px ABOVE the column instead.
+  // Every supported portrait/desktop viewport keeps the plain lift.
+  const gestureHintLiftBasePx = sheetVisiblePx + 56;
+  const gestureHintEdgePx = stageHeight - gestureHintLiftBasePx;
+  const gestureHintColumnTopPx = MAP_CONTROL_COLUMN_BOTTOM_PX - 88;
+  const gestureHintLiftPx =
+    gestureHintEdgePx > gestureHintColumnTopPx &&
+    gestureHintEdgePx - 20 < MAP_CONTROL_COLUMN_BOTTOM_PX
+      ? stageHeight - (gestureHintColumnTopPx - 8)
+      : gestureHintLiftBasePx;
 
   const setSheetSnap = useCallback((next: SheetPosition) => {
     dragRef.current = null;
@@ -1896,19 +1913,24 @@ export default function HomeDiscovery({
             The measured SCALE BAR was removed on 2026-10-04 and still renders
             nothing in its place; no distance indicator replaces it either. */}
 
-        {/* GESTURE HINT (2026-10-18): the only touch gestures this map keeps
+        {/* GESTURE HINT (2026-10-18; bottom-right 2026-10-19): the only touch gestures this map keeps
             are TWO-FINGER ones. Verified against the installed Leaflet 1.9
             source: TouchZoom's `_onTouchMove` pans by the pinch MIDPOINT and
             zooms by the pinch DISTANCE, while the touch-primary one-finger
             lock (`dragging` / `doubleClickZoom` off) leaves a single finger to
             scroll the page. The hint therefore states exactly the supported
             pair — never a gesture the map cannot perform. It is one compact,
-            click-through pill: it cannot eat the gesture it describes, it sits
-            above the attribution band (bottom-12 > the 22px credit offset),
-            and it stays clear of the empty-state card at bottom-32. */}
+            click-through pill anchored to the BOTTOM-RIGHT of the map area:
+            below the compass/locate control column (top 190..278, 17px clear at
+            360×640), above the OSM attribution band (inset + 22px), clear of
+            the empty-state card (inset + 128px), and 12px from the right edge
+            like the control column itself. Rides the visible sheet edge at
+            inset + 56px, so no snap position can cover it; on a short stage the
+            lift is capped above the control column (see gestureHintLiftPx).
+            Smaller padding keeps it compact. */}
         <div
-          className="pointer-events-none absolute left-3 z-[1100] rounded-full bg-white/85 px-2.5 py-1 text-[10px] font-semibold leading-4 text-brand-ink/55 shadow-[0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 backdrop-blur-sm transition-[bottom] duration-300 motion-reduce:transition-none"
-          style={{ bottom: sheetVisiblePx + 56 }}
+          className="pointer-events-none absolute right-3 z-[1100] rounded-full bg-white/85 px-2 py-0.5 text-[10px] font-semibold leading-4 text-brand-ink/55 shadow-[0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 backdrop-blur-sm transition-[bottom] duration-300 motion-reduce:transition-none"
+          style={{ bottom: gestureHintLiftPx }}
         >
           Dua jari untuk geser · cubit untuk zoom
         </div>
@@ -1928,7 +1950,12 @@ export default function HomeDiscovery({
         style={{ transform: `translateY(${sheetOffset}px)` }}
         aria-labelledby="place-results-heading"
       >
-        <div className="relative flex h-16 shrink-0 items-center justify-center">
+        {/* COMPACT HANDLE BAND (2026-10-19): the seam band is 48px instead of
+            64px — the 44px drag target plus 2px of breathing room — so the map
+            and the first Tempat Pilihan card lose only the space that was
+            genuinely spare. The handle, its keyboard controls, the snap math
+            (`SHEET_HEADER_PX`), and the one drag target are unchanged. */}
+        <div className="relative flex h-12 shrink-0 items-center justify-center">
           {/* The sheet's accessible name. It stays in the DOM so
               `aria-labelledby` always resolves, but it is not a visible
               title. */}
@@ -1977,7 +2004,7 @@ export default function HomeDiscovery({
             aria-pressed={curatedOnly}
             title="Tempat Pilihan"
             className={`absolute z-30 inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] border px-3.5 text-xs font-bold shadow-[0_-2px_10px_rgb(0_0_0/0.10)] transition active:scale-[0.98] ${
-              sheetPosition === "full" ? "left-4 top-16" : "-top-11 left-4"
+              sheetPosition === "full" ? "left-4 top-12" : "-top-11 left-4"
             } ${
               curatedOnly
                 ? "border-brand-primary bg-brand-primary text-white shadow-[0_-2px_10px_rgb(14_107_79/0.28)]"

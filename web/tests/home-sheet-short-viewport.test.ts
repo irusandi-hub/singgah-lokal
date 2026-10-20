@@ -115,9 +115,9 @@ test("the tab is one instance, stays attached to the sheet, and keeps LIVE exclu
   // Full: inside the header (top centre-left). Small/mid: hanging above the
   // seam. Either way it travels with the sheet, and "Peta" owns the opposite
   // bottom-right corner.
-  // Full: the tab sits BELOW the 64px header (top-16) so it cannot overlap
+  // Full: the tab sits BELOW the 48px header (top-12) so it cannot overlap
   // the centred 64px handle at 360/390px; the list reserves pt-14 for it.
-  assert.match(code, /sheetPosition === "full" \? "left-4 top-16" : "-top-11 left-4"/);
+  assert.match(code, /sheetPosition === "full" \? "left-4 top-12" : "-top-11 left-4"/);
   assert.match(code, /absolute bottom-6 right-4 z-30 inline-flex min-h-11/);
   const tabAt = code.indexOf("aria-pressed={curatedOnly}");
   const tab = code.slice(tabAt - 900, tabAt + 900);

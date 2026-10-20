@@ -156,7 +156,7 @@ test("the curated tab hangs on the sheet's top edge with a 44px touch target", (
   assert.match(tab, /absolute z-30 inline-flex min-h-11 items-center justify-center/);
   assert.match(
     tab,
-    /sheetPosition === "full" \? "left-4 top-16" : "-top-11 left-4"/,
+    /sheetPosition === "full" \? "left-4 top-12" : "-top-11 left-4"/,
   );
   assert.match(tab, /rounded-\[14px\] border/);
   // Inactive: white + border + ✦ + shadow. Active: deep brand green + white.

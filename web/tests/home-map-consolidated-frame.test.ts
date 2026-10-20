@@ -382,7 +382,7 @@ test("12.4 the removed board left no band, and the sheet keeps its one control",
   assert.equal((band.match(/aria-pressed=/g) ?? []).length, 1, "one control on the seam");
   assert.doesNotMatch(band, /block h-1 w-10 rounded-full bg-black\/10/);
   assert.match(band, /absolute z-30 inline-flex min-h-11 items-center justify-center gap-1\.5/);
-  assert.match(band, /sheetPosition === "full" \? "left-4 top-16" : "-top-11 left-4"/);
+  assert.match(band, /sheetPosition === "full" \? "left-4 top-12" : "-top-11 left-4"/);
   // The sheet and its chrome keep the approved visual identity: same cream
   // surface and same 24px top radius, now floating over the map stage.
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);

@@ -1238,7 +1238,10 @@ export function stopNestedCardAction(event: { preventDefault(): void; stopPropag
  */
 export type SheetPosition = "small" | "mid" | "full";
 
-export const SHEET_HEADER_PX = 64;
+// Compact handle band (2026-10-19): the header keeps the full 44px drag
+// target with 2px of breathing room above and below, so the seam band no
+// longer reserves 64px of vertical space on a phone before the first card.
+export const SHEET_HEADER_PX = 48;
 export const SHEET_MID_VISIBLE_RATIO = 0.42;
 /** Bottom edge of the floating compass + "Lokasi Saya" column (home-map.tsx). */
 export const MAP_CONTROL_COLUMN_BOTTOM_PX = 278;
