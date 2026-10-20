@@ -79,7 +79,7 @@ test("the sheet drag never becomes a page or list scroll", () => {
   assert.match(code, /className="inline-flex h-11 w-16 touch-none cursor-grab/);
   // The header handle owns the drag; the list is the only scroll surface, and
   // only when the sheet is full.
-  assert.match(code, /sheetPosition === "full"\s*\? "overflow-y-auto overscroll-contain pb-24 pt-14"\s*: "overflow-hidden pb-8"/);
+  assert.match(code, /sheetPosition === "full"\s*\? "overflow-y-auto overscroll-contain pb-24 pt-4"\s*: "overflow-hidden pb-8"/);
   // The map keeps its locked gesture split: one finger is not a pan on touch.
   assert.match(mapCode, /dragging: !touchPrimary/);
   assert.match(mapCode, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
@@ -101,7 +101,10 @@ test("the handle stays focusable, named, and keyboard-operable", () => {
 test("OSM attribution and map controls stay above the visible sheet edge", () => {
   assert.match(code, /bottomInset=\{sheetVisiblePx\}/);
   assert.match(css, /\.singgah-home-map \.leaflet-bottom \{\s*bottom: var\(--singgah-sheet-inset, 0px\);/);
-  assert.match(css, /\.leaflet-control-attribution \{\s*margin-bottom: 22px;/);
+  assert.match(
+    css,
+    /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;/,
+  );
   assert.match(mapCode, /--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset\)\}px`/);
   // The control column is a fixed 40px pair ending at 278px; the mid geometry
   // test above proves the sheet top stays below it on the supported stages.
@@ -112,12 +115,11 @@ test("the tab is one instance, stays attached to the sheet, and keeps LIVE exclu
   assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
   assert.match(code, /const next = activateCuratedFilter\(\);/);
   assert.match(code, /setLiveOnly\(next\.liveOnly\)/);
-  // Full: inside the header (top centre-left). Small/mid: hanging above the
-  // seam. Either way it travels with the sheet, and "Peta" owns the opposite
-  // bottom-right corner.
-  // Full: the tab sits BELOW the 48px header (top-12) so it cannot overlap
-  // the centred 64px handle at 360/390px; the list reserves pt-14 for it.
-  assert.match(code, /sheetPosition === "full" \? "left-4 top-12" : "-top-11 left-4"/);
+  // 2026-10-20: the tab sits inside the 48px header in every position, to the
+  // left of the centred 64px handle and below the OSM credit band. The list no
+  // longer needs a 56px reserve for it (pt-4).
+  assert.match(code, /absolute top-0\.5 left-4 z-30 inline-flex min-h-11/);
+  assert.doesNotMatch(code, /-top-11 left-4|left-4 top-12/);
   assert.match(code, /absolute bottom-6 right-4 z-30 inline-flex min-h-11/);
   const tabAt = code.indexOf("aria-pressed={curatedOnly}");
   const tab = code.slice(tabAt - 900, tabAt + 900);

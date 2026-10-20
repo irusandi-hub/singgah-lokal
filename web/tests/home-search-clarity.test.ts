@@ -183,8 +183,10 @@ test("R-B: the overlay stays clear of the coverage box and the Leaflet controls"
   assert.doesNotMatch(discoveryCode, /bottom-9 left-4 z-\[1100\]/);
   // Click-through: the overlay can never swallow a pan or a pinch.
   assert.match(discoveryCode, /pointer-events-none absolute inset-x-0 z-\[1100\]/);
-  // It is above the gesture hint (inset + 128 vs inset + 56).
-  assert.match(discoveryCode, /sheetVisiblePx \+ 56/);
+  // It is above the gesture hint (inset + 128 vs inset + 44), and above the
+  // 22px OSM credit band the hint itself clears.
+  assert.match(discoveryCode, /const gestureHintLiftBasePx = sheetVisiblePx \+ 44;/);
+  assert.match(discoveryCode, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
 });
 
 // ---------------------------------------------------------------------------

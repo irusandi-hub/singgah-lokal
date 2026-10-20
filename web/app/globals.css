@@ -95,12 +95,19 @@ select {
   font-weight: 700;
 }
 
-/* OSM ATTRIBUTION (2026-10-18). The results sheet floats over the map, so the
-   credit must stay above the VISIBLE sheet edge in every position. The Home
-   map publishes the sheet's visible height as --singgah-sheet-inset on its
-   wrapper; the base 22px margin keeps the credit off the seam. The credit
-   text, its link, and Leaflet's own control are untouched. */
-.leaflet-control-attribution {
+/* OSM ATTRIBUTION (2026-10-18; selector fixed 2026-10-20). The results sheet
+   floats over the map, so the credit must stay above the VISIBLE sheet edge in
+   every position. The Home map publishes the sheet's visible height as
+   --singgah-sheet-inset on its wrapper; the 22px margin keeps the credit off
+   the seam.
+
+   The selector needs the full `.singgah-home-map .leaflet-bottom` prefix:
+   Leaflet's own `.leaflet-bottom .leaflet-control` rule also sets a margin on
+   this control, and the old single-class selector lost that tie at runtime
+   (computed margin was 0, so the credit sat flush on the seam). Scoping it to
+   the Home map also leaves the Producer location picker's attribution alone.
+   The credit text, its link, and Leaflet's own control are untouched. */
+.singgah-home-map .leaflet-bottom .leaflet-control-attribution {
   margin-bottom: 22px;
 }
 

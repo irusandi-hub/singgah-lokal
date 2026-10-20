@@ -148,16 +148,14 @@ test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
   assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
 });
 
-test("the curated tab hangs on the sheet's top edge with a 44px touch target", () => {
+test("the curated tab sits in the sheet header with a 44px touch target", () => {
   const tabStart = discoveryCode.indexOf("aria-pressed={curatedOnly}");
   const tab = discoveryCode.slice(tabStart - 900, tabStart + 700);
-  // Attached to the sheet's top edge, left-aligned, protruding upward in
-  // small/mid and sitting inside the header in full.
-  assert.match(tab, /absolute z-30 inline-flex min-h-11 items-center justify-center/);
-  assert.match(
-    tab,
-    /sheetPosition === "full" \? "left-4 top-12" : "-top-11 left-4"/,
-  );
+  // 2026-10-20: left-aligned INSIDE the 48px handle band in every position.
+  // The old small/mid overhang covered the OSM credit at 360/390px, and the
+  // old full-position offset needed a 56px list reserve of its own.
+  assert.match(tab, /absolute top-0\.5 left-4 z-30 inline-flex min-h-11 items-center justify-center/);
+  assert.doesNotMatch(tab, /-top-11|left-4 top-12/);
   assert.match(tab, /rounded-\[14px\] border/);
   // Inactive: white + border + ✦ + shadow. Active: deep brand green + white.
   assert.match(tab, /border-black\/10 bg-white text-brand-ink\/70 hover:bg-brand-cream/);

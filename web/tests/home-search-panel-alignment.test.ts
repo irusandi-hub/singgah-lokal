@@ -195,13 +195,14 @@ test("the results sheet keeps its draggable handle and the moved curated tab", (
   const sheet = pageCode.slice(sheetStart, pageCode.indexOf('id={CURATED_RESULTS_ANCHOR_ID}'));
   // The sheet keeps its cream surface and rounded top. Its handle is now a
   // real focusable/draggable button (2026-10-18) instead of a decorative bar;
-  // the curated tab is the one hinged control on the seam and it protrudes
-  // above the sheet edge in small/mid.
+  // the curated tab is the one control in the handle band (2026-10-20), so it
+  // no longer hangs over the map or the OSM credit.
   assert.match(sheet, /rounded-t-\[24px\] bg-brand-cream/);
   assert.match(sheet, /aria-label="Atur tinggi panel hasil"/);
   assert.match(sheet, /onPointerDown=\{beginSheetDrag\}/);
   assert.match(sheet, /onKeyDown=\{handleSheetKeyDown\}/);
-  assert.match(sheet, /-top-11 left-4/);
+  assert.match(sheet, /absolute top-0\.5 left-4 z-30/);
+  assert.doesNotMatch(sheet, /-top-11 left-4/);
   // The board's title/count/radius/"Ke hasil" content is GONE (2026-10-18).
   assert.doesNotMatch(sheet, /place-results-heading" className="text-base/);
   assert.doesNotMatch(sheet, /nearOrigin|coverageScope|Ke hasil|resultsAnchorId/);
@@ -233,7 +234,10 @@ test("the OSM attribution stays visible above the sheet edge", () => {
   // VISIBLE sheet height while keeping its pre-existing 22px base offset. It
   // is never covered at small/mid, and no old panel measurement remains.
   const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(css, /\.leaflet-control-attribution \{\s*margin-bottom: 22px;\s*\}/);
+  assert.match(
+    css,
+    /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;\s*\}/,
+  );
   assert.match(css, /\.singgah-home-map \.leaflet-bottom \{\s*bottom: var\(--singgah-sheet-inset, 0px\);/);
   assert.match(pageCode, /bottomInset=\{sheetVisiblePx\}/);
   assert.doesNotMatch(pageCode, /--singgah-sheet-inset/);
@@ -246,11 +250,12 @@ test("the OSM attribution stays visible above the sheet edge", () => {
   assert.doesNotMatch(css, /--singgah-results-panel-height/);
   assert.doesNotMatch(pageCode, /--singgah-results-panel-height/);
   assert.doesNotMatch(pageCode, /new ResizeObserver\(apply\)/);
-  // The gesture hint is lifted ABOVE the attribution band and the tab, via the
-  // same visible-sheet inset, so it can never cover the credit either.
+  // The gesture hint is lifted ABOVE the attribution band via the same
+  // visible-sheet inset (and above the control column on short stages), so it
+  // can cover neither the credit nor a control.
   assert.match(
     pageCode,
-    /pointer-events-none absolute right-3 z-\[1100\][\s\S]{0,260}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,120}Dua jari untuk geser/,
+    /pointer-events-none absolute right-3 z-\[1100\][\s\S]{0,700}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,120}2 jari geser · cubit zoom/,
   );
   // The attribution itself is untouched: Leaflet's own control, fed by the
   // tile layer's OSM attribution string (pinned in live-hardening /

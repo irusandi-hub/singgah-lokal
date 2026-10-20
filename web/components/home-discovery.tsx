@@ -39,6 +39,9 @@ import {
   type SheetPosition,
 } from "@/lib/live/ui";
 
+/** How long the two-finger hint stays readable before it fades out. */
+const GESTURE_HINT_VISIBLE_MS = 6000;
+
 /**
  * CANONICAL CAMERA CANDIDATE — one canonical Place projected to exactly what
  * the camera rules are allowed to read: its id, name, REAL coordinates, and its
@@ -373,6 +376,12 @@ export default function HomeDiscovery({
   const [pressedPlaceId, setPressedPlaceId] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [pendingScrollPlaceId, setPendingScrollPlaceId] = useState<string | null>(null);
+  // The two-finger hint is a HINT, not a label: it stays readable for a few
+  // seconds and then fades out, so a marker or the blue location dot behind it
+  // is never occluded for longer than the user needs to read one line. This is
+  // presentation only — the map's gestures and the hint's own copy are
+  // unchanged.
+  const [gestureHintVisible, setGestureHintVisible] = useState(true);
 
   // Measure the stage so the three snap offsets are real pixels. A
   // ResizeObserver covers mobile browser chrome, rotation, and the desktop
@@ -400,20 +409,26 @@ export default function HomeDiscovery({
   const sheetVisiblePx = Math.max(0, stageHeight - sheetOffset);
 
   // GESTURE HINT LIFT (2026-10-20) — the compact pill rides the visible sheet
-  // edge at `sheetVisiblePx + 56` (above the 22px OSM attribution band, below
-  // the 128px empty-state card). On a very short stage (landscape phones) that
-  // lift can land inside the floating control column band (top 190..bottom 278
-  // measured from the stage top), where only 12px are left under the column —
-  // less than the 20px pill — so there it parks 8px ABOVE the column instead.
-  // Every supported portrait/desktop viewport keeps the plain lift.
-  const gestureHintLiftBasePx = sheetVisiblePx + 56;
+  // edge at `sheetVisiblePx + 44`: the 22px OSM credit band plus a 22px gap, so
+  // the credit stays readable in every snap position. Its 18px height and short
+  // copy keep it inside the empty band between the credit and the pins.
+  //
+  // On a stage short enough for that lift to land inside the floating control
+  // column band (top 190..bottom 278, landscape phones), only 12px are left
+  // under the column — less than the 18px pill — so there it parks 8px ABOVE the
+  // column instead. Every supported portrait/desktop stage keeps the plain lift.
+  const gestureHintLiftBasePx = sheetVisiblePx + 44;
   const gestureHintEdgePx = stageHeight - gestureHintLiftBasePx;
   const gestureHintColumnTopPx = MAP_CONTROL_COLUMN_BOTTOM_PX - 88;
   const gestureHintLiftPx =
     gestureHintEdgePx > gestureHintColumnTopPx &&
-    gestureHintEdgePx - 20 < MAP_CONTROL_COLUMN_BOTTOM_PX
+    gestureHintEdgePx - 18 < MAP_CONTROL_COLUMN_BOTTOM_PX
       ? stageHeight - (gestureHintColumnTopPx - 8)
       : gestureHintLiftBasePx;
+  useEffect(() => {
+    const timer = window.setTimeout(() => setGestureHintVisible(false), GESTURE_HINT_VISIBLE_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const setSheetSnap = useCallback((next: SheetPosition) => {
     dragRef.current = null;
@@ -1913,26 +1928,32 @@ export default function HomeDiscovery({
             The measured SCALE BAR was removed on 2026-10-04 and still renders
             nothing in its place; no distance indicator replaces it either. */}
 
-        {/* GESTURE HINT (2026-10-18; bottom-right 2026-10-19): the only touch gestures this map keeps
-            are TWO-FINGER ones. Verified against the installed Leaflet 1.9
-            source: TouchZoom's `_onTouchMove` pans by the pinch MIDPOINT and
-            zooms by the pinch DISTANCE, while the touch-primary one-finger
-            lock (`dragging` / `doubleClickZoom` off) leaves a single finger to
-            scroll the page. The hint therefore states exactly the supported
-            pair — never a gesture the map cannot perform. It is one compact,
-            click-through pill anchored to the BOTTOM-RIGHT of the map area:
-            below the compass/locate control column (top 190..278, 17px clear at
-            360×640), above the OSM attribution band (inset + 22px), clear of
-            the empty-state card (inset + 128px), and 12px from the right edge
-            like the control column itself. Rides the visible sheet edge at
-            inset + 56px, so no snap position can cover it; on a short stage the
-            lift is capped above the control column (see gestureHintLiftPx).
-            Smaller padding keeps it compact. */}
+        {/* GESTURE HINT (2026-10-18; compact 2026-10-20): the only touch
+            gestures this map keeps are TWO-FINGER ones. Verified against the
+            installed Leaflet 1.9 source: TouchZoom's `_onTouchMove` pans by the
+            pinch MIDPOINT and zooms by the pinch DISTANCE, while the
+            touch-primary one-finger lock (`dragging` / `doubleClickZoom` off)
+            leaves a single finger to scroll the page. The hint therefore states
+            exactly the supported pair — never a gesture the map cannot
+            perform.
+
+            POLISH (2026-10-20): the copy is one short line and the padding is
+            tighter, so the pill is ~40% narrower and 2px shorter than the old
+            sentence. It keeps the control column's 12px right inset and rides
+            44px above the visible seam, so the 22px OSM credit always has a
+            22px gap. Because a marker or the blue location dot can legitimately
+            be anywhere (this frame's pins clear the pill on all three sheet
+            positions at 360/390, but that is data, not a guarantee), the hint
+            also fades out after GESTURE_HINT_VISIBLE_MS — it never becomes a
+            permanent cover over the map it describes. One component, still
+            click-through, no gesture logic touched. */}
         <div
-          className="pointer-events-none absolute right-3 z-[1100] rounded-full bg-white/85 px-2 py-0.5 text-[10px] font-semibold leading-4 text-brand-ink/55 shadow-[0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 backdrop-blur-sm transition-[bottom] duration-300 motion-reduce:transition-none"
+          className={`pointer-events-none absolute right-3 z-[1100] rounded-full bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold leading-3.5 text-brand-ink/55 shadow-[0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 backdrop-blur-sm transition-[opacity,bottom] duration-300 motion-reduce:transition-none ${
+            gestureHintVisible ? "opacity-100" : "opacity-0"
+          }`}
           style={{ bottom: gestureHintLiftPx }}
         >
-          Dua jari untuk geser · cubit untuk zoom
+          2 jari geser · cubit zoom
         </div>
 
       </section>
@@ -1985,13 +2006,18 @@ export default function HomeDiscovery({
             <span className="sr-only">Tarik atau gunakan tombol panah untuk mengubah tinggi panel</span>
           </button>
 
-          {/* HANGING LAYER TAB (2026-10-18; full-position fix 2026-10-19):
-              ONE instance, attached to the sheet's top edge and left-aligned.
-              In small/mid it protrudes above the seam; in full it sits just
-              BELOW the handle header instead of beside the handle — at 360px
-              the 151px tab and the centred 64px handle overlapped by 19px,
-              so the tab could swallow part of the one drag target. The
-              handler, `aria-pressed`, and the LIVE exclusivity rule are
+          {/* PANEL TAB (2026-10-18; header placement 2026-10-20): ONE instance,
+              left-aligned INSIDE the 48px handle band so it reads as part of
+              the results panel instead of a board stuck onto the map. That
+              also removes the old small/mid overhang, which sat exactly on
+              the OSM credit band at 360/390px (the tab's right edge reached
+              x=167 while the credit starts at x≈126) — the attribution is now
+              clear in all three positions.
+
+              Sizing: 44px tap height (min-h-11), 11px bold label, px-2, and a
+              4px icon gap keep the chip at ~126px, so at 360px its right edge
+              (x=142) stays 6px clear of the centred 64px drag handle (x=148).
+              The handler, `aria-pressed`, and the LIVE exclusivity rule are
               unchanged. */}
           <button
             type="button"
@@ -2003,11 +2029,9 @@ export default function HomeDiscovery({
             }}
             aria-pressed={curatedOnly}
             title="Tempat Pilihan"
-            className={`absolute z-30 inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-[14px] border px-3.5 text-xs font-bold shadow-[0_-2px_10px_rgb(0_0_0/0.10)] transition active:scale-[0.98] ${
-              sheetPosition === "full" ? "left-4 top-12" : "-top-11 left-4"
-            } ${
+            className={`absolute top-0.5 left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border px-2 text-[11px] font-bold shadow-[0_1px_3px_rgb(0_0_0/0.10)] transition active:scale-[0.98] ${
               curatedOnly
-                ? "border-brand-primary bg-brand-primary text-white shadow-[0_-2px_10px_rgb(14_107_79/0.28)]"
+                ? "border-brand-primary bg-brand-primary text-white shadow-[0_1px_3px_rgb(14_107_79/0.22)]"
                 : "border-black/10 bg-white text-brand-ink/70 hover:bg-brand-cream"
             }`}
           >
@@ -2023,7 +2047,7 @@ export default function HomeDiscovery({
           ref={sheetListRef}
           className={`mx-auto flex w-full max-w-2xl min-h-0 flex-1 flex-col px-4 ${
             sheetPosition === "full"
-              ? "overflow-y-auto overscroll-contain pb-24 pt-14"
+              ? "overflow-y-auto overscroll-contain pb-24 pt-4"
               : "overflow-hidden pb-8"
           }`}
         >

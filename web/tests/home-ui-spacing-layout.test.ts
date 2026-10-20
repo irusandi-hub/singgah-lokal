@@ -134,7 +134,7 @@ test("T2.1 the map stage no longer holds a floating results panel", () => {
   // What legitimately remains in the stage: the map base layer, the chrome,
   // and the compact gesture hint — all still present.
   assert.ok(mapStage.indexOf("<HomeMap") > -1, "the map base layer is untouched");
-  assert.match(mapStage, /Dua jari untuk geser/);
+  assert.match(mapStage, /2 jari geser · cubit zoom/);
 });
 
 test("T2.2 the removed board's title, count, radius line, and 'Ke hasil' are gone", () => {
@@ -194,28 +194,45 @@ test("T2.5 the moved curated tab lives in the results sheet, on no overlay tier"
 
 test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () => {
   // 2026-10-18: all three bottom overlays now ride the VISIBLE sheet edge.
-  //  · attribution: the sheet inset + its 22px base margin
-  //  · gesture hint: the inset + 56px (above the hanging tab)
+  //  · attribution: the sheet inset + its 22px margin
+  //  · gesture hint: the inset + 44px (22px credit + 22px gap)
   //  · empty state:  the inset + 128px
   // so no snap position can cover a control at the map's bottom edge.
   const ATTRIBUTION_BASE = 22;
-  const HINT_LIFT = 56;
+  const HINT_LIFT = 44;
   const EMPTY_LIFT = 128;
   assert.ok(ATTRIBUTION_BASE < HINT_LIFT, "the hint clears the credit");
   assert.ok(HINT_LIFT < EMPTY_LIFT, "the hint clears the empty state");
+  // The 22px credit margin must be scoped to the Home map's own bottom band:
+  // Leaflet's `.leaflet-bottom .leaflet-control` sets its own margin, and the
+  // old single-class selector lost that tie at runtime (computed margin 0, so
+  // the credit sat flush on the seam).
+  assert.match(
+    globalsCss,
+    /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;\s*\}/,
+  );
   assert.match(
     globalsCss,
     /\.singgah-home-map \.leaflet-bottom \{\s*bottom: var\(--singgah-sheet-inset, 0px\);/,
   );
   assert.match(mapCode, /bottomInset = 0/);
   assert.match(mapCode, /--singgah-sheet-inset/);
-  // 2026-10-20: the 56px lift is still the base (it rides the visible inset),
-  // and on a stage short enough for it to land inside the control column band
-  // it is capped 8px above that column instead of squeezing under it.
-  assert.match(code, /const gestureHintLiftBasePx = sheetVisiblePx \+ 56;/);
+  // 2026-10-20: the hint rides 44px above the visible seam (22px credit +
+  // 22px gap) and keeps the control column's 12px right inset. On a stage too
+  // short for the pill under the column it parks 8px ABOVE the column.
+  assert.match(code, /const gestureHintLiftBasePx = sheetVisiblePx \+ 44;/);
+  assert.match(code, /gestureHintEdgePx - 18 < MAP_CONTROL_COLUMN_BOTTOM_PX/);
+  assert.match(code, /pointer-events-none absolute right-3 z-\[1100\]/);
   assert.match(code, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
-  assert.match(code, /gestureHintEdgePx - 20 < MAP_CONTROL_COLUMN_BOTTOM_PX/);
   assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
+  // The pill is a HINT, not a permanent label: it fades out after a few
+  // seconds so it can never keep covering a marker or the blue location dot.
+  assert.match(code, /const GESTURE_HINT_VISIBLE_MS = 6000;/);
+  assert.match(
+    code,
+    /setTimeout\(\(\) => setGestureHintVisible\(false\), GESTURE_HINT_VISIBLE_MS\)/,
+  );
+  assert.match(code, /gestureHintVisible \? "opacity-100" : "opacity-0"/);
   // No bottom-anchored panel remains, and the scale bar stays gone.
   assert.doesNotMatch(mapStage, /absolute bottom-9 right-4 z-\[1100\]/);
   assert.doesNotMatch(code, /mapScale/);
@@ -232,17 +249,24 @@ test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () =>
 
 test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
   // 360px is the documented floor. The tab is one compact, non-wrapping chip
-  // (12px bold, px-3.5, min 44px tall) hanging on the sheet's top edge, so it
-  // can neither wrap nor overflow at any supported width.
+  // (11px bold, px-2, 4px icon gap, 44px tap height) INSIDE the 48px handle
+  // band. Measured at that width: 16 + 96 (label) + 10 (✦) + 4 (gap) + 16
+  // (px-2) = 126px, so its right edge is x=142 — 6px clear of the centred
+  // 64px drag handle, whose left edge is x=148.
   const VIEWPORT = 360;
-  const chipWidth = 28 + 8 + 4 + "Tempat Pilihan".length * 6.6;
-  assert.ok(chipWidth < VIEWPORT - 32, "the tab fits inside a 360px viewport");
+  const HANDLE_LEFT = (VIEWPORT - 64) / 2;
+  const TAB_LEFT = 16;
+  const TAB_WIDTH = 16 + 96 + 10 + 4;
+  assert.ok(TAB_LEFT + TAB_WIDTH + 4 <= HANDLE_LEFT, "the tab keeps a gap to the drag handle at 360px");
+  assert.ok(TAB_LEFT + TAB_WIDTH < VIEWPORT, "the tab fits inside a 360px viewport");
   const tabStart = code.indexOf("aria-pressed={curatedOnly}");
   const tab = code.slice(tabStart - 900, tabStart + 600);
   assert.match(tab, /whitespace-nowrap/);
   assert.match(tab, /min-h-11/);
-  assert.match(tab, /-top-11 left-4/);
-  assert.match(tab, /text-xs font-bold/);
+  assert.match(tab, /absolute top-0\.5 left-4 z-30/);
+  assert.match(tab, /gap-1 whitespace-nowrap rounded-\[14px\] border px-2 text-\[11px\] font-bold/);
+  // It sits INSIDE the header band now, so it cannot reach the OSM credit.
+  assert.doesNotMatch(tab, /-top-11/);
   assert.equal((tab.match(/<button/g) ?? []).length, 1, "one control on the seam");
 });
 

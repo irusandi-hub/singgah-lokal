@@ -69,14 +69,14 @@ test("mid never covers the floating map control column on supported short stages
   }
 });
 
-test("a 360px landscape stage still shows the handle and the hanging tab", () => {
+test("a 360px landscape stage still shows the handle and the panel tab", () => {
   const offsets = resolveSheetOffsets(360);
-  // Header-only fallback: 70px visible, enough for the 48px header plus the
-  // tab that hangs 44px above the seam.
+  // Header-only fallback: 70px visible, enough for the 48px header.
   assert.equal(360 - offsets.mid, 70);
   assert.ok(360 - offsets.mid >= SHEET_HEADER_PX);
-  // The tab at -top-11 is still inside the map area above the sheet.
-  assert.ok(offsets.mid - 44 >= 0);
+  // The tab lives INSIDE that header now (2026-10-20), so the 44px tap target
+  // only has to fit the 48px band; nothing hangs over the map or the credit.
+  assert.ok(SHEET_HEADER_PX - 44 >= 0, "the 44px tab fits the 48px header band");
 });
 
 test("absurdly short stages degrade safely instead of producing negative offsets", () => {
