@@ -297,7 +297,10 @@ test("the curated LIST, both rows and eligibility are untouched", () => {
   assert.match(pageCode, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
   assert.equal((pageCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
   assert.match(pageCode, />\s*Tempat Pilihan\s*<\/button>/);
-  assert.match(pageCode, /absolute top-0\.5 left-4 z-30 inline-flex min-h-11/);
+  // 2026-10-20: the tab hangs 20px above the sheet edge (2px inside the band
+  // at `full`) instead of sitting inline with the handle.
+  assert.match(pageCode, /absolute left-4 z-30 inline-flex min-h-11/);
+  assert.match(pageCode, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
   assert.doesNotMatch(pageCode, /-top-11 left-4|left-4 top-12/);
 });
 

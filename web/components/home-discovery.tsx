@@ -6,6 +6,7 @@ import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import PlaceFollowButton from "@/components/place-follow-button";
 import SiteNav from "@/components/site-nav";
 import VisitedLink from "@/components/visited-link";
+import { resolveCoverLoadState } from "@/lib/place-cover";
 import { PLACE_CATEGORIES, type Place } from "@/lib/places";
 import type { DiscoveryViewModel } from "@/lib/discovery/view-model";
 import {
@@ -23,6 +24,7 @@ import {
   isSameViewport,
   liveDurationLabel,
   MAP_CONTROL_COLUMN_BOTTOM_PX,
+  MAP_CONTROL_COLUMN_TOP_PX,
   narrowToViewport,
   normalizeSearchArea,
   resolveActiveCenter,
@@ -39,8 +41,30 @@ import {
   type SheetPosition,
 } from "@/lib/live/ui";
 
-/** How long the two-finger hint stays readable before it fades out. */
-const GESTURE_HINT_VISIBLE_MS = 6000;
+/**
+ * GESTURE HINT (2026-10-20). The hint is now shown by the FIRST one-finger
+ * touch on the map, not by the render: a hint that appeared on load was often
+ * already fading (or gone) by the time the map was interactive and the user
+ * looked at it. It holds for ~3 s, then fades.
+ */
+const GESTURE_HINT_VISIBLE_MS = 3000;
+/** Pill height in px: 12px text + 2×6px padding + 2px border (measured 28). */
+const GESTURE_HINT_HEIGHT_PX = 28;
+/**
+ * "Already seen" flag. A returning visitor is not taught the same gesture on
+ * every visit; the small "?" control in the map's control column recalls it on
+ * demand. Storage failures (private mode, disabled storage) are ignored — the
+ * hint then simply behaves as un-seen.
+ */
+const GESTURE_HINT_SEEN_KEY = "singgah.gestureHintSeen";
+
+/**
+ * How far the "Tempat Pilihan" tab hangs ABOVE the results sheet's top edge
+ * (2026-10-20). 20px is enough to read as a tab over the map while its top
+ * edge stays clear of the OSM credit's lower edge (seam − 22) at 360px, where
+ * that credit starts furthest left.
+ */
+const CURATED_TAB_HANG_PX = 20;
 
 /**
  * CANONICAL CAMERA CANDIDATE — one canonical Place projected to exactly what
@@ -151,6 +175,21 @@ function displayPlaceCategory(category: string | null | undefined): string {
 function PlaceCardCover({ name, src }: { name: string; src: string | null | undefined }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+
+  // CACHED-IMAGE / HYDRATION RECONCILIATION (bug fix, 2026-10-20). The cover is
+  // part of the SERVER-rendered markup, so the browser frequently finishes
+  // loading it before React hydrates and attaches `onLoad`; for a cached image
+  // that event has already fired and never fires again, which left the card on
+  // its skeleton for good. This reads the element's own state once per src
+  // instead of waiting for an event that may never come. Measured before the
+  // fix on a 390×844 load: `complete=true`, `naturalWidth=1200`, computed
+  // `opacity: 0` + `blur(12px)` behind the cream skeleton.
+  useEffect(() => {
+    const state = resolveCoverLoadState(imgRef.current);
+    if (state === "loaded") setLoaded(true);
+    else if (state === "failed") setFailed(true);
+  }, [src]);
 
   if (!src || failed) {
     return (
@@ -178,6 +217,7 @@ function PlaceCardCover({ name, src }: { name: string; src: string | null | unde
           pattern as the Place detail hero. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
+        ref={imgRef}
         src={src}
         alt={`Gambar sampul ${name}`}
         loading="lazy"
@@ -376,12 +416,14 @@ export default function HomeDiscovery({
   const [pressedPlaceId, setPressedPlaceId] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [pendingScrollPlaceId, setPendingScrollPlaceId] = useState<string | null>(null);
-  // The two-finger hint is a HINT, not a label: it stays readable for a few
-  // seconds and then fades out, so a marker or the blue location dot behind it
-  // is never occluded for longer than the user needs to read one line. This is
-  // presentation only — the map's gestures and the hint's own copy are
-  // unchanged.
-  const [gestureHintVisible, setGestureHintVisible] = useState(true);
+  // The two-finger hint is a HINT, not a label: it appears when the visitor
+  // FIRST touches the map with one finger, stays readable ~3 s, then fades.
+  // Presentation only — the map's gestures and the hint's copy are unchanged.
+  const [gestureHintVisible, setGestureHintVisible] = useState(false);
+  // "Already seen" flag, read after mount (never during render: the server has
+  // no localStorage, so reading it early would desynchronise hydration).
+  const gestureHintSeenRef = useRef(false);
+  const gestureHintTimerRef = useRef<number | null>(null);
 
   // Measure the stage so the three snap offsets are real pixels. A
   // ResizeObserver covers mobile browser chrome, rotation, and the desktop
@@ -408,33 +450,92 @@ export default function HomeDiscovery({
   const sheetOffset = dragOffset ?? settledOffset;
   const sheetVisiblePx = Math.max(0, stageHeight - sheetOffset);
 
-  // GESTURE HINT LIFT (2026-10-20) — the compact pill rides the visible sheet
-  // edge at `sheetVisiblePx + 44`: the 22px OSM credit band plus a 22px gap, so
-  // the credit stays readable in every snap position. Its 18px height and short
-  // copy keep it inside the empty band between the credit and the pins.
+  // GESTURE HINT LIFT (2026-10-20) — the pill rides the visible sheet edge at
+  // `sheetVisiblePx + 44`: the 22px OSM credit band plus a 22px gap, so the
+  // credit stays readable in every snap position.
   //
   // On a stage short enough for that lift to land inside the floating control
-  // column band (top 190..bottom 278, landscape phones), only 12px are left
-  // under the column — less than the 18px pill — so there it parks 8px ABOVE the
-  // column instead. Every supported portrait/desktop stage keeps the plain lift.
+  // column band (top 190…bottom 278, very short landscape phones), the pill
+  // parks 8px ABOVE the column instead. Every supported portrait/desktop stage
+  // keeps the plain lift.
   const gestureHintLiftBasePx = sheetVisiblePx + 44;
-  const gestureHintEdgePx = stageHeight - gestureHintLiftBasePx;
-  const gestureHintColumnTopPx = MAP_CONTROL_COLUMN_BOTTOM_PX - 88;
+  const gestureHintTopPx = stageHeight - gestureHintLiftBasePx - GESTURE_HINT_HEIGHT_PX;
   const gestureHintLiftPx =
-    gestureHintEdgePx > gestureHintColumnTopPx &&
-    gestureHintEdgePx - 18 < MAP_CONTROL_COLUMN_BOTTOM_PX
-      ? stageHeight - (gestureHintColumnTopPx - 8)
+    gestureHintTopPx < MAP_CONTROL_COLUMN_BOTTOM_PX &&
+    gestureHintTopPx + GESTURE_HINT_HEIGHT_PX > MAP_CONTROL_COLUMN_TOP_PX
+      ? stageHeight - (MAP_CONTROL_COLUMN_TOP_PX - 8)
       : gestureHintLiftBasePx;
-  useEffect(() => {
-    const timer = window.setTimeout(() => setGestureHintVisible(false), GESTURE_HINT_VISIBLE_MS);
-    return () => window.clearTimeout(timer);
+
+  // One "seen" flag, one timer. `remember` is false only for the explicit
+  // "?" recall, which may show the hint again after it was already seen.
+  const showGestureHint = useCallback((remember: boolean) => {
+    if (gestureHintTimerRef.current !== null) {
+      window.clearTimeout(gestureHintTimerRef.current);
+      gestureHintTimerRef.current = null;
+    }
+    setGestureHintVisible(true);
+    if (remember) {
+      gestureHintSeenRef.current = true;
+      try {
+        window.localStorage.setItem(GESTURE_HINT_SEEN_KEY, "1");
+      } catch {
+        // Storage unavailable (private mode): the flag just does not persist.
+      }
+    }
+    gestureHintTimerRef.current = window.setTimeout(() => {
+      gestureHintTimerRef.current = null;
+      setGestureHintVisible(false);
+    }, GESTURE_HINT_VISIBLE_MS);
   }, []);
+
+  useEffect(() => {
+    try {
+      gestureHintSeenRef.current = window.localStorage.getItem(GESTURE_HINT_SEEN_KEY) === "1";
+    } catch {
+      // Storage unavailable: behave as un-seen for this session.
+    }
+    return () => {
+      if (gestureHintTimerRef.current !== null) window.clearTimeout(gestureHintTimerRef.current);
+    };
+  }, []);
+
+  // TRIGGER (2026-10-20): the FIRST one-finger touch on the map surface — not
+  // the render. Gated so the hint can never appear while the map is still
+  // loading (`mapViewport` is the map's first real report), while the sheet is
+  // being dragged, from the second finger of a pinch (`isPrimary`), or again
+  // once the visitor has seen it. Mouse/pen pointers carry no touch gesture to
+  // teach, so they are ignored.
+  const sheetDragging = dragOffset !== null;
+  const mapReady = mapViewport !== null;
+  useEffect(() => {
+    const node = stageRef.current;
+    if (!node || !mapReady) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "mouse" || !event.isPrimary) return;
+      if (sheetDragging || gestureHintSeenRef.current) return;
+      const target = event.target as Element | null;
+      // The map surface only: a touch on the search bar, the filter row, the
+      // sheet, or the floating controls is not a map gesture.
+      if (!target?.closest(".singgah-home-map")) return;
+      showGestureHint(true);
+    };
+    node.addEventListener("pointerdown", onPointerDown);
+    return () => node.removeEventListener("pointerdown", onPointerDown);
+  }, [mapReady, sheetDragging, showGestureHint]);
 
   const setSheetSnap = useCallback((next: SheetPosition) => {
     dragRef.current = null;
     setDragOffset(null);
     setSheetPosition(next);
   }, []);
+
+  // The "?" tile in the control column: re-show the SAME hint component, on
+  // demand, for a visitor whose "seen" flag is already set. It lives in the
+  // map's control column, which the sheet covers at `full` — so it is exactly
+  // as reachable as the map it explains, and it never moves the sheet.
+  const handleShowGestureHint = useCallback(() => {
+    showGestureHint(false);
+  }, [showGestureHint]);
 
   const beginSheetDrag = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -1554,6 +1655,9 @@ export default function HomeDiscovery({
             viewerPosition={viewerPosition}
             locateNonce={locateNonce}
             onRequestLocate={handleLocatePress}
+            /* GESTURE HINT RECALL (2026-10-20): the "?" tile in the control
+               column re-opens the one hint component. */
+            onShowGestureHint={handleShowGestureHint}
             /* The REAL visible viewport is reported back here: it is the ONE
                geographic coverage source for the markers and for the Discovery
                Place / "Tempat Pilihan" rows. It carries geometry only — it
@@ -1812,7 +1916,16 @@ export default function HomeDiscovery({
 
               The four-column split replaces the old five-column one byte for
               byte in spirit: `auto` for LIVE, then three equal radius cells. */}
-          <div className="pointer-events-auto mt-2.5 grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))] gap-1.5">
+          {/* FILTER ROW SURFACE (bug fix, 2026-10-20): the four chips float on
+              the map, so the 6px gaps between them used to show whatever sat
+              behind — a Place name chip ("…al") could be read through the row.
+              The row now paints an OPAQUE cream surface (same brand token as
+              the header/sheet) with a hairline ring, so nothing behind it can
+              leak between the chips. Zero padding: chip size and the row's
+              height are unchanged, so the control column's 190px start still
+              matches the chrome. Handlers, order, colours, and semantics are
+              untouched. */}
+          <div className="pointer-events-auto mt-2.5 grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))] gap-1.5 rounded-[16px] bg-brand-cream ring-1 ring-black/5">
             <button
               onClick={() => {
                 // Mutually exclusive modes (lib/live/ui.ts): turning LIVE on
@@ -1937,24 +2050,35 @@ export default function HomeDiscovery({
             exactly the supported pair — never a gesture the map cannot
             perform.
 
-            POLISH (2026-10-20): the copy is one short line and the padding is
-            tighter, so the pill is ~40% narrower and 2px shorter than the old
-            sentence. It keeps the control column's 12px right inset and rides
-            44px above the visible seam, so the 22px OSM credit always has a
-            22px gap. Because a marker or the blue location dot can legitimately
-            be anywhere (this frame's pins clear the pill on all three sheet
-            positions at 360/390, but that is data, not a guarantee), the hint
-            also fades out after GESTURE_HINT_VISIBLE_MS — it never becomes a
-            permanent cover over the map it describes. One component, still
-            click-through, no gesture logic touched. */}
-        <div
-          className={`pointer-events-none absolute right-3 z-[1100] rounded-full bg-white/85 px-1.5 py-0.5 text-[10px] font-semibold leading-3.5 text-brand-ink/55 shadow-[0_2px_8px_rgb(0_0_0/0.08)] ring-1 ring-black/5 backdrop-blur-sm transition-[opacity,bottom] duration-300 motion-reduce:transition-none ${
-            gestureHintVisible ? "opacity-100" : "opacity-0"
-          }`}
-          style={{ bottom: gestureHintLiftPx }}
-        >
-          2 jari geser · cubit zoom
-        </div>
+            CONTRAST (2026-10-20): the old pill was 10px, 55%-opacity ink on an
+            85%-opaque white card — it read as text leaking onto the map. It is
+            now a SOLID deep-green pill (`brand-primary-deep` #0a5640, opaque)
+            with pure white 12px semibold text: contrast 8.69:1 (WCAG AA needs
+            4.5:1). One thin light border plus a soft green shadow separates it
+            from the tiles; a 14px two-finger icon sits in front of the words.
+            It keeps the control column's 12px right inset and rides 44px above
+            the visible seam, so the OSM credit keeps its gap. Because a marker
+            or the blue location dot can legitimately be anywhere (this frame's
+            pins clear the pill on all three sheet positions at 360/390, but
+            that is data, not a guarantee), the hint also fades after
+            GESTURE_HINT_VISIBLE_MS — it never becomes a permanent cover over
+            the map it describes. One component, still click-through, no
+            gesture logic touched. */}
+        {gestureHintVisible && (
+          <div
+            data-gesture-hint
+            className="pointer-events-none absolute right-3 z-[1100] inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-brand-primary-deep px-3 py-1.5 text-[12px] font-semibold leading-none text-white shadow-[0_6px_18px_rgb(10_86_64/0.35)] transition-opacity duration-300 motion-reduce:transition-none"
+            style={{ bottom: gestureHintLiftPx }}
+          >
+            {/* Two-finger glyph: exactly the gesture the map supports. */}
+            <svg aria-hidden viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+              <path d="M9 11V5.8a1.6 1.6 0 0 1 3.2 0V11" />
+              <path d="M12.2 11V4.9a1.6 1.6 0 0 1 3.2 0V11" />
+              <path d="M15.4 11.4V7.6a1.6 1.6 0 0 1 3.2 0V15a5.4 5.4 0 0 1-5.4 5.4h-1.5a5 5 0 0 1-3.9-1.9l-3-3.6a1.6 1.6 0 0 1 2.4-2.1L9 14.6" />
+            </svg>
+            2 jari: geser &amp; cubit
+          </div>
+        )}
 
       </section>
 
@@ -2006,19 +2130,33 @@ export default function HomeDiscovery({
             <span className="sr-only">Tarik atau gunakan tombol panah untuk mengubah tinggi panel</span>
           </button>
 
-          {/* PANEL TAB (2026-10-18; header placement 2026-10-20): ONE instance,
-              left-aligned INSIDE the 48px handle band so it reads as part of
-              the results panel instead of a board stuck onto the map. That
-              also removes the old small/mid overhang, which sat exactly on
-              the OSM credit band at 360/390px (the tab's right edge reached
-              x=167 while the credit starts at x≈126) — the attribution is now
-              clear in all three positions.
+          {/* PANEL TAB (2026-10-18; HANGING above the seam, 2026-10-20). ONE
+              instance. In small/mid it now protrudes 20px ABOVE the sheet's
+              top edge — a real tab hanging over the map, with a strong shadow
+              — instead of sitting inline with the handle, where it read as a
+              card attribute. At `full` the sheet is already at the top of the
+              stage, so the tab tucks 2px inside the header band instead of
+              being pushed off-screen; there it still keeps 18px to the first
+              card (2+44 → 64).
 
-              Sizing: 44px tap height (min-h-11), 11px bold label, px-2, and a
-              4px icon gap keep the chip at ~126px, so at 360px its right edge
-              (x=142) stays 6px clear of the centred 64px drag handle (x=148).
-              The handler, `aria-pressed`, and the LIVE exclusivity rule are
-              unchanged. */}
+              PLACEMENT: bottom-LEFT, 20px above the seam. The OSM credit is
+              bottom-RIGHT and its lower edge sits at seam−22, so the tab's top
+              edge (seam−20) clears it in every position — measured at 360px,
+              where the credit starts furthest left (x=126). The gesture pill
+              lives bottom-right too, the floating control column top-right
+              (190…278), and the first card starts at seam+48, i.e. 24px below
+              the tab's lower edge (required gap: 16px).
+
+              CONTRAST: inactive = opaque white + hairline border + ink text;
+              active = dark brand green with pure white text. 44px tap height
+              (min-h-11), 11px bold label, ✦ icon, px-2 and a 4px gap keep the
+              chip at ~126px, so at 360px its right edge (x=142) stays 6px
+              clear of the centred 64px drag handle (x=148).
+
+              The handler, `aria-pressed`, the curated-activation rule and the
+              LIVE exclusivity rule are unchanged, and the tab still travels
+              with the sheet because it is positioned against the sheet's own
+              header. */}
           <button
             type="button"
             onClick={() => {
@@ -2029,10 +2167,14 @@ export default function HomeDiscovery({
             }}
             aria-pressed={curatedOnly}
             title="Tempat Pilihan"
-            className={`absolute top-0.5 left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border px-2 text-[11px] font-bold shadow-[0_1px_3px_rgb(0_0_0/0.10)] transition active:scale-[0.98] ${
+            /* The hang is an inline offset, not a utility class: it is derived
+               from the measured seam, so `top` is explicit (-20px = 20px of the
+               tab above the sheet edge; 2px inside the band at `full`). */
+            style={{ top: sheetPosition === "full" ? 2 : -CURATED_TAB_HANG_PX }}
+            className={`absolute left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border px-2 text-[11px] font-bold shadow-[0_8px_18px_rgb(0_0_0/0.22)] transition active:scale-[0.98] ${
               curatedOnly
-                ? "border-brand-primary bg-brand-primary text-white shadow-[0_1px_3px_rgb(14_107_79/0.22)]"
-                : "border-black/10 bg-white text-brand-ink/70 hover:bg-brand-cream"
+                ? "border-brand-primary bg-brand-primary text-white shadow-[0_8px_18px_rgb(14_107_79/0.35)]"
+                : "border-black/10 bg-white text-brand-ink hover:bg-brand-cream"
             }`}
           >
             <span aria-hidden>✦</span>

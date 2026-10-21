@@ -199,6 +199,8 @@ test("Existing Place navigation and map behavior stay untouched", () => {
   // 2026-10-01 §6 — visual only, geolocation/camera untouched), so blue
   // never collides with any Place-pin color.
   assert.match(mapCode, /BRAND_PIN = "#2563eb"/);
-  assert.match(mapCode, /BRAND_BROWN = "var\(--brand-accent\)"/);
+  // 2026-10-21: the pin uses the DEEP shade of the same accent brown so it
+  // leads the calm basemap; --brand-accent itself is unchanged elsewhere.
+  assert.match(mapCode, /BRAND_BROWN = "var\(--brand-pin\)"/);
   assert.match(mapCode, /BRAND_LIVE = "var\(--live\)"/);
 });

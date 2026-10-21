@@ -214,5 +214,15 @@ test("Visit Intent form derives defaults per Experience and never persists draft
 test("Home search resets when the page is newly opened", () => {
   const code = stripComments(homePage);
   assert.match(code, /const \[searchQuery, setSearchQuery\] = useState\(""\)/);
-  assert.doesNotMatch(code, /localStorage|sessionStorage/);
+  // The search state is never persisted, so a new page always starts empty.
+  // The ONLY storage key in the component is the gesture-hint "seen" flag
+  // (2026-10-20), which stores no query, coordinate, or session data.
+  assert.doesNotMatch(code, /sessionStorage/);
+  const storageKeys = Array.from(code.matchAll(/localStorage\.(?:getItem|setItem)\(([^,)]+)/g)).map((m) =>
+    m[1].trim(),
+  );
+  assert.ok(
+    storageKeys.every((key) => key === "GESTURE_HINT_SEEN_KEY"),
+    `only the gesture-hint flag may persist (got ${storageKeys.join(", ")})`,
+  );
 });

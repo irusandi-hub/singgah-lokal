@@ -144,7 +144,15 @@ test("the right-hand column is compass 190 → Lokasi Saya 238, 8px apart", () =
     /<div className="absolute right-3 top-\[(\d+)px\] z-\[1100\] flex flex-col items-center gap-2">/.exec(mapCode)?.[1] ?? "0",
   );
   assert.equal(columnTop, 190, "the column keeps the retired arrow's offset");
-  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 2, "compass + locate tiles");
+  // 2026-10-20: the compass stands alone on the first row; "Lokasi Saya" and
+  // the gesture-hint "?" share the second 40px row, so the column still ends
+  // at 278px (a third stacked tile would have pushed it to 330 and the sheet
+  // would cover it on a 360px-tall landscape stage).
+  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 3, "compass + locate + \"?\" tiles");
+  assert.match(mapCode, /<div className="flex items-center gap-2">/);
+  // The "?" tile keeps the column's 40px surface, and its 44px touch target
+  // comes from the out-of-flow ring, not from a bigger tile.
+  assert.match(mapCode, /relative inline-flex h-10 w-10[\s\S]{0,400}absolute -inset-0\.5/);
   assert.doesNotMatch(globalsCss, /leaflet-control-zoom-(in|out)/);
   assert.doesNotMatch(globalsCss, /singgah-home-map \.leaflet-top\.leaflet-right/);
   // The overlays stay above Leaflet's documented control ceiling.

@@ -1243,7 +1243,16 @@ export type SheetPosition = "small" | "mid" | "full";
 // longer reserves 64px of vertical space on a phone before the first card.
 export const SHEET_HEADER_PX = 48;
 export const SHEET_MID_VISIBLE_RATIO = 0.42;
-/** Bottom edge of the floating compass + "Lokasi Saya" column (home-map.tsx). */
+/** Top edge of the floating map control column (home-map.tsx). */
+export const MAP_CONTROL_COLUMN_TOP_PX = 190;
+/**
+ * Bottom edge of the floating control column (home-map.tsx): the 40px compass
+ * on top, then "Lokasi Saya" and the gesture-hint "?" side by side in one 40px
+ * row, 8px apart. 190 + 40 + 8 + 40 = 278 — the "?" recall tile (2026-10-20)
+ * was added BESIDE the locate button for exactly this reason: a third stacked
+ * tile would have pushed the column to 330 and the sheet would cover it on a
+ * 360px-tall landscape stage.
+ */
 export const MAP_CONTROL_COLUMN_BOTTOM_PX = 278;
 export const MAP_CONTROL_SAFE_GAP_PX = 12;
 /** A pointer moving faster than this (px/ms) counts as a flick. */
