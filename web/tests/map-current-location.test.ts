@@ -804,49 +804,39 @@ test("Current Location marker is visually distinct from every Place pin", () => 
   assert.match(mapCode, /radius: accuracy/);
 });
 
-test("MOCKUP 2026-10-01 §5 (revised 2026-10-04): right-side control stack — COMPASS + Lokasi Saya", () => {
+test("MOCKUP §5 (revised 2026-10-21): right-side control row — Lokasi Saya + ?", () => {
   const mapCode = stripComments(homeMap);
-  // The labeled "Lokasi Saya" control is now the ONLY entry into the locate
-  // flow: the Re-center navigation arrow was replaced by a non-interactive
-  // compass. Geolocation is therefore untouched — no second system, no new
+  // The labeled "Lokasi Saya" control is the ONLY entry into the locate flow:
+  // the Re-center arrow became a compass on 2026-10-04, and the compass was
+  // removed on 2026-10-21. Geolocation is untouched — no second system, no new
   // camera logic, no filter mutation — and there is exactly ONE locate button.
   const locateButtons = mapCode.match(/onClick=\{onRequestLocate\}/g) ?? [];
   assert.equal(locateButtons.length, 1, "the labeled Lokasi Saya control, one handler, one entry point");
   assert.doesNotMatch(mapCode, /Pusatkan peta ke lokasi saya/);
-  // UNIFIED (2026-10-18): the control is an icon tile now (crosshair + the
-  // existing blue user dot) so it matches the compass and the zoom buttons
-  // exactly; `title` and the aria-label keep it named for pointer and
+  // The control is an icon tile (crosshair + the existing blue user dot);
+  // `title` and the aria-label keep it named for pointer and
   // assistive-technology users alike.
   assert.match(mapCode, /title="Lokasi Saya"/);
   assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
-  // The COMPASS: same box (offset 190px, white surface, radius, ring, soft
-  // shadow) as the arrow it replaces, and an accurate north indicator — the
-  // red needle points at true north. VISUAL REFINEMENT (2026-10-05): the
-  // button shrank 44px -> 40px and its radius/ring/shadow joined the shared
-  // ladder, so the control column is lighter; the offset, the role, and the
-  // needle are unchanged. It is deliberately NOT a button: this Leaflet build
-  // cannot rotate the map, so there is no rotation to restore and an invented
-  // click handler would advertise a capability that does not exist.
-  assert.match(
-    mapCode,
-    /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"\s*\n\s*className="inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5"/,
-  );
-  assert.match(mapCode, /<path d="M12 4\.2 15\.1 13\.2H8\.9L12 4\.2Z" fill="#dc2626" \/>/);
-  assert.match(mapCode, /<circle cx="12" cy="12" r="9" stroke="currentColor"/);
+  // NO compass survives: no north indicator, no needle, no role="img" north
+  // label. The removed ornament must not be replaced by another passive tile.
+  assert.equal(mapCode.includes("Arah peta: utara ke atas"), false);
+  assert.equal(mapCode.includes('fill="#dc2626"'), false);
   // No location arrow or any other decorative glyph takes its place.
   assert.doesNotMatch(mapCode, /➤/);
-  // The blue user dot now sits inside the locate tile's crosshair icon (it is
-  // still decorative — the accessible name stays on the button).
+  // The blue user dot sits inside the locate tile's crosshair icon (decorative
+  // — the accessible name stays on the button).
   assert.match(mapCode, /<circle cx="12" cy="12" r="2\.4" fill="#2563eb" \/>/);
-  // Both overlays share ONE 40px-tile column at right-3/top-[190px].
+  // The TWO controls share ONE 40px row at right-3/top-[190px], no wrapping.
   assert.match(
     mapCode,
-    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2">/,
+    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2">/,
   );
-  // Both overlays stay ABOVE the Leaflet control ceiling (z-[1100]).
+  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 2);
+  // The overlays stay ABOVE the Leaflet control ceiling (z-[1100]).
   assert.match(mapCode, /z-\[1100\]/);
-  // 2026-10-18: the +/- stack was REMOVED; the column ends with "Lokasi Saya"
-  // and no Leaflet zoom control is configured or offset.
+  // 2026-10-18: the +/- stack was REMOVED; no Leaflet zoom control is
+  // configured or offset, and the row ends at 230px.
   assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
   assert.match(mapCode, /zoomControl: false/);
 });

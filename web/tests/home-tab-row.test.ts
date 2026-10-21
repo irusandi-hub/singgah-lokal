@@ -8,8 +8,10 @@ import {
   activateCuratedFilter,
   resolveContextualCuratedCoverage,
   resolveContextualPlaceCoverage,
-  selectAlwaysLabelledPlaceIds,
+  pinLabelBudgetForZoom,
+  selectVisiblePinLabelIds,
   toggleLiveFilter,
+  type PinLabelBox,
 } from "../lib/live/ui";
 
 /**
@@ -34,6 +36,7 @@ import {
 
 const homeDiscovery = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
 const homeMap = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
+const curatedMapTab = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");
 
 /** The comment-free component source: comments describe, they never decide. */
 function stripComments(source: string): string {
@@ -44,6 +47,7 @@ function stripComments(source: string): string {
 
 const discoveryCode = stripComments(homeDiscovery);
 const mapCode = stripComments(homeMap);
+const tabCode = stripComments(curatedMapTab);
 
 type Row = { id: string; latitude: number; longitude: number; countryCode: string | null; regionName: string | null };
 
@@ -138,14 +142,15 @@ test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
   assert.ok(discoveryCode.includes(LIVE_FILTER_LABEL), "LIVE keeps its master label");
   assert.equal((discoveryCode.match(/DISTANCE_FILTERS\.map/g) ?? []).length, 1, "exactly one distance-tab loop");
   assert.deepEqual(DISTANCE_FILTERS, ["1 km", "5 km", "10 km+"]);
-  // The curated tab renders exactly once, BELOW the map stage, and the row
-  // itself carries no curated handler.
+  // The curated tab is NOT in this row and no longer lives in the sheet
+  // header either (2026-10-21): it is the ONE floating CuratedMapTab rendered
+  // over the map. The row itself carries no curated handler.
   const row = discoveryCode.slice(discoveryCode.indexOf('grid-cols-[auto_repeat(3,minmax(0,1fr))]'));
   const rowEnd = row.indexOf("</div>");
   assert.equal((row.slice(0, rowEnd).match(/<button/g) ?? []).length, 1 + 1);
   assert.equal((row.slice(0, rowEnd).match(/DISTANCE_FILTERS\.map/g) ?? []).length, 1);
   assert.doesNotMatch(row.slice(0, rowEnd), /activateCuratedFilter/);
-  assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+  assert.equal((discoveryCode.match(/<CuratedMapTab/g) ?? []).length, 1);
 });
 
 test("the filter row paints an opaque surface so nothing behind it can leak", () => {
@@ -169,24 +174,38 @@ test("the filter row paints an opaque surface so nothing behind it can leak", ()
   assert.match(rowClass, /\bbg-brand-cream\b/);
 });
 
-test("the curated tab hangs over the sheet edge with a 44px touch target", () => {
-  const tabStart = discoveryCode.indexOf("aria-pressed={curatedOnly}");
-  const tab = discoveryCode.slice(tabStart - 1200, tabStart + 700);
-  // 2026-10-20: the tab HANGS 20px above the sheet's top edge in small/mid so
-  // it reads as a tab over the map, and tucks 2px into the header band at
-  // `full`, where the sheet already fills the stage. It is never off-screen.
-  assert.match(tab, /absolute left-4 z-30 inline-flex min-h-11 items-center justify-center/);
-  assert.match(tab, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
-  assert.match(tab, /rounded-\[14px\] border/);
-  // A strong shadow separates it from the map it now overlaps.
-  assert.match(tab, /shadow-\[0_8px_18px_rgb\(0_0_0\/0\.22\)\]/);
-  // Inactive: opaque white + thin border + ✦ + ink text. Active: dark green
-  // with pure white text.
-  assert.match(tab, /border-black\/10 bg-white text-brand-ink hover:bg-brand-cream/);
-  assert.match(tab, /curatedOnly\s*\? "border-brand-primary bg-brand-primary text-white/);
-  assert.match(tab, /<span aria-hidden>✦<\/span>/);
-  // Exactly ONE instance, and the retired transition band left no handle.
-  assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+test("the curated tab is ONE floating, draggable control over the map", () => {
+  // 2026-10-21: the chip left the sheet header and became a floating tab.
+  assert.match(discoveryCode, /<CuratedMapTab\s+pressed=\{curatedOnly\}\s+onToggle=\{handleCuratedToggle\}/);
+  assert.equal((tabCode.match(/data-curated-map-tab/g) ?? []).length, 1, "one instance");
+  assert.match(tabCode, /aria-pressed=\{pressed\}/);
+  // 44px touch height, own pointer gestures, no page/map gesture leak.
+  assert.match(tabCode, /min-h-11/);
+  assert.match(tabCode, /touch-none/);
+  assert.match(tabCode, /setPointerCapture/);
+  assert.match(tabCode, /onPointerMove=\{moveDrag\}/);
+  assert.match(tabCode, /CURATED_TAB_DRAG_THRESHOLD_PX/);
+  // Inactive: opaque white + thin border + ink text. Active: dark brand green
+  // with pure white text. Both carry a strong shadow.
+  assert.match(tabCode, /border-brand-primary bg-brand-primary text-white/);
+  assert.match(tabCode, /border-black\/10 bg-white text-brand-ink/);
+  assert.match(tabCode, /shadow-\[0_8px_18px_rgb\(0_0_0\/0\.22\)\]/);
+  assert.match(tabCode, /<span aria-hidden>✦<\/span>/);
+  // Position is persisted per viewport and snapped/clamped; it is hidden at
+  // `full` and the help panel can reset it.
+  assert.match(tabCode, /CURATED_TAB_STORAGE_KEY/);
+  assert.match(tabCode, /snapCuratedTabPlacement/);
+  assert.match(tabCode, /resolveCuratedTabArea/);
+  assert.match(tabCode, /sheetVisiblePx >= stageHeight\) return null/);
+  assert.match(tabCode, /export function resetCuratedTabPlacement/);
+  // The sheet header keeps ONLY the drag handle.
+  const header = discoveryCode.slice(
+    discoveryCode.indexOf('<h2 id="place-results-heading"'),
+    discoveryCode.indexOf("ref={sheetListRef}"),
+  );
+  assert.equal((header.match(/<button/g) ?? []).length, 1, "only the handle remains in the band");
+  assert.equal(discoveryCode.includes("CURATED_TAB_HANG_PX"), false);
+  assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 0);
   assert.doesNotMatch(discoveryCode, /block h-1 w-10 rounded-full bg-black\/10/);
 });
 
@@ -217,7 +236,10 @@ test("LIVE, 'Tempat Pilihan', and the distance tabs keep their own transitions",
 
 test("selected state is unchanged: one active control, brand green or LIVE red", () => {
   assert.match(discoveryCode, /aria-pressed=\{liveOnly\}/);
-  assert.match(discoveryCode, /aria-pressed=\{curatedOnly\}/);
+  // The curated control carries the SAME boolean, through one prop.
+  assert.match(discoveryCode, /<CuratedMapTab\s+pressed=\{curatedOnly\}/);
+  assert.match(tabCode, /aria-pressed=\{pressed\}/);
+  assert.equal((tabCode.match(/aria-pressed=/g) ?? []).length, 1);
   assert.match(discoveryCode, /aria-pressed=\{distanceFilter === filter && !curatedOnly\}/);
 });
 
@@ -258,28 +280,54 @@ test("the contextual coverage rule is still ONE shared implementation", () => {
   assert.equal(frame.consideredCount, 2);
 });
 
-test("the pin-label density budget is still the only label rule", () => {
+test("the zoom-aware label declutter is still the only label rule", () => {
   // Every rendered pin keeps ONE placement — below the pin — and the
-  // deterministic budget still decides which chips stay painted. No clustering,
-  // no measurement pass, and no name can be dropped from the DOM.
-  assert.match(mapCode, /const alwaysLabelledPlaceIds = selectAlwaysLabelledPlaceIds\(/);
-  assert.match(mapCode, /const labelState = alwaysLabelledPlaceIds\.has\(place\.id\) \? "always" : "on-demand";/);
+  // deterministic, PROJECTED pass decides which chips stay painted. No
+  // clustering, no layout measurement, and no name can be dropped from the DOM.
+  assert.match(mapCode, /const visible = selectVisiblePinLabelIds\(\{ boxes, zoom, pinnedId: selectedId \}\);/);
+  assert.match(mapCode, /const labelState = "on-demand";/);
   assert.match(
     mapCode,
     /<span class="singgah-pin-label" \$\{PIN_LABEL_ON_DEMAND_ATTRIBUTE\}="\$\{labelState\}" style="\$\{PIN_LABEL_ANCHOR_STYLE\}">\$\{escapeHtml\(place\.name\)\}<\/span>/,
   );
+  assert.match(mapCode, /applyPinLabelStates\(map, currentPlaces, liveByPlaceId, highlightedPlaceId\);/);
+  assert.match(mapCode, /map\.on\("zoomend", refreshPinLabelsAtCurrentZoom\);/);
   assert.equal((mapCode.match(/getBoundingClientRect\(\)/g) ?? []).length, 1, "only the pre-existing pulse reflow");
   assert.doesNotMatch(mapCode, /offsetWidth|offsetHeight|clientWidth|clientHeight/);
   assert.equal((mapCode.match(/L\.marker\(/g) ?? []).length, 2, "one base marker plus the LIVE pin");
   assert.doesNotMatch(mapCode, /markerClusterGroup|L\.markerClusterGroup/);
-  // The budget itself still behaves: it keeps at least one label and never all.
-  const candidates = Array.from({ length: 40 }, (_, index) => ({
+  // The rules themselves still behave: a dense frame keeps at least one label
+  // and never all, and a far frame is stricter than a close one.
+  const dense: PinLabelBox[] = Array.from({ length: 40 }, (_, index) => ({
     id: `p-${index}`,
-    isCurated: index < 2,
-    isLive: false,
+    x: 0,
+    y: 0,
+    width: 120,
+    height: 18,
+    tier: index < 2 ? 1 : 3,
   }));
-  const always = selectAlwaysLabelledPlaceIds(candidates);
-  assert.ok(always.size >= 1 && always.size < candidates.length);
+  const crowded = selectVisiblePinLabelIds({ boxes: dense, zoom: 16 });
+  assert.equal(crowded.size, 1, "colliding chips are held back even at a close zoom");
+  // The density threshold itself widens with the zoom (the same marker set at
+  // a closer camera can carry more names).
+  assert.ok(pinLabelBudgetForZoom(8) < pinLabelBudgetForZoom(16));
+  assert.ok(pinLabelBudgetForZoom(16) <= 12);
+  // Spread-out boxes are collision-free, so only the density budget limits
+  // them — and the far frame is stricter than the close one.
+  const spacedAt = (gap: number): PinLabelBox[] =>
+    Array.from({ length: 40 }, (_, index) => ({
+      id: `s-${index}`,
+      x: index * gap,
+      y: 0,
+      width: 120,
+      height: 18,
+      tier: 3,
+    }));
+  assert.equal(selectVisiblePinLabelIds({ boxes: spacedAt(200), zoom: 8 }).size, pinLabelBudgetForZoom(8));
+  assert.equal(selectVisiblePinLabelIds({ boxes: spacedAt(200), zoom: 16 }).size, pinLabelBudgetForZoom(16));
+  // A selected Place is labelled even inside the crowd, and it keeps its slot.
+  const pinned = selectVisiblePinLabelIds({ boxes: dense, zoom: 8, pinnedId: "p-20" });
+  assert.equal(pinned.has("p-20"), true);
 });
 
 test("Place selection, navigation, and the canonical data source are untouched", () => {

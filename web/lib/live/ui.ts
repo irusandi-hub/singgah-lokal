@@ -368,10 +368,10 @@ export function boundsOfPoints(points: readonly GeoPoint[]): MapViewport | null 
 /**
  * Reserved camera padding in CSS pixels, matching the Home layout ladder:
  * header + search bar + filter row at the top, the right-hand control column
- * (compass, "Lokasi Saya", and the +/− stack below it — ONE 40px-tile column
- * at 190px since 2026-10-18) on the right, and the map's bottom band below:
- * the OSM attribution (22px) and the click-through two-finger gesture hint
- * (bottom-12). The old coverage box, distance scale, and the floating results
+ * ("Lokasi Saya" + the gesture-help "?" — ONE 40px row at 190px since
+ * 2026-10-21) on the right, and the map's bottom band below: the OSM
+ * attribution (22px). The old coverage box, distance scale, the click-through
+ * gesture pill, and the floating results
  * panel all left the map's bottom edge (2026-10-04 / 2026-10-18), so the 84px
  * reserve is now deliberately CONSERVATIVE — it keeps a fitted frame clear of
  * the credit and the hint with room to spare, and shrinking it is a comfort
@@ -895,6 +895,265 @@ export function selectAlwaysLabelledPlaceIds(
   return chosen;
 }
 
+/**
+ * LABEL BUDGET BY ZOOM (2026-10-21). A far-out frame packs every pin into a
+ * few pixels, so the old fixed budget of 12 still piled chips on top of each
+ * other. The budget is therefore a function of the REAL zoom level: a world /
+ * regional frame keeps only a handful of names, and the closer the camera gets
+ * the more names it admits — until the full 12, which is the ceiling the
+ * always-on rule has used since 2026-10-05.
+ *
+ * Together with the pixel-collision test below this implements the product
+ * rule literally: a label that would COLLIDE is hidden (while its pin stays),
+ * and a label past the DENSITY threshold is hidden too. Nothing is filtered.
+ */
+export const PIN_LABEL_BUDGET_BY_ZOOM: readonly { maxZoom: number; limit: number }[] = [
+  { maxZoom: 9, limit: 3 },
+  { maxZoom: 11, limit: 5 },
+  { maxZoom: 13, limit: 8 },
+  { maxZoom: 15, limit: 10 },
+];
+
+export function pinLabelBudgetForZoom(zoom: number): number {
+  const level = Number.isFinite(zoom) ? zoom : 0;
+  for (const tier of PIN_LABEL_BUDGET_BY_ZOOM) {
+    if (level <= tier.maxZoom) return tier.limit;
+  }
+  return PIN_LABEL_ALWAYS_ON_LIMIT;
+}
+
+/**
+ * A label's on-screen box, in CSS pixels, at the CURRENT zoom.
+ *
+ * These boxes are computed from `map.project(latlng, zoom)` — pure projected
+ * geometry, never `getBoundingClientRect`, never a layout read. The caller
+ * supplies the width it estimates from the same typography the chip uses
+ * (max 124px, 10.5px/600) so this function stays free of DOM and CSS.
+ */
+export type PinLabelBox = {
+  id: string;
+  /** Left edge of the chip in map-container pixels. */
+  x: number;
+  /** Top edge of the chip in map-container pixels. */
+  y: number;
+  width: number;
+  height: number;
+  /** 0 = selected, 1 = curated, 2 = live, 3 = ordinary. Lower wins. */
+  tier: number;
+};
+
+/** Chip height including its 2px vertical padding + 10.5px line box. */
+export const PIN_LABEL_HEIGHT_PX = 18;
+/** Breathing room kept between two chips that may both stay painted. */
+export const PIN_LABEL_COLLISION_GAP_PX = 2;
+
+function boxesOverlap(a: PinLabelBox, b: PinLabelBox, gap: number): boolean {
+  return (
+    a.x < b.x + b.width + gap &&
+    a.x + a.width + gap > b.x &&
+    a.y < b.y + b.height + gap &&
+    a.y + a.height + gap > b.y
+  );
+}
+
+/**
+ * WHICH labels are painted at the current camera, decided deterministically.
+ *
+ * `boxes` are the projected chip boxes (the PINS themselves are never part of
+ * this decision — every pin and every click target stays on screen). A label is
+ * kept only when
+ *   · it is the SELECTED Place (always labelled, whatever the density), or
+ *   · it collides with no label already kept, and
+ *   · the zoom's density budget still has room.
+ *
+ * Priority is the marker ladder: selected → curated → live → canonical order.
+ * The result is a plain Set, so the same input always yields the same labels
+ * (no flicker between rebuilds). Hiding is a PAINT state only: the chip keeps
+ * its DOM node, text, truncation, tooltip, and hover/focus reveal.
+ */
+export function selectVisiblePinLabelIds(input: {
+  boxes: readonly PinLabelBox[];
+  zoom: number;
+  /** The selected Place (pressed or map-selected), always labelled. */
+  pinnedId?: string | null;
+  /** Overrides the zoom budget (tests use it; production never does). */
+  limit?: number;
+}): Set<string> {
+  const visible = new Set<string>();
+  const budget = Math.max(
+    1,
+    Number.isFinite(input.limit) ? Math.floor(input.limit as number) : pinLabelBudgetForZoom(input.zoom),
+  );
+  const ordered = [...input.boxes].sort((a, b) => a.tier - b.tier);
+  const pinned = input.pinnedId ? ordered.find((box) => box.id === input.pinnedId) : undefined;
+  if (pinned) visible.add(pinned.id);
+  for (const box of ordered) {
+    if (visible.size >= budget) break;
+    if (visible.has(box.id)) continue;
+    let collides = false;
+    for (const keptId of visible) {
+      const kept = ordered.find((candidate) => candidate.id === keptId);
+      if (kept && boxesOverlap(box, kept, PIN_LABEL_COLLISION_GAP_PX)) {
+        collides = true;
+        break;
+      }
+    }
+    if (!collides) visible.add(box.id);
+  }
+  return visible;
+}
+
+// ---------------------------------------------------------------------------
+// FLOATING "TEMPAT PILIHAN" TAB (2026-10-21)
+// ---------------------------------------------------------------------------
+
+/**
+ * The tab is now a draggable FLOATING control over the map instead of a chip
+ * hanging off the results sheet. These constants are the ONE source of its
+ * geometry: the component measures the tab, `lib/live/ui.ts` decides where it
+ * may rest, and the tests exercise the same numbers.
+ *
+ * BOUNDS (product decision, 2026-10-21): the tab lives INSIDE the visible map
+ * area and may never cover the filter/search chrome above it, the right-hand
+ * control column, the OSM attribution, or the results sheet.
+ *  · top = 190px, where the floating chrome ends and the control column starts;
+ *  · bottom = the visible sheet seam minus the attribution guard (22px margin
+ *    + the ~14px credit + a gap) minus the tab height;
+ *  · right = the viewport inset, except while the tab's vertical span overlaps
+ *    the control column — there it is pushed below the column (or left of it).
+ */
+export const CURATED_TAB_EDGE_INSET_PX = 12;
+export const CURATED_TAB_COLUMN_GAP_PX = 8;
+export const CURATED_TAB_ATTRIBUTION_GUARD_PX = 48;
+/** Width of the two 40px controls + their 8px gap (home-map.tsx). */
+export const MAP_CONTROL_COLUMN_WIDTH_PX = 88;
+/** How far a pointer must travel before a press becomes a drag. */
+export const CURATED_TAB_DRAG_THRESHOLD_PX = 8;
+/** A smaller threshold for the dedicated grip, where the intent is explicit. */
+export const CURATED_TAB_HANDLE_THRESHOLD_PX = 2;
+/** Keyboard nudge, as a share of the available vertical range. */
+export const CURATED_TAB_KEYBOARD_STEP_RATIO = 0.1;
+
+export type CuratedTabSide = "left" | "right";
+
+export type CuratedTabArea = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  /** Lowest y that clears the control column on the right edge. */
+  rightMinY: number;
+  /** False when the visible map is too short to fit the tab right of the column. */
+  rightAvailable: boolean;
+};
+
+/**
+ * The rectangle the tab may occupy. `null` when the visible map is too small
+ * for the tab at all (the tab is then hidden instead of being pushed over the
+ * attribution or off-screen).
+ */
+export function resolveCuratedTabArea(input: {
+  stageWidth: number;
+  stageHeight: number;
+  sheetVisiblePx: number;
+  tabWidth: number;
+  tabHeight: number;
+}): CuratedTabArea | null {
+  const stageWidth = Number.isFinite(input.stageWidth) ? input.stageWidth : 0;
+  const stageHeight = Number.isFinite(input.stageHeight) ? input.stageHeight : 0;
+  const sheetVisiblePx = Number.isFinite(input.sheetVisiblePx) ? input.sheetVisiblePx : 0;
+  const tabWidth = Math.max(0, input.tabWidth || 0);
+  const tabHeight = Math.max(0, input.tabHeight || 0);
+  if (stageWidth <= 0 || stageHeight <= 0 || tabWidth <= 0 || tabHeight <= 0) return null;
+  const minX = CURATED_TAB_EDGE_INSET_PX;
+  const maxX = stageWidth - CURATED_TAB_EDGE_INSET_PX - tabWidth;
+  if (maxX < minX) return null;
+  const visibleBottom = stageHeight - Math.max(0, sheetVisiblePx);
+  const minY = MAP_CONTROL_COLUMN_TOP_PX;
+  const maxY = visibleBottom - CURATED_TAB_ATTRIBUTION_GUARD_PX - tabHeight;
+  if (maxY < minY) return null;
+  const rightMinY = MAP_CONTROL_COLUMN_BOTTOM_PX + CURATED_TAB_COLUMN_GAP_PX;
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    rightMinY: Math.max(minY, rightMinY),
+    rightAvailable: maxY >= Math.max(minY, rightMinY),
+  };
+}
+
+/**
+ * Where a stored placement rests, in pixels. Positions are persisted as
+ * `{ side, ratio }` — NEVER as an absolute x/y — so a rotation, a resize, a
+ * sheet snap, or a different phone re-derives a legal pixel position instead of
+ * restoring an off-screen one. Ratio 1 is the default bottom edge.
+ */
+export function resolveCuratedTabPosition(
+  area: CuratedTabArea,
+  placement: { side: CuratedTabSide; ratio: number },
+): { x: number; y: number; side: CuratedTabSide } {
+  const side: CuratedTabSide = placement.side === "right" && area.rightAvailable ? "right" : "left";
+  const minY = side === "right" ? area.rightMinY : area.minY;
+  const ratio = Number.isFinite(placement.ratio) ? Math.min(1, Math.max(0, placement.ratio)) : 1;
+  return {
+    x: side === "right" ? area.maxX : area.minX,
+    y: minY + ratio * (area.maxY - minY),
+    side,
+  };
+}
+
+/**
+ * Clamp a live drag to the legal area AND out of the control column. The tab is
+ * free to move anywhere inside the map band, so the collision is resolved per
+ * frame: when the drag enters the column's horizontal band it is pushed below
+ * the column, or (if the stage is too short for that) kept left of it.
+ */
+export function clampCuratedTabDrag(input: {
+  area: CuratedTabArea;
+  stageWidth: number;
+  tabWidth: number;
+  tabHeight: number;
+  x: number;
+  y: number;
+}): { x: number; y: number } {
+  const { area } = input;
+  let x = Math.min(area.maxX, Math.max(area.minX, input.x));
+  let y = Math.min(area.maxY, Math.max(area.minY, input.y));
+  const columnLeft = input.stageWidth - CURATED_TAB_EDGE_INSET_PX - MAP_CONTROL_COLUMN_WIDTH_PX;
+  const overlapsColumnX = x + input.tabWidth > columnLeft - CURATED_TAB_COLUMN_GAP_PX;
+  const overlapsColumnY = y < MAP_CONTROL_COLUMN_BOTTOM_PX && y + input.tabHeight > MAP_CONTROL_COLUMN_TOP_PX;
+  if (overlapsColumnX && overlapsColumnY) {
+    const below = MAP_CONTROL_COLUMN_BOTTOM_PX + CURATED_TAB_COLUMN_GAP_PX;
+    if (below <= area.maxY) y = below;
+    else x = Math.min(x, columnLeft - CURATED_TAB_COLUMN_GAP_PX - input.tabWidth);
+  }
+  return { x, y };
+}
+
+/**
+ * The side a released tab snaps to: the nearer edge. A right edge that cannot
+ * clear the control column falls back to the left edge instead of overlapping
+ * it.
+ */
+export function snapCuratedTabPlacement(input: {
+  area: CuratedTabArea;
+  stageWidth: number;
+  tabWidth: number;
+  x: number;
+  y: number;
+}): { side: CuratedTabSide; ratio: number } {
+  const right = input.area.rightAvailable && input.x + input.tabWidth / 2 >= input.stageWidth / 2;
+  const side: CuratedTabSide = right ? "right" : "left";
+  const minY = side === "right" ? input.area.rightMinY : input.area.minY;
+  const range = Math.max(1, input.area.maxY - minY);
+  const ratio = Math.min(1, Math.max(0, (input.y - minY) / range));
+  return { side, ratio };
+}
+
+/** Storage key for the floating tab's placement (side + vertical ratio only). */
+export const CURATED_TAB_STORAGE_KEY = "singgah.curatedTab";
+
 
 
 /*
@@ -1232,7 +1491,7 @@ export function stopNestedCardAction(event: { preventDefault(): void; stopPropag
  * landscape phone (<560px of visible height with browser chrome) positioned
  * the mid sheet below the floating map-control column. The mid snap is now
  * additionally capped so its top edge stays BELOW the control column
- * (278px) with a 12px gap whenever the stage can afford it. On a viewport too
+ * (230px) with a 12px gap whenever the stage can afford it. On a viewport too
  * short to fit both, the sheet falls back toward the header-only position
  * instead of covering the controls.
  */
@@ -1246,14 +1505,13 @@ export const SHEET_MID_VISIBLE_RATIO = 0.42;
 /** Top edge of the floating map control column (home-map.tsx). */
 export const MAP_CONTROL_COLUMN_TOP_PX = 190;
 /**
- * Bottom edge of the floating control column (home-map.tsx): the 40px compass
- * on top, then "Lokasi Saya" and the gesture-hint "?" side by side in one 40px
- * row, 8px apart. 190 + 40 + 8 + 40 = 278 — the "?" recall tile (2026-10-20)
- * was added BESIDE the locate button for exactly this reason: a third stacked
- * tile would have pushed the column to 330 and the sheet would cover it on a
- * 360px-tall landscape stage.
+ * Bottom edge of the floating control column (home-map.tsx): "Lokasi Saya"
+ * and the gesture-help "?" side by side in ONE 40px row, 8px apart.
+ * 190 + 40 = 230. The compass was removed on 2026-10-21 (decision: it was
+ * purely decorative and the column is now two controls), so the column no
+ * longer reserves a second row and every sheet snap gains 48px of clearance.
  */
-export const MAP_CONTROL_COLUMN_BOTTOM_PX = 278;
+export const MAP_CONTROL_COLUMN_BOTTOM_PX = 230;
 export const MAP_CONTROL_SAFE_GAP_PX = 12;
 /** A pointer moving faster than this (px/ms) counts as a flick. */
 export const SHEET_FLICK_VELOCITY = 0.45;

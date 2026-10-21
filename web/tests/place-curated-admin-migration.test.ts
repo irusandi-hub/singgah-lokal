@@ -73,8 +73,9 @@ async function seedAdmin(db: PGlite): Promise<void> {
   await db.exec(`insert into public.users (id) values ('${ADMIN_ID}') on conflict do nothing;`);
 }
 
-test("0036 extends the audit action vocabulary with the two locked curation actions", async () => {
+test("0036 extends the audit action vocabulary with the two locked curation actions", async (t) => {
   const db = await createDb();
+  t.after(() => db.close());
   await seedAdmin(db);
 
   const constraint = await rows(
@@ -99,8 +100,9 @@ test("0036 extends the audit action vocabulary with the two locked curation acti
   assert.deepEqual(written.map((row) => row.action), ["admin_place_curated", "admin_place_uncurated"]);
 });
 
-test("place_audit stays append-only and unreachable by clients after 0036", async () => {
+test("place_audit stays append-only and unreachable by clients after 0036", async (t) => {
   const db = await createDb();
+  t.after(() => db.close());
   await seedAdmin(db);
   await db.exec(
     `insert into public.place_audit (place_id, actor_id, action) values ('kopi-dari-kebun', '${ADMIN_ID}', 'admin_place_curated');`,
@@ -126,8 +128,9 @@ test("place_audit stays append-only and unreachable by clients after 0036", asyn
   assert.equal(rls[0]?.rowsecurity, true, "RLS stays enabled with zero policies");
 });
 
-test("is_curated is immutable for session roles; only the service role may flip it", async () => {
+test("is_curated is immutable for session roles; only the service role may flip it", async (t) => {
   const db = await createDb();
+  t.after(() => db.close());
 
   // As the service role (the audited Admin path) the flip succeeds — twice.
   await db.exec("set role service_role;");
@@ -150,8 +153,9 @@ test("is_curated is immutable for session roles; only the service role may flip 
   await db.exec("reset role;");
 });
 
-test("non-flag Place updates still work for session roles (lockdown is column-scoped)", async () => {
+test("non-flag Place updates still work for session roles (lockdown is column-scoped)", async (t) => {
   const db = await createDb();
+  t.after(() => db.close());
   await db.exec("set role authenticated;");
   // 0004 membership RLS would refuse anonymous updates for ownership rows;
   // the seeded 0001 Places carry no producer, so exercise the guard's KEY

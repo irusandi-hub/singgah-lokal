@@ -85,13 +85,14 @@ select {
   overflow: hidden;
 }
 
-/* MAP CONTROL COLUMN (2026-10-18). The Home map's right-hand controls are
-   one `flex flex-col gap-2` at right-3 / top-[190px] in
-   components/home-map.tsx: the compass (40px) and "Lokasi Saya" (40px),
-   8px apart. The Leaflet +/- stack these rules used to position was removed
-   with gesture-only zoom, so there is no Home-scoped Leaflet control offset
-   left to maintain. The generic .leaflet-bar surface above still styles the
-   Producer location picker's own zoom control. */
+/* MAP CONTROL COLUMN (2026-10-21). The Home map's right-hand controls are
+   ONE `flex flex-nowrap items-center gap-2` row at right-3 / top-[190px] in
+   components/home-map.tsx: "Lokasi Saya" (40px) then the gesture-help "?"
+   (40px), 8px apart, right-aligned, never wrapping at 360 or 390px. The
+   compass that used to sit above them was removed by product decision on
+   2026-10-21 with its SVG, UI test, and styling notes — nothing else read it.
+   The generic .leaflet-bar surface above still styles the Producer location
+   picker's own zoom control. */
 
 /* MOCKUP §6: Current Location reads as the BLUE user marker with a soft
    glow, clearly above the brown/green Place pins. Visual only — the
@@ -127,26 +128,43 @@ select {
 /* CONTROL FOCUS (2026-10-21). The Home map controls already share one 40px
    tile, 14px radius, white surface, hairline ring, and soft shadow (see
    components/home-map.tsx). This only unifies their keyboard feedback with
-   the brand token instead of the browser's default ring. Functions, geometry,
-   and the column's 278px bottom are untouched. */
+   the brand token instead of the browser's default ring. Functions and
+   geometry (two 40px tiles in one row, 230px bottom) are untouched. */
 button[aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"]:focus-visible,
 button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   outline: 2px solid var(--brand-primary);
   outline-offset: 2px;
 }
 
-/* OSM ATTRIBUTION (2026-10-18; selector fixed 2026-10-20). The results sheet
-   floats over the map, so the credit must stay above the VISIBLE sheet edge in
-   every position. The Home map publishes the sheet's visible height as
-   --singgah-sheet-inset on its wrapper; the 22px margin keeps the credit off
-   the seam.
+/* OSM ATTRIBUTION (2026-10-18; selector fixed 2026-10-20; compact 2026-10-21).
+   The results sheet floats over the map, so the credit must stay above the
+   VISIBLE sheet edge in every position. The Home map publishes the sheet's
+   visible height as --singgah-sheet-inset on its wrapper; the 22px margin
+   keeps the credit off the seam.
 
    The selector needs the full `.singgah-home-map .leaflet-bottom` prefix:
    Leaflet's own `.leaflet-bottom .leaflet-control` rule also sets a margin on
    this control, and the old single-class selector lost that tie at runtime
    (computed margin was 0, so the credit sat flush on the seam). Scoping it to
    the Home map also leaves the Producer location picker's attribution alone.
-   The credit text, its link, and Leaflet's own control are untouched. */
+
+   2026-10-21: the credit STAYS (ODbL requires attribution) but is smaller and
+   quieter — 9.5px/1.25 in a translucent white pill — while `setPrefix(false)`
+   in the map removes Leaflet's decorative wordmark and flag. The link, its
+   href, target, and rel are untouched. */
+.singgah-home-map .leaflet-control-attribution {
+  padding: 1px 6px;
+  border-top-left-radius: 6px;
+  background: rgb(255 255 255 / 0.82);
+  color: rgb(32 35 31 / 0.82);
+  font-size: 9.5px;
+  line-height: 1.25;
+}
+
+.singgah-home-map .leaflet-control-attribution a {
+  color: var(--brand-primary);
+}
+
 .singgah-home-map .leaflet-bottom .leaflet-control-attribution {
   margin-bottom: 22px;
 }
@@ -246,6 +264,15 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
 .singgah-map-marker:hover .singgah-pin-label[data-label-state="on-demand"],
 .singgah-map-marker:focus .singgah-pin-label[data-label-state="on-demand"],
 .singgah-map-marker:focus-within .singgah-pin-label[data-label-state="on-demand"] {
+  visibility: visible;
+}
+
+/* SELECTED PIN IS ALWAYS LABELLED (2026-10-21). The zoom-aware declutter may
+   hold any chip back, but never the selected Place's: the pin linked to the
+   pressed/selected card keeps its name even when its box would collide, so the
+   selection is never a nameless pin. Paint only — no size, position, or data
+   change. */
+.singgah-map-marker.is-highlighted .singgah-pin-label {
   visibility: visible;
 }
 

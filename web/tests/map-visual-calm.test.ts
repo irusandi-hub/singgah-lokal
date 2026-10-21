@@ -134,13 +134,16 @@ test("6. the name chip stays a compact chip, not an information card", () => {
 // 4. Controls — same geometry and function, one brand focus treatment.
 // ---------------------------------------------------------------------------
 
-test("7. the three map controls keep one identical 40px tile", () => {
+test("7. the two map controls keep one identical 40px tile", () => {
+  // 2026-10-21: the compass was removed, so the column is one row of TWO
+  // 40px tiles (Lokasi Saya + help "?").
   assert.equal(
-    (homeMap.match(/inline-flex h-10 w-10 items-center justify-center rounded-\[14px\]/g) ?? []).length,
-    3,
-    "compass + Lokasi Saya + gesture-hint recall share one tile style",
+    (homeMap.match(/inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-\[14px\]/g) ?? []).length,
+    2,
+    "Lokasi Saya and the help tile share one tile style",
   );
-  assert.match(homeMap, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
+  assert.equal(homeMap.includes("Arah peta: utara ke atas"), false, "the compass is gone");
+  assert.match(homeMap, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
   // Focus feedback is unified, but the controls themselves are not rebuilt.
   assert.match(
     globals,

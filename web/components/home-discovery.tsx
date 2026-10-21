@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import CuratedMapTab, { resetCuratedTabPlacement } from "@/components/curated-map-tab";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import PlaceFollowButton from "@/components/place-follow-button";
 import SiteNav from "@/components/site-nav";
@@ -23,8 +24,6 @@ import {
   formatDistance,
   isSameViewport,
   liveDurationLabel,
-  MAP_CONTROL_COLUMN_BOTTOM_PX,
-  MAP_CONTROL_COLUMN_TOP_PX,
   narrowToViewport,
   normalizeSearchArea,
   resolveActiveCenter,
@@ -42,29 +41,19 @@ import {
 } from "@/lib/live/ui";
 
 /**
- * GESTURE HINT (2026-10-20). The hint is now shown by the FIRST one-finger
- * touch on the map, not by the render: a hint that appeared on load was often
- * already fading (or gone) by the time the map was interactive and the user
- * looked at it. It holds for ~3 s, then fades.
+ * GESTURE HELP PANEL (2026-10-21). The automatic pill, its ~3 s timer, and the
+ * "already seen" localStorage flag are GONE: the help is a panel that appears
+ * only when the "?" control in the map's column is tapped, and stays until the
+ * visitor closes it (close button, outside tap, or Esc).
+ *
+ * The copy is verified against the ACTUAL behaviour of this map:
+ *  · one-finger camera pan is locked off on touch-primary devices, and the Home
+ *    stage is 100dvh with `overflow-hidden`, so a single finger on the map is
+ *    not a page scroll either — it is the results list (at `full`) that
+ *    scrolls with one finger. The panel says exactly that instead of the old
+ *    "one finger scrolls the page" claim, which was not true on this screen.
  */
-const GESTURE_HINT_VISIBLE_MS = 3000;
-/** Pill height in px: 12px text + 2×6px padding + 2px border (measured 28). */
-const GESTURE_HINT_HEIGHT_PX = 28;
-/**
- * "Already seen" flag. A returning visitor is not taught the same gesture on
- * every visit; the small "?" control in the map's control column recalls it on
- * demand. Storage failures (private mode, disabled storage) are ignored — the
- * hint then simply behaves as un-seen.
- */
-const GESTURE_HINT_SEEN_KEY = "singgah.gestureHintSeen";
-
-/**
- * How far the "Tempat Pilihan" tab hangs ABOVE the results sheet's top edge
- * (2026-10-20). 20px is enough to read as a tab over the map while its top
- * edge stays clear of the OSM credit's lower edge (seam − 22) at 360px, where
- * that credit starts furthest left.
- */
-const CURATED_TAB_HANG_PX = 20;
+const GESTURE_HELP_BOTTOM_GAP_PX = 56;
 
 /**
  * CANONICAL CAMERA CANDIDATE — one canonical Place projected to exactly what
@@ -408,6 +397,10 @@ export default function HomeDiscovery({
     velocity: number;
   } | null>(null);
   const [stageHeight, setStageHeight] = useState(640);
+  // The floating "Tempat Pilihan" tab clamps against the REAL stage width (a
+  // window resize or rotation changes where its edges are), so the same
+  // measurement that drives the sheet also publishes the width.
+  const [stageWidth, setStageWidth] = useState(0);
   const [sheetPosition, setSheetPosition] = useState<SheetPosition>("mid");
   const [dragOffset, setDragOffset] = useState<number | null>(null);
   // Which card's marker is currently highlighted. `pressedPlaceId` is the
@@ -416,14 +409,11 @@ export default function HomeDiscovery({
   const [pressedPlaceId, setPressedPlaceId] = useState<string | null>(null);
   const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
   const [pendingScrollPlaceId, setPendingScrollPlaceId] = useState<string | null>(null);
-  // The two-finger hint is a HINT, not a label: it appears when the visitor
-  // FIRST touches the map with one finger, stays readable ~3 s, then fades.
-  // Presentation only — the map's gestures and the hint's copy are unchanged.
-  const [gestureHintVisible, setGestureHintVisible] = useState(false);
-  // "Already seen" flag, read after mount (never during render: the server has
-  // no localStorage, so reading it early would desynchronise hydration).
-  const gestureHintSeenRef = useRef(false);
-  const gestureHintTimerRef = useRef<number | null>(null);
+  // GESTURE HELP PANEL (2026-10-21): opened ONLY by the "?" control. There is
+  // no automatic appearance, no timer, and no persisted "seen" flag any more.
+  const [gestureHelpOpen, setGestureHelpOpen] = useState(false);
+  const gestureHelpCloseRef = useRef<HTMLButtonElement | null>(null);
+
 
   // Measure the stage so the three snap offsets are real pixels. A
   // ResizeObserver covers mobile browser chrome, rotation, and the desktop
@@ -434,7 +424,10 @@ export default function HomeDiscovery({
   useEffect(() => {
     const node = stageRef.current;
     if (!node) return;
-    const measure = () => setStageHeight(Math.max(0, node.clientHeight));
+    const measure = () => {
+      setStageHeight(Math.max(0, node.clientHeight));
+      setStageWidth(Math.max(0, node.clientWidth));
+    };
     measure();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     observer?.observe(node);
@@ -450,78 +443,36 @@ export default function HomeDiscovery({
   const sheetOffset = dragOffset ?? settledOffset;
   const sheetVisiblePx = Math.max(0, stageHeight - sheetOffset);
 
-  // GESTURE HINT LIFT (2026-10-20) — the pill rides the visible sheet edge at
-  // `sheetVisiblePx + 44`: the 22px OSM credit band plus a 22px gap, so the
-  // credit stays readable in every snap position.
-  //
-  // On a stage short enough for that lift to land inside the floating control
-  // column band (top 190…bottom 278, very short landscape phones), the pill
-  // parks 8px ABOVE the column instead. Every supported portrait/desktop stage
-  // keeps the plain lift.
-  const gestureHintLiftBasePx = sheetVisiblePx + 44;
-  const gestureHintTopPx = stageHeight - gestureHintLiftBasePx - GESTURE_HINT_HEIGHT_PX;
-  const gestureHintLiftPx =
-    gestureHintTopPx < MAP_CONTROL_COLUMN_BOTTOM_PX &&
-    gestureHintTopPx + GESTURE_HINT_HEIGHT_PX > MAP_CONTROL_COLUMN_TOP_PX
-      ? stageHeight - (MAP_CONTROL_COLUMN_TOP_PX - 8)
-      : gestureHintLiftBasePx;
+  // GESTURE HELP PANEL LIFECYCLE. The panel is modal-ish: while it is open, the
+  // backdrop owns the taps (outside tap closes), Esc closes, and focus moves to
+  // the 44px close button and returns to the "?" control afterwards. Nothing
+  // here touches the map's gestures, the sheet, the filters, or the camera.
+  const closeGestureHelp = useCallback(() => {
+    setGestureHelpOpen(false);
+    const recall = document.querySelector<HTMLButtonElement>("[data-gesture-hint-recall]");
+    recall?.focus();
+  }, []);
 
-  // One "seen" flag, one timer. `remember` is false only for the explicit
-  // "?" recall, which may show the hint again after it was already seen.
-  const showGestureHint = useCallback((remember: boolean) => {
-    if (gestureHintTimerRef.current !== null) {
-      window.clearTimeout(gestureHintTimerRef.current);
-      gestureHintTimerRef.current = null;
-    }
-    setGestureHintVisible(true);
-    if (remember) {
-      gestureHintSeenRef.current = true;
-      try {
-        window.localStorage.setItem(GESTURE_HINT_SEEN_KEY, "1");
-      } catch {
-        // Storage unavailable (private mode): the flag just does not persist.
+  const handleShowGestureHint = useCallback(() => {
+    setGestureHelpOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!gestureHelpOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setGestureHelpOpen(false);
+        document.querySelector<HTMLButtonElement>("[data-gesture-hint-recall]")?.focus();
       }
-    }
-    gestureHintTimerRef.current = window.setTimeout(() => {
-      gestureHintTimerRef.current = null;
-      setGestureHintVisible(false);
-    }, GESTURE_HINT_VISIBLE_MS);
-  }, []);
-
-  useEffect(() => {
-    try {
-      gestureHintSeenRef.current = window.localStorage.getItem(GESTURE_HINT_SEEN_KEY) === "1";
-    } catch {
-      // Storage unavailable: behave as un-seen for this session.
-    }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    const timer = window.setTimeout(() => gestureHelpCloseRef.current?.focus(), 0);
     return () => {
-      if (gestureHintTimerRef.current !== null) window.clearTimeout(gestureHintTimerRef.current);
+      window.removeEventListener("keydown", onKeyDown);
+      window.clearTimeout(timer);
     };
-  }, []);
-
-  // TRIGGER (2026-10-20): the FIRST one-finger touch on the map surface — not
-  // the render. Gated so the hint can never appear while the map is still
-  // loading (`mapViewport` is the map's first real report), while the sheet is
-  // being dragged, from the second finger of a pinch (`isPrimary`), or again
-  // once the visitor has seen it. Mouse/pen pointers carry no touch gesture to
-  // teach, so they are ignored.
-  const sheetDragging = dragOffset !== null;
-  const mapReady = mapViewport !== null;
-  useEffect(() => {
-    const node = stageRef.current;
-    if (!node || !mapReady) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.pointerType === "mouse" || !event.isPrimary) return;
-      if (sheetDragging || gestureHintSeenRef.current) return;
-      const target = event.target as Element | null;
-      // The map surface only: a touch on the search bar, the filter row, the
-      // sheet, or the floating controls is not a map gesture.
-      if (!target?.closest(".singgah-home-map")) return;
-      showGestureHint(true);
-    };
-    node.addEventListener("pointerdown", onPointerDown);
-    return () => node.removeEventListener("pointerdown", onPointerDown);
-  }, [mapReady, sheetDragging, showGestureHint]);
+  }, [gestureHelpOpen]);
 
   const setSheetSnap = useCallback((next: SheetPosition) => {
     dragRef.current = null;
@@ -529,13 +480,14 @@ export default function HomeDiscovery({
     setSheetPosition(next);
   }, []);
 
-  // The "?" tile in the control column: re-show the SAME hint component, on
-  // demand, for a visitor whose "seen" flag is already set. It lives in the
-  // map's control column, which the sheet covers at `full` — so it is exactly
-  // as reachable as the map it explains, and it never moves the sheet.
-  const handleShowGestureHint = useCallback(() => {
-    showGestureHint(false);
-  }, [showGestureHint]);
+  // FLOATING TAB TOGGLE (2026-10-21): the SAME transition rule the tab has
+  // always used — entering "Tempat Pilihan" switches LIVE off. It moves no
+  // camera and changes no dataset; only the tab's POSITION is new.
+  const handleCuratedToggle = useCallback(() => {
+    const next = activateCuratedFilter();
+    setCuratedOnly(next.curatedOnly);
+    setLiveOnly(next.liveOnly);
+  }, []);
 
   const beginSheetDrag = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -1739,6 +1691,21 @@ export default function HomeDiscovery({
           />
         </div>
 
+        {/* FLOATING "TEMPAT PILIHAN" TAB (2026-10-21). ONE instance, over the
+            map, draggable — the old chip in the sheet header is gone and left
+            no reserved space behind. The component owns only its own position
+            (clamped inside the visible map band, snapped to an edge, persisted
+            as side + ratio); the pressed state, the handler, the curated
+            dataset, and the LIVE-exclusivity rule are unchanged. It hides
+            itself when the sheet reaches `full`. */}
+        <CuratedMapTab
+          pressed={curatedOnly}
+          onToggle={handleCuratedToggle}
+          stageWidth={stageWidth}
+          stageHeight={stageHeight}
+          sheetVisiblePx={sheetVisiblePx}
+        />
+
         {/* Header + auth entry (Masuk / Sign out) + URL-derived active tabs —
             FLOATING over the map (MOCKUP §1/§5). Presentation only: the
             header keeps its logo, nav, and auth behavior verbatim. */}
@@ -2041,43 +2008,106 @@ export default function HomeDiscovery({
             The measured SCALE BAR was removed on 2026-10-04 and still renders
             nothing in its place; no distance indicator replaces it either. */}
 
-        {/* GESTURE HINT (2026-10-18; compact 2026-10-20): the only touch
-            gestures this map keeps are TWO-FINGER ones. Verified against the
-            installed Leaflet 1.9 source: TouchZoom's `_onTouchMove` pans by the
-            pinch MIDPOINT and zooms by the pinch DISTANCE, while the
-            touch-primary one-finger lock (`dragging` / `doubleClickZoom` off)
-            leaves a single finger to scroll the page. The hint therefore states
-            exactly the supported pair — never a gesture the map cannot
-            perform.
+        {/* GESTURE HELP PANEL (2026-10-21). Appears ONLY when the "?" tile in
+            the map's control column is tapped — the automatic pill, its ~3 s
+            timer, and the "already seen" flag are removed. It stays until the
+            visitor closes it: the 44×44 close button, an outside tap (the
+            backdrop), or Esc. Focus moves to the close button and returns to
+            the "?" afterwards.
 
-            CONTRAST (2026-10-20): the old pill was 10px, 55%-opacity ink on an
-            85%-opaque white card — it read as text leaking onto the map. It is
-            now a SOLID deep-green pill (`brand-primary-deep` #0a5640, opaque)
-            with pure white 12px semibold text: contrast 8.69:1 (WCAG AA needs
-            4.5:1). One thin light border plus a soft green shadow separates it
-            from the tiles; a 14px two-finger icon sits in front of the words.
-            It keeps the control column's 12px right inset and rides 44px above
-            the visible seam, so the OSM credit keeps its gap. Because a marker
-            or the blue location dot can legitimately be anywhere (this frame's
-            pins clear the pill on all three sheet positions at 360/390, but
-            that is data, not a guarantee), the hint also fades after
-            GESTURE_HINT_VISIBLE_MS — it never becomes a permanent cover over
-            the map it describes. One component, still click-through, no
-            gesture logic touched. */}
-        {gestureHintVisible && (
-          <div
-            data-gesture-hint
-            className="pointer-events-none absolute right-3 z-[1100] inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-brand-primary-deep px-3 py-1.5 text-[12px] font-semibold leading-none text-white shadow-[0_6px_18px_rgb(10_86_64/0.35)] transition-opacity duration-300 motion-reduce:transition-none"
-            style={{ bottom: gestureHintLiftPx }}
-          >
-            {/* Two-finger glyph: exactly the gesture the map supports. */}
-            <svg aria-hidden viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
-              <path d="M9 11V5.8a1.6 1.6 0 0 1 3.2 0V11" />
-              <path d="M12.2 11V4.9a1.6 1.6 0 0 1 3.2 0V11" />
-              <path d="M15.4 11.4V7.6a1.6 1.6 0 0 1 3.2 0V15a5.4 5.4 0 0 1-5.4 5.4h-1.5a5 5 0 0 1-3.9-1.9l-3-3.6a1.6 1.6 0 0 1 2.4-2.1L9 14.6" />
-            </svg>
-            2 jari: geser &amp; cubit
-          </div>
+            COPY IS VERIFIED, NOT ASSUMED. The map has no compass and no
+            one-finger pan (touch-primary lock), and the Home stage is 100dvh
+            with `overflow-hidden`, so a single finger on the map neither pans
+            nor scrolls the page. What one finger really does on this screen is
+            scroll the results list when the sheet is at `full`, so that is
+            what the panel says. Two-finger pan and pinch zoom come straight
+            from Leaflet's TouchZoom (midpoint = pan, distance = zoom), tapping
+            a pin selects its card, and the floating tab is moved by dragging
+            it. No gesture is advertised that the map cannot perform.
+
+            LOOK: an OPAQUE white surface (solid, not translucent) with
+            brand-ink text — 15.2:1, far above the 4.5:1 requirement — 13px
+            body text, a hairline border, and a strong shadow. It is anchored
+            56px above the visible sheet seam, so its bottom edge never touches
+            the OSM credit (which ends at seam − 22). */}
+        {gestureHelpOpen && (
+          <>
+            <button
+              type="button"
+              aria-label="Tutup petunjuk gestur"
+              tabIndex={-1}
+              onClick={closeGestureHelp}
+              className="absolute inset-0 z-[1200] cursor-default bg-brand-ink/15"
+            />
+            <div
+              data-gesture-help
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="gesture-help-title"
+              className="absolute inset-x-3 z-[1210] mx-auto max-w-sm overflow-y-auto rounded-[18px] border border-black/10 bg-white p-3 text-brand-ink shadow-[0_16px_40px_rgb(0_0_0/0.28)]"
+              style={{
+                bottom: sheetVisiblePx + GESTURE_HELP_BOTTOM_GAP_PX,
+                maxHeight: Math.max(180, stageHeight - sheetVisiblePx - 72),
+              }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h2 id="gesture-help-title" className="text-[15px] font-bold leading-tight">
+                  Petunjuk gestur peta
+                </h2>
+                <button
+                  ref={gestureHelpCloseRef}
+                  type="button"
+                  onClick={closeGestureHelp}
+                  aria-label="Tutup petunjuk gestur"
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-brand-ink/70 transition hover:bg-brand-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/50"
+                >
+                  <span aria-hidden className="text-[22px] leading-none">×</span>
+                </button>
+              </div>
+              <ul className="mt-1 divide-y divide-black/5 border-t border-black/5">
+                <li className="flex items-start gap-2 py-2">
+                  <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
+                  <p className="text-[13px] leading-snug">
+                    <span className="font-bold">Dua jari geser</span> — menggeser peta.
+                  </p>
+                </li>
+                <li className="flex items-start gap-2 py-2">
+                  <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
+                  <p className="text-[13px] leading-snug">
+                    <span className="font-bold">Cubit</span> — memperbesar atau memperkecil peta.
+                  </p>
+                </li>
+                <li className="flex items-start gap-2 py-2">
+                  <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
+                  <p className="text-[13px] leading-snug">
+                    <span className="font-bold">Satu jari</span> — menggulir daftar Tempat saat panel penuh;
+                    tidak menggeser peta.
+                  </p>
+                </li>
+                <li className="flex items-start gap-2 py-2">
+                  <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
+                  <p className="text-[13px] leading-snug">
+                    <span className="font-bold">Ketuk pin</span> — memilih Tempat dan membuka kartunya di
+                    daftar hasil.
+                  </p>
+                </li>
+                <li className="flex items-start gap-2 py-2">
+                  <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
+                  <p className="text-[13px] leading-snug">
+                    <span className="font-bold">Geser tab “Tempat Pilihan”</span> — memindahkannya di atas
+                    peta.
+                  </p>
+                </li>
+              </ul>
+              <button
+                type="button"
+                onClick={resetCuratedTabPlacement}
+                className="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-[12px] border border-black/10 bg-brand-cream px-3 text-[13px] font-bold text-brand-ink transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/50"
+              >
+                Kembalikan tab ke posisi awal
+              </button>
+            </div>
+          </>
         )}
 
       </section>
@@ -2130,56 +2160,12 @@ export default function HomeDiscovery({
             <span className="sr-only">Tarik atau gunakan tombol panah untuk mengubah tinggi panel</span>
           </button>
 
-          {/* PANEL TAB (2026-10-18; HANGING above the seam, 2026-10-20). ONE
-              instance. In small/mid it now protrudes 20px ABOVE the sheet's
-              top edge — a real tab hanging over the map, with a strong shadow
-              — instead of sitting inline with the handle, where it read as a
-              card attribute. At `full` the sheet is already at the top of the
-              stage, so the tab tucks 2px inside the header band instead of
-              being pushed off-screen; there it still keeps 18px to the first
-              card (2+44 → 64).
-
-              PLACEMENT: bottom-LEFT, 20px above the seam. The OSM credit is
-              bottom-RIGHT and its lower edge sits at seam−22, so the tab's top
-              edge (seam−20) clears it in every position — measured at 360px,
-              where the credit starts furthest left (x=126). The gesture pill
-              lives bottom-right too, the floating control column top-right
-              (190…278), and the first card starts at seam+48, i.e. 24px below
-              the tab's lower edge (required gap: 16px).
-
-              CONTRAST: inactive = opaque white + hairline border + ink text;
-              active = dark brand green with pure white text. 44px tap height
-              (min-h-11), 11px bold label, ✦ icon, px-2 and a 4px gap keep the
-              chip at ~126px, so at 360px its right edge (x=142) stays 6px
-              clear of the centred 64px drag handle (x=148).
-
-              The handler, `aria-pressed`, the curated-activation rule and the
-              LIVE exclusivity rule are unchanged, and the tab still travels
-              with the sheet because it is positioned against the sheet's own
-              header. */}
-          <button
-            type="button"
-            onClick={() => {
-              // Same exclusivity rule from the curated side: LIVE off.
-              const next = activateCuratedFilter();
-              setCuratedOnly(next.curatedOnly);
-              setLiveOnly(next.liveOnly);
-            }}
-            aria-pressed={curatedOnly}
-            title="Tempat Pilihan"
-            /* The hang is an inline offset, not a utility class: it is derived
-               from the measured seam, so `top` is explicit (-20px = 20px of the
-               tab above the sheet edge; 2px inside the band at `full`). */
-            style={{ top: sheetPosition === "full" ? 2 : -CURATED_TAB_HANG_PX }}
-            className={`absolute left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap rounded-[14px] border px-2 text-[11px] font-bold shadow-[0_8px_18px_rgb(0_0_0/0.22)] transition active:scale-[0.98] ${
-              curatedOnly
-                ? "border-brand-primary bg-brand-primary text-white shadow-[0_8px_18px_rgb(14_107_79/0.35)]"
-                : "border-black/10 bg-white text-brand-ink hover:bg-brand-cream"
-            }`}
-          >
-            <span aria-hidden>✦</span>
-            Tempat Pilihan
-          </button>
+          {/* THE "TEMPAT PILIHAN" TAB LEFT THIS BAND (2026-10-21). It is a
+              floating, draggable control over the map now (CuratedMapTab), so
+              the 48px header holds ONLY the centred drag handle — no absolute
+              sibling, no reserved left column, and no leftover gap. The
+              handler, `aria-pressed`, the curated activation rule, and the
+              LIVE exclusivity rule are unchanged. */}
         </div>
 
         {/* Only the LIST scrolls, and only in `full`; in small/mid the same

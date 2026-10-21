@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { afterEach, test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import {
@@ -69,8 +69,16 @@ async function createDb(): Promise<PGlite> {
   // the chain so every table the migrations created is covered.
   await db.exec("alter role service_role bypassrls;");
   await db.exec("grant all on all tables in schema public to service_role;");
+  openDbs.push(db);
   return db;
 }
+
+// Each test builds a throwaway Postgres; closing them after every test keeps
+// this file from being OOM-killed (SIGKILL) partway through on a small box.
+const openDbs: PGlite[] = [];
+afterEach(async () => {
+  await Promise.all(openDbs.splice(0).map((db) => db.close()));
+});
 
 type Row = Record<string, unknown>;
 const rows = async (db: PGlite, query: string): Promise<Row[]> => ((await db.query(query)).rows ?? []) as Row[];

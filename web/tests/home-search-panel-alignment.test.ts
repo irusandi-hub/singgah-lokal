@@ -190,42 +190,37 @@ test("the reserved strip for the removed distance scale is gone", () => {
   assert.equal(pageCode.indexOf("bottom-9 right-4 z-[1100]"), -1);
 });
 
-test("the results sheet keeps its draggable handle and the moved curated tab", () => {
+test("the results sheet keeps its draggable handle and no longer owns the tab", () => {
   const sheetStart = pageCode.indexOf("singgah-sheet absolute");
   const sheet = pageCode.slice(sheetStart, pageCode.indexOf('id={CURATED_RESULTS_ANCHOR_ID}'));
-  // The sheet keeps its cream surface and rounded top. Its handle is now a
-  // real focusable/draggable button (2026-10-18) instead of a decorative bar;
-  // the curated tab is the one control in the handle band (2026-10-20), so it
-  // no longer hangs over the map or the OSM credit.
+  // The sheet keeps its cream surface and rounded top. Its handle is a real
+  // focusable/draggable button (2026-10-18) and, since 2026-10-21, the ONLY
+  // control in the header band: the curated tab floats on the map instead.
   assert.match(sheet, /rounded-t-\[24px\] bg-brand-cream/);
   assert.match(sheet, /aria-label="Atur tinggi panel hasil"/);
   assert.match(sheet, /onPointerDown=\{beginSheetDrag\}/);
   assert.match(sheet, /onKeyDown=\{handleSheetKeyDown\}/);
-  assert.match(sheet, /absolute left-4 z-30/);
-  // 2026-10-20: the tab hangs above the seam again (20px) instead of sitting
-  // inline with the handle, and only tucks into the band at `full`.
-  assert.match(sheet, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
+  assert.doesNotMatch(sheet, /absolute left-4 z-30/);
+  assert.doesNotMatch(sheet, /CURATED_TAB_HANG_PX/);
   assert.doesNotMatch(sheet, /-top-11 left-4/);
   // The board's title/count/radius/"Ke hasil" content is GONE (2026-10-18).
   assert.doesNotMatch(sheet, /place-results-heading" className="text-base/);
   assert.doesNotMatch(sheet, /nearOrigin|coverageScope|Ke hasil|resultsAnchorId/);
-  // The section's accessible name survives as a screen-reader heading, and the
-  // curated layer tab lives here — exactly once, with its documented handler.
+  // The section's accessible name survives as a screen-reader heading; the one
+  // curated control is a floating map tab with the same handler.
   assert.match(sheet, /<h2 id="place-results-heading" className="sr-only">/);
-  assert.equal((pageCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
-  assert.match(sheet, /activateCuratedFilter\(\)/);
+  assert.equal((pageCode.match(/<CuratedMapTab/g) ?? []).length, 1);
+  assert.match(pageCode, /const next = activateCuratedFilter\(\);/);
 });
 
-test("the moved curated tab cannot overflow or wrap on a narrow phone", () => {
-  const tabStart = pageCode.indexOf("aria-pressed={curatedOnly}");
-  // The handler precedes the attribute, so the slice reaches back over the
-  // whole button.
-  const tab = pageCode.slice(tabStart - 700, tabStart + 500);
+test("the floating curated tab cannot overflow or wrap on a narrow phone", () => {
+  const curatedTab = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");
   // One compact, non-wrapping control — no fixed pixel width and no second
   // tab beside it.
-  assert.match(tab, /whitespace-nowrap/);
-  assert.doesNotMatch(tab, /w-\[\d+px\]/);
-  assert.equal((tab.match(/<button/g) ?? []).length, 1);
+  assert.match(curatedTab, /whitespace-nowrap/);
+  // The tab's own width stays content-driven (only the 18px grip is fixed).
+  assert.doesNotMatch(curatedTab, /style=\{\{[^}]*width:/);
+  assert.equal((curatedTab.match(/data-curated-map-tab/g) ?? []).length, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -253,16 +248,18 @@ test("the OSM attribution stays visible above the sheet edge", () => {
   assert.doesNotMatch(css, /--singgah-results-panel-height/);
   assert.doesNotMatch(pageCode, /--singgah-results-panel-height/);
   assert.doesNotMatch(pageCode, /new ResizeObserver\(apply\)/);
-  // The gesture hint is lifted ABOVE the attribution band via the same
-  // visible-sheet inset (and above the control column on short stages), so it
-  // can cover neither the credit nor a control.
+  // The on-demand help panel is anchored 56px above the visible seam, so its
+  // bottom edge clears the 22px credit margin and the credit's own text. The
+  // floating tab keeps a 48px guard for the same band.
+  assert.match(pageCode, /const GESTURE_HELP_BOTTOM_GAP_PX = 56;/);
+  assert.match(pageCode, /bottom: sheetVisiblePx \+ GESTURE_HELP_BOTTOM_GAP_PX/);
   assert.match(
-    pageCode,
-    /pointer-events-none absolute right-3 z-\[1100\][\s\S]{0,900}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,1400}2 jari: geser &amp; cubit/,
+    readFileSync(new URL("../lib/live/ui.ts", import.meta.url), "utf8"),
+    /export const CURATED_TAB_ATTRIBUTION_GUARD_PX = 48;/,
   );
-  // The credit is bottom-RIGHT and the hanging curated tab is bottom-LEFT, so
-  // the two can never overlap at any supported width.
-  assert.match(pageCode, /absolute left-4 z-30 inline-flex min-h-11/);
+  // The tab is no longer pinned to the sheet edge; its area is computed against
+  // the visible seam and the credit band.
+  assert.equal(pageCode.includes("absolute left-4 z-30 inline-flex min-h-11"), false);
   // The attribution itself is untouched: Leaflet's own control, fed by the
   // tile layer's OSM attribution string (pinned in live-hardening /
   // map-local-area-coverage) — never removed or replaced.

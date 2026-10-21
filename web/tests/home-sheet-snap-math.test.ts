@@ -58,7 +58,8 @@ test("mid is the dominant-map default at 360 and 390 portrait widths", () => {
 });
 
 test("mid never covers the floating map control column on supported short stages", () => {
-  // The column ends at 278px; the sheet's top edge at mid is `offset`.
+  // The column ends at 230px (two 40px tiles in one row since the compass was
+  // removed on 2026-10-21); the sheet's top edge at mid is `offset`.
   for (const { label, height } of VIEWPORTS) {
     const offsets = resolveSheetOffsets(height);
     assert.ok(
@@ -71,12 +72,14 @@ test("mid never covers the floating map control column on supported short stages
 
 test("a 360px landscape stage still shows the handle and the panel tab", () => {
   const offsets = resolveSheetOffsets(360);
-  // Header-only fallback: 70px visible, enough for the 48px header.
-  assert.equal(360 - offsets.mid, 70);
+  // Mid keeps the map's default ratio unless the control column would be
+  // covered: 360 · 0.42 = 151 is capped to 360 − (230 + 12) = 118, which is
+  // still well above the 48px header.
+  assert.equal(360 - offsets.mid, 118);
   assert.ok(360 - offsets.mid >= SHEET_HEADER_PX);
-  // The tab lives INSIDE that header now (2026-10-20), so the 44px tap target
-  // only has to fit the 48px band; nothing hangs over the map or the credit.
-  assert.ok(SHEET_HEADER_PX - 44 >= 0, "the 44px tab fits the 48px header band");
+  // The floating tab is no longer in the header, so this band only has to fit
+  // the 44px drag handle.
+  assert.ok(SHEET_HEADER_PX - 44 >= 0, "the 44px handle fits the 48px header band");
 });
 
 test("absurdly short stages degrade safely instead of producing negative offsets", () => {
@@ -85,9 +88,14 @@ test("absurdly short stages degrade safely instead of producing negative offsets
     assert.ok(offsets.full === 0 && offsets.mid >= 0 && offsets.small >= 0);
     assert.ok(offsets.mid <= offsets.small, `${height}: mid cannot invert`);
   }
-  // Below the physical minimum the mid position collapses onto small (the
-  // header), which is the only honest way to keep the handle reachable.
-  assert.equal(resolveSheetOffsets(320).mid, resolveSheetOffsets(320).small);
+  // 320px still has room for a mid position that shows the 48px header plus
+  // 30px of map above the controls; below that it collapses onto small (the
+  // header), the only honest way to keep the handle reachable.
+  const short = resolveSheetOffsets(320);
+  assert.ok(short.mid < short.small);
+  assert.ok(320 - short.mid >= SHEET_HEADER_PX);
+  assert.ok(short.mid >= MAP_CONTROL_COLUMN_BOTTOM_PX);
+  assert.equal(resolveSheetOffsets(100).mid, resolveSheetOffsets(100).small);
 });
 
 // ---------------------------------------------------------------------------
@@ -135,6 +143,9 @@ test("the measured stage height is used directly, without a hidden floor", () =>
   // minimum would make these differ.
   const offsets = resolveSheetOffsets(400);
   assert.equal(offsets.small, 352);
-  assert.equal(400 - offsets.mid, Math.min(Math.round(400 * SHEET_MID_VISIBLE_RATIO), 400 - 290));
-  assert.equal(400 - offsets.mid, 110);
+  assert.equal(
+    400 - offsets.mid,
+    Math.min(Math.round(400 * SHEET_MID_VISIBLE_RATIO), 400 - (MAP_CONTROL_COLUMN_BOTTOM_PX + 12)),
+  );
+  assert.equal(400 - offsets.mid, 158);
 });

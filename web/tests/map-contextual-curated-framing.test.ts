@@ -373,7 +373,13 @@ test("A9 the curated pool is CAMERA geometry only — no state, no new control",
   assert.match(pageCode, /activateCuratedFilter\(\)/);
   assert.doesNotMatch(pageCode, /const curatedFitPlaces/);
   assert.match(pageCode, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
-  assert.match(pageCode, />\s*Tempat Pilihan\s*<\/button>/);
+  // The curated control is the one floating map tab since 2026-10-21; its
+  // label lives inside that component, and it is still one control.
+  assert.equal((pageCode.match(/<CuratedMapTab/g) ?? []).length, 1);
+  assert.match(
+    readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8"),
+    /Tempat Pilihan\s*\n\s*<\/button>/,
+  );
   assert.match(pageCode, />\s*LIVE\s*<\/button>/);
   // ...and the tab row is final: the "Semua Tempat" tab that briefly sat below
   // it was REMOVED on 2026-10-04 and nothing replaced it, so the row keeps

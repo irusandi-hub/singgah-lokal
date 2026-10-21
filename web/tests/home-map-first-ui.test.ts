@@ -194,11 +194,14 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
   // bg-brand-ink (near-black) when selected. It is now brand green.
   assert.doesNotMatch(code, /bg-brand-ink text-white/);
   const greenSelected = code.match(/bg-brand-primary text-white/g) ?? [];
-  // Two call sites, back to the pre-2026-10-05 pair: the curated button and the
-  // shared distance-tab branch. The additional "Semua Tempat" tab was removed
-  // on 2026-10-04.
-  assert.equal(greenSelected.length, 2);
-  assert.match(code, /curatedOnly\n\s*\? "bg-brand-primary text-white"/);
+  // ONE call site remains in Home: the shared distance-tab branch. The curated
+  // tab moved into CuratedMapTab on 2026-10-21 and carries the SAME brand-green
+  // selected surface there (checked below, from the component itself).
+  assert.equal(greenSelected.length, 1);
+  assert.match(code, /const next = activateCuratedFilter\(\);/);
+  const curatedTab = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");
+  assert.match(curatedTab, /border-brand-primary bg-brand-primary text-white/);
+  assert.doesNotMatch(curatedTab, /bg-brand-ink text-white/);
   assert.doesNotMatch(code, /allPlacesOnly/);
   // The radius preset is selected only when NO place-set layer owns the map,
   // so choosing "Tempat Pilihan" deselects it exactly as it always did.
@@ -269,12 +272,12 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   );
   assert.doesNotMatch(code, /relative z-10 -mt-5 rounded-t-\[24px\]/);
   // The old handle band was REMOVED (2026-10-18) with no space left behind;
-  // the one hanging control on the seam is the curated tab.
+  // the tab that used to hang on the seam moved onto the MAP on 2026-10-21, so
+  // the sheet header holds only the centred drag handle.
   assert.doesNotMatch(code, /block h-1 w-10 rounded-full bg-black\/10/);
-  // 2026-10-20: the tab hangs 20px above the seam (2px inside the band at
-  // `full`) instead of sitting inline with the handle.
-  assert.match(code, /absolute left-4 z-30 inline-flex min-h-11/);
-  assert.match(code, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
+  assert.doesNotMatch(code, /left-4 z-30 inline-flex min-h-11/);
+  assert.doesNotMatch(code, /CURATED_TAB_HANG_PX/);
+  assert.match(code, /<CuratedMapTab/);
   assert.doesNotMatch(code, /-top-11 left-4|left-4 top-12/);
 });
 
@@ -434,11 +437,13 @@ test("MOCKUP §9: zoom is gesture-only — no Leaflet +/- stack is positioned on
   assert.doesNotMatch(map, /L\.control\.zoom\(/);
   assert.doesNotMatch(css, /leaflet-control-zoom-(in|out)/);
   assert.doesNotMatch(css, /singgah-home-map \.leaflet-top\.leaflet-right/);
-  // The two React controls are ONE 40px-tile column at 190px with 8px gaps.
+  // The two React controls are ONE row of two 40px tiles at 190px, 8px apart
+  // (the compass was removed on 2026-10-21).
   assert.match(
     map,
-    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2">/,
+    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2">/,
   );
+  assert.equal((map.match(/h-10 w-10/g) ?? []).length, 2);
   // Gestures that remain: wheel on pointer devices and touch pinch/pan.
   assert.match(map, /scrollWheelZoom: true/);
   assert.match(map, /dragging: !touchPrimary/);
@@ -454,10 +459,10 @@ test("MOCKUP §11 board is REMOVED: no title, count, radius line, or 'Ke hasil'"
   assert.doesNotMatch(code, /Ke hasil <span aria-hidden>›/);
   assert.doesNotMatch(code, /text-brand-ink\/35">Ke hasil/);
   assert.doesNotMatch(code, /Lihat semua/);
-  // The results section keeps its accessible name, and the moved curated tab
-  // gives the sheet its one control.
+  // The results section keeps its accessible name; the curated control is the
+  // ONE floating map tab now, not a board or a sheet chip.
   assert.match(code, /<h2 id="place-results-heading" className="sr-only">/);
-  assert.match(code, /aria-pressed=\{curatedOnly\}/);
+  assert.equal((code.match(/<CuratedMapTab/g) ?? []).length, 1);
 });
 
 test("BUG FIX: both result strips carry UNIQUE anchor ids and the link targets them", () => {

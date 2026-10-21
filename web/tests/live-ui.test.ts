@@ -103,11 +103,13 @@ test("Home wires both filter buttons to the exclusive transitions, not to raw se
   );
   assert.match(homeSource, /const next = toggleLiveFilter\(liveOnly, curatedOnly\);\s*setLiveOnly\(next\.liveOnly\);\s*setCuratedOnly\(next\.curatedOnly\);/);
   assert.match(homeSource, /const next = activateCuratedFilter\(\);\s*setCuratedOnly\(next\.curatedOnly\);\s*setLiveOnly\(next\.liveOnly\);/);
-  // LIVE and Tempat Pilihan keep their own aria-pressed binding, and the
-  // distance tabs stay deselected while the curated place-set layer is active.
-  // (The second place-set layer, "Semua Tempat", was removed on 2026-10-04.)
+  // LIVE keeps its aria-pressed binding and the distance tabs stay deselected
+  // while the curated place-set layer is active. (The second place-set layer,
+  // "Semua Tempat", was removed on 2026-10-04.) The Tempat Pilihan button
+  // became the floating CuratedMapTab on 2026-10-21: the pressed state flows
+  // into it as a prop and comes back out as its own aria-pressed.
   assert.match(homeSource, /aria-pressed=\{liveOnly\}/);
-  assert.match(homeSource, /aria-pressed=\{curatedOnly\}/);
+  assert.match(homeSource, /pressed=\{curatedOnly\}/);
   assert.match(homeSource, /aria-pressed=\{distanceFilter === filter && !curatedOnly\}/);
 });
 

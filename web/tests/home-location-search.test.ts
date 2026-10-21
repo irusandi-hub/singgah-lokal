@@ -290,19 +290,16 @@ test("the search status line reports server state without becoming a second sear
   // resolved and still consumed by the camera and the search box.
   assert.doesNotMatch(homeDiscovery, /\{searchCenter\.lat\.toFixed\(4\)\}, \{searchCenter\.lng\.toFixed\(4\)\}/);
   assert.match(homeDiscovery, /cameraCenter=\{activeCenter\}/);
-  // No SEARCH state is persisted, and no credentials/tokens are touched. The
-  // ONE storage key the component may touch is the gesture-hint "seen" flag
-  // (2026-10-20): it records that a hint was shown, never a query, a
-  // coordinate, or a session token — so the search path stays stateless.
+  // No SEARCH state is persisted, and no credentials/tokens are touched. Since
+  // 2026-10-21 Home itself persists NOTHING: the gesture-hint "seen" flag is
+  // gone with the automatic pill, and the only storage left in this flow is the
+  // floating tab's own placement inside its component.
   assert.doesNotMatch(discoveryCode, /sessionStorage/);
   const storageKeys = Array.from(
     homeDiscovery.matchAll(/localStorage\.(?:getItem|setItem)\(([^,)]+)/g),
   ).map((match) => match[1].trim());
-  assert.ok(storageKeys.length >= 2, "the seen flag is read and written once");
-  assert.ok(
-    storageKeys.every((key) => key === "GESTURE_HINT_SEEN_KEY"),
-    `the only persisted key is the gesture-hint seen flag (got ${storageKeys.join(", ")})`,
-  );
+  assert.equal(storageKeys.length, 0, "Home persists no search or hint state");
+  assert.equal(homeDiscovery.includes("GESTURE_HINT_SEEN_KEY"), false);
   const searchHandlers = discoveryCode.slice(
     discoveryCode.indexOf("const handleSearchChange"),
     discoveryCode.indexOf("const handleSearchSubmit"),

@@ -411,15 +411,15 @@ test("AC 6: MANY Places are framed with padding that reserves the chrome and the
 // ---------------------------------------------------------------------------
 
 test("AC 7: the right-hand column clears the chrome, and zoom is gesture-only", () => {
-  // 2026-10-18: the Leaflet +/- stack was REMOVED from the Home map. The
-  // column is compass + "Lokasi Saya" only, at 190px with 8px gaps, ending at
-  // 278px — well inside the 470px map floor.
+  // 2026-10-18: the Leaflet +/- stack was REMOVED from the Home map.
+  // 2026-10-21: the compass was removed too, so the column is ONE row of two
+  // 40px tiles at 190px, 8px apart, ending at 230px — well inside the map.
   const columnTop = Number(
-    /absolute right-3 top-\[(\d+)px\] z-\[1100\] flex flex-col items-center gap-2/.exec(homeMap)?.[1] ?? "0",
+    /absolute right-3 top-\[(\d+)px\] z-\[1100\] flex flex-nowrap items-center gap-2/.exec(homeMap)?.[1] ?? "0",
   );
   assert.ok(columnTop > 150, "the control column clears the floating chrome");
   assert.equal(columnTop, 190);
-  assert.ok(columnTop + 40 + 8 + 40 <= 470, "the column clears the map's bottom band");
+  assert.ok(columnTop + 40 <= 470, "the column clears the map's bottom band");
   // No Leaflet control offset of our own remains, and the Producer picker is
   // therefore untouched.
   assert.doesNotMatch(globals, /\.singgah-home-map \.leaflet-top\.leaflet-right \{/);

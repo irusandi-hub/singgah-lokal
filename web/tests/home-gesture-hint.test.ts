@@ -3,34 +3,30 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 
 /**
- * GESTURE HINT — SHOWN BY THE FIRST TOUCH, NOT BY THE RENDER (2026-10-20).
+ * GESTURE HELP PANEL (2026-10-21).
  *
- * BUG: the hint was rendered visible on load and a 6-second timer was started
- * in a mount effect. Its lifetime was therefore measured from HYDRATION, not
- * from the moment a person looked at or touched the map: on a slow phone the
- * pill was already fading (or gone) by the time the map was usable — the
- * "hilang <1 detik" report. It also permanently covered the map it described
- * for those first seconds, and it came back on every visit.
+ * The automatic pill, its ~3 s timer, and the "already seen" localStorage flag
+ * are GONE. Help is now a PANEL that appears only when the "?" control in the
+ * map's two-tile column is tapped, and it stays until the visitor closes it.
  *
- * The behaviour pinned here:
- *   · hidden until the FIRST one-finger touch on the map surface;
- *   · ~3 s hold, then fade;
- *   · never while the map is still loading or the sheet is being dragged;
- *   · one "seen" flag in localStorage + a 44px "?" recall tile in the control
- *     column;
- *   · a SOLID dark-green pill with white 12px text (contrast ≥ 4.5:1), a thin
- *     border, a soft shadow and a small two-finger icon;
- *   · one component, click-through, reduced motion respected.
+ * What is locked here:
+ *  · there is no automatic appearance, no timer, and no persisted seen flag;
+ *  · the panel lists five verified behaviours at ≥13px on an OPAQUE surface
+ *    whose text contrast is ≥4.5:1 (measured from the real CSS tokens);
+ *  · it closes with a 44×44 button, an outside tap, and Esc;
+ *  · it never covers the OSM attribution (its bottom edge sits above the
+ *    credit's band, not over it);
+ *  · the "?" tile keeps its 44px touch target and is the ONLY trigger.
  */
 
 const home = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
 const map = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
-const pillStart = home.indexOf("data-gesture-hint");
-const pill = home.slice(pillStart - 400, pillStart + 1600);
-const trigger = home.slice(
-  home.indexOf("// TRIGGER (2026-10-20)"),
+const panelStart = home.indexOf("data-gesture-help");
+const panel = home.slice(panelStart - 700, panelStart + 4600);
+const lifecycle = home.slice(
+  home.indexOf("const closeGestureHelp = useCallback"),
   home.indexOf("const setSheetSnap = useCallback"),
 );
 
@@ -47,124 +43,141 @@ function contrast(a: string, b: string): number {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Lifetime: touch-triggered, ~3 s, remembered.
+// 1. On demand only — the old automatic hint is gone.
 // ---------------------------------------------------------------------------
 
-test("the hint is hidden until it is shown — no render-time appearance", () => {
-  assert.match(home, /const \[gestureHintVisible, setGestureHintVisible\] = useState\(false\);/);
-  assert.match(home, /\{gestureHintVisible && \(/);
-  // No mount-time timer may show OR hide it again.
-  assert.doesNotMatch(home, /useEffect\(\(\) => \{\s*const timer = window\.setTimeout/);
+test("nothing shows the help automatically, and no timer or seen flag survives", () => {
+  assert.match(home, /const \[gestureHelpOpen, setGestureHelpOpen\] = useState\(false\);/);
+  assert.match(home, /\{gestureHelpOpen && \(/);
+  // The retired mechanism: pill state, visible window, timeout ref, storage key.
+  for (const removed of [
+    "gestureHintVisible",
+    "GESTURE_HINT_VISIBLE_MS",
+    "GESTURE_HINT_SEEN_KEY",
+    "gestureHintSeenRef",
+    "gestureHintTimerRef",
+    "setGestureHintVisible",
+    "data-gesture-hint=",
+  ]) {
+    assert.equal(home.includes(removed), false, `${removed} must be removed from Home`);
+  }
+  assert.equal(home.includes("singgah.gestureHintSeen"), false, "the seen flag is not used any more");
+  // No mount-time timer may show OR hide the panel.
+  assert.equal(/useEffect\(\(\) => \{\s*(?:const|window\.setTimeout)[\s\S]{0,80}gestureHelpOpen/.test(home), false);
 });
 
-test("it holds ~3 s, then fades — one timer, restarted on recall", () => {
-  assert.match(home, /const GESTURE_HINT_VISIBLE_MS = 3000;/);
-  assert.match(
-    home,
-    /gestureHintTimerRef\.current = window\.setTimeout\(\(\) => \{\s*gestureHintTimerRef\.current = null;\s*setGestureHintVisible\(false\);\s*\}, GESTURE_HINT_VISIBLE_MS\);/,
-  );
-  // A recall clears the pending timer first, so two timers can never race.
-  assert.match(home, /if \(gestureHintTimerRef\.current !== null\) \{\s*window\.clearTimeout\(gestureHintTimerRef\.current\);/);
-});
-
-test("it is triggered by the first one-finger touch on the MAP surface", () => {
-  assert.match(home, /const onPointerDown = \(event: PointerEvent\) => \{/);
-  assert.match(home, /node\.addEventListener\("pointerdown", onPointerDown\);/);
-  // Touch/pen only — a mouse carries no touch gesture to teach.
-  assert.match(trigger, /if \(event\.pointerType === "mouse" \|\| !event\.isPrimary\) return;/);
-  // …and only when the touch really started on the map, never on the chrome
-  // or the sheet.
-  assert.match(trigger, /if \(!target\?\.closest\("\.singgah-home-map"\)\) return;/);
-});
-
-test("it never appears while the map is loading or while the sheet is dragged", () => {
-  assert.match(trigger, /const sheetDragging = dragOffset !== null;/);
-  assert.match(trigger, /const mapReady = mapViewport !== null;/);
-  assert.match(trigger, /if \(sheetDragging \|\| gestureHintSeenRef\.current\) return;/);
-  assert.match(trigger, /if \(!node \|\| !mapReady\) return;/);
-  // The listener is re-bound when either gate changes, so it never reads a
-  // stale drag/ready value.
-  assert.match(trigger, /\}, \[mapReady, sheetDragging, showGestureHint\]\);/);
-});
-
-test("\"seen\" is stored once and honoured on the next visit", () => {
-  assert.match(home, /const GESTURE_HINT_SEEN_KEY = "singgah\.gestureHintSeen";/);
-  assert.match(home, /gestureHintSeenRef\.current = window\.localStorage\.getItem\(GESTURE_HINT_SEEN_KEY\) === "1";/);
-  assert.match(home, /window\.localStorage\.setItem\(GESTURE_HINT_SEEN_KEY, "1"\);/);
-  // The flag is read in an effect, never during render (no hydration mismatch)
-  // and storage failures (private mode) degrade instead of throwing.
-  assert.match(home, /useEffect\(\(\) => \{\s*try \{\s*gestureHintSeenRef\.current = window\.localStorage\.getItem/);
-  assert.match(home, /catch \{\s*\/\/ Storage unavailable/);
-});
-
-// ---------------------------------------------------------------------------
-// 2. Look: solid, high-contrast, readable, elegant.
-// ---------------------------------------------------------------------------
-
-test("the pill is SOLID dark green with pure white 12px text", () => {
-  assert.match(pill, /bg-brand-primary-deep/);
-  assert.doesNotMatch(pill, /bg-white\/85|backdrop-blur|text-brand-ink\/55/);
-  assert.match(pill, /text-\[12px\] font-semibold leading-none text-white/);
-  assert.match(pill, /border border-white\/25/);
-  assert.match(pill, /shadow-\[0_6px_18px_rgb\(10_86_64\/0\.35\)\]/);
-  // A small two-finger glyph leads the words.
-  assert.match(pill, /<svg aria-hidden viewBox="0 0 24 24" width="14" height="14"/);
-  assert.match(pill, /2 jari: geser &amp; cubit/);
-});
-
-test("the text clears WCAG AA (≥ 4.5:1) against its own background", () => {
-  const deep = /--brand-primary-deep:\s*(#[0-9a-f]{6})/i.exec(css)?.[1];
-  assert.ok(deep, "the brand token must exist");
-  const ratio = contrast(deep!, "#ffffff");
-  assert.ok(ratio >= 4.5, `white on ${deep} must reach 4.5:1 (got ${ratio.toFixed(2)}:1)`);
-  // Documented value: 8.69:1 — comfortably AAA for large text and AA for body.
-  assert.ok(ratio > 8, `expected the measured ~8.7:1, got ${ratio.toFixed(2)}:1`);
-});
-
-test("reduced motion removes the fade instead of animating through it", () => {
-  assert.match(pill, /transition-opacity duration-300 motion-reduce:transition-none/);
-});
-
-test("one component, click-through, never a permanent cover", () => {
-  assert.equal((home.match(/data-gesture-hint/g) ?? []).length, 1);
-  assert.match(pill, /pointer-events-none absolute right-3 z-\[1100\]/);
-  // The old permanent 10px/55%-ink card is gone for good.
-  assert.equal(home.includes("bg-white/85 px-1.5 py-0.5 text-[10px]"), false);
-});
-
-// ---------------------------------------------------------------------------
-// 3. The "?" recall control in the map's control column.
-// ---------------------------------------------------------------------------
-
-test("the control column carries a 44px \"?\" tile wired to the same hint", () => {
-  assert.match(map, /onShowGestureHint\?: \(\) => void;/);
-  assert.match(map, /onShowGestureHint,\n\}: HomeMapProps\)/);
+test("the panel opens from the \"?\" tile and toggles nothing else", () => {
+  assert.match(home, /const handleShowGestureHint = useCallback\(\(\) => \{\s*setGestureHelpOpen\(true\);\s*\}, \[\]\);/);
+  assert.match(home, /onShowGestureHint=\{handleShowGestureHint\}/);
+  assert.match(map, /data-gesture-hint-recall/);
   assert.match(map, /onClick=\{onShowGestureHint\}/);
   assert.match(map, /aria-label="Tampilkan petunjuk gestur peta"/);
-  // 40px visual tile (the column's rhythm) + a 2px out-of-flow ring on every
-  // side = the documented 44px touch target without growing the column.
-  assert.match(
-    map,
-    /className="relative inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5 transition hover:bg-brand-cream"/,
+  assert.match(map, /title="Petunjuk gestur peta"/);
+});
+
+// ---------------------------------------------------------------------------
+// 2. Complete, verified copy.
+// ---------------------------------------------------------------------------
+
+test("all five real gestures are documented, including one-finger scroll", () => {
+  for (const copy of [
+    "Dua jari geser",
+    "menggeser peta.",
+    "Cubit",
+    "memperbesar atau memperkecil peta.",
+    "Satu jari",
+    "menggulir daftar Tempat saat panel penuh",
+    "tidak menggeser peta.",
+    "Ketuk pin",
+    "memilih Tempat dan membuka kartunya",
+    "Geser tab “Tempat Pilihan”",
+    "memindahkannya di atas",
+  ]) {
+    assert.ok(panel.includes(copy), `the panel must document: ${copy}`);
+  }
+  // The old inaccurate claim ("one finger scrolls the page") is not reintroduced.
+  assert.equal(home.includes("Satu jari: menggulir halaman"), false);
+  // The two-finger map gestures are exactly what Leaflet TouchZoom performs
+  // (pinch midpoint = pan, distance = zoom).
+  assert.match(map, /two-finger|Two-finger|TouchZoom/);
+});
+
+test("13px minimum body text on a SOLID surface at ≥4.5:1 contrast", () => {
+  const rows = panel.match(/text-\[13px\]/g) ?? [];
+  assert.ok(rows.length >= 5, `five rows must be at least 13px (found ${rows.length})`);
+  assert.equal(/text-\[(?:10|11|12)px\][^"]*leading-snug/.test(panel), false);
+  // Opaque, not translucent: no alpha suffix and no backdrop blur.
+  assert.match(panel, /bg-white p-3 text-brand-ink/);
+  assert.doesNotMatch(panel, /bg-white\/\d|backdrop-blur/);
+  const ink = /--brand-ink:\s*(#[0-9a-f]{6})/i.exec(css)?.[1];
+  assert.ok(ink, "the brand ink token must exist");
+  const ratio = contrast(ink!, "#ffffff");
+  assert.ok(ratio >= 4.5, `ink on white must reach 4.5:1 (got ${ratio.toFixed(2)}:1)`);
+  // Documented measured value: 15.9:1 — AAA by a wide margin.
+  assert.ok(ratio > 15, `expected ~15.9:1, got ${ratio.toFixed(2)}:1`);
+});
+
+// ---------------------------------------------------------------------------
+// 3. Closing: 44px button, outside tap, Esc; focus returns to "?".
+// ---------------------------------------------------------------------------
+
+test("the close button is a real 44×44 control", () => {
+  const close = panel.slice(panel.indexOf('aria-label="Tutup petunjuk gestur"'), panel.indexOf("</button>", panel.indexOf('aria-label="Tutup petunjuk gestur"')));
+  assert.match(close, /h-11 w-11/);
+  assert.match(close, /onClick=\{closeGestureHelp\}/);
+});
+
+test("an outside tap closes it through the backdrop", () => {
+  const backdrop = home.slice(
+    home.indexOf('aria-label="Tutup petunjuk gestur"\n              tabIndex={-1}'),
+    home.indexOf("data-gesture-help"),
   );
+  assert.match(backdrop, /absolute inset-0 z-\[1200\]/);
+  assert.match(backdrop, /onClick=\{closeGestureHelp\}/);
+});
+
+test("Escape closes it and focus returns to the recall control", () => {
+  assert.match(lifecycle, /if \(event\.key === "Escape"\)/);
+  assert.match(lifecycle, /setGestureHelpOpen\(false\);/);
+  assert.match(lifecycle, /document\.querySelector<HTMLButtonElement>\("\[data-gesture-hint-recall\]"\)\?\.focus\(\);/);
+  assert.match(home, /const closeGestureHelp = useCallback\(\(\) => \{\s*setGestureHelpOpen\(false\);\s*const recall = document\.querySelector<HTMLButtonElement>\("\[data-gesture-hint-recall\]"\);/);
+  // Focus moves INTO the panel on open (the close button).
+  assert.match(lifecycle, /gestureHelpCloseRef\.current\?\.focus\(\)/);
+  // A dialog, not a live region: opening it is an interaction, not a status.
+  assert.match(panel, /role="dialog"/);
+  assert.match(panel, /aria-modal="true"/);
+  assert.match(panel, /aria-labelledby="gesture-help-title"/);
+});
+
+test("the panel is anchored clear of the OSM attribution", () => {
+  // bottom = sheetVisiblePx + 56; the credit's band ends at seam − 22.
+  const gap = /const GESTURE_HELP_BOTTOM_GAP_PX = (\d+);/.exec(home)?.[1];
+  assert.ok(gap, "the bottom gap constant must exist");
+  assert.ok(Number(gap) > 22 + 14, "the panel's bottom edge must clear the 22px credit margin and its text");
+  assert.match(panel, /style=\{\{\s*bottom: sheetVisiblePx \+ GESTURE_HELP_BOTTOM_GAP_PX,/);
+  // …and the credit keeps its own 22px margin above the visible seam.
+  assert.match(css, /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;/);
+});
+
+// ---------------------------------------------------------------------------
+// 4. The recall tile keeps its 44px target in the two-control column.
+// ---------------------------------------------------------------------------
+
+test("the \"?\" tile is 44px and sits beside \"Lokasi Saya\" in one row", () => {
+  assert.match(map, /onShowGestureHint\?: \(\) => void;/);
+  assert.match(map, /onShowGestureHint,\n\}: HomeMapProps\)/);
+  assert.match(map, /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2">/);
   assert.match(map, /<span aria-hidden className="pointer-events-auto absolute -inset-0\.5" \/>/);
   assert.match(map, /<span aria-hidden className="text-\[15px\] font-bold leading-none">\?<\/span>/);
-  // The tile sits BESIDE "Lokasi Saya" in one 40px row, so the column bottom
-  // stays at 278px and the sheet can never cover it on a short stage.
-  assert.match(map, /<div className="flex items-center gap-2">/);
-  assert.match(home, /onShowGestureHint=\{handleShowGestureHint\}/);
-  assert.match(home, /const handleShowGestureHint = useCallback\(\(\) => \{\s*showGestureHint\(false\);\s*\}, \[showGestureHint\]\);/);
+  // Two tiles, no third, no wrap.
+  assert.equal((map.match(/h-10 w-10/g) ?? []).length, 2);
+  assert.equal((map.match(/flex-nowrap/g) ?? []).length, 1);
 });
 
-test("recalling the hint does not rewrite the seen flag", () => {
-  // `showGestureHint(false)` shows without remembering; only the touch path
-  // passes `true`.
-  assert.match(trigger, /showGestureHint\(true\);/);
-  assert.match(home, /const showGestureHint = useCallback\(\(remember: boolean\) => \{/);
-});
-
-test("the hint is not a live region, so a tap is not announced as status", () => {
-  // The empty-state copy still explains the gesture to assistive technology;
-  // the pill is a sighted-touch tip and must not hijack role="status".
-  assert.doesNotMatch(pill, /role="status"/);
+test("the reset the panel offers is wired to the floating tab, not the camera", () => {
+  assert.match(panel, /Kembalikan tab ke posisi awal/);
+  assert.match(panel, /onClick=\{resetCuratedTabPlacement\}/);
+  assert.match(home, /import CuratedMapTab, \{ resetCuratedTabPlacement \} from "@\/components\/curated-map-tab";/);
+  assert.equal((panel.match(/setCameraRequestNonce/g) ?? []).length, 0);
+  assert.equal(home.includes("resetNonce"), false, "the reset is imperative, not a nonce the tab watches");
 });

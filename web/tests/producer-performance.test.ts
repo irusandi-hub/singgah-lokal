@@ -202,7 +202,10 @@ test("every repaired load reports a visible, non-blocking failure", () => {
   // (role="alert" / role="status" text) — no loading library was introduced.
   assert.match(placeWorkspace, /setError\("Tempat tidak dapat dimuat\. Periksa koneksi lalu muat ulang\."\)/);
   assert.match(placeForm, /setLoadError\("Foto Tempat tidak dapat dimuat\. Periksa koneksi lalu muat ulang\."\)/);
-  assert.match(placeForm, /role="alert">\{loadError\}/);
+  // The photo-load failure renders inside a role="alert" region — visible and
+  // non-blocking — and that region carries its own retry (reload nonce).
+  assert.match(placeForm, /role="alert">[\s\S]{0,200}\{loadError\}/);
+  assert.match(placeForm, /setLoadError\(""\);[\s\S]{0,120}setReloadNonce\(\(current\) => current \+ 1\);/);
   assert.match(experiencesPanel, /setError\("Kegiatan tidak dapat dimuat\. Periksa koneksi lalu muat ulang\."\)/);
   assert.match(productionPanel, /setMessage\("Daftar tahap tidak dapat dimuat\. Periksa koneksi lalu muat ulang\."\)/);
   assert.match(inbox, /setError\("Kunjungan tidak dapat dimuat\. Periksa koneksi lalu muat ulang\."\)/);

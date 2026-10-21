@@ -106,30 +106,27 @@ test("OSM attribution and map controls stay above the visible sheet edge", () =>
     /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;/,
   );
   assert.match(mapCode, /--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset\)\}px`/);
-  // The control column is a fixed 40px pair (plus the 2026-10-20 gesture "?"
-  // tile BESIDE "Lokasi Saya", which adds no height) ending at 278px; the mid
-  // geometry test above proves the sheet top stays below it on the supported
-  // stages.
-  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
-  assert.match(mapCode, /<div className="flex items-center gap-2">/);
+  // 2026-10-21: the compass was removed and the "?" now sits BESIDE "Lokasi
+  // Saya" in ONE 40px row ending at 230px; the mid geometry test above proves
+  // the sheet top stays below it on the supported stages.
+  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
+  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 2);
 });
 
-test("the tab is one instance, stays attached to the sheet, and keeps LIVE exclusive", () => {
-  assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+test("the curated tab is one floating instance and keeps LIVE exclusive", () => {
+  assert.equal((code.match(/<CuratedMapTab/g) ?? []).length, 1);
   assert.match(code, /const next = activateCuratedFilter\(\);/);
   assert.match(code, /setLiveOnly\(next\.liveOnly\)/);
-  // 2026-10-20: the tab hangs 20px above the sheet edge in small/mid (tucked
-  // 2px inside the header band at `full`), to the left of the centred 64px
-  // handle and clear of the bottom-RIGHT OSM credit band. The list still needs
-  // no reserve for it: the first card starts 24px below its lower edge.
-  assert.match(code, /absolute left-4 z-30 inline-flex min-h-11/);
-  assert.match(code, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
-  assert.doesNotMatch(code, /-top-11 left-4|left-4 top-12/);
+  // 2026-10-21: the tab floats over the map and hides at `full`; it is no
+  // longer attached to the sheet, so the header band needs no reserve for it.
+  const curatedTab = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");
+  assert.match(curatedTab, /data-curated-map-tab/);
+  assert.match(curatedTab, /snapCuratedTabPlacement/);
+  assert.match(curatedTab, /whitespace-nowrap/);
+  assert.doesNotMatch(curatedTab, /style=\{\{[^}]*width:/);
+  assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 0);
+  // The full-position exit is still the one Peta control.
   assert.match(code, /absolute bottom-6 right-4 z-30 inline-flex min-h-11/);
-  const tabAt = code.indexOf("aria-pressed={curatedOnly}");
-  const tab = code.slice(tabAt - 900, tabAt + 900);
-  assert.match(tab, /whitespace-nowrap/);
-  assert.doesNotMatch(tab, /w-\[\d+px\]/, "the tab keeps its intrinsic width on 360/390px");
 });
 
 test("the only way out of full is the Peta control, which returns to mid", () => {

@@ -366,26 +366,21 @@ test("12.3 the redundant floating panel is gone and result access is intact", ()
   assert.match(pageCode, /Saat ini belum ada Live yang sedang berlangsung\./);
 });
 
-test("12.4 the removed board left no band, and the sheet keeps its one control", () => {
+test("12.4 the removed board left no band, and the sheet keeps only its handle", () => {
   // 2026-10-18: the information board is REMOVED, so the sheet is the first
-  // surface under the map. The retired handle band is removed too: exactly ONE
-  // control hangs on the sheet's top edge — the curated layer tab that moved
-  // here from the top filter row. No count/origin line returns.
+  // surface under the map. 2026-10-21: the curated tab moved onto the map, so
+  // the header band holds ONLY the drag handle. No count/origin line returns.
   const headerStart = pageCode.indexOf('<h2 id="place-results-heading"');
-  // 2026-10-18: the sheet header is the seam band — everything between the
-  // accessible name and the scrollable list, and nothing else.
-  const band = pageCode.slice(headerStart, pageCode.indexOf("Only the LIST scrolls", headerStart));
+  const band = pageCode.slice(headerStart, pageCode.indexOf("ref={sheetListRef}", headerStart));
   assert.ok(band.length > 0, "the sheet header was located");
   assert.equal((band.match(/<p /g) ?? []).length, 0, "no information line came back");
   assert.doesNotMatch(band, /nearOrigin|coverageScope|Ke hasil/);
-  assert.match(band, /aria-pressed=\{curatedOnly\}/);
-  assert.equal((band.match(/aria-pressed=/g) ?? []).length, 1, "one control on the seam");
+  assert.equal((band.match(/<button/g) ?? []).length, 1, "only the drag handle in the band");
+  assert.match(band, /aria-label="Atur tinggi panel hasil"/);
+  assert.equal((band.match(/aria-pressed=/g) ?? []).length, 0, "the tab is not on the seam any more");
   assert.doesNotMatch(band, /block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(band, /absolute left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1/);
-  // 2026-10-20: the tab HANGS 20px above the sheet edge in small/mid — a real
-  // tab over the map — and tucks 2px into the band at `full`.
-  assert.match(band, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
-  assert.doesNotMatch(band, /-top-11 left-4|left-4 top-12/);
+  assert.doesNotMatch(band, /absolute left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1/);
+  assert.doesNotMatch(band, /CURATED_TAB_HANG_PX|-top-11 left-4|left-4 top-12/);
   // The sheet and its chrome keep the approved visual identity: same cream
   // surface and same 24px top radius, now floating over the map stage.
   assert.match(pageCode, /rounded-t-\[24px\] bg-brand-cream/);

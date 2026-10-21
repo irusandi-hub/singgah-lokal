@@ -86,15 +86,15 @@ test("Gesture 7-8: scope discipline — layout, overlays, and cleanup untouched"
   // background, the right-hand control stack was moved DOWN to clear the
   // floating header/search/filter chrome — the offset only; size, shape,
   // handlers, and the Leaflet control position are untouched.
-  // UNIFIED (2026-10-18): the compass and "Lokasi Saya" are ONE 40px-tile
-  // column at 190px with 8px gaps; Leaflet's +/- stack follows on the same
-  // rhythm from globals.css (286px). This test only pins that the gesture
-  // work did not move the handlers or the map container.
+  // 2026-10-21: the compass is gone, so it is ONE row of two 40px tiles
+  // (Lokasi Saya + gesture help) at 190px with 8px gaps. This test only pins
+  // that the gesture work did not move the handlers or the map container.
   assert.match(homeMapSource, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
   assert.match(
     homeMapSource,
-    /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/,
+    /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/,
   );
+  assert.equal((homeMapSource.match(/h-10 w-10/g) ?? []).length, 2);
   assert.equal((homeMapSource.match(/onClick=\{onRequestLocate\}/g) ?? []).length, 1);
   // The two-finger observer is passive (never blocks/prevents anything) and
   // is detached in teardown — no listener leak.

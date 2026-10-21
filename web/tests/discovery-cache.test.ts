@@ -149,7 +149,11 @@ test("A failed Live poll keeps the last good data and never claims the feed is e
 test("No Place bottom sheet may cover the map surface", () => {
   const code = stripComments(homeDiscovery);
   assert.equal(/bottom-0 left-0 right-0/.test(code), false, "no absolute bottom strip inside the map frame");
-  assert.equal(code.includes("z-[1200]"), false, "no bottom-sheet overlay layer");
+  // 2026-10-21: the ONLY z-[1200] layer is the gesture-help dialog's invisible
+  // tap-catcher (a transient modal opened from the "?" tile) — never a Place
+  // bottom sheet floating over the map.
+  assert.equal((code.match(/z-\[1200\]/g) ?? []).length, 1);
+  assert.match(code, /absolute inset-0 z-\[1200\] cursor-default bg-brand-ink\/15/);
   assert.equal(code.includes("Lihat Tempat"), false, "no Place CTA floating over the map");
   assert.equal(/rounded-t-\[28px\]\s+bg-white/.test(code), false, "no bottom-sheet card over the map");
   // Place detail stays served below the map. Stage 3 renamed the default

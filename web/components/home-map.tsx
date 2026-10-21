@@ -6,13 +6,15 @@ import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "lea
 import "leaflet/dist/leaflet.css";
 import {
   FIT_SINGLE_PLACE_ZOOM,
+  PIN_LABEL_HEIGHT_PX,
   boundsOfPoints,
   collectGeoPoints,
   isSameViewport,
   resolveCameraFitPadding,
-  selectAlwaysLabelledPlaceIds,
+  selectVisiblePinLabelIds,
   shouldReportViewportStatus,
   type MapViewport,
+  type PinLabelBox,
 } from "@/lib/live/ui";
 
 /**
@@ -111,10 +113,12 @@ import {
  *   z-priority, navigates to /live/[sessionId]). The "Tempat Pilihan" map
  *   shows curated AND ordinary Places at once, so the treatment is per Place,
  *   never per mode. No emoji glyphs. Each pin carries its compact Place-name
- *   chip beneath the anchor (always-on since 2026-10-04, held to the
- *   deterministic on-screen budget of 2026-10-05 — see .singgah-pin-label in
- *   globals.css and `selectAlwaysLabelledPlaceIds`), and the hover/focus
- *   tooltip still carries the FULL name.
+ *   chip beneath the anchor; since 2026-10-21 the chips are decluttered by
+ *   ZOOM — a far frame keeps few names, a closer frame admits more, a chip
+ *   that would collide with a kept one is held back, and the SELECTED Place is
+ *   always labelled (see .singgah-pin-label in globals.css and
+ *   `selectVisiblePinLabelIds`). The pin itself is never hidden, and the
+ *   hover/focus tooltip still carries the FULL name.
  */
 export type HomeMapPlace = {
   id: string;
@@ -279,9 +283,10 @@ type HomeMapProps = {
    */
   bottomInset?: number;
   /**
-   * GESTURE HINT RECALL (2026-10-20). Renders the small "?" tile at the end of
-   * the control column; the caller owns the ONE hint component and its timer.
-   * Purely a control — no map behaviour, gesture, or camera rule is involved.
+   * GESTURE HELP (2026-10-21). Renders the small "?" tile at the end of the
+   * two-control column; the caller owns the help panel. This is the ONLY way
+   * the panel appears — there is no automatic pill and no timer. Purely a
+   * control — no map behaviour, gesture, or camera rule is involved.
    */
   onShowGestureHint?: () => void;
 };
@@ -410,6 +415,12 @@ const LOCATE_AREA_RADIUS_M = 350;
  * compete for the same pixels or the same priority.
  */
 const PIN_LABEL_ON_DEMAND_ATTRIBUTE = "data-label-state";
+/** Chip max width from globals.css (`.singgah-pin-label`). */
+const PIN_LABEL_MAX_WIDTH_PX = 124;
+/** Approximate advance per character at 10.5px/600, plus the 6px side padding. */
+const PIN_LABEL_CHAR_WIDTH_PX = 6.1;
+/** Distance from the pin anchor down to the chip's top edge (CSS: top 100% + 1px). */
+const PIN_LABEL_TOP_OFFSET_PX = 3;
 
 /**
  * PIN LABEL PLACEMENT — the ONE anchor every chip has used since Place names
@@ -519,6 +530,28 @@ export default function HomeMap({
 
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  // LABEL VISIBILITY SOURCES (2026-10-21): the zoom-end listener is long-lived,
+  // so the marker set, its Live membership, and the selected Place are mirrored
+  // into refs. Zooming then re-decides which chips are painted without
+  // rebuilding a single marker.
+  const placesRef = useRef<HomeMapPlace[]>(places);
+  const liveByPlaceIdRef = useRef(liveByPlaceId);
+  const highlightedPlaceIdRef = useRef(highlightedPlaceId);
+  // Place id -> the marker's icon element, so a label state can be flipped
+  // directly (no marker rebuild, no layout read).
+  const markersByIdRef = useRef<Map<string, HTMLElement>>(new Map());
+
+  useEffect(() => {
+    placesRef.current = places;
+  }, [places]);
+
+  useEffect(() => {
+    liveByPlaceIdRef.current = liveByPlaceId;
+  }, [liveByPlaceId]);
+
+  useEffect(() => {
+    highlightedPlaceIdRef.current = highlightedPlaceId;
+  }, [highlightedPlaceId]);
 
   const viewerPositionKey = viewerPosition ? `${viewerPosition.lat},${viewerPosition.lng}` : "";
 
@@ -688,6 +721,65 @@ export default function HomeMap({
     viewerPositionRef.current = viewerPosition;
   }, [viewerPosition]);
 
+  // LABEL DECLUTTER AT THE CURRENT ZOOM (2026-10-21). Pure projected geometry:
+  // each chip's box is derived from `map.project(latlng, zoom)` and the SAME
+  // chip typography (max 124px, 10.5px/600) — no `getBoundingClientRect`, no
+  // `offsetWidth`, no reflow. A far-out frame therefore keeps few labels, a
+  // close frame admits more, a label that would overlap a kept one is held
+  // back, and the SELECTED Place is always labelled. Pins, coordinates, click
+  // targets, tooltips, DOM text, and the marker ladder are untouched: only the
+  // `data-label-state` paint flag changes, exactly like the pre-existing
+  // density budget.
+  const applyPinLabelStates = useCallback(
+    (
+      map: LeafletMap,
+      sourcePlaces: readonly HomeMapPlace[],
+      liveMap: Map<string, HomeMapLive>,
+      selectedId: string | null,
+    ) => {
+      const zoom = map.getZoom();
+      const boxes: PinLabelBox[] = [];
+      for (const place of sourcePlaces) {
+        if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
+        const point = map.project([place.latitude, place.longitude], zoom);
+        const width = Math.min(
+          PIN_LABEL_MAX_WIDTH_PX,
+          Math.round(place.name.length * PIN_LABEL_CHAR_WIDTH_PX) + 14,
+        );
+        boxes.push({
+          id: place.id,
+          x: point.x - width / 2,
+          y: point.y + PIN_LABEL_TOP_OFFSET_PX,
+          width,
+          height: PIN_LABEL_HEIGHT_PX,
+          tier:
+            place.id === selectedId
+              ? 0
+              : place.isCurated === true
+                ? 1
+                : liveMap.has(place.id)
+                  ? 2
+                  : 3,
+        });
+      }
+      const visible = selectVisiblePinLabelIds({ boxes, zoom, pinnedId: selectedId });
+      for (const [id, element] of markersByIdRef.current) {
+        const label = element.querySelector<HTMLElement>(".singgah-pin-label");
+        if (label) {
+          label.setAttribute(PIN_LABEL_ON_DEMAND_ATTRIBUTE, visible.has(id) ? "always" : "on-demand");
+        }
+      }
+    },
+    [],
+  );
+
+  // Called by the map's own zoomend, over the mirrors above.
+  const refreshPinLabelsAtCurrentZoom = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyPinLabelStates(map, placesRef.current, liveByPlaceIdRef.current, highlightedPlaceIdRef.current);
+  }, [applyPinLabelStates]);
+
   // Create the map once. Leaflet touches window, so it is imported
   // dynamically inside the effect (safe for SSR of this client component).
   // The container is marked synchronously BEFORE the async import resolves,
@@ -766,6 +858,12 @@ export default function HomeMap({
         maxBoundsViscosity: 1.0,
       });
       map.fitWorld();
+      // OSM ATTRIBUTION (2026-10-21): the credit STAYS (ODbL requires it), but
+      // Leaflet's decorative "Leaflet" wordmark and its flag are removed — the
+      // contributor is what the licence asks us to show, and the credit is
+      // styled to 9.5px with a translucent surface in globals.css. No link,
+      // target, or rel is touched.
+      map.attributionControl.setPrefix(false);
       // EXACTLY ONE tile layer for the map's whole lifetime — a removed
       // instance can never leave an orphaned OSM layer (stale/repeated tiles
       // after remount, refresh, or drag on Android Chrome).
@@ -811,6 +909,9 @@ export default function HomeMap({
       });
       map.on("zoomend", evaluateViewportStatus);
       map.on("zoomend", reportViewportBounds);
+      // Label declutter is a ZOOM decision: pins spread out in pixels as the
+      // camera gets closer, so the same deterministic pass admits more chips.
+      map.on("zoomend", refreshPinLabelsAtCurrentZoom);
       map.on("dragstart", () => {
         if (!programmaticMoveRef.current) userInteractedRef.current = true;
       });
@@ -1301,6 +1402,7 @@ export default function HomeMap({
       if (cancelled || !map || !layer) return;
 
       layer.clearLayers();
+      markersByIdRef.current.clear();
       const currentPlaces = places;
       // Viewport-aware empty state (PO, 2026-09-30): the mirror holds ONLY
       // the canonical coordinates that actually receive a marker (same
@@ -1314,23 +1416,13 @@ export default function HomeMap({
         markerPositions.push([place.latitude, place.longitude]);
       }
       markerPositionsRef.current = markerPositions;
-      // LABEL DENSITY (2026-10-05): ONE deterministic pass over the rendered
-      // pins decides which compact chips stay painted when a dense cluster is
-      // on screen. It is computed here — once per MARKER REBUILD, an effect
-      // already keyed on the stable marker signature — so panning, zooming,
-      // and every viewport report cost nothing extra, and no layout is ever
-      // measured (no `getBoundingClientRect`, no `offsetWidth`, no reflow).
-      // Chips past the budget keep their DOM node and their full text; only
-      // their paint state changes, and CSS reveals them again on the existing
-      // hover/keyboard-focus state. Priority follows the marker ladder above:
-      // curated first, then Live, then canonical order.
-      const alwaysLabelledPlaceIds = selectAlwaysLabelledPlaceIds(
-        currentPlaces.map((place) => ({
-          id: place.id,
-          isCurated: place.isCurated === true,
-          isLive: liveByPlaceId.has(place.id),
-        })),
-      );
+      // LABEL DECLUTTER (2026-10-05; zoom-aware 2026-10-21): the chips are
+      // decided ONCE PER MARKER REBUILD and again on every zoomend by the ONE
+      // deterministic `applyPinLabelStates` pass, from projected boxes. Panning
+      // and viewport reports cost nothing (relative boxes do not change), no
+      // layout is ever measured, and past-budget / colliding chips keep their
+      // DOM node and full text — only their paint state changes, and CSS
+      // reveals them again on the existing hover/keyboard-focus state.
       if (currentPlaces.length === 0) {
         evaluateViewportStatus();
         return;
@@ -1386,7 +1478,9 @@ export default function HomeMap({
         // the pin is hovered or keyboard-focused. The accessible name, the
         // tooltip, the click target, and the marker order are identical in
         // both states, so nothing becomes unreachable.
-        const labelState = alwaysLabelledPlaceIds.has(place.id) ? "always" : "on-demand";
+        // Flipped to `always` by the zoom-aware pass below when this Place
+        // earns a painted label at the current camera.
+        const labelState = "on-demand";
         const accent = isCurated
           ? `<span style="transform:rotate(45deg);color:#fff;font-size:13px;line-height:1;">✦</span>`
           : "";
@@ -1437,7 +1531,13 @@ export default function HomeMap({
           offset: [0, -40],
           opacity: 1,
         });
+        const element = marker.getElement();
+        if (element) markersByIdRef.current.set(place.id, element);
       }
+      // Every chip starts held back, then the ONE projected pass paints the
+      // labels this camera can carry — selected first, then curated, Live, and
+      // canonical order, skipping any box that would collide.
+      applyPinLabelStates(map, currentPlaces, liveByPlaceId, highlightedPlaceId);
       // Marker set rebuilt: re-evaluate the viewport status against the NEW
       // set (a dataset change can place markers into — or remove them from —
       // the current viewport without any camera move).
@@ -1482,89 +1582,60 @@ export default function HomeMap({
           (max control z-index = 1000): 1100+ keeps the React layer strictly
           on top in any drag/zoom state.
 
-          CONTROL COLUMN (2026-10-18): the compass and "Lokasi Saya" are ONE
-          flex column of identical 40×40 tiles, 8px apart, with the same white
-          surface, 14px radius, hairline ring, and soft shadow (`gap-2`). The
-          Leaflet +/- stack that used to continue this column was REMOVED on
-          2026-10-18 — zoom is gesture-only — so the column ends here and no
-          CSS offset has to keep a zoom control in place. Functions are
-          untouched: the compass still only states orientation and the locate
-          button still calls `onRequestLocate`.
+          CONTROL COLUMN (2026-10-21): TWO 40×40 tiles in ONE row, 8px apart,
+          right-aligned, no wrapping — "Lokasi Saya" then the gesture-help "?".
+          The compass that used to sit above them was REMOVED by product
+          decision on 2026-10-21 (it was a passive, non-interactive ornament
+          that only restated the always-north-up orientation) together with its
+          SVG, its UI test, and its CSS commentary. Nothing else read it.
 
-          190px is where the floating header/search/filter chrome ends. The
-          column then runs 190..230 (compass) and 238..278 ("Lokasi Saya" plus
-          the gesture-hint "?" from 2026-10-20, side by side in ONE 40px row)
-          — the same 278px that lib/live/ui.ts publishes as the column bottom,
-          and the number the sheet's mid snap is capped against.
-
-          THE COMPASS is NOT interactive: this Leaflet build (1.9.x core, no
-          rotation plugin) cannot rotate the map at all — there is no
-          `setBearing`/bearing state to read and no rotation to undo — so the
-          map is ALWAYS north-up. A button that "restored north-up" would
-          advertise a capability this map does not have, i.e. invented
-          behaviour. Its red needle half points at true north and the
-          accessible name states the same fact for a screen reader. */}
-      <div className="absolute right-3 top-[190px] z-[1100] flex flex-col items-center gap-2">
-        {/* COMPASS — orientation indicator (approved mockup, 2026-10-04). */}
-        <div
-          role="img"
-          aria-label="Arah peta: utara ke atas"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5"
+          190px is where the floating header/search/filter chrome ends; the row
+          then runs 190..230, which is the column bottom lib/live/ui.ts
+          publishes and the number the sheet's mid snap is capped against.
+          Both tiles keep the shared white surface, 14px radius, hairline ring,
+          and soft shadow; functions are untouched (`onRequestLocate`, and the
+          "?" which opens the caller-owned help panel). */}
+      <div className="absolute right-3 top-[190px] z-[1100] flex flex-nowrap items-center gap-2">
+        {/* "LOKASI SAYA" — the one locate control, on the SAME handler. It is
+            an icon tile (crosshair + the existing blue user dot); `title` and
+            the aria-label keep the control named for sighted-hover and
+            screen-reader use alike. */}
+        <button
+          type="button"
+          onClick={onRequestLocate}
+          title="Lokasi Saya"
+          aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
         >
           <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
-            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-            <path d="M12 4.2 15.1 13.2H8.9L12 4.2Z" fill="#dc2626" />
-            <path d="M12 19.8 8.9 10.8h6.2L12 19.8Z" fill="currentColor" opacity="0.35" />
+            <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+            <circle cx="12" cy="12" r="2.4" fill="#2563eb" />
+            <path
+              d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
           </svg>
-        </div>
-        {/* SECOND ROW (2026-10-20): "Lokasi Saya" and the gesture-hint "?"
-            share ONE 40px row. Stacking the "?" as a third tile would push the
-            column to 330px and the results sheet would cover it on a 360px-
-            tall landscape stage — the column bottom stays at the 278px the
-            sheet's mid snap is capped against. */}
-        <div className="flex items-center gap-2">
-          {/* "LOKASI SAYA" — the one locate control, on the SAME handler. It is
-              an icon tile now (crosshair + the existing blue user dot) so it
-              matches the compass and the zoom buttons exactly; `title` and the
-              aria-label keep the control named for sighted-hover and
-              screen-reader use alike. */}
+        </button>
+        {/* GESTURE HELP (2026-10-21): the "?" is the ONLY way the help panel
+            appears — there is no automatic pill, no timer, and no "already
+            seen" flag any more. The 40px tile keeps the column rhythm and
+            extends its touch target to 44px with an out-of-flow span, so the
+            documented minimum is met without growing the column. */}
+        {onShowGestureHint ? (
           <button
             type="button"
-            onClick={onRequestLocate}
-            title="Lokasi Saya"
-            aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
+            data-gesture-hint-recall
+            onClick={onShowGestureHint}
+            title="Petunjuk gestur peta"
+            aria-label="Tampilkan petunjuk gestur peta"
+            className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
           >
-            <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
-              <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.6" />
-              <circle cx="12" cy="12" r="2.4" fill="#2563eb" />
-              <path
-                d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </svg>
+            <span aria-hidden className="pointer-events-auto absolute -inset-0.5" />
+            <span aria-hidden className="text-[15px] font-bold leading-none">?</span>
           </button>
-          {/* GESTURE HINT RECALL (2026-10-20): the hint is shown once, on the
-              first one-finger map touch, and then remembered. This tile is the
-              only way to bring it back. It keeps the 40px visual rhythm of the
-              column and extends its TOUCH target to 44px with the same
-              out-of-flow span the search bar's "Cari" control uses, so the
-              documented minimum is met without growing the column. */}
-          {onShowGestureHint ? (
-            <button
-              type="button"
-              onClick={onShowGestureHint}
-              title="Petunjuk gestur peta"
-              aria-label="Tampilkan petunjuk gestur peta"
-              className="relative inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
-            >
-              <span aria-hidden className="pointer-events-auto absolute -inset-0.5" />
-              <span aria-hidden className="text-[15px] font-bold leading-none">?</span>
-            </button>
-          ) : null}
-        </div>
+        ) : null}
       </div>
     </div>
   );

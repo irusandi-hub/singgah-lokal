@@ -32,6 +32,7 @@ const RIYADH: ActiveCenter = { lat: 24.6389, lng: 46.716 };
 const DAMMAM: ActiveCenter = { lat: 26.4207, lng: 50.0888 };
 
 const homeDiscovery = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
+const curatedMapTab = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");
 
 function stripComments(source: string): string {
   return source
@@ -183,9 +184,9 @@ test("R-B: the overlay stays clear of the coverage box and the Leaflet controls"
   assert.doesNotMatch(discoveryCode, /bottom-9 left-4 z-\[1100\]/);
   // Click-through: the overlay can never swallow a pan or a pinch.
   assert.match(discoveryCode, /pointer-events-none absolute inset-x-0 z-\[1100\]/);
-  // It is above the gesture hint (inset + 128 vs inset + 44), and above the
-  // 22px OSM credit band the hint itself clears.
-  assert.match(discoveryCode, /const gestureHintLiftBasePx = sheetVisiblePx \+ 44;/);
+  // It is above the on-demand help panel (inset + 128 vs inset + 56), and
+  // above the 22px OSM credit band both surfaces clear.
+  assert.match(discoveryCode, /const GESTURE_HELP_BOTTOM_GAP_PX = 56;/);
   assert.match(discoveryCode, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
 });
 
@@ -200,10 +201,10 @@ test("R-C: the duplicate map-area filter chip is gone", () => {
   assert.doesNotMatch(discoveryCode, /absolute left-4 top-\[\d+px\] z-\[1100\] rounded-full bg-brand-primary/);
 });
 
-test("R-C: one control per filter — LIVE stays in the bar, curated renders once below the map", () => {
-  // 2026-10-18: the curated tab MOVED to the results transition band. It was
-  // not duplicated: LIVE stays in the top bar, the curated control exists once
-  // in the whole component, and both keep their own handlers/state.
+test("R-C: one control per filter — LIVE stays in the bar, curated renders once over the map", () => {
+  // 2026-10-21: the curated tab is ONE floating control over the map (it has
+  // moved bands twice; it has never been duplicated). LIVE stays in the top
+  // bar, and both keep their own handlers/state.
   const bar = discoveryCode.slice(
     discoveryCode.indexOf("pointer-events-auto mt-2.5 grid"),
     discoveryCode.indexOf("DISTANCE_FILTERS.map"),
@@ -213,13 +214,15 @@ test("R-C: one control per filter — LIVE stays in the bar, curated renders onc
   assert.match(bar, /aria-pressed=\{liveOnly\}/);
   assert.doesNotMatch(bar, /activateCuratedFilter\(\)/);
 
-  // Exactly ONE curated control in the whole Home surface, and it lives in the
-  // results sheet (after the map stage's closing tag).
-  assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+  // Exactly ONE curated control in the whole Home surface, and it lives INSIDE
+  // the map stage — above the sheet, never in the top filter row.
+  assert.equal((discoveryCode.match(/<CuratedMapTab/g) ?? []).length, 1);
   assert.equal((discoveryCode.match(/activateCuratedFilter\(\)/g) ?? []).length, 1);
+  const tabIndex = discoveryCode.indexOf("<CuratedMapTab");
+  assert.ok(tabIndex > discoveryCode.indexOf("<HomeMap"), "the tab floats over the map");
   assert.ok(
-    discoveryCode.indexOf("activateCuratedFilter()") > discoveryCode.indexOf("rounded-t-[24px] bg-brand-cream"),
-    "the curated tab lives in the results band, not the top filter row",
+    tabIndex < discoveryCode.indexOf('aria-labelledby="place-results-heading"'),
+    "the curated tab is not part of the results sheet any more",
   );
   assert.equal(DISTANCE_FILTERS.length, 3);
   assert.deepEqual(DISTANCE_FILTERS, ["1 km", "5 km", "10 km+"]);
@@ -245,8 +248,8 @@ test("R-C: the single filter bar stays one row with no mobile wrapping", () => {
   assert.doesNotMatch(bar, /data-home-tab=/);
   assert.equal((bar.match(/<button/g) ?? []).length, 2, "one literal button plus the one distance-tab mapper");
   assert.equal(bar.includes("overflow-x-auto"), false, "no horizontal scroller anywhere in the bar");
-  // The moved curated control is a single tab in the results sheet, and it is
-  // also nowrap so it cannot wrap on a 360px screen where it now lives.
-  const tabStart = discoveryCode.indexOf("aria-pressed={curatedOnly}");
-  assert.match(discoveryCode.slice(tabStart, tabStart + 700), /whitespace-nowrap/);
+  // The floating curated control is a single tab, and it is also nowrap so it
+  // cannot wrap on a 360px screen where it now lives.
+  assert.match(curatedMapTab, /whitespace-nowrap/);
+  assert.equal((curatedMapTab.match(/data-curated-map-tab/g) ?? []).length, 1);
 });

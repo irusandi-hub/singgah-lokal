@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { SHEET_MID_VISIBLE_RATIO, resolveSheetOffsets } from "@/lib/live/ui";
+import {
+  MAP_CONTROL_COLUMN_BOTTOM_PX,
+  SHEET_MID_VISIBLE_RATIO,
+  resolveCuratedTabArea,
+  resolveSheetOffsets,
+} from "@/lib/live/ui";
 
 /**
  * HOME UI SPACING & LAYOUT (product decision, 2026-10-04)
@@ -30,6 +35,7 @@ import { SHEET_MID_VISIBLE_RATIO, resolveSheetOffsets } from "@/lib/live/ui";
 const pageCode = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
 const mapCode = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
 const globalsCss = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+const curatedTabCode = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");
 
 function stripComments(source: string): string {
   return source
@@ -134,7 +140,11 @@ test("T2.1 the map stage no longer holds a floating results panel", () => {
   // What legitimately remains in the stage: the map base layer, the chrome,
   // and the compact gesture hint — all still present.
   assert.ok(mapStage.indexOf("<HomeMap") > -1, "the map base layer is untouched");
-  assert.match(mapStage, /2 jari: geser &amp; cubit/);
+  // What replaced the old hint: the floating curated tab and the on-demand
+  // help panel, both inside the stage and both owned by real controls.
+  assert.match(mapStage, /<CuratedMapTab/);
+  assert.match(mapStage, /data-gesture-help/);
+  assert.doesNotMatch(mapStage, /2 jari: geser &amp; cubit/);
 });
 
 test("T2.2 the removed board's title, count, radius line, and 'Ke hasil' are gone", () => {
@@ -163,7 +173,10 @@ test("T2.3 the results section is still labelled and still below the map", () =>
   assert.match(resultsSection, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
   assert.match(resultsSection, /id=\{DISCOVERY_RESULTS_ANCHOR_ID\}/);
   assert.match(resultsSection, /<h2 id="place-results-heading" className="sr-only">/);
-  assert.match(resultsSection, /aria-pressed=\{curatedOnly\}/);
+  // The curated control left the sheet on 2026-10-21: the sheet keeps its
+  // handle and no longer owns the tab.
+  assert.match(resultsSection, /Atur tinggi panel hasil/);
+  assert.doesNotMatch(resultsSection, /data-curated-map-tab/);
 });
 
 test("T2.4 the map surface stays fully interactive with no floating card", () => {
@@ -173,23 +186,26 @@ test("T2.4 the map surface stays fully interactive with no floating card", () =>
   assert.match(mapCode, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
   assert.match(mapCode, /scrollWheelZoom: true/);
   assert.equal(mapCode.includes("dragging: false"), false);
-  // The gesture hint is click-through, so it cannot swallow the gesture it
-  // describes either.
-  assert.match(code, /pointer-events-none absolute right-3 z-\[1100\]/);
-  assert.match(code, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
+  // The retired pill is gone, so nothing click-through floats at the map's
+  // bottom edge any more; the tab is a real control that opts into pointers.
+  assert.doesNotMatch(code, /2 jari: geser &amp; cubit/);
+  assert.match(code, /<CuratedMapTab/);
 });
 
-test("T2.5 the moved curated tab lives in the results sheet, on no overlay tier", () => {
-  const tabStart = code.indexOf("aria-pressed={curatedOnly}");
-  // The button's handler precedes its aria-pressed attribute, so the slice has
-  // to reach BACK over the whole button, not only forward from the attribute.
-  const tab = code.slice(tabStart - 900, tabStart + 600);
-  assert.ok(tabStart > stageEnd, "the curated tab renders BELOW the map stage");
-  assert.doesNotMatch(tab, /z-\[1100\]|z-\[1200\]/);
+test("T2.5 the curated tab now FLOATS over the map, outside the sheet", () => {
+  // 2026-10-21: the chip became a draggable control over the map, so it is
+  // inside the stage (above the sheet) and on the overlay tier — the opposite
+  // of the old seam placement, and never inside the results section.
+  const tabStart = code.indexOf("<CuratedMapTab");
+  assert.ok(tabStart > stageStart && tabStart < stageEnd, "the tab renders inside the map stage");
+  assert.ok(tabStart < resultsSectionStart, "the results sheet no longer owns it");
+  assert.match(curatedTabCode, /data-curated-map-tab/);
+  assert.match(curatedTabCode, /absolute z-\[1100\]/);
   // One control, with the same handler and exclusivity state.
-  assert.match(tab, /activateCuratedFilter\(\)/);
-  assert.match(tab, /setLiveOnly\(next\.liveOnly\);/);
-  assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+  assert.equal((code.match(/<CuratedMapTab/g) ?? []).length, 1);
+  assert.match(code, /const next = activateCuratedFilter\(\);/);
+  assert.match(code, /setLiveOnly\(next\.liveOnly\);/);
+  assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 0);
 });
 
 test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () => {
@@ -217,23 +233,15 @@ test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () =>
   );
   assert.match(mapCode, /bottomInset = 0/);
   assert.match(mapCode, /--singgah-sheet-inset/);
-  // 2026-10-20: the hint rides 44px above the visible seam (22px credit +
-  // 22px gap) and keeps the control column's 12px right inset. On a stage too
-  // short for the pill under the column it parks 8px ABOVE the column.
-  assert.match(code, /const gestureHintLiftBasePx = sheetVisiblePx \+ 44;/);
-  assert.match(code, /gestureHintTopPx < MAP_CONTROL_COLUMN_BOTTOM_PX/);
-  assert.match(code, /pointer-events-none absolute right-3 z-\[1100\]/);
-  assert.match(code, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
+  // 2026-10-21: the automatic pill is gone. The on-demand help panel keeps a
+  // 56px gap above the visible seam, so its bottom edge is 20px clear of the
+  // credit's top edge (seam − 22 − ~14px text); the floating tab keeps a 48px
+  // guard for the same reason.
+  assert.match(code, /const GESTURE_HELP_BOTTOM_GAP_PX = 56;/);
+  assert.match(code, /style=\{\{\s*bottom: sheetVisiblePx \+ GESTURE_HELP_BOTTOM_GAP_PX,/);
+  assert.equal(code.includes("gestureHintLiftPx"), false);
+  assert.equal(code.includes("gestureHintVisible"), false);
   assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
-  // The pill is a HINT, not a permanent label: it is shown by the first
-  // one-finger map touch and fades out ~3s later, so it can never keep
-  // covering a marker or the blue location dot.
-  assert.match(code, /const GESTURE_HINT_VISIBLE_MS = 3000;/);
-  assert.match(
-    code,
-    /gestureHintTimerRef\.current = window\.setTimeout\(\(\) => \{[\s\S]{0,120}setGestureHintVisible\(false\);\s*\}, GESTURE_HINT_VISIBLE_MS\);/,
-  );
-  assert.match(code, /\{gestureHintVisible && \(/);
   // No bottom-anchored panel remains, and the scale bar stays gone.
   assert.doesNotMatch(mapStage, /absolute bottom-9 right-4 z-\[1100\]/);
   assert.doesNotMatch(code, /mapScale/);
@@ -243,7 +251,7 @@ test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () =>
   // 190px, one 40px-tile column. The Leaflet +/- stack is gone (gesture-only
   // zoom), so no Home-scoped Leaflet offset remains in globals.css.
   assert.doesNotMatch(globalsCss, /singgah-home-map \.leaflet-top\.leaflet-right/);
-  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
+  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
   // The retired bottom-left coverage chip must not come back.
   assert.equal(code.includes("bottom-9 left-4 z-[1100]"), false);
 });
@@ -255,23 +263,29 @@ test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
   // (px-2) = 126px, so its right edge is x=142 — 6px clear of the centred
   // 64px drag handle, whose left edge is x=148.
   const VIEWPORT = 360;
-  const HANDLE_LEFT = (VIEWPORT - 64) / 2;
-  const TAB_LEFT = 16;
-  const TAB_WIDTH = 16 + 96 + 10 + 4;
-  assert.ok(TAB_LEFT + TAB_WIDTH + 4 <= HANDLE_LEFT, "the tab keeps a gap to the drag handle at 360px");
-  assert.ok(TAB_LEFT + TAB_WIDTH < VIEWPORT, "the tab fits inside a 360px viewport");
-  const tabStart = code.indexOf("aria-pressed={curatedOnly}");
-  const tab = code.slice(tabStart - 1200, tabStart + 600);
-  assert.match(tab, /whitespace-nowrap/);
-  assert.match(tab, /min-h-11/);
-  assert.match(tab, /absolute left-4 z-30/);
-  assert.match(tab, /gap-1 whitespace-nowrap rounded-\[14px\] border px-2 text-\[11px\] font-bold/);
-  // 2026-10-20: the tab HANGS 20px above the sheet edge (2px inside the band
-  // at `full`, where the sheet already sits at the top of the stage). 20px is
-  // the measured maximum: at 360px the OSM credit's lower edge is seam−22.
-  assert.match(tab, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
-  assert.match(code, /const CURATED_TAB_HANG_PX = 20;/);
-  assert.equal((tab.match(/<button/g) ?? []).length, 1, "one control on the seam");
+  // Measured chip width at the 11px label: grip 18 + toggle padding 20 +
+  // icon/label ~112 + border 2 ≈ 152. Use the upper bound so the check is
+  // conservative.
+  const TAB_WIDTH = 156;
+  const TAB_HEIGHT = 44;
+  const area = resolveCuratedTabArea({
+    stageWidth: VIEWPORT,
+    stageHeight: 800,
+    sheetVisiblePx: 336,
+    tabWidth: TAB_WIDTH,
+    tabHeight: TAB_HEIGHT,
+  });
+  assert.ok(area, "the floating tab fits a 360×800 stage at mid");
+  assert.ok(area!.minX >= 12, "it keeps the 12px map inset");
+  assert.ok(area!.maxX + TAB_WIDTH <= VIEWPORT - 12, "it never crosses the right inset");
+  assert.ok(area!.maxY >= area!.minY, "it has a legal vertical range");
+  // Bottom of the legal band clears the credit band (seam − 36 for the credit).
+  assert.ok(area!.maxY + TAB_HEIGHT <= 800 - 336 - 48, "it stays above the OSM credit band");
+  assert.match(curatedTabCode, /whitespace-nowrap/);
+  assert.match(curatedTabCode, /min-h-11/);
+  assert.match(curatedTabCode, /absolute z-\[1100\]/);
+  assert.match(curatedTabCode, /touch-none/);
+  assert.equal(code.includes("CURATED_TAB_HANG_PX"), false);
 });
 
 test("T2.7 there is exactly ONE results heading and ONE curated control", () => {
@@ -286,10 +300,11 @@ test("T2.7 there is exactly ONE results heading and ONE curated control", () => 
     "the accessible name still resolves to exactly one element",
   );
   assert.equal(
-    (code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length,
+    (code.match(/<CuratedMapTab/g) ?? []).length,
     1,
-    "the curated tab exists exactly once (no duplicate)",
+    "the curated control exists exactly once (no duplicate)",
   );
+  assert.equal((curatedTabCode.match(/data-curated-map-tab/g) ?? []).length, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -316,17 +331,14 @@ test("T3.1 the map now fills the full stage behind the sheet", () => {
 });
 
 test("T3.2 the shortest supported landscape stage clears the control column", () => {
-  // The zoom stack that used to define the ladder's bottom was removed on
-  // 2026-10-18 (gesture-only zoom). The column now ends with "Lokasi Saya" at
-  // 238..278. 2026-10-19: the stage has no artificial 560px floor, so the
+  // 2026-10-21: the compass was removed, so the column is ONE row of two 40px
+  // tiles at 190..230. The stage has no artificial 560px floor, so the
   // relevant floor is the shortest real landscape viewport (360px), which the
-  // column still clears; the mid snap is additionally capped below it.
-  const COMPASS_TOP = 190;
-  const LOCATE_TOP = COMPASS_TOP + 40 + 8;
-  const COLUMN_BOTTOM = LOCATE_TOP + 40;
+  // column clears; the mid snap is additionally capped below it.
+  assert.equal(MAP_CONTROL_COLUMN_BOTTOM_PX, 230);
   const FLOOR = 360;
-  assert.ok(FLOOR > COLUMN_BOTTOM, "the control column is never clipped on a 360px stage");
-  assert.ok(COLUMN_BOTTOM < 576, "the column clearing check stays concrete (278 < 576)");
+  assert.ok(FLOOR > MAP_CONTROL_COLUMN_BOTTOM_PX, "the control column is never clipped on a 360px stage");
+  assert.ok(MAP_CONTROL_COLUMN_BOTTOM_PX < 576, "the column clearing check stays concrete (230 < 576)");
 });
 
 test("T3.3 the camera and geographic rules are untouched", () => {

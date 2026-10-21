@@ -142,14 +142,20 @@ test("Home filter bar is a single row: LIVE leftmost, distance tabs after", () =
   assert.equal(code.includes("grid-cols-[auto_1fr]"), false, "old two-row primary bar is gone");
   assert.equal(code.includes("grid-cols-4"), false, "old separate distance bar is gone");
   // Order is locked inside the bar: LIVE leftmost, then the distance tabs. The
-  // curated layer control renders exactly once, below the map.
+  // curated layer control is NOT in this row: since 2026-10-21 it is ONE
+  // floating, draggable control over the map (CuratedMapTab), wired to the
+  // same activateCuratedFilter() transition and the same pressed state.
   const filterBar = code.indexOf("mt-2.5 grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]");
   const liveBtn = code.indexOf("toggleLiveFilter(liveOnly, curatedOnly)", filterBar);
-  const curatedBtn = code.indexOf("activateCuratedFilter()", filterBar);
   const distanceBtn = code.indexOf("DISTANCE_FILTERS.map", filterBar);
   assert.ok(liveBtn >= 0 && distanceBtn > liveBtn, "LIVE | distance tabs, in order");
-  assert.ok(curatedBtn > distanceBtn, "the curated tab lives below the map, in the results band");
-  assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
+  const mapSurface = code.indexOf("MAP SURFACE", distanceBtn);
+  const barSlice = code.slice(filterBar, mapSurface > distanceBtn ? mapSurface : undefined);
+  assert.equal(barSlice.includes("activateCuratedFilter"), false, "the curated tab lives outside the filter bar");
+  assert.equal((code.match(/<CuratedMapTab/g) ?? []).length, 1, "exactly one floating curated tab");
+  assert.match(code, /pressed=\{curatedOnly\}[\s\S]{0,160}onToggle=\{handleCuratedToggle\}/);
+  assert.equal((code.match(/activateCuratedFilter\(\)/g) ?? []).length, 1, "one transition entry point");
+  assert.match(code, /const next = activateCuratedFilter\(\);/);
   // The filter bar never horizontally scrolls (the old overflow strip).
   assert.equal(/mb-5 flex gap-2 overflow-x-auto/.test(code.slice(0, filterBar)), false);
   // The curated-chips row was REMOVED (PO 2026-09-26): "Tempat Pilihan"

@@ -3,34 +3,33 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
   PIN_LABEL_ALWAYS_ON_LIMIT,
-  selectAlwaysLabelledPlaceIds,
-  type PinLabelCandidate,
+  PIN_LABEL_COLLISION_GAP_PX,
+  PIN_LABEL_HEIGHT_PX,
+  pinLabelBudgetForZoom,
+  selectVisiblePinLabelIds,
+  type PinLabelBox,
 } from "../lib/live/ui";
 
 /**
- * PLACE PIN LABEL READABILITY / DENSE-CLUSTER DECLUTTER (2026-10-05)
+ * PLACE PIN LABEL READABILITY — ZOOM-AWARE DECLUTTER (2026-10-21).
  *
- * THE DEFECT THIS COVERS. Every Place pin paints its compact name chip, and in
- * a dense geographic cluster — the ten curated Places of one city, the
- * twenty-five Places of one subdivision — every chip was painted at once, on
- * top of the neighbouring chips. In exactly the area the user cares about, no
- * name was readable.
+ * HISTORY. The 2026-10-05 rule was a fixed priority budget of 12 labels. It
+ * stopped the worst piles in a dense city cluster, but it was blind to the
+ * camera: at a far-out zoom every pin sits within a few pixels of its
+ * neighbours, so 12 chips still overlapped and none was readable; at a close
+ * zoom it could hide names that had plenty of room.
  *
- * THE STRATEGY is the simplest one that is reliable in this architecture and
- * that keeps every name reachable:
- *  · a DETERMINISTIC priority budget (`selectAlwaysLabelledPlaceIds`) decides
- *    which chips stay painted when the map is dense;
- *  · it runs ONCE per marker rebuild — no `getBoundingClientRect`, no
- *    `offsetWidth`, no per-render or per-camera-update layout pass;
- *  · chips past the budget stay in the DOM with their full text and are
- *    revealed by the existing hover / keyboard-focus state (pure CSS);
- *  · nothing is filtered, no marker, tooltip, click target, accessible name,
- *    or z-order changes, and labels are never ALL hidden.
+ * THE RULE NOW has two deterministic gates, both computed from PROJECTED
+ * geometry (`map.project(latlng, zoom)`) — never from layout:
+ *  1. COLLISION — a chip whose box would overlap an already-kept chip is held
+ *     back;
+ *  2. DENSITY — the zoom decides how many chips may stay painted
+ *     (`pinLabelBudgetForZoom`, 3 → 12 as the camera gets closer).
  *
- * What cannot be verified here is stated plainly at the end: the sandbox has
- * no browser that renders this map, so no claim is made about the chips being
- * visually collision-free — only about the layout logic being deterministic,
- * bounded, and non-destructive.
+ * The SELECTED Place is always labelled, whatever the density, and its pin is
+ * always visible. Pins, coordinates, z-order, accessible names, tooltips, click
+ * targets, and the full label text in the DOM are untouched: hiding is a paint
+ * state only, revealed again by hover / keyboard focus.
  */
 
 const homeMap = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
@@ -44,114 +43,145 @@ function stripComments(source: string): string {
 }
 const mapCode = stripComments(homeMap);
 
-function candidates(count: number, overrides: Partial<PinLabelCandidate> = {}): PinLabelCandidate[] {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `place-${index}`,
-    isCurated: false,
-    isLive: false,
-    ...overrides,
-  }));
+function box(id: string, overrides: Partial<PinLabelBox> = {}): PinLabelBox {
+  return { id, x: 0, y: 0, width: 120, height: PIN_LABEL_HEIGHT_PX, tier: 3, ...overrides };
 }
 
-/** Two pins that are far apart never overlap, so both must keep their label. */
-function widelySpacedPair(): PinLabelCandidate[] {
-  return [
-    { id: "far-apart-a", isCurated: false, isLive: false },
-    { id: "far-apart-b", isCurated: false, isLive: false },
-  ];
+/** Boxes far enough apart that no pair collides. */
+function spaced(count: number, gap = 200): PinLabelBox[] {
+  return Array.from({ length: count }, (_, index) => box(`place-${index}`, { x: index * gap }));
 }
 
 // ---------------------------------------------------------------------------
 // 1. A single Place pin
 // ---------------------------------------------------------------------------
 
-test("1.1 a single Place keeps its label", () => {
-  const chosen = selectAlwaysLabelledPlaceIds([{ id: "only", isCurated: false, isLive: false }]);
-  assert.deepEqual([...chosen], ["only"]);
+test("1.1 a single Place keeps its label at every zoom", () => {
+  for (const zoom of [2, 8, 12, 16, 19]) {
+    const chosen = selectVisiblePinLabelIds({ boxes: [box("only")], zoom });
+    assert.deepEqual([...chosen], ["only"]);
+  }
 });
 
-test("1.2 one Place is never decluttered even in a dense budget", () => {
-  const chosen = selectAlwaysLabelledPlaceIds([{ id: "only", isCurated: true }]);
-  assert.equal(chosen.size, 1);
-  // The budget can never empty the label set while a Place is on screen.
-  assert.equal(selectAlwaysLabelledPlaceIds([{ id: "only" }], 0).size, 0);
-  assert.equal(PIN_LABEL_ALWAYS_ON_LIMIT > 0, true);
-});
-
-// ---------------------------------------------------------------------------
-// 2. Normally spaced pins
-// ---------------------------------------------------------------------------
-
-test("2.1 normally spaced pins all keep their labels", () => {
-  const chosen = selectAlwaysLabelledPlaceIds(widelySpacedPair());
-  assert.deepEqual([...chosen].sort(), ["far-apart-a", "far-apart-b"]);
-});
-
-test("2.2 a set below the budget is never touched", () => {
-  const places = candidates(PIN_LABEL_ALWAYS_ON_LIMIT);
-  const chosen = selectAlwaysLabelledPlaceIds(places);
-  assert.equal(chosen.size, PIN_LABEL_ALWAYS_ON_LIMIT);
-  assert.deepEqual([...chosen], places.map((place) => place.id));
-});
-
-test("2.3 duplicate ids can never consume the budget twice", () => {
-  const chosen = selectAlwaysLabelledPlaceIds([
-    { id: "same", isCurated: false },
-    { id: "same", isCurated: true },
-  ]);
-  assert.equal(chosen.size, 1);
-});
-
-// ---------------------------------------------------------------------------
-// 3. Closely clustered pins
-// ---------------------------------------------------------------------------
-
-test("3.1 a tight cluster keeps a bounded, deterministic set of labels", () => {
-  const cluster = candidates(20);
-  const chosen = selectAlwaysLabelledPlaceIds(cluster);
-  assert.equal(chosen.size, PIN_LABEL_ALWAYS_ON_LIMIT);
-  // Deterministic and in canonical order — the same set every rebuild, so a
-  // label can never flicker between marker rebuilds or pan/zoom.
-  assert.deepEqual([...chosen], cluster.slice(0, PIN_LABEL_ALWAYS_ON_LIMIT).map((place) => place.id));
-  assert.deepEqual([...selectAlwaysLabelledPlaceIds(cluster)], [...chosen]);
-});
-
-test("3.2 the survivors are the promoted pins: curated, then Live, then order", () => {
-  const mixed: PinLabelCandidate[] = [
-    { id: "ordinary-1", isCurated: false, isLive: false },
-    { id: "live-1", isCurated: false, isLive: true },
-    { id: "ordinary-2", isCurated: false, isLive: false },
-    { id: "curated-1", isCurated: true, isLive: false },
-    { id: "curated-2", isCurated: true, isLive: true },
-  ];
-  const chosen = [...selectAlwaysLabelledPlaceIds(mixed, 3)];
-  assert.deepEqual(chosen, ["curated-1", "curated-2", "live-1"]);
-});
-
-test("3.3 a very dense cluster still keeps at least one label", () => {
-  for (const count of [13, 40, 400, 5_000]) {
-    const chosen = selectAlwaysLabelledPlaceIds(candidates(count));
-    assert.equal(chosen.size, Math.min(count, PIN_LABEL_ALWAYS_ON_LIMIT));
-    assert.ok(chosen.size >= 1, "labels must never be ALL hidden");
+test("1.2 labels are never ALL hidden, even in an extreme cluster", () => {
+  for (const count of [2, 13, 40, 400, 5_000]) {
+    const chosen = selectVisiblePinLabelIds({
+      boxes: Array.from({ length: count }, (_, index) => box(`p-${index}`)),
+      zoom: 2,
+    });
+    assert.ok(chosen.size >= 1, "at least one label must stay painted");
   }
 });
 
 // ---------------------------------------------------------------------------
-// 4. Label visibility, interaction, and identification
+// 2. Collision
 // ---------------------------------------------------------------------------
 
-test("4.1 a decluttered label is held back by CSS, not removed", () => {
-  // The chip keeps its exact approved styling: compact, truncated, no pointer
-  // capture, high contrast.
-  // VISUAL REFINEMENT (2026-10-05): the chip is now 10.5px/600 in a 124px box
-  // — quieter on the map, still high-contrast, still truncating with an
-  // ellipsis and still never capturing a gesture.
+test("2.1 two far-apart pins both keep their labels", () => {
+  const chosen = selectVisiblePinLabelIds({ boxes: spaced(2), zoom: 8 });
+  assert.deepEqual([...chosen].sort(), ["place-0", "place-1"]);
+});
+
+test("2.2 overlapping chips are held back, their pins are not", () => {
+  // 20 chips occupying exactly the same box: one survives.
+  const chosen = selectVisiblePinLabelIds({
+    boxes: Array.from({ length: 20 }, (_, index) => box(`p-${index}`)),
+    zoom: 16,
+  });
+  assert.equal(chosen.size, 1);
+  // A one-pixel nudge is still a collision with the required gap.
+  const nudged = selectVisiblePinLabelIds({
+    boxes: [
+      box("a", { x: 0 }),
+      box("b", { x: PIN_LABEL_COLLISION_GAP_PX }),
+      box("c", { x: 400 }),
+    ],
+    zoom: 16,
+  });
+  assert.deepEqual([...nudged].sort(), ["a", "c"]);
+});
+
+test("2.3 results are deterministic — the same input never flickers", () => {
+  const boxes = [...spaced(14), ...spaced(14).map((item) => ({ ...item, id: `${item.id}-b`, x: item.x + 10 }))];
+  const first = [...selectVisiblePinLabelIds({ boxes, zoom: 9 })];
+  const second = [...selectVisiblePinLabelIds({ boxes, zoom: 9 })];
+  assert.deepEqual(second, first);
+});
+
+// ---------------------------------------------------------------------------
+// 3. Density by zoom
+// ---------------------------------------------------------------------------
+
+test("3.1 the density budget widens with the zoom and is capped", () => {
+  const budgets = [2, 5, 8, 9, 10, 11, 12, 13, 15, 16, 19].map(pinLabelBudgetForZoom);
+  for (let index = 1; index < budgets.length; index += 1) {
+    assert.ok(budgets[index] >= budgets[index - 1], "the budget never shrinks as the camera gets closer");
+  }
+  assert.equal(pinLabelBudgetForZoom(2), 3);
+  assert.equal(pinLabelBudgetForZoom(9), 3);
+  assert.equal(pinLabelBudgetForZoom(10), 5);
+  assert.equal(pinLabelBudgetForZoom(12), 8);
+  assert.equal(pinLabelBudgetForZoom(14), 10);
+  assert.equal(pinLabelBudgetForZoom(16), PIN_LABEL_ALWAYS_ON_LIMIT);
+  assert.equal(pinLabelBudgetForZoom(Number.NaN), 3);
+});
+
+test("3.2 the same spread carries fewer labels at a far zoom", () => {
+  const boxes = spaced(30);
+  const far = selectVisiblePinLabelIds({ boxes, zoom: 8 });
+  const mid = selectVisiblePinLabelIds({ boxes, zoom: 12 });
+  const close = selectVisiblePinLabelIds({ boxes, zoom: 16 });
+  assert.equal(far.size, pinLabelBudgetForZoom(8));
+  assert.equal(mid.size, pinLabelBudgetForZoom(12));
+  assert.equal(close.size, PIN_LABEL_ALWAYS_ON_LIMIT);
+  assert.ok(far.size < mid.size && mid.size < close.size);
+});
+
+// ---------------------------------------------------------------------------
+// 4. Priority and the selected Place
+// ---------------------------------------------------------------------------
+
+test("4.1 priority follows the marker ladder: curated, then Live, then order", () => {
+  const mixed: PinLabelBox[] = [
+    box("ordinary-1", { x: 0, tier: 3 }),
+    box("live-1", { x: 300, tier: 2 }),
+    box("ordinary-2", { x: 600, tier: 3 }),
+    box("curated-1", { x: 900, tier: 1 }),
+    box("curated-2", { x: 1200, tier: 1 }),
+  ];
+  assert.deepEqual([...selectVisiblePinLabelIds({ boxes: mixed, zoom: 2 })], [
+    "curated-1",
+    "curated-2",
+    "live-1",
+  ]);
+});
+
+test("4.2 the selected Place is labelled even inside a crowd", () => {
+  const crowd = Array.from({ length: 30 }, (_, index) => box(`p-${index}`));
+  const chosen = selectVisiblePinLabelIds({ boxes: crowd, zoom: 2, pinnedId: "p-17" });
+  assert.equal(chosen.has("p-17"), true);
+  // …and it is the FIRST label kept, so it can never be crowded out.
+  assert.equal([...chosen][0], "p-17");
+});
+
+test("4.3 the selected label is guaranteed visible in CSS too", () => {
+  // The selected marker may paint its chip even if the data attribute still
+  // names it on-demand (e.g. a stale attribute during a rebuild).
+  assert.match(
+    globals,
+    /\.singgah-map-marker\.is-highlighted \.singgah-pin-label \{\s*visibility: visible;\s*\}/,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 5. Paint state only — text, targets, and identity survive
+// ---------------------------------------------------------------------------
+
+test("5.1 a decluttered label is held back by CSS, never removed", () => {
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?max-width: 124px;/);
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?font-size: 10\.5px;/);
-  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?font-weight: 600;/);
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?text-overflow: ellipsis;/);
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?pointer-events: none;/);
-  // Only the paint state changes, and only through the data attribute.
   assert.match(
     globals,
     /\.singgah-pin-label\[data-label-state="on-demand"\] \{\s*visibility: hidden;\s*\}/,
@@ -164,66 +194,51 @@ test("4.1 a decluttered label is held back by CSS, not removed", () => {
     globals,
     /\.singgah-map-marker:focus-within \.singgah-pin-label\[data-label-state="on-demand"\][\s\S]*?visibility: visible;/,
   );
-  // No transition and no animation is introduced, so reduced-motion
-  // preferences are untouched.
   const declutterBlock = globals.slice(
     globals.indexOf('[data-label-state="on-demand"]'),
-    globals.indexOf(".singgah-map-marker:hover,"),
+    globals.indexOf(".singgah-map-marker.is-highlighted .singgah-pin-label"),
   );
   assert.doesNotMatch(declutterBlock, /transition:|animation:|@keyframes/);
 });
 
-test("4.2 every pin keeps its full text, accessible name, tooltip, and target", () => {
-  // The chip always carries the escaped full Place name, whatever its state.
+test("5.2 every pin keeps its full text, accessible name, tooltip, and target", () => {
   assert.match(
     mapCode,
     /<span class="singgah-pin-label" \$\{PIN_LABEL_ON_DEMAND_ATTRIBUTE\}="\$\{labelState\}"[^>]*>\$\{escapeHtml\(place\.name\)\}<\/span>/,
   );
-  assert.match(mapCode, /const labelState = alwaysLabelledPlaceIds\.has\(place\.id\) \? "always" : "on-demand";/);
-  // The accessible name and the full-name tooltip are unchanged.
+  // Chips start held back and are painted by the projected pass; the DOM node
+  // is never re-created or removed by a label decision.
+  assert.match(mapCode, /const labelState = "on-demand";/);
+  assert.match(mapCode, /label\.setAttribute\(PIN_LABEL_ON_DEMAND_ATTRIBUTE, visible\.has\(id\) \? "always" : "on-demand"\);/);
   assert.match(mapCode, /role="img" aria-label="Lihat \$\{escapeHtml\(place\.name\)\}"/);
   assert.match(mapCode, /marker\.bindTooltip\(escapeHtml\(place\.name\), \{/);
-  // A base pin now selects its card; the legacy route remains the fallback.
   assert.match(
     mapCode,
     /onSelectPlace\s*\?\s*onSelectPlace\(place\.id\)\s*:\s*router\.push\(`\/places\/\$\{place\.id\}`\)/,
   );
   assert.match(mapCode, /keyboard: true,/);
+  // The only label span in the icon markup — no second, hidden duplicate.
+  assert.equal((mapCode.match(/class="singgah-pin-label"/g) ?? []).length, 1);
 });
 
 // ---------------------------------------------------------------------------
-// 5. Stability during map updates
+// 6. Stability and scope
 // ---------------------------------------------------------------------------
 
-test("5.1 the budget is computed ONCE per marker rebuild, never per frame", () => {
-  // The marker effect is keyed on the stable marker signature — panning,
-  // zooming, and viewport reports never rebuild markers, so they never re-run
-  // the declutter either.
-  assert.match(
-    mapCode,
-    /const markerKey = useMemo\(\s*\(\) =>\s*places\s*\.map\(/,
-  );
+test("6.1 the pass runs on marker rebuild and on zoomend — never in render", () => {
+  assert.match(mapCode, /applyPinLabelStates\(map, currentPlaces, liveByPlaceId, highlightedPlaceId\);/);
+  assert.match(mapCode, /map\.on\("zoomend", refreshPinLabelsAtCurrentZoom\);/);
+  assert.match(mapCode, /const refreshPinLabelsAtCurrentZoom = useCallback\(\(\) => \{/);
+  assert.match(mapCode, /selectVisiblePinLabelIds\(\{ boxes, zoom, pinnedId: selectedId \}\)/);
   assert.match(mapCode, /\}, \[ready, markerKey, highlightedPlaceId, onSelectPlace\]\);/);
-  // ...and it is inside that effect, not in a render path or an event handler.
-  const markerEffect = mapCode.slice(
-    mapCode.indexOf("const markerPositionsRef"),
-    mapCode.indexOf("}, [ready, markerKey, highlightedPlaceId, onSelectPlace]);"),
-  );
-  // (2026-10-04: the "Semua Tempat" tab — the only caller that painted every name
-  // and skipped the budget — was removed, so the budget call is once again a
-  // plain statement. It is still INSIDE this one marker-rebuild effect, so it
-  // is still computed once per rebuild and never per frame.)
-  assert.match(markerEffect, /const alwaysLabelledPlaceIds = selectAlwaysLabelledPlaceIds\(/);
-  assert.doesNotMatch(mapCode, /labelEveryPlaceName/);
+  // The projection is pure geometry, not a DOM layout read.
+  assert.match(mapCode, /map\.project\(\[place\.latitude, place\.longitude\], zoom\)/);
 });
 
-test("5.2 no layout measurement is introduced anywhere in the map", () => {
-  // The ONLY reflow in the component is the pre-existing, deliberate one that
-  // restarts the Current Location pin pulse; the declutter adds none.
+test("6.2 no layout measurement is introduced anywhere in the map", () => {
   assert.equal((mapCode.match(/getBoundingClientRect\(\)/g) ?? []).length, 1);
   assert.match(homeMap, /\/\/ Force a reflow so a pulse restarted mid-cycle runs completely\.\s*\n\s*void element\.getBoundingClientRect\(\);/);
   assert.doesNotMatch(mapCode, /offsetWidth|offsetHeight|clientWidth|clientHeight/);
-  // ...and specifically not in the marker effect that computes the budget.
   const markerEffect = mapCode.slice(
     mapCode.indexOf("markerPositionsRef.current = markerPositions;"),
     mapCode.indexOf("}, [ready, markerKey, highlightedPlaceId, onSelectPlace]);"),
@@ -231,20 +246,12 @@ test("5.2 no layout measurement is introduced anywhere in the map", () => {
   assert.doesNotMatch(markerEffect, /getBoundingClientRect|offsetWidth|clientWidth|requestAnimationFrame/);
 });
 
-test("5.3 the marker ladder, artwork, and coordinates are untouched", () => {
-  assert.match(
-    mapCode,
-    /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500,/,
-  );
+test("6.3 the marker ladder, artwork, coordinates, and LIVE chip are untouched", () => {
+  assert.match(mapCode, /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500,/);
   assert.match(mapCode, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN;/);
-  assert.match(mapCode, /BRAND_LIVE/);
-  // No clustering, no marker removal, no new pane.
-  assert.doesNotMatch(mapCode, /markerCluster|removeLayer\(marker\)|L\.circleMarker\(position, \{ radius/);
-});
-
-test("5.4 the LIVE chip is unaffected by the declutter", () => {
-  // A Live Place keeps its LIVE treatment and its own chip; the declutter only
-  // touches the compact Place NAME chip.
   assert.match(mapCode, /zIndexOffset: isHighlighted \? 2600 : 1000,\s*\n\s*keyboard: true,/);
-  assert.equal((mapCode.match(/class="singgah-pin-label"/g) ?? []).length, 1);
+  assert.doesNotMatch(mapCode, /markerCluster|removeLayer\(marker\)|L\.circleMarker\(position, \{ radius/);
+  // Same coordinates → same projected geometry: the declutter reads canonical
+  // lat/lng and never writes them.
+  assert.match(mapCode, /for \(const place of currentPlaces\) \{\s*\n\s*if \(!Number\.isFinite\(place\.latitude\) \|\| !Number\.isFinite\(place\.longitude\)\) continue;/);
 });

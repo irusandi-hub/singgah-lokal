@@ -586,10 +586,11 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   const offsets = resolveSheetOffsets(640);
   assert.equal(640 - offsets.mid, Math.round(640 * SHEET_MID_VISIBLE_RATIO));
   assert.match(pageCode, /transform: `translateY\(\$\{sheetOffset\}px\)`/);
-  // The old hanging band is gone; the curated tab now lives inside the sheet
-  // header in every position (2026-10-20), clear of the OSM credit.
+  // The old hanging band is gone; since 2026-10-21 the curated tab is a
+  // floating map control, clear of the OSM credit by construction.
   assert.doesNotMatch(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(pageCode, /absolute left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1/);
+  assert.match(pageCode, /<CuratedMapTab/);
+  assert.doesNotMatch(pageCode, /CURATED_TAB_HANG_PX/);
   assert.doesNotMatch(pageCode, /-top-11 left-4|left-4 top-12/);
   // 2026-10-18: the information board (title, count, radius line, "Ke hasil")
   // was REMOVED from that sheet; its handle now sits at the sheet's own top and
@@ -599,7 +600,7 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   assert.doesNotMatch(pageCode, /Ke hasil <span aria-hidden>›/);
   assert.doesNotMatch(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
   assert.match(pageCode, /id="place-results-heading"/);
-  assert.match(pageCode, /aria-pressed=\{curatedOnly\}/);
+  assert.equal((pageCode.match(/<CuratedMapTab/g) ?? []).length, 1);
   assert.match(pageCode, />\s*Tempat Pilihan\s*\n\s*<\/p>/);
   assert.match(pageCode, />\s*Discovery Place\s*\n\s*<\/p>/);
   // 2026-10-18: the carousel frames are gone — the rows are 2-column grids now.
@@ -924,25 +925,20 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   // section clips its overflow — so the map window's FLOOR has to clear all of
   // it. This is the arithmetic the previous 240px minimum violated: the zoom
   // stack alone ends at 354px, so the "+/-" control was cut off.
-  // 2026-10-18: the Leaflet +/- stack was REMOVED (gesture-only zoom), so the
-  // column is the two 40px React tiles at 190px. No Home-scoped Leaflet
-  // control offset remains, and the 470px floor comfortably clears 278px.
-  const COMPASS_TOP = 190;
-  const LOCATE_TOP = COMPASS_TOP + 40 + 8; // 238
-  const COLUMN_BOTTOM = LOCATE_TOP + 40; // 278
+  // 2026-10-18: the Leaflet +/- stack was REMOVED (gesture-only zoom).
+  // 2026-10-21: the compass was removed too, so the column is ONE row of two
+  // 40px React tiles at 190..230. No Home-scoped Leaflet control offset
+  // remains, and the 360px floor comfortably clears 230px.
+  const COLUMN_TOP = 190;
+  const COLUMN_BOTTOM = COLUMN_TOP + 40; // 230
   assert.doesNotMatch(globalsCss, /singgah-home-map \.leaflet-top\.leaflet-right/);
   assert.match(mapCode, /absolute right-3 top-\[190px\]/);
-  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
-  assert.match(mapCode, /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2">/);
-  assert.match(mapCode, /<div[^>]*role="img"[^>]*aria-label="Arah peta: utara ke atas"[^>]*className="inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80 shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5"\s*>/);
-  // The compass itself is intentional visual-only; the control column's ONLY
-  // interactive element is the "Lokasi Saya" tile and it must be named for
-  // sighted hover AND screen-reader use. 2026-10-18: the compass cannot rotate
-  // this Leaflet map, so it stays a role="img" indicator; the locate tile is a
-  // real wired button on the SAME 40px surface.
+  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
+  // The locate tile is a real wired button on the shared 40px surface, named
+  // for sighted hover AND screen-reader use.
   assert.match(
     mapCode,
-    /<button[^>]*type="button"[^>]*onClick=\{onRequestLocate\}[^>]*title="Lokasi Saya"[^>]*aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"[^>]*className="inline-flex h-10 w-10 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80[^"]*shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5[^"]*"/,
+    /<button[^>]*type="button"[^>]*onClick=\{onRequestLocate\}[^>]*title="Lokasi Saya"[^>]*aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"[^>]*className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80[^"]*shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5[^"]*"/,
   );
   // The tile's face is the crosshair + user dot, not an emoji or a bare glyph.
   assert.match(mapCode, /<button[^>]*onClick=\{onRequestLocate\}[^>]*>\s*<svg[^>]*aria-hidden[^>]*viewBox="0 0 24 24"[^>]*width="20"[^>]*height="20"[^>]*>/);
@@ -950,16 +946,13 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   // it), so the floor that the control column must clear is the stage minimum.
   assert.match(pageCode, /className="relative h-\[100dvh\] overflow-hidden bg-brand-cream text-brand-ink"/);
   const floor = 360;
-  assert.ok(COLUMN_BOTTOM < floor, "the control column must not be clipped on the shortest supported stage (278 < 360)");
-  assert.ok(COLUMN_BOTTOM < 576, "the column clearing check is concrete, not a vague smoke assertion (278 < 576)");
-  assert.ok(COMPASS_TOP < LOCATE_TOP, "the control column keeps its order");
-  // The gesture hint sits above the attribution band and below the empty state
-  // (nothing floats over the map's bottom edge any more). It tracks the sheet's
-  // visible height, so it can never be covered in any snap position, and it
-  // parks above this control column when a short stage forces it there.
-  assert.match(pageCode, /className="pointer-events-none absolute right-3 z-\[1100\] inline-flex items-center gap-1\.5 rounded-full border border-white\/25 bg-brand-primary-deep/);
-  assert.match(pageCode, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
-  assert.match(pageCode, /gestureHintTopPx < MAP_CONTROL_COLUMN_BOTTOM_PX/);
+  assert.ok(COLUMN_BOTTOM < floor, "the control column must not be clipped on the shortest supported stage (230 < 360)");
+  assert.ok(COLUMN_BOTTOM < 576, "the column clearing check is concrete, not a vague smoke assertion (230 < 576)");
+  // The on-demand help panel is anchored above the sheet seam and keeps a
+  // 56px gap, so it neither covers the map's bottom credits nor depends on a
+  // control-column collision rule any more.
+  assert.match(pageCode, /const GESTURE_HELP_BOTTOM_GAP_PX = 56;/);
+  assert.match(pageCode, /style=\{\{\s*bottom: sheetVisiblePx \+ GESTURE_HELP_BOTTOM_GAP_PX,/);
   assert.match(globalsCss, /bottom: var\(--singgah-sheet-inset, 0px\)/);
   // The camera padding reserves that same chrome, so a fit never hides a Place
   // under it.

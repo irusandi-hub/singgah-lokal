@@ -108,9 +108,13 @@ test("No Place preview/bottom sheet may ever cover the map surface", () => {
   assert.equal(/bottom-0 left-0 right-0/.test(pageCode), false, "no absolute bottom strip inside the map frame");
   assert.equal(pageCode.includes("Lihat Tempat"), false, "no Place CTA floating over the map");
   assert.equal(/rounded-t-\[28px\]\s+bg-white/.test(pageCode), false, "no bottom-sheet card over the map");
-  // The only z-[1200] layer in the app is now the FLOATING HEADER in
-  // site-nav.tsx (MOCKUP §5) — never a sheet over the map surface.
-  assert.equal(pageCode.includes("z-[1200]"), false, "no z-[1200] overlay layer inside the map stage");
+  // Since 2026-10-21 the ONLY z-[1200] layer inside the stage is the help
+  // panel's click-away backdrop, with its z-[1210] dialog above it. Both are
+  // dismissible chrome, never a sheet that owns the map surface.
+  assert.equal((pageCode.match(/z-\[1200\]/g) ?? []).length, 1, "one backdrop tier");
+  assert.equal((pageCode.match(/z-\[1210\]/g) ?? []).length, 1, "one dialog tier");
+  assert.match(pageCode, /data-gesture-help/);
+  assert.equal(/bottom-0 left-0 right-0 z-\[12/.test(pageCode), false, "no bottom-anchored sheet at that tier");
 });
 
 test("Place detail still lives in the results section below the map", () => {
@@ -159,13 +163,17 @@ test("Overlays render as siblings AFTER the map inside the frame (DOM order fall
   // REMOVED outright (2026-10-18): the map stage now keeps only the empty-state
   // card and the two-finger gesture hint.
   const emptyCard = pageCode.indexOf("inset-x-0 z-[1100] flex justify-center");
-  const gestureHint = pageCode.indexOf("right-3 z-[1100]");
+  // 2026-10-21: the gesture pill is gone; the floating curated tab and the
+  // on-demand help panel are the two overlays that follow the map.
+  const curatedTab = pageCode.indexOf("<CuratedMapTab");
+  const helpPanel = pageCode.indexOf("data-gesture-help");
   assert.equal(pageCode.includes("bottom-9 left-4 z-[1100]"), false, "the floating coverage box is consolidated away");
   assert.equal(pageCode.indexOf("bottom-9 right-4 z-[1100]"), -1, "the distance scale is removed, not moved");
   assert.equal(pageCode.indexOf("inset-x-0 bottom-3 z-[1100]"), -1, "the information board is removed, not moved");
   for (const [name, index] of [
     ["empty-state card", emptyCard],
-    ["gesture hint", gestureHint],
+    ["curated tab", curatedTab],
+    ["help panel", helpPanel],
   ] as const) {
     assert.ok(index > mapMount, `${name} must come after the map in DOM order`);
   }

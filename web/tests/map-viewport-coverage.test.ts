@@ -361,28 +361,27 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // starting on the map zooms the MAP, never the page — and page scrolling
   // outside the map is untouched.
   assert.match(homeMap, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
-  // The informational overlays never block a gesture. The removed information
-  // board took its wrapper with it (2026-10-18), so TWO click-through overlays
-  // remain: the empty state and the two-finger gesture hint.
+  // The informational overlays never block a gesture. Since 2026-10-21 only
+  // the empty state is click-through; the retired gesture pill is gone and the
+  // help panel is a real dialog the visitor opened deliberately.
   assert.equal(
     (pageCode.match(/pointer-events-none absolute/g) ?? []).length,
-    2,
-    "the empty state and the gesture hint are both click-through",
+    1,
+    "only the empty state remains click-through",
   );
-  assert.match(
-    pageCode,
-    /pointer-events-none absolute right-3 z-\[1100\][^"]*"[\s\S]{0,120}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,1400}2 jari: geser &amp; cubit/,
-    "the gesture hint is click-through so it cannot eat the gesture it describes",
-  );
-  // 2026-10-18: no button zoom control remains (gesture-only zoom). The ONE
-  // locate control stays (the Re-center arrow became a non-interactive compass
-  // on 2026-10-04), next to the compass itself.
+  assert.equal(pageCode.includes("gestureHintLiftPx"), false);
+  assert.match(pageCode, /data-gesture-help/);
+  assert.match(pageCode, /role="dialog"/);
+  // 2026-10-18: no button zoom control remains (gesture-only zoom). 2026-10-21:
+  // the ONE locate control and the "?" share a two-tile row; the passive
+  // compass is gone.
   assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
   assert.match(mapCode, /zoomControl: false/);
   assert.match(mapCode, /scrollWheelZoom: true/);
   assert.equal((mapCode.match(/onClick=\{onRequestLocate\}/g) ?? []).length, 1);
   assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
-  assert.match(mapCode, /role="img"\s*\n\s*aria-label="Arah peta: utara ke atas"/);
+  assert.equal(mapCode.includes("Arah peta: utara ke atas"), false);
+  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 2);
   // The locked one-finger / two-finger gesture decision is unchanged.
   assert.match(mapCode, /dragging: !touchPrimary/);
   assert.match(mapCode, /doubleClickZoom: !touchPrimary/);
