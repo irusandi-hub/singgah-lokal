@@ -201,7 +201,10 @@ test("the results sheet keeps its draggable handle and the moved curated tab", (
   assert.match(sheet, /aria-label="Atur tinggi panel hasil"/);
   assert.match(sheet, /onPointerDown=\{beginSheetDrag\}/);
   assert.match(sheet, /onKeyDown=\{handleSheetKeyDown\}/);
-  assert.match(sheet, /absolute top-0\.5 left-4 z-30/);
+  assert.match(sheet, /absolute left-4 z-30/);
+  // 2026-10-20: the tab hangs above the seam again (20px) instead of sitting
+  // inline with the handle, and only tucks into the band at `full`.
+  assert.match(sheet, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
   assert.doesNotMatch(sheet, /-top-11 left-4/);
   // The board's title/count/radius/"Ke hasil" content is GONE (2026-10-18).
   assert.doesNotMatch(sheet, /place-results-heading" className="text-base/);
@@ -255,8 +258,11 @@ test("the OSM attribution stays visible above the sheet edge", () => {
   // can cover neither the credit nor a control.
   assert.match(
     pageCode,
-    /pointer-events-none absolute right-3 z-\[1100\][\s\S]{0,700}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,120}2 jari geser · cubit zoom/,
+    /pointer-events-none absolute right-3 z-\[1100\][\s\S]{0,900}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,1400}2 jari: geser &amp; cubit/,
   );
+  // The credit is bottom-RIGHT and the hanging curated tab is bottom-LEFT, so
+  // the two can never overlap at any supported width.
+  assert.match(pageCode, /absolute left-4 z-30 inline-flex min-h-11/);
   // The attribution itself is untouched: Leaflet's own control, fed by the
   // tile layer's OSM attribution string (pinned in live-hardening /
   // map-local-area-coverage) — never removed or replaced.

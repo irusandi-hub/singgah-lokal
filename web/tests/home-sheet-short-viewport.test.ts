@@ -106,19 +106,24 @@ test("OSM attribution and map controls stay above the visible sheet edge", () =>
     /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;/,
   );
   assert.match(mapCode, /--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset\)\}px`/);
-  // The control column is a fixed 40px pair ending at 278px; the mid geometry
-  // test above proves the sheet top stays below it on the supported stages.
+  // The control column is a fixed 40px pair (plus the 2026-10-20 gesture "?"
+  // tile BESIDE "Lokasi Saya", which adds no height) ending at 278px; the mid
+  // geometry test above proves the sheet top stays below it on the supported
+  // stages.
   assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-col items-center gap-2/);
+  assert.match(mapCode, /<div className="flex items-center gap-2">/);
 });
 
 test("the tab is one instance, stays attached to the sheet, and keeps LIVE exclusive", () => {
   assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
   assert.match(code, /const next = activateCuratedFilter\(\);/);
   assert.match(code, /setLiveOnly\(next\.liveOnly\)/);
-  // 2026-10-20: the tab sits inside the 48px header in every position, to the
-  // left of the centred 64px handle and below the OSM credit band. The list no
-  // longer needs a 56px reserve for it (pt-4).
-  assert.match(code, /absolute top-0\.5 left-4 z-30 inline-flex min-h-11/);
+  // 2026-10-20: the tab hangs 20px above the sheet edge in small/mid (tucked
+  // 2px inside the header band at `full`), to the left of the centred 64px
+  // handle and clear of the bottom-RIGHT OSM credit band. The list still needs
+  // no reserve for it: the first card starts 24px below its lower edge.
+  assert.match(code, /absolute left-4 z-30 inline-flex min-h-11/);
+  assert.match(code, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
   assert.doesNotMatch(code, /-top-11 left-4|left-4 top-12/);
   assert.match(code, /absolute bottom-6 right-4 z-30 inline-flex min-h-11/);
   const tabAt = code.indexOf("aria-pressed={curatedOnly}");

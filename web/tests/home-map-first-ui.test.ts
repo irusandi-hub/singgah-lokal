@@ -271,7 +271,10 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // The old handle band was REMOVED (2026-10-18) with no space left behind;
   // the one hanging control on the seam is the curated tab.
   assert.doesNotMatch(code, /block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(code, /absolute top-0\.5 left-4 z-30 inline-flex min-h-11/);
+  // 2026-10-20: the tab hangs 20px above the seam (2px inside the band at
+  // `full`) instead of sitting inline with the handle.
+  assert.match(code, /absolute left-4 z-30 inline-flex min-h-11/);
+  assert.match(code, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
   assert.doesNotMatch(code, /-top-11 left-4|left-4 top-12/);
 });
 

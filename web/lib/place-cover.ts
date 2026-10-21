@@ -63,6 +63,30 @@ export const PLACE_PROFILE_PHOTO_KIND_LABEL: Record<PlaceProfilePhotoKind, strin
 };
 
 /**
+ * CARD COVER LOAD STATE (bug fix, 2026-10-20) — the ONE rule that decides what
+ * a cover <img> element reports about itself, independent of React events.
+ *
+ * WHY: Home's cards are SERVER-rendered, so the cover <img> starts loading
+ * during HTML parsing, long before React hydrates and can attach `onLoad`.
+ * For a cached or fast image the `load` event has ALREADY fired by then and
+ * never fires again, so a component that only listens for the event kept its
+ * skeleton forever. Reading the element's own `complete`/`naturalWidth` at
+ * mount (and again if the URL changes) closes that window without changing
+ * what is displayed: `pending` keeps the skeleton, `loaded` reveals the photo,
+ * `failed` (complete but no pixels) shows the local placeholder.
+ *
+ * Pure and client-safe, so the rule is unit-tested on its own.
+ */
+export type CoverLoadState = "pending" | "loaded" | "failed";
+
+export function resolveCoverLoadState(
+  image: { complete: boolean; naturalWidth: number } | null | undefined,
+): CoverLoadState {
+  if (!image || image.complete !== true) return "pending";
+  return image.naturalWidth > 0 ? "loaded" : "failed";
+}
+
+/**
  * The object path inside `place-media` a saved public URL points at, or `null`
  * when the value is not one of our own public objects (an external URL, another
  * bucket, or a malformed value). This is the inverse of the storage module's

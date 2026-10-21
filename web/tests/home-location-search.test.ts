@@ -271,6 +271,7 @@ test("the map frames the searched region's Place spread once per new server answ
 });
 
 test("the search status line reports server state without becoming a second search path", () => {
+  const discoveryCode = homeDiscovery;
   assert.match(homeDiscovery, /aria-live="polite"/);
   assert.match(homeDiscovery, /role="status"/);
   // 2026-10-04: the banner is gated on a search actually running or having
@@ -289,8 +290,24 @@ test("the search status line reports server state without becoming a second sear
   // resolved and still consumed by the camera and the search box.
   assert.doesNotMatch(homeDiscovery, /\{searchCenter\.lat\.toFixed\(4\)\}, \{searchCenter\.lng\.toFixed\(4\)\}/);
   assert.match(homeDiscovery, /cameraCenter=\{activeCenter\}/);
-  // No state is persisted, and no credentials/tokens are touched.
-  assert.doesNotMatch(homeDiscovery, /localStorage|sessionStorage/);
+  // No SEARCH state is persisted, and no credentials/tokens are touched. The
+  // ONE storage key the component may touch is the gesture-hint "seen" flag
+  // (2026-10-20): it records that a hint was shown, never a query, a
+  // coordinate, or a session token — so the search path stays stateless.
+  assert.doesNotMatch(discoveryCode, /sessionStorage/);
+  const storageKeys = Array.from(
+    homeDiscovery.matchAll(/localStorage\.(?:getItem|setItem)\(([^,)]+)/g),
+  ).map((match) => match[1].trim());
+  assert.ok(storageKeys.length >= 2, "the seen flag is read and written once");
+  assert.ok(
+    storageKeys.every((key) => key === "GESTURE_HINT_SEEN_KEY"),
+    `the only persisted key is the gesture-hint seen flag (got ${storageKeys.join(", ")})`,
+  );
+  const searchHandlers = discoveryCode.slice(
+    discoveryCode.indexOf("const handleSearchChange"),
+    discoveryCode.indexOf("const handleSearchSubmit"),
+  );
+  assert.doesNotMatch(searchHandlers, /localStorage|sessionStorage/);
 });
 
 test("submit-only search: typed text does not trigger a geocode, Enter/submit does", () => {

@@ -356,7 +356,7 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // pinch. It is click-through now; only the real controls opt back in.
   assert.match(pageCode, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
   assert.match(pageCode, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5"/);
+  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5 rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5"/);
   // The map surface keeps touch-action: none on its own container, so a pinch
   // starting on the map zooms the MAP, never the page — and page scrolling
   // outside the map is untouched.
@@ -371,7 +371,7 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   );
   assert.match(
     pageCode,
-    /pointer-events-none absolute right-3 z-\[1100\][^"]*"[\s\S]{0,300}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,120}2 jari geser · cubit zoom/,
+    /pointer-events-none absolute right-3 z-\[1100\][^"]*"[\s\S]{0,120}style=\{\{ bottom: gestureHintLiftPx \}\}[\s\S]{0,1400}2 jari: geser &amp; cubit/,
     "the gesture hint is click-through so it cannot eat the gesture it describes",
   );
   // 2026-10-18: no button zoom control remains (gesture-only zoom). The ONE

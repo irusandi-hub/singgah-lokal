@@ -278,13 +278,26 @@ type HomeMapProps = {
    * this amount so the credit is never covered at the small/mid positions.
    */
   bottomInset?: number;
+  /**
+   * GESTURE HINT RECALL (2026-10-20). Renders the small "?" tile at the end of
+   * the control column; the caller owns the ONE hint component and its timer.
+   * Purely a control — no map behaviour, gesture, or camera rule is involved.
+   */
+  onShowGestureHint?: () => void;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors';
 
-const BRAND_BROWN = "var(--brand-accent)";
+// PLACE-PIN BROWN (2026-10-21): a DEEPER shade of the same brand accent brown.
+// The old tan (`--brand-accent` #c89b6b) reached only 2.27:1 against the
+// cream map surface, so a Place pin competed with the basemap instead of
+// leading it. The deep brown keeps the brand hue and reaches 5.27:1 — the
+// pin is the first thing read on a calm map, without changing its shape,
+// size, anchor, or behaviour. `--brand-accent` itself is untouched everywhere
+// else in the app.
+const BRAND_BROWN = "var(--brand-pin)";
 const BRAND_LIVE = "var(--live)";
 // Current Location marker color (MOCKUP §6, 2026-10-01): the user marker is
 // BLUE with a soft glow, per the latest approved mockup. Visual only — the
@@ -439,6 +452,7 @@ export default function HomeMap({
   highlightedPlaceId = null,
   onSelectPlace,
   bottomInset = 0,
+  onShowGestureHint,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -757,6 +771,14 @@ export default function HomeMap({
       // after remount, refresh, or drag on Android Chrome).
       const tileLayer = L.tileLayer(OSM_TILE_URL, {
         attribution: OSM_ATTRIBUTION,
+        // CALM BASEMAP (2026-10-21): OSM standard tiles are a single rendered
+        // PNG per tile — there is no vector style, no layer list, and no
+        // label switch to configure. This class is therefore the ONLY styling
+        // hook the source offers: globals.css applies one gentle, whole-raster
+        // tonal adjustment (less saturation, slightly flatter contrast, a warm
+        // tint). It changes no tile URL, provider, zoom, attribution, or
+        // interaction.
+        className: "singgah-basemap",
         maxZoom: 19,
         noWrap: true,
         // Match the map's FINITE maxBounds: tiles stop at the ±180 world
@@ -1369,7 +1391,7 @@ export default function HomeMap({
           ? `<span style="transform:rotate(45deg);color:#fff;font-size:13px;line-height:1;">✦</span>`
           : "";
         const placePin = `
-          <div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);width:28px;height:36px;filter:drop-shadow(0 2px 3px rgb(0 0 0 / 0.3));">
+          <div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);width:28px;height:36px;filter:drop-shadow(0 3px 4px rgb(0 0 0 / 0.34));">
             <div style="position:absolute;left:50%;top:0;transform:translateX(-50%) rotate(-45deg);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:9999px 9999px 9999px 0;border:2px solid #fff;background:${pinColor};">
               ${accent}
             </div>
@@ -1470,7 +1492,10 @@ export default function HomeMap({
           button still calls `onRequestLocate`.
 
           190px is where the floating header/search/filter chrome ends. The
-          column then runs 190..230 (compass) and 238..278 ("Lokasi Saya").
+          column then runs 190..230 (compass) and 238..278 ("Lokasi Saya" plus
+          the gesture-hint "?" from 2026-10-20, side by side in ONE 40px row)
+          — the same 278px that lib/live/ui.ts publishes as the column bottom,
+          and the number the sheet's mid snap is capped against.
 
           THE COMPASS is NOT interactive: this Leaflet build (1.9.x core, no
           rotation plugin) cannot rotate the map at all — there is no
@@ -1492,29 +1517,54 @@ export default function HomeMap({
             <path d="M12 19.8 8.9 10.8h6.2L12 19.8Z" fill="currentColor" opacity="0.35" />
           </svg>
         </div>
-        {/* "LOKASI SAYA" — the one locate control, on the SAME handler. It is
-            an icon tile now (crosshair + the existing blue user dot) so it
-            matches the compass and the zoom buttons exactly; `title` and the
-            aria-label keep the control named for sighted-hover and
-            screen-reader use alike. */}
-        <button
-          type="button"
-          onClick={onRequestLocate}
-          title="Lokasi Saya"
-          aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
-        >
-          <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
-            <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.6" />
-            <circle cx="12" cy="12" r="2.4" fill="#2563eb" />
-            <path
-              d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
+        {/* SECOND ROW (2026-10-20): "Lokasi Saya" and the gesture-hint "?"
+            share ONE 40px row. Stacking the "?" as a third tile would push the
+            column to 330px and the results sheet would cover it on a 360px-
+            tall landscape stage — the column bottom stays at the 278px the
+            sheet's mid snap is capped against. */}
+        <div className="flex items-center gap-2">
+          {/* "LOKASI SAYA" — the one locate control, on the SAME handler. It is
+              an icon tile now (crosshair + the existing blue user dot) so it
+              matches the compass and the zoom buttons exactly; `title` and the
+              aria-label keep the control named for sighted-hover and
+              screen-reader use alike. */}
+          <button
+            type="button"
+            onClick={onRequestLocate}
+            title="Lokasi Saya"
+            aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
+          >
+            <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
+              <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+              <circle cx="12" cy="12" r="2.4" fill="#2563eb" />
+              <path
+                d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+          {/* GESTURE HINT RECALL (2026-10-20): the hint is shown once, on the
+              first one-finger map touch, and then remembered. This tile is the
+              only way to bring it back. It keeps the 40px visual rhythm of the
+              column and extends its TOUCH target to 44px with the same
+              out-of-flow span the search bar's "Cari" control uses, so the
+              documented minimum is met without growing the column. */}
+          {onShowGestureHint ? (
+            <button
+              type="button"
+              onClick={onShowGestureHint}
+              title="Petunjuk gestur peta"
+              aria-label="Tampilkan petunjuk gestur peta"
+              className="relative inline-flex h-10 w-10 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
+            >
+              <span aria-hidden className="pointer-events-auto absolute -inset-0.5" />
+              <span aria-hidden className="text-[15px] font-bold leading-none">?</span>
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

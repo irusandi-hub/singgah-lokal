@@ -381,7 +381,10 @@ test("12.4 the removed board left no band, and the sheet keeps its one control",
   assert.match(band, /aria-pressed=\{curatedOnly\}/);
   assert.equal((band.match(/aria-pressed=/g) ?? []).length, 1, "one control on the seam");
   assert.doesNotMatch(band, /block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(band, /absolute top-0\.5 left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1/);
+  assert.match(band, /absolute left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1/);
+  // 2026-10-20: the tab HANGS 20px above the sheet edge in small/mid — a real
+  // tab over the map — and tucks 2px into the band at `full`.
+  assert.match(band, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
   assert.doesNotMatch(band, /-top-11 left-4|left-4 top-12/);
   // The sheet and its chrome keep the approved visual identity: same cream
   // surface and same 24px top radius, now floating over the map stage.

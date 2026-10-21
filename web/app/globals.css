@@ -10,6 +10,11 @@
   --brand-primary-deep: #0a5640; /* hover/pressed for primary actions */
   --brand-secondary: #6b8f72; /* Secondary Green — pendukung */
   --brand-accent: #c89b6b; /* Accent Brown — aksen visual brand */
+  /* Deep Accent Brown (2026-10-21) — the MAP PIN shade of the accent brown.
+     Same hue, dark enough to lead a calm basemap: 5.27:1 against the cream
+     map surface instead of the old 2.27:1. Scoped to map Place pins only;
+     --brand-accent keeps its existing role everywhere else. */
+  --brand-pin: #8a5a32;
   --brand-cream: #f6f3eb; /* Neutral Cream — background */
   --brand-ink: #20231f; /* Neutral text ink with strong contrast on cream/white */
 
@@ -93,6 +98,41 @@ select {
    geolocation fix, camera, and marker model are untouched. */
 .leaflet-control-container .leaflet-bar a {
   font-weight: 700;
+}
+
+/* CALM BASEMAP (2026-10-21). Source: OpenStreetMap standard raster tiles
+   (`tile.openstreetmap.org/{z}/{x}/{y}.png`), unchanged. Those tiles are a
+   SINGLE flattened image: the provider exposes no style, layer, colour, or
+   label-visibility setting, so roads, buildings, and label density CANNOT be
+   restyled per feature here. The only faithful lever is one tonal adjustment
+   over the whole raster — applied to the tile container Leaflet gives the
+   `singgah-basemap` class, never to markers, labels, or controls.
+
+   Deliberately mild so the map stays readable: saturation drops so the
+   greens/oranges stop competing with the brand pins, contrast is nudged down
+   a few percent so minor streets read thinner, and a small warm tint ties the
+   surface to the cream brand background. Baked-in label text keeps its
+   near-black-on-white contrast (≈15:1 after the adjustment), and no overlay,
+   mask, or fake label replacement is used. */
+.singgah-basemap {
+  filter: saturate(0.55) contrast(0.94) brightness(1.03) sepia(0.06);
+}
+
+/* Leaflet paints #ddd behind the tiles; the brand cream removes the grey flash
+   before the first tile lands and makes any tile gap read as calm surface. */
+.singgah-home-map.leaflet-container {
+  background-color: var(--brand-cream);
+}
+
+/* CONTROL FOCUS (2026-10-21). The Home map controls already share one 40px
+   tile, 14px radius, white surface, hairline ring, and soft shadow (see
+   components/home-map.tsx). This only unifies their keyboard feedback with
+   the brand token instead of the browser's default ring. Functions, geometry,
+   and the column's 278px bottom are untouched. */
+button[aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"]:focus-visible,
+button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
 }
 
 /* OSM ATTRIBUTION (2026-10-18; selector fixed 2026-10-20). The results sheet

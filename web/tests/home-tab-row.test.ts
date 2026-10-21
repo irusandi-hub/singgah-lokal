@@ -128,7 +128,7 @@ test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
   // no control replaced the curated tab here.
   assert.match(
     discoveryCode,
-    /<div className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5">/,
+    /<div className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5 rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5">/,
     "the single four-control row is the current approved layout",
   );
   const live = discoveryCode.indexOf("aria-pressed={liveOnly}");
@@ -148,17 +148,41 @@ test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
   assert.equal((discoveryCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 1);
 });
 
-test("the curated tab sits in the sheet header with a 44px touch target", () => {
+test("the filter row paints an opaque surface so nothing behind it can leak", () => {
+  // BUG (2026-10-20): the four chips floated straight on the map, so the 6px
+  // gaps between them showed whatever sat behind — a truncated Place name chip
+  // ("…al") could be read THROUGH the filter row. Measured on the previous
+  // production build at 360px: the row's computed background was
+  // rgba(0, 0, 0, 0) and a gap pixel sampled the map tile (170,211,223).
+  const row = discoveryCode.slice(
+    discoveryCode.indexOf("pointer-events-auto mt-2.5 grid"),
+    discoveryCode.indexOf("DISTANCE_FILTERS.map"),
+  );
+  assert.match(row, /rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5/, "the row paints the opaque brand surface");
+  assert.doesNotMatch(row, /bg-white\/\d|bg-brand-cream\/\d|backdrop-blur/, "no translucency of any kind");
+  // Zero padding/layout change: the row's height and the control column's
+  // 190px start (measured from this chrome) are untouched, so the surface adds
+  // colour only. The chips are the row's own children — no wrapper was added.
+  const rowClass = /<div className="([^"]*pointer-events-auto mt-2\.5 grid[^"]*)">/.exec(discoveryCode)?.[1] ?? "";
+  assert.ok(rowClass.length > 0, "the filter row keeps its own element");
+  assert.doesNotMatch(rowClass, /\bp-|\bpt-|\bpb-|\bpy-|\bpx-/, "the surface adds no padding");
+  assert.match(rowClass, /\bbg-brand-cream\b/);
+});
+
+test("the curated tab hangs over the sheet edge with a 44px touch target", () => {
   const tabStart = discoveryCode.indexOf("aria-pressed={curatedOnly}");
-  const tab = discoveryCode.slice(tabStart - 900, tabStart + 700);
-  // 2026-10-20: left-aligned INSIDE the 48px handle band in every position.
-  // The old small/mid overhang covered the OSM credit at 360/390px, and the
-  // old full-position offset needed a 56px list reserve of its own.
-  assert.match(tab, /absolute top-0\.5 left-4 z-30 inline-flex min-h-11 items-center justify-center/);
-  assert.doesNotMatch(tab, /-top-11|left-4 top-12/);
+  const tab = discoveryCode.slice(tabStart - 1200, tabStart + 700);
+  // 2026-10-20: the tab HANGS 20px above the sheet's top edge in small/mid so
+  // it reads as a tab over the map, and tucks 2px into the header band at
+  // `full`, where the sheet already fills the stage. It is never off-screen.
+  assert.match(tab, /absolute left-4 z-30 inline-flex min-h-11 items-center justify-center/);
+  assert.match(tab, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
   assert.match(tab, /rounded-\[14px\] border/);
-  // Inactive: white + border + ✦ + shadow. Active: deep brand green + white.
-  assert.match(tab, /border-black\/10 bg-white text-brand-ink\/70 hover:bg-brand-cream/);
+  // A strong shadow separates it from the map it now overlaps.
+  assert.match(tab, /shadow-\[0_8px_18px_rgb\(0_0_0\/0\.22\)\]/);
+  // Inactive: opaque white + thin border + ✦ + ink text. Active: dark green
+  // with pure white text.
+  assert.match(tab, /border-black\/10 bg-white text-brand-ink hover:bg-brand-cream/);
   assert.match(tab, /curatedOnly\s*\? "border-brand-primary bg-brand-primary text-white/);
   assert.match(tab, /<span aria-hidden>✦<\/span>/);
   // Exactly ONE instance, and the retired transition band left no handle.

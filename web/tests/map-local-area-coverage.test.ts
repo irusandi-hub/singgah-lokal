@@ -589,7 +589,7 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   // The old hanging band is gone; the curated tab now lives inside the sheet
   // header in every position (2026-10-20), clear of the OSM credit.
   assert.doesNotMatch(pageCode, /block h-1 w-10 rounded-full bg-black\/10/);
-  assert.match(pageCode, /absolute top-0\.5 left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1/);
+  assert.match(pageCode, /absolute left-4 z-30 inline-flex min-h-11 items-center justify-center gap-1/);
   assert.doesNotMatch(pageCode, /-top-11 left-4|left-4 top-12/);
   // 2026-10-18: the information board (title, count, radius line, "Ke hasil")
   // was REMOVED from that sheet; its handle now sits at the sheet's own top and
@@ -957,9 +957,9 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   // (nothing floats over the map's bottom edge any more). It tracks the sheet's
   // visible height, so it can never be covered in any snap position, and it
   // parks above this control column when a short stage forces it there.
-  assert.match(pageCode, /className=\{\`pointer-events-none absolute right-3 z-\[1100\] rounded-full bg-white\/85/);
+  assert.match(pageCode, /className="pointer-events-none absolute right-3 z-\[1100\] inline-flex items-center gap-1\.5 rounded-full border border-white\/25 bg-brand-primary-deep/);
   assert.match(pageCode, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
-  assert.match(pageCode, /gestureHintEdgePx - 18 < MAP_CONTROL_COLUMN_BOTTOM_PX/);
+  assert.match(pageCode, /gestureHintTopPx < MAP_CONTROL_COLUMN_BOTTOM_PX/);
   assert.match(globalsCss, /bottom: var\(--singgah-sheet-inset, 0px\)/);
   // The camera padding reserves that same chrome, so a fit never hides a Place
   // under it.

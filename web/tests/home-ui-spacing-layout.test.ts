@@ -134,7 +134,7 @@ test("T2.1 the map stage no longer holds a floating results panel", () => {
   // What legitimately remains in the stage: the map base layer, the chrome,
   // and the compact gesture hint — all still present.
   assert.ok(mapStage.indexOf("<HomeMap") > -1, "the map base layer is untouched");
-  assert.match(mapStage, /2 jari geser · cubit zoom/);
+  assert.match(mapStage, /2 jari: geser &amp; cubit/);
 });
 
 test("T2.2 the removed board's title, count, radius line, and 'Ke hasil' are gone", () => {
@@ -221,18 +221,19 @@ test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () =>
   // 22px gap) and keeps the control column's 12px right inset. On a stage too
   // short for the pill under the column it parks 8px ABOVE the column.
   assert.match(code, /const gestureHintLiftBasePx = sheetVisiblePx \+ 44;/);
-  assert.match(code, /gestureHintEdgePx - 18 < MAP_CONTROL_COLUMN_BOTTOM_PX/);
+  assert.match(code, /gestureHintTopPx < MAP_CONTROL_COLUMN_BOTTOM_PX/);
   assert.match(code, /pointer-events-none absolute right-3 z-\[1100\]/);
   assert.match(code, /style=\{\{ bottom: gestureHintLiftPx \}\}/);
   assert.match(code, /style=\{\{ bottom: sheetVisiblePx \+ 128 \}\}/);
-  // The pill is a HINT, not a permanent label: it fades out after a few
-  // seconds so it can never keep covering a marker or the blue location dot.
-  assert.match(code, /const GESTURE_HINT_VISIBLE_MS = 6000;/);
+  // The pill is a HINT, not a permanent label: it is shown by the first
+  // one-finger map touch and fades out ~3s later, so it can never keep
+  // covering a marker or the blue location dot.
+  assert.match(code, /const GESTURE_HINT_VISIBLE_MS = 3000;/);
   assert.match(
     code,
-    /setTimeout\(\(\) => setGestureHintVisible\(false\), GESTURE_HINT_VISIBLE_MS\)/,
+    /gestureHintTimerRef\.current = window\.setTimeout\(\(\) => \{[\s\S]{0,120}setGestureHintVisible\(false\);\s*\}, GESTURE_HINT_VISIBLE_MS\);/,
   );
-  assert.match(code, /gestureHintVisible \? "opacity-100" : "opacity-0"/);
+  assert.match(code, /\{gestureHintVisible && \(/);
   // No bottom-anchored panel remains, and the scale bar stays gone.
   assert.doesNotMatch(mapStage, /absolute bottom-9 right-4 z-\[1100\]/);
   assert.doesNotMatch(code, /mapScale/);
@@ -260,13 +261,16 @@ test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
   assert.ok(TAB_LEFT + TAB_WIDTH + 4 <= HANDLE_LEFT, "the tab keeps a gap to the drag handle at 360px");
   assert.ok(TAB_LEFT + TAB_WIDTH < VIEWPORT, "the tab fits inside a 360px viewport");
   const tabStart = code.indexOf("aria-pressed={curatedOnly}");
-  const tab = code.slice(tabStart - 900, tabStart + 600);
+  const tab = code.slice(tabStart - 1200, tabStart + 600);
   assert.match(tab, /whitespace-nowrap/);
   assert.match(tab, /min-h-11/);
-  assert.match(tab, /absolute top-0\.5 left-4 z-30/);
+  assert.match(tab, /absolute left-4 z-30/);
   assert.match(tab, /gap-1 whitespace-nowrap rounded-\[14px\] border px-2 text-\[11px\] font-bold/);
-  // It sits INSIDE the header band now, so it cannot reach the OSM credit.
-  assert.doesNotMatch(tab, /-top-11/);
+  // 2026-10-20: the tab HANGS 20px above the sheet edge (2px inside the band
+  // at `full`, where the sheet already sits at the top of the stage). 20px is
+  // the measured maximum: at 360px the OSM credit's lower edge is seam−22.
+  assert.match(tab, /style=\{\{ top: sheetPosition === "full" \? 2 : -CURATED_TAB_HANG_PX \}\}/);
+  assert.match(code, /const CURATED_TAB_HANG_PX = 20;/);
   assert.equal((tab.match(/<button/g) ?? []).length, 1, "one control on the seam");
 });
 
