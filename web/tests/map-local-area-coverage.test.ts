@@ -345,8 +345,8 @@ test("AC 6: only the hand-driven camera actions bump the request nonce", () => {
   );
   assert.match(tabHandler, /setCameraRequestNonce/);
   const curatedHandler = pageCode.slice(
-    pageCode.indexOf("const next = activateCuratedFilter();"),
-    pageCode.indexOf("const next = activateCuratedFilter();") + 500,
+    pageCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();"),
+    pageCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();") + 500,
   );
   assert.doesNotMatch(curatedHandler, /setCameraRequestNonce/);
   const locatePress = pageCode.slice(
@@ -650,8 +650,8 @@ test("AC 9: the removable caption is gone and no radius/origin claim is rendered
   assert.match(locatePress, /setCameraRequestNonce\(\(nonce\) => nonce \+ 1\)/);
   assert.doesNotMatch(locatePress, /setCameraCoverage/);
   const curatedHandler = pageCode.slice(
-    pageCode.indexOf("const next = activateCuratedFilter();"),
-    pageCode.indexOf("const next = activateCuratedFilter();") + 500,
+    pageCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();"),
+    pageCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();") + 500,
   );
   assert.doesNotMatch(curatedHandler, /setCameraRequestNonce|setCameraCoverage/);
   const tabHandler = pageCode.slice(

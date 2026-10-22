@@ -217,7 +217,9 @@ test("R-C: one control per filter — LIVE stays in the bar, curated renders onc
   // Exactly ONE curated control in the whole Home surface, and it lives INSIDE
   // the map stage — above the sheet, never in the top filter row.
   assert.equal((discoveryCode.match(/<CuratedMapTab/g) ?? []).length, 1);
-  assert.equal((discoveryCode.match(/activateCuratedFilter\(\)/g) ?? []).length, 1);
+  // One ACTIVATION entry point (the word boundary keeps the deactivation half
+  // of the same two-way handler out of this count).
+  assert.equal((discoveryCode.match(/\bactivateCuratedFilter\(\)/g) ?? []).length, 1);
   const tabIndex = discoveryCode.indexOf("<CuratedMapTab");
   assert.ok(tabIndex > discoveryCode.indexOf("<HomeMap"), "the tab floats over the map");
   assert.ok(

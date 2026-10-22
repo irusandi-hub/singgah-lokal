@@ -229,7 +229,7 @@ test("4.3 keyboard: focusable, Enter/Space toggles, arrows move the tab", () => 
   assert.match(tabSource, /const next: Placement = \{ side, ratio \};/);
 });
 
-test("4.4 reset exists twice: double-tap the grip and the help-panel button", () => {
+test("4.4 reset lives ONLY on the grip double tap; the help panel has no action", () => {
   // Double tap on the grip is detected from the pointer sequence (touch-safe).
   assert.match(tabSource, /DOUBLE_TAP_MS = 350/);
   assert.match(tabSource, /if \(now - lastHandleTapRef\.current <= DOUBLE_TAP_MS\)/);
@@ -237,14 +237,33 @@ test("4.4 reset exists twice: double-tap the grip and the help-panel button", ()
   assert.match(tabSource, /localStorage\.removeItem\(CURATED_TAB_STORAGE_KEY\)/);
   assert.match(tabSource, /export function resetCuratedTabPlacement\(\)/);
   assert.match(tabSource, /notifyPlacementListeners\(\)/);
-  // The help panel's button calls the same store action — it never touches the
-  // camera.
+  // 2026-10-22: the reset BUTTON was removed from the "?" panel. The panel is
+  // information only, so the double tap is the one and only reset control.
   const home = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
-  assert.match(home, /onClick=\{resetCuratedTabPlacement\}/);
+  assert.equal(home.includes("resetCuratedTabPlacement"), false, "no reset action in Home any more");
+  assert.equal(home.includes("Kembalikan tab ke posisi awal"), false, "no reset button copy any more");
   assert.equal(home.includes("setCuratedTabResetNonce"), false);
 });
 
-test("4.5 the tab hides at `full` and leaves no residue in the sheet", () => {
+test("4.5 the tab toggles BOTH ways; a drag never toggles", () => {
+  const home = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
+  assert.match(
+    home,
+    /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);/,
+  );
+  assert.match(home, /setCuratedOnly\(next\.curatedOnly\);/);
+  assert.match(home, /setLiveOnly\(next\.liveOnly\);/);
+  // The pressed state the tab renders is the real state, in both directions.
+  assert.match(home, /pressed=\{curatedOnly\}/);
+  assert.match(tabSource, /aria-pressed=\{pressed\}/);
+  // A drag resolves to a SNAP and returns before the tap branch, so releasing
+  // a drag can never call onToggle.
+  const endDrag = tabSource.slice(tabSource.indexOf("const endDrag = useCallback"), tabSource.indexOf("const handleToggleClick"));
+  assert.match(endDrag, /if \(drag\.moved && !cancelled && area && released\) \{[\s\S]*?return;/);
+  assert.equal((endDrag.match(/onToggle\(\)/g) ?? []).length, 1, "only the tap branch toggles");
+});
+
+test("4.6 the tab hides at `full` and leaves no residue in the sheet", () => {
   assert.match(tabSource, /if \(stageHeight > 0 && sheetVisiblePx >= stageHeight\) return null;/);
   const home = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
   assert.equal(home.includes("CURATED_TAB_HANG_PX"), false);

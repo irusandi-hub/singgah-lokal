@@ -203,7 +203,7 @@ test("T2.5 the curated tab now FLOATS over the map, outside the sheet", () => {
   assert.match(curatedTabCode, /absolute z-\[1100\]/);
   // One control, with the same handler and exclusivity state.
   assert.equal((code.match(/<CuratedMapTab/g) ?? []).length, 1);
-  assert.match(code, /const next = activateCuratedFilter\(\);/);
+  assert.match(code, /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);/);
   assert.match(code, /setLiveOnly\(next\.liveOnly\);/);
   assert.equal((code.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 0);
 });

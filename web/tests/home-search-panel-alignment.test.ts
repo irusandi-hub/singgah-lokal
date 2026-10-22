@@ -210,7 +210,7 @@ test("the results sheet keeps its draggable handle and no longer owns the tab", 
   // curated control is a floating map tab with the same handler.
   assert.match(sheet, /<h2 id="place-results-heading" className="sr-only">/);
   assert.equal((pageCode.match(/<CuratedMapTab/g) ?? []).length, 1);
-  assert.match(pageCode, /const next = activateCuratedFilter\(\);/);
+  assert.match(pageCode, /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);/);
 });
 
 test("the floating curated tab cannot overflow or wrap on a narrow phone", () => {

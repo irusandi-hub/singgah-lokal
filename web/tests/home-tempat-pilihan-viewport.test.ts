@@ -41,8 +41,8 @@ const pageCode = stripComments(discovery);
 const mapCode = stripComments(map);
 
 const curatedHandler = pageCode.slice(
-  pageCode.indexOf("const next = activateCuratedFilter();"),
-  pageCode.indexOf("const next = activateCuratedFilter();") + 500,
+  pageCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();"),
+  pageCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();") + 500,
 );
 const distanceHandler = pageCode.slice(
   pageCode.indexOf("setDistanceFilter(filter);"),

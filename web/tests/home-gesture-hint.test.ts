@@ -16,6 +16,10 @@ import { readFileSync } from "node:fs";
  *  · it closes with a 44×44 button, an outside tap, and Esc;
  *  · it never covers the OSM attribution (its bottom edge sits above the
  *    credit's band, not over it);
+ *  · it is INFORMATION ONLY (2026-10-22): no reset button — resetting the
+ *    floating tab is the grip double tap, and nothing else;
+ *  · its height is capped at 60% of the stage and it keeps a 96px top
+ *    clearance, so it cannot grow over the floating logo/menu or search;
  *  · the "?" tile keeps its 44px touch target and is the ONLY trigger.
  */
 
@@ -79,22 +83,25 @@ test("the panel opens from the \"?\" tile and toggles nothing else", () => {
 // 2. Complete, verified copy.
 // ---------------------------------------------------------------------------
 
-test("all five real gestures are documented, including one-finger scroll", () => {
+test("the five real gestures plus the grip reset are documented, in tightened copy", () => {
   for (const copy of [
     "Dua jari geser",
     "menggeser peta.",
     "Cubit",
     "memperbesar atau memperkecil peta.",
     "Satu jari",
-    "menggulir daftar Tempat saat panel penuh",
-    "tidak menggeser peta.",
+    "menggulir daftar saat panel penuh",
     "Ketuk pin",
-    "memilih Tempat dan membuka kartunya",
+    "membuka kartu Tempat di daftar",
     "Geser tab “Tempat Pilihan”",
-    "memindahkannya di atas",
+    "memindahkannya di atas peta",
+    "Ketuk dua kali grip tab",
+    "kembali ke posisi awal",
   ]) {
     assert.ok(panel.includes(copy), `the panel must document: ${copy}`);
   }
+  // Six rows: the five gestures plus the reset hint that replaced the button.
+  assert.equal((panel.match(/<li className="flex items-start gap-2 py-1\.5">/g) ?? []).length, 6);
   // The old inaccurate claim ("one finger scrolls the page") is not reintroduced.
   assert.equal(home.includes("Satu jari: menggulir halaman"), false);
   // The two-finger map gestures are exactly what Leaflet TouchZoom performs
@@ -149,6 +156,17 @@ test("Escape closes it and focus returns to the recall control", () => {
   assert.match(panel, /aria-labelledby="gesture-help-title"/);
 });
 
+test("the panel never covers the floating chrome and is capped at 60% of the stage", () => {
+  const topSafe = /const GESTURE_HELP_TOP_SAFE_PX = (\d+);/.exec(home)?.[1];
+  assert.equal(topSafe, "96", "the panel's top edge stays clear of the status bar and the logo/menu");
+  assert.match(home, /const GESTURE_HELP_MAX_STAGE_RATIO = 0\.6;/);
+  assert.match(home, /maxHeight: Math\.max\([\s\S]{0,120}?GESTURE_HELP_MIN_HEIGHT_PX,/);
+  assert.match(home, /stageHeight \* GESTURE_HELP_MAX_STAGE_RATIO,/);
+  assert.match(home, /stageHeight -[\s\S]{0,120}?GESTURE_HELP_TOP_SAFE_PX,/);
+  // Scrolling stays available inside the cap, so no row is ever clipped away.
+  assert.match(panel, /overflow-y-auto/);
+});
+
 test("the panel is anchored clear of the OSM attribution", () => {
   // bottom = sheetVisiblePx + 56; the credit's band ends at seam − 22.
   const gap = /const GESTURE_HELP_BOTTOM_GAP_PX = (\d+);/.exec(home)?.[1];
@@ -174,10 +192,16 @@ test("the \"?\" tile is 44px and sits beside \"Lokasi Saya\" in one row", () => 
   assert.equal((map.match(/flex-nowrap/g) ?? []).length, 1);
 });
 
-test("the reset the panel offers is wired to the floating tab, not the camera", () => {
-  assert.match(panel, /Kembalikan tab ke posisi awal/);
-  assert.match(panel, /onClick=\{resetCuratedTabPlacement\}/);
-  assert.match(home, /import CuratedMapTab, \{ resetCuratedTabPlacement \} from "@\/components\/curated-map-tab";/);
-  assert.equal((panel.match(/setCameraRequestNonce/g) ?? []).length, 0);
+test("the panel is information only: the close button is its ONLY control", () => {
+  // 2026-10-22: the reset button was removed. The grip double tap is the one
+  // reset, and no other reset UI may exist in Home.
+  assert.equal(panel.includes("Kembalikan tab ke posisi awal"), false);
+  assert.equal(panel.includes("resetCuratedTabPlacement"), false);
+  // The slice starts at the backdrop, so exactly TWO buttons remain: the
+  // invisible backdrop (an outside tap surface) and the 44px close button.
+  assert.equal((panel.match(/<button/g) ?? []).length, 2, "no action button remains");
+  assert.equal((panel.match(/onClick=\{closeGestureHelp\}/g) ?? []).length, 2);
+  assert.match(panel, /Ketuk dua kali grip tab/);
+  assert.match(home, /import CuratedMapTab from "@\/components\/curated-map-tab";/);
   assert.equal(home.includes("resetNonce"), false, "the reset is imperative, not a nonce the tab watches");
 });

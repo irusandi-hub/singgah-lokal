@@ -217,8 +217,8 @@ test("LIVE, 'Tempat Pilihan', and the distance tabs keep their own transitions",
   // caption (that state was removed with the board on 2026-10-18), and bumps
   // no camera nonce.
   const curatedHandler = discoveryCode.slice(
-    discoveryCode.indexOf("const next = activateCuratedFilter();"),
-    discoveryCode.indexOf("const next = activateCuratedFilter();") + 500,
+    discoveryCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();"),
+    discoveryCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();") + 500,
   );
   assert.doesNotMatch(curatedHandler, /setFitNonce\(\(nonce\) => nonce \+ 1\);/);
   assert.doesNotMatch(curatedHandler, /setCameraCoverage/);

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   DISTANCE_FILTERS,
   activateCuratedFilter,
+  deactivateCuratedFilter,
   distanceMeters,
   formatDistance,
   liveDurationLabel,
@@ -82,6 +83,9 @@ test("LIVE and Tempat Pilihan are mutually exclusive, and turning LIVE off chang
   assert.deepEqual(toggleLiveFilter(true, true), { liveOnly: false, curatedOnly: true });
   // Curated activation is the mirror image and always clears LIVE.
   assert.deepEqual(activateCuratedFilter(), { liveOnly: false, curatedOnly: true });
+  // The second tap leaves curation (2026-10-22) and LIVE stays off: curation
+  // can only be active while LIVE is off, so no mode is left switched on.
+  assert.deepEqual(deactivateCuratedFilter(), { liveOnly: false, curatedOnly: false });
   // Turning LIVE off never silently re-enables a layer: it only reverses
   // LIVE itself, leaving the curated layer exactly as it is (false here,
   // because activating LIVE already released it).
@@ -102,7 +106,12 @@ test("Home wires both filter buttons to the exclusive transitions, not to raw se
     "utf8",
   );
   assert.match(homeSource, /const next = toggleLiveFilter\(liveOnly, curatedOnly\);\s*setLiveOnly\(next\.liveOnly\);\s*setCuratedOnly\(next\.curatedOnly\);/);
-  assert.match(homeSource, /const next = activateCuratedFilter\(\);\s*setCuratedOnly\(next\.curatedOnly\);\s*setLiveOnly\(next\.liveOnly\);/);
+  // The tab is two-way: the same handler activates and deactivates, and both
+  // directions go through the tested transitions rather than raw setters.
+  assert.match(
+    homeSource,
+    /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);\s*setCuratedOnly\(next\.curatedOnly\);\s*setLiveOnly\(next\.liveOnly\);/,
+  );
   // LIVE keeps its aria-pressed binding and the distance tabs stay deselected
   // while the curated place-set layer is active. (The second place-set layer,
   // "Semua Tempat", was removed on 2026-10-04.) The Tempat Pilihan button

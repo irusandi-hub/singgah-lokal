@@ -115,7 +115,7 @@ test("OSM attribution and map controls stay above the visible sheet edge", () =>
 
 test("the curated tab is one floating instance and keeps LIVE exclusive", () => {
   assert.equal((code.match(/<CuratedMapTab/g) ?? []).length, 1);
-  assert.match(code, /const next = activateCuratedFilter\(\);/);
+  assert.match(code, /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);/);
   assert.match(code, /setLiveOnly\(next\.liveOnly\)/);
   // 2026-10-21: the tab floats over the map and hides at `full`; it is no
   // longer attached to the sheet, so the header band needs no reserve for it.

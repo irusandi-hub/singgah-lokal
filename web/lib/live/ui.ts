@@ -34,9 +34,10 @@ export type LiveDiscoveryItem = {
  * - turning LIVE ON always leaves "Tempat Pilihan" (mutual exclusion);
  * - turning LIVE OFF touches NOTHING else — the curated layer and the
  *   distance tab keep whatever they had (no accidental filter change);
- * - activating "Tempat Pilihan" always leaves LIVE. Untoggling it is not
- *   offered: the curated layer is left by choosing a distance tab, exactly
- *   as before.
+ * - activating "Tempat Pilihan" always leaves LIVE;
+ * - leaving "Tempat Pilihan" (2026-10-22) returns to the distance preset it
+ *   was entered with, because entering curation never changed that preset and
+ *   a distance tab still leaves curation. LIVE stays off either way.
  * Filter SEMANTICS (which Places each mode shows) are untouched.
  */
 export function toggleLiveFilter(
@@ -57,6 +58,17 @@ export function toggleLiveFilter(
  */
 export function activateCuratedFilter(): { liveOnly: boolean; curatedOnly: boolean } {
   return { liveOnly: false, curatedOnly: true };
+}
+
+/**
+ * Curated-mode DEACTIVATION (2026-10-22): a second tap on the active tab
+ * leaves the curated layer. The last distance preset becomes the active filter
+ * again on its own — entering curation never touched `distanceFilter`, so the
+ * radius is restored rather than re-invented, and no fallback is needed.
+ * LIVE stays off: curation can only be active while LIVE is off.
+ */
+export function deactivateCuratedFilter(): { liveOnly: boolean; curatedOnly: boolean } {
+  return { liveOnly: false, curatedOnly: false };
 }
 
 // ---------------------------------------------------------------------------

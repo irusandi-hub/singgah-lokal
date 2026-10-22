@@ -299,8 +299,8 @@ test("AC 5: a real pan/zoom latches the camera; only a tab choice or a new searc
   // may ever carry it.
   assert.equal((pageCode.match(/fitNonce/g) ?? []).length, 0);
   const curatedHandler = pageCode.slice(
-    pageCode.indexOf("const next = activateCuratedFilter();"),
-    pageCode.indexOf("const next = activateCuratedFilter();") + 400,
+    pageCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();"),
+    pageCode.indexOf("const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();") + 400,
   );
   assert.doesNotMatch(curatedHandler, /setFitNonce/);
   // Choosing a distance tab (the other explicit camera action) keeps its own

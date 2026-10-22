@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import CuratedMapTab, { resetCuratedTabPlacement } from "@/components/curated-map-tab";
+import CuratedMapTab from "@/components/curated-map-tab";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
 import PlaceFollowButton from "@/components/place-follow-button";
 import SiteNav from "@/components/site-nav";
@@ -18,6 +18,7 @@ import {
   acceptSearchResponse,
   activateCuratedFilter,
   buildDirectionsUrl,
+  deactivateCuratedFilter,
   clearCitySearch,
   distanceMeters,
   fallbackSearchArea,
@@ -52,8 +53,20 @@ import {
  *    not a page scroll either — it is the results list (at `full`) that
  *    scrolls with one finger. The panel says exactly that instead of the old
  *    "one finger scrolls the page" claim, which was not true on this screen.
+ *
+ * The panel is INFORMATION ONLY (2026-10-22): it lists the gestures and the
+ * grip double-tap reset, and carries no action button. Resetting the tab to its
+ * default corner stays where it already was — two taps on the grip.
  */
 const GESTURE_HELP_BOTTOM_GAP_PX = 56;
+// The panel never grows into the floating logo/menu or the search bar: its top
+// edge is kept GESTURE_HELP_TOP_SAFE_PX below the stage's top edge, and its
+// height is additionally capped at 60% of the stage so a long panel can never
+// take the screen. (It is a modal with its own backdrop, so it may pass over
+// the filter chips it obscures; it never covers the header or the search.)
+const GESTURE_HELP_TOP_SAFE_PX = 96;
+const GESTURE_HELP_MAX_STAGE_RATIO = 0.6;
+const GESTURE_HELP_MIN_HEIGHT_PX = 160;
 
 /**
  * CANONICAL CAMERA CANDIDATE — one canonical Place projected to exactly what
@@ -480,14 +493,17 @@ export default function HomeDiscovery({
     setSheetPosition(next);
   }, []);
 
-  // FLOATING TAB TOGGLE (2026-10-21): the SAME transition rule the tab has
-  // always used — entering "Tempat Pilihan" switches LIVE off. It moves no
-  // camera and changes no dataset; only the tab's POSITION is new.
+  // FLOATING TAB TOGGLE (2026-10-22): the tab is TWO-WAY now. A tap on the
+  // inactive tab enters the layer (LIVE off, exactly as before); a tap on the
+  // ACTIVE tab leaves it and the last distance preset is the active filter
+  // again — it was never changed by entering curation, so nothing is invented.
+  // A drag never toggles (the component resolves tap vs drag itself). The
+  // camera is untouched in both directions.
   const handleCuratedToggle = useCallback(() => {
-    const next = activateCuratedFilter();
+    const next = curatedOnly ? deactivateCuratedFilter() : activateCuratedFilter();
     setCuratedOnly(next.curatedOnly);
     setLiveOnly(next.liveOnly);
-  }, []);
+  }, [curatedOnly]);
 
   const beginSheetDrag = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -2029,7 +2045,14 @@ export default function HomeDiscovery({
             brand-ink text — 15.2:1, far above the 4.5:1 requirement — 13px
             body text, a hairline border, and a strong shadow. It is anchored
             56px above the visible sheet seam, so its bottom edge never touches
-            the OSM credit (which ends at seam − 22). */}
+            the OSM credit (which ends at seam − 22), and its height is capped
+            at 60% of the stage with a 96px top clearance, so it never grows
+            over the floating logo/menu or the search bar.
+
+            INFORMATION ONLY (2026-10-22): the reset button is gone. The panel
+            lists the gestures and the grip double-tap reset; the only reset
+            control in the UI is that double tap, and there is nothing else to
+            remove. */}
         {gestureHelpOpen && (
           <>
             <button
@@ -2047,7 +2070,16 @@ export default function HomeDiscovery({
               className="absolute inset-x-3 z-[1210] mx-auto max-w-sm overflow-y-auto rounded-[18px] border border-black/10 bg-white p-3 text-brand-ink shadow-[0_16px_40px_rgb(0_0_0/0.28)]"
               style={{
                 bottom: sheetVisiblePx + GESTURE_HELP_BOTTOM_GAP_PX,
-                maxHeight: Math.max(180, stageHeight - sheetVisiblePx - 72),
+                maxHeight: Math.max(
+                  GESTURE_HELP_MIN_HEIGHT_PX,
+                  Math.min(
+                    stageHeight * GESTURE_HELP_MAX_STAGE_RATIO,
+                    stageHeight -
+                      sheetVisiblePx -
+                      GESTURE_HELP_BOTTOM_GAP_PX -
+                      GESTURE_HELP_TOP_SAFE_PX,
+                  ),
+                ),
               }}
             >
               <div className="flex items-center justify-between gap-2">
@@ -2065,47 +2097,43 @@ export default function HomeDiscovery({
                 </button>
               </div>
               <ul className="mt-1 divide-y divide-black/5 border-t border-black/5">
-                <li className="flex items-start gap-2 py-2">
+                <li className="flex items-start gap-2 py-1.5">
                   <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
                   <p className="text-[13px] leading-snug">
                     <span className="font-bold">Dua jari geser</span> — menggeser peta.
                   </p>
                 </li>
-                <li className="flex items-start gap-2 py-2">
+                <li className="flex items-start gap-2 py-1.5">
                   <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
                   <p className="text-[13px] leading-snug">
                     <span className="font-bold">Cubit</span> — memperbesar atau memperkecil peta.
                   </p>
                 </li>
-                <li className="flex items-start gap-2 py-2">
+                <li className="flex items-start gap-2 py-1.5">
                   <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
                   <p className="text-[13px] leading-snug">
-                    <span className="font-bold">Satu jari</span> — menggulir daftar Tempat saat panel penuh;
-                    tidak menggeser peta.
+                    <span className="font-bold">Satu jari</span> — menggulir daftar saat panel penuh.
                   </p>
                 </li>
-                <li className="flex items-start gap-2 py-2">
+                <li className="flex items-start gap-2 py-1.5">
                   <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
                   <p className="text-[13px] leading-snug">
-                    <span className="font-bold">Ketuk pin</span> — memilih Tempat dan membuka kartunya di
-                    daftar hasil.
+                    <span className="font-bold">Ketuk pin</span> — membuka kartu Tempat di daftar.
                   </p>
                 </li>
-                <li className="flex items-start gap-2 py-2">
+                <li className="flex items-start gap-2 py-1.5">
                   <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
                   <p className="text-[13px] leading-snug">
-                    <span className="font-bold">Geser tab “Tempat Pilihan”</span> — memindahkannya di atas
-                    peta.
+                    <span className="font-bold">Geser tab “Tempat Pilihan”</span> — memindahkannya di atas peta.
+                  </p>
+                </li>
+                <li className="flex items-start gap-2 py-1.5">
+                  <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
+                  <p className="text-[13px] leading-snug">
+                    <span className="font-bold">Ketuk dua kali grip tab</span> — kembali ke posisi awal.
                   </p>
                 </li>
               </ul>
-              <button
-                type="button"
-                onClick={resetCuratedTabPlacement}
-                className="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-[12px] border border-black/10 bg-brand-cream px-3 text-[13px] font-bold text-brand-ink transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/50"
-              >
-                Kembalikan tab ke posisi awal
-              </button>
             </div>
           </>
         )}

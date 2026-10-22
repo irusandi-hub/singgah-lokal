@@ -396,7 +396,7 @@ test("client: an untrusted area in the response is normalized before it filters 
 
 test("11: LIVE and Tempat Pilihan semantics are unchanged", () => {
   assert.match(pageCode, /const next = toggleLiveFilter\(liveOnly, curatedOnly\);/);
-  assert.match(pageCode, /const next = activateCuratedFilter\(\);/);
+  assert.match(pageCode, /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);/);
   // The transitions themselves are the untouched ones: LIVE and the curated
   // layer stay mutually exclusive in both directions.
   assert.deepEqual(toggleLiveFilter(true, false), { liveOnly: false, curatedOnly: false });

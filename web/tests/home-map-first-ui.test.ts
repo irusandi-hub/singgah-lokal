@@ -198,7 +198,7 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
   // tab moved into CuratedMapTab on 2026-10-21 and carries the SAME brand-green
   // selected surface there (checked below, from the component itself).
   assert.equal(greenSelected.length, 1);
-  assert.match(code, /const next = activateCuratedFilter\(\);/);
+  assert.match(code, /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);/);
   const curatedTab = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");
   assert.match(curatedTab, /border-brand-primary bg-brand-primary text-white/);
   assert.doesNotMatch(curatedTab, /bg-brand-ink text-white/);

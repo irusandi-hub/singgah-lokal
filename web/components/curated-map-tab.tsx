@@ -23,9 +23,12 @@ import {
  * the same curated dataset behind it.
  *
  * INTERACTION CONTRACT
- *  · TAP toggles. A press only becomes a drag after the finger travels more
- *    than 8px (2px when started on the small grip), so a tap can never be
- *    mistaken for a drag and vice versa.
+ *  · TAP toggles BOTH WAYS (2026-10-22): a tap on the inactive tab enters the
+ *    curated layer; a tap on the active tab leaves it and the previous
+ *    distance preset becomes the active filter again. A press only becomes a
+ *    drag after the finger travels more than 8px (2px when started on the
+ *    small grip), so a tap can never be mistaken for a drag and vice versa,
+ *    and a drag NEVER toggles.
  *  · DRAG uses pointer events + pointer capture: the gesture stays on this
  *    element even when the finger leaves it, `touch-action: none` stops it
  *    from scrolling the page, and the map's own one-finger pan is already
@@ -38,7 +41,8 @@ import {
  *  · PERSISTENCE stores only `{ side, ratio }`, never pixels, so a rotation, a
  *    sheet move, or a different phone re-clamps to a legal spot instead of
  *    restoring an off-screen one.
- *  · RESET: double-tap the grip, or the button in the "?" help panel.
+ *  · RESET: double-tap the grip. That is the ONLY reset control — the "?"
+ *    panel is information only and carries no reset button.
  *  · KEYBOARD: focusable; Enter/Space toggle (native button); ArrowLeft /
  *    ArrowRight choose the edge; ArrowUp / ArrowDown move it vertically.
  *  · HIDDEN when the sheet reaches `full` (the map is no longer visible).
@@ -405,7 +409,11 @@ export default function CuratedMapTab({
         type="button"
         aria-pressed={pressed}
         aria-label="Tempat Pilihan"
-        title="Tempat Pilihan — ketuk untuk aktifkan, geser untuk memindahkan"
+        title={
+          pressed
+            ? "Tempat Pilihan aktif — ketuk untuk nonaktifkan, geser untuk memindahkan"
+            : "Tempat Pilihan — ketuk untuk aktifkan, geser untuk memindahkan"
+        }
         onClick={handleToggleClick}
         onKeyDown={handleKeyDown}
         className={`inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap bg-transparent px-2.5 text-[11px] font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/80 ${

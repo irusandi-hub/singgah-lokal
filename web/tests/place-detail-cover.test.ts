@@ -154,8 +154,12 @@ test("Home filter bar is a single row: LIVE leftmost, distance tabs after", () =
   assert.equal(barSlice.includes("activateCuratedFilter"), false, "the curated tab lives outside the filter bar");
   assert.equal((code.match(/<CuratedMapTab/g) ?? []).length, 1, "exactly one floating curated tab");
   assert.match(code, /pressed=\{curatedOnly\}[\s\S]{0,160}onToggle=\{handleCuratedToggle\}/);
-  assert.equal((code.match(/activateCuratedFilter\(\)/g) ?? []).length, 1, "one transition entry point");
-  assert.match(code, /const next = activateCuratedFilter\(\);/);
+  assert.equal(
+    (code.match(/\bactivateCuratedFilter\(\)/g) ?? []).length,
+    1,
+    "one activation entry point",
+  );
+  assert.match(code, /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);/);
   // The filter bar never horizontally scrolls (the old overflow strip).
   assert.equal(/mb-5 flex gap-2 overflow-x-auto/.test(code.slice(0, filterBar)), false);
   // The curated-chips row was REMOVED (PO 2026-09-26): "Tempat Pilihan"
