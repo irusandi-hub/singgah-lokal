@@ -43,6 +43,12 @@ import {
  *    restoring an off-screen one.
  *  · RESET: double-tap the grip. That is the ONLY reset control — the "?"
  *    panel is information only and carries no reset button.
+ *  · PRESENTATION (2026-10-22): ONE whole capsule, no divider and no ≡ icon —
+ *    the grip is six faint dots inside the same surface. Inactive is an
+ *    opaque white pill with dark-green text and a soft layered shadow; active
+ *    is a smooth dark-green gradient with white text and a hairline ring; a
+ *    drag lifts it 1.04 with a deeper shadow (transition removed under
+ *    prefers-reduced-motion). Height stays 44px in every state.
  *  · KEYBOARD: focusable; Enter/Space toggle (native button); ArrowLeft /
  *    ArrowRight choose the edge; ArrowUp / ArrowDown move it vertically.
  *  · HIDDEN when the sheet reaches `full` (the map is no longer visible).
@@ -382,26 +388,30 @@ export default function CuratedMapTab({
       onPointerUp={(event) => endDrag(event, false)}
       onPointerCancel={(event) => endDrag(event, true)}
       onLostPointerCapture={(event) => endDrag(event, true)}
-      className={`absolute z-[1100] inline-flex touch-none select-none items-stretch overflow-hidden rounded-[14px] border transition-shadow ${
-        dragging ? "cursor-grabbing" : "cursor-grab"
+      className={`singgah-curated-tab absolute z-[1100] flex h-11 touch-none select-none items-center overflow-hidden rounded-full ${
+        dragging ? "is-dragging scale-[1.04] cursor-grabbing" : "cursor-grab"
       } ${
         pressed
-          ? "border-brand-primary bg-brand-primary text-white shadow-[0_8px_18px_rgb(14_107_79/0.35)]"
-          : "border-black/10 bg-white text-brand-ink shadow-[0_8px_18px_rgb(0_0_0/0.22)]"
+          ? "is-active bg-[linear-gradient(135deg,#127a5a_0%,var(--brand-primary)_52%,var(--brand-primary-deep)_100%)] text-white shadow-[0_1px_1px_rgb(10_86_64/0.18),0_6px_14px_rgb(10_86_64/0.26),0_14px_28px_rgb(10_86_64/0.16)] ring-1 ring-white/30"
+          : "bg-white text-brand-primary shadow-[0_1px_2px_rgb(32_35_31/0.06),0_5px_12px_rgb(32_35_31/0.10),0_12px_24px_rgb(32_35_31/0.06)]"
       }`}
     >
-      {/* GRIP — the explicit drag affordance. A double tap here restores the
-          default corner; a single tap does nothing (it never toggles). */}
+      {/* GRIP — the explicit drag affordance, now six faint dots inside the
+          SAME capsule (no divider, no ≡ glyph). A double tap here restores
+          the default corner; a single tap does nothing (it never toggles). */}
       <span
         data-curated-tab-handle
         aria-hidden
         title="Geser untuk memindahkan · ketuk dua kali untuk posisi awal"
-        className={`inline-flex w-[18px] shrink-0 items-center justify-center border-r ${
-          pressed ? "border-white/25 text-white/80" : "border-black/5 text-brand-ink/45"
-        }`}
+        className="singgah-curated-tab-grip inline-flex h-11 w-[20px] shrink-0 items-center justify-center pl-1"
       >
-        <svg aria-hidden viewBox="0 0 8 14" width="8" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M1 2h6M1 7h6M1 12h6" />
+        <svg aria-hidden viewBox="0 0 6 14" width="6" height="14" fill="currentColor">
+          <circle cx="1.1" cy="2" r="0.95" />
+          <circle cx="4.9" cy="2" r="0.95" />
+          <circle cx="1.1" cy="7" r="0.95" />
+          <circle cx="4.9" cy="7" r="0.95" />
+          <circle cx="1.1" cy="12" r="0.95" />
+          <circle cx="4.9" cy="12" r="0.95" />
         </svg>
       </span>
       <button
@@ -416,11 +426,13 @@ export default function CuratedMapTab({
         }
         onClick={handleToggleClick}
         onKeyDown={handleKeyDown}
-        className={`inline-flex min-h-11 items-center justify-center gap-1 whitespace-nowrap bg-transparent px-2.5 text-[11px] font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/80 ${
-          pressed ? "text-white" : "text-brand-ink"
+        className={`inline-flex h-11 items-center justify-center gap-1.5 whitespace-nowrap bg-transparent px-3 text-[11.5px] font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/80 ${
+          pressed ? "text-white" : "text-brand-primary"
         }`}
       >
-        <span aria-hidden>✦</span>
+        <span aria-hidden className="singgah-curated-tab-star">
+          ✦
+        </span>
         Tempat Pilihan
       </button>
     </div>

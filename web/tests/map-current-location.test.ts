@@ -609,18 +609,28 @@ test("ONE base Place marker: compact teardrop, no emoji, treatments not differen
   // treatment follows the Place's OWN canonical curated flag (the curated
   // map shows curated AND ordinary Places side by side).
   assert.match(mapCode, /const isCurated = place\.isCurated === true/);
-  assert.match(mapCode, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN/);
-  assert.match(mapCode, /border-radius:9999px 9999px 9999px 0/);
+  assert.match(mapCode, /const pinColor = isCurated \? BRAND_CURATED : BRAND_BROWN/);
+  // ONE teardrop silhouette for both treatments lives in the stylesheet.
+  const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(globals, /\.singgah-pin-head \{[\s\S]*?border-radius: 9999px 9999px 9999px 0;/);
   // Exactly one Place-pin builder: no second model, no emoji glyphs.
   assert.equal((mapCode.match(/const placePin = /g) ?? []).length, 1);
   assert.doesNotMatch(mapCode, /📍/);
-  // Compact: 28×36 px pin, 28 px head — light on a dense mobile map.
-  assert.match(mapCode, /width:28px;height:36px/);
-  // "Tempat Pilihan" is a treatment of the base: secondary green fill + ✦
-  // accent on the SAME shape, never a different object.
-  assert.match(mapCode, /background:\$\{pinColor\}/);
-  assert.match(mapCode, /BRAND_SECONDARY/);
+  // Compact: 24×31 px pin with a 24px head — slightly slimmer than the 28×36
+  // it replaced, light on a dense mobile map.
+  assert.match(globals, /\.singgah-pin \{[\s\S]*?width: 24px;[\s\S]*?height: 31px;/);
+  assert.match(globals, /\.singgah-pin-head \{[\s\S]*?width: 24px;[\s\S]*?height: 24px;/);
+  // ...while the TAP area stays comfortable: a transparent 40×44 pad.
+  assert.match(globals, /\.singgah-pin-hit \{\s*position: absolute;\s*inset: -9px -8px -4px;\s*\}/);
+  assert.equal(24 + 8 + 8, 40, "hit pad is 40px wide");
+  assert.equal(31 + 9 + 4, 44, "hit pad is 44px tall");
+  // "Tempat Pilihan" is a treatment of the base: dark green + gold ✦ and a
+  // thin gold ring on the SAME shape, never a different object.
+  assert.match(mapCode, /--pin-color:\$\{pinColor\}/);
+  assert.match(mapCode, /BRAND_CURATED = "var\(--brand-primary\)"/);
+  assert.match(mapCode, /class="singgah-pin-star"/);
   assert.match(mapCode, /✦/);
+  assert.match(globals, /\.singgah-pin--curated \.singgah-pin-head \{[\s\S]*?box-shadow: 0 0 0 1px #cfae58;/);
   // Click/navigation flow unchanged: every pin routes to /places/[id].
   assert.match(mapCode, /router\.push\(`\/places\/\$\{place\.id\}`\)/);
 });
@@ -649,15 +659,24 @@ test("LIVE treatment: same teardrop language, unmistakably live-red, still compa
   const liveIdx = mapCode.indexOf("Live sekarang di");
   const placeIdx = mapCode.indexOf("const placePin = ");
   assert.ok(liveIdx >= 0 && placeIdx > liveIdx, "LIVE pin shares the Place pin language");
-  assert.match(mapCode, /border-radius:9999px 9999px 9999px 0/);
-  // ...in the live red with a white pulsing core and a small LIVE chip...
-  assert.match(mapCode, /background:\$\{BRAND_LIVE\}/);
+  // ...in the live red, on the SAME teardrop class, with a white core and a
+  // small pulsing red dot on the pin corner...
+  assert.match(mapCode, /class="singgah-pin singgah-pin--live"/);
+  assert.match(mapCode, /--pin-color:\$\{BRAND_LIVE\}/);
+  assert.match(mapCode, /class="singgah-pin-live-dot singgah-live-pulse"/);
   assert.match(mapCode, /singgah-live-pulse/);
-  // ...compact (30 px head + 9 px chip, total ≈38 px tall), not a 48 px badge.
-  assert.match(mapCode, /width:30px;height:38px/);
+  // ...and the LIVE chip — compact, not a 48 px badge.
+  assert.match(mapCode, /class="singgah-pin-badge"/);
   assert.doesNotMatch(mapCode, /height:48px;width:48px/);
-  // Global stylesheet carries the pulse animation + reduced-motion opt-out.
+  // The pulsing dot lives ONLY inside the live branch: it is rendered from a
+  // canonical live session id, never from a guess.
+  const liveBranch = mapCode.slice(mapCode.indexOf("if (live) {"), mapCode.indexOf("const isCurated = place.isCurated === true"));
+  assert.match(liveBranch, /singgah-pin-live-dot/);
+  assert.equal((mapCode.match(/singgah-pin-live-dot/g) ?? []).length, 1);
+  // Global stylesheet carries the dot, the pulse animation, and the
+  // reduced-motion opt-out.
   const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(globals, /\.singgah-pin-live-dot \{[\s\S]*?background: var\(--live\);/);
   assert.match(globals, /@keyframes singgah-live-pulse/);
   assert.match(globals, /prefers-reduced-motion/);
   // Accessibility: every marker keeps a correct aria-label; LIVE keeps its
@@ -746,11 +765,15 @@ test("Tempat Pilihan transition: instant 10 km preset camera + one-shot pin focu
   assert.match(globals, /@keyframes singgah-locate-pulse/);
   assert.match(globals, /\.singgah-locate-pulse \{\n  animation: singgah-locate-pulse 900ms ease-out 2;\n\}/);
   assert.doesNotMatch(globals, /singgah-locate-pulse[^\n]*infinite/);
-  assert.equal((globals.match(/@keyframes/g) ?? []).length, 3, "the LIVE pulse + the locate pulse + the locate AREA");
+  assert.equal(
+    (globals.match(/@keyframes/g) ?? []).length,
+    4,
+    "the LIVE pulse + the locate pulse + the locate AREA + the pin selection bounce",
+  );
   assert.equal(
     (globals.match(/prefers-reduced-motion/g) ?? []).length,
-    5,
-    "reduced-motion opt-out: LIVE pulse + locate pulse + locate area + sheet/attribution",
+    7,
+    "reduced-motion opt-out: LIVE pulse + locate pulse + locate area + sheet/attribution + pin bounce + curated tab",
   );
   // SURROUNDING AREA (2026-10-04): the Current Location pin carries a soft disc.
   assert.match(globals, /\.singgah-locate-area \{/);

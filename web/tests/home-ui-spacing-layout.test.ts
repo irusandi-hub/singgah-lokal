@@ -263,10 +263,9 @@ test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
   // (px-2) = 126px, so its right edge is x=142 — 6px clear of the centred
   // 64px drag handle, whose left edge is x=148.
   const VIEWPORT = 360;
-  // Measured chip width at the 11px label: grip 18 + toggle padding 20 +
-  // icon/label ~112 + border 2 ≈ 152. Use the upper bound so the check is
-  // conservative.
-  const TAB_WIDTH = 156;
+  // Measured chip width at the 11.5px label: grip 20 + toggle padding 24 +
+  // star/label ~115 ≈ 159. Use the upper bound so the check is conservative.
+  const TAB_WIDTH = 162;
   const TAB_HEIGHT = 44;
   const area = resolveCuratedTabArea({
     stageWidth: VIEWPORT,
@@ -282,7 +281,8 @@ test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
   // Bottom of the legal band clears the credit band (seam − 36 for the credit).
   assert.ok(area!.maxY + TAB_HEIGHT <= 800 - 336 - 48, "it stays above the OSM credit band");
   assert.match(curatedTabCode, /whitespace-nowrap/);
-  assert.match(curatedTabCode, /min-h-11/);
+  // 2026-10-22: the capsule fixes its height at 44px in every state.
+  assert.match(curatedTabCode, /\bh-11\b/);
   assert.match(curatedTabCode, /absolute z-\[1100\]/);
   assert.match(curatedTabCode, /touch-none/);
   assert.equal(code.includes("CURATED_TAB_HANG_PX"), false);

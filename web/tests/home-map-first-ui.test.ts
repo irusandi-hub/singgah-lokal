@@ -200,7 +200,9 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
   assert.equal(greenSelected.length, 1);
   assert.match(code, /const next = curatedOnly \? deactivateCuratedFilter\(\) : activateCuratedFilter\(\);/);
   const curatedTab = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");
-  assert.match(curatedTab, /border-brand-primary bg-brand-primary text-white/);
+  // 2026-10-22: the curated tab's selected surface is a dark brand-green
+  // gradient with white text (still brand green, never black).
+  assert.match(curatedTab, /is-active bg-\[linear-gradient\(135deg,#127a5a_0%,var\(--brand-primary\)_52%,var\(--brand-primary-deep\)_100%\)\] text-white/);
   assert.doesNotMatch(curatedTab, /bg-brand-ink text-white/);
   assert.doesNotMatch(code, /allPlacesOnly/);
   // The radius preset is selected only when NO place-set layer owns the map,

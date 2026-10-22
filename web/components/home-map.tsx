@@ -107,10 +107,11 @@ import {
  *   init and window resize so mobile remounts never leave stacked tiles.
  * - Marker system (PO, 2026-09-29; per-Place CURATED/NORMAL treatment,
  *   2026-09-30): ONE compact teardrop base pin for every Place with exactly
- *   TWO Place treatments — NORMAL (brown) and CURATED (secondary green + ✦
- *   accent, from the canonical `places.is_curated` flag of that Place) — plus
- *   the LIVE treatment (live red, pulsing core, small LIVE chip, top
- *   z-priority, navigates to /live/[sessionId]). The "Tempat Pilihan" map
+ *   TWO Place treatments — NORMAL (warm brown gradient, white core) and
+ *   CURATED (dark green, gold ✦, thin gold ring; from the canonical
+ *   `places.is_curated` flag of that Place) — plus the LIVE treatment (live
+ *   red, small pulsing red corner dot, LIVE chip, top z-priority, navigates
+ *   to /live/[sessionId]). The "Tempat Pilihan" map
  *   shows curated AND ordinary Places at once, so the treatment is per Place,
  *   never per mode. No emoji glyphs. Each pin carries its compact Place-name
  *   chip beneath the anchor; since 2026-10-21 the chips are decluttered by
@@ -309,11 +310,14 @@ const BRAND_LIVE = "var(--live)";
 // geolocation fix, the camera, and the Place-marker model are untouched, and
 // blue stays exclusive to the user pin (Place pins remain brown/green/red).
 const BRAND_PIN = "#2563eb";
-// Marker system colors (PO, 2026-09-29): ONE base Place pin (brand brown)
-// with per-mode treatments — "Tempat Pilihan" uses the secondary brand
-// green, LIVE uses the live red, and the Current Location disc is the BLUE
-// user marker (MOCKUP §6) so it never looks like a Place.
-const BRAND_SECONDARY = "var(--brand-secondary)";
+// Marker system colors (PO, 2026-09-29; deeper curated green 2026-10-22):
+// ONE base Place pin (brand brown) with two Place treatments — "Tempat
+// Pilihan" uses the DARK brand green (the sage secondary was too pale to read
+// as a deliberate selection on the calm basemap), LIVE uses the live red, and
+// the Current Location disc is the BLUE user marker (MOCKUP §6) so it never
+// looks like a Place. Colours only: the shape, size, anchor, click target,
+// aria-label, and marker ladder are identical in every treatment.
+const BRAND_CURATED = "var(--brand-primary)";
 /**
  * Name of the dedicated Current Location pane (see the map init effect). It
  * exists so the user disc always paints ABOVE every Place pin, whatever the
@@ -417,8 +421,8 @@ const LOCATE_AREA_RADIUS_M = 350;
 const PIN_LABEL_ON_DEMAND_ATTRIBUTE = "data-label-state";
 /** Chip max width from globals.css (`.singgah-pin-label`). */
 const PIN_LABEL_MAX_WIDTH_PX = 124;
-/** Approximate advance per character at 10.5px/600, plus the 6px side padding. */
-const PIN_LABEL_CHAR_WIDTH_PX = 6.1;
+/** Approximate advance per character at 11.5px/600, plus the 7px side padding. */
+const PIN_LABEL_CHAR_WIDTH_PX = 6.7;
 /** Distance from the pin anchor down to the chip's top edge (CSS: top 100% + 1px). */
 const PIN_LABEL_TOP_OFFSET_PX = 3;
 
@@ -723,7 +727,7 @@ export default function HomeMap({
 
   // LABEL DECLUTTER AT THE CURRENT ZOOM (2026-10-21). Pure projected geometry:
   // each chip's box is derived from `map.project(latlng, zoom)` and the SAME
-  // chip typography (max 124px, 10.5px/600) — no `getBoundingClientRect`, no
+  // chip typography (max 124px, 11.5px/600) — no `getBoundingClientRect`, no
   // `offsetWidth`, no reflow. A far-out frame therefore keeps few labels, a
   // close frame admits more, a label that would overlap a kept one is held
   // back, and the SELECTED Place is always labelled. Pins, coordinates, click
@@ -744,7 +748,7 @@ export default function HomeMap({
         const point = map.project([place.latitude, place.longitude], zoom);
         const width = Math.min(
           PIN_LABEL_MAX_WIDTH_PX,
-          Math.round(place.name.length * PIN_LABEL_CHAR_WIDTH_PX) + 14,
+          Math.round(place.name.length * PIN_LABEL_CHAR_WIDTH_PX) + 16,
         );
         boxes.push({
           id: place.id,
@@ -1437,19 +1441,23 @@ export default function HomeMap({
         const isHighlighted = highlightedPlaceId === place.id;
 
         // LIVE treatment on the SAME base pin shape: a clean live-red teardrop
-        // with a pulsing core and a small "LIVE" chip — instantly readable,
-        // still compact, top z-priority, navigating to /live/[sessionId].
+        // with a white core, a small pulsing red dot on its corner, and the
+        // "LIVE" chip — instantly readable, still compact, top z-priority,
+        // navigating to /live/[sessionId]. The dot exists ONLY inside this
+        // `if (live)` branch, i.e. it can never be painted from a guess: a
+        // live session id from the canonical map is the only source.
         if (live) {
           L.marker(position, {
             icon: L.divIcon({
               className: `singgah-map-marker${isHighlighted ? " is-highlighted" : ""}`,
               iconSize: [0, 0],
-              html: `<div role="img" aria-label="Live sekarang di ${escapeHtml(place.name)} — lihat proses produksi" style="transform:translate(-50%,-100%);filter:drop-shadow(0 3px 4px rgb(0 0 0 / 0.3));">
-                <div style="position:relative;width:30px;height:38px;">
-                  <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:9999px 9999px 9999px 0;border:2px solid #fff;background:${BRAND_LIVE};transform:rotate(-45deg);transform-origin:center;"></div>
-                  <span class="singgah-live-pulse" style="position:absolute;left:50%;top:8px;transform:translateX(-50%);width:8px;height:8px;border-radius:9999px;background:#fff;"></span>
-                  <span style="position:absolute;left:50%;top:-12px;transform:translateX(-50%);background:${BRAND_LIVE};color:#fff;font-size:9px;font-weight:900;letter-spacing:0.08em;line-height:1;padding:3px 6px;border-radius:9999px;">LIVE</span>
-                </div>
+              html: `<div role="img" aria-label="Live sekarang di ${escapeHtml(place.name)} — lihat proses produksi" class="singgah-pin singgah-pin--live" style="--pin-color:${BRAND_LIVE};">
+                <span class="singgah-pin-art">
+                  <span class="singgah-pin-head"><span class="singgah-pin-core" aria-hidden></span></span>
+                  <span class="singgah-pin-live-dot singgah-live-pulse" aria-hidden></span>
+                </span>
+                <span class="singgah-pin-hit" aria-hidden></span>
+                <span class="singgah-pin-badge" aria-hidden>LIVE</span>
               </div>`,
             }),
             zIndexOffset: isHighlighted ? 2600 : 1000,
@@ -1461,8 +1469,10 @@ export default function HomeMap({
 
         // THE base Place marker (PO, 2026-09-29; per-Place curated treatment,
         // 2026-09-30): one compact teardrop for every Place with exactly TWO
-        // treatments — NORMAL (brown) and CURATED (secondary green + ✦
-        // accent) — on the SAME shape. The treatment follows the Place's own
+        // treatments — NORMAL (warm brown gradient + white core) and CURATED
+        // (dark green + gold ✦ and a thin gold ring) — on the SAME shape, now
+        // with a transparent 40×44 tap pad and a soft earth shadow. The
+        // treatment follows the Place's own
         // canonical `is_curated` flag, NOT the mode: the curated map shows
         // curated and ordinary Places side by side, so a mode-level flag
         // could not tell them apart. Each pin carries its compact name chip
@@ -1471,7 +1481,8 @@ export default function HomeMap({
         // tooltip still carries the full name. A Place that is Live keeps its
         // normal pin right next to its LIVE pin.
         const isCurated = place.isCurated === true;
-        const pinColor = isCurated ? BRAND_SECONDARY : BRAND_BROWN;
+        const pinColor = isCurated ? BRAND_CURATED : BRAND_BROWN;
+        const pinTone = isCurated ? "curated" : "place";
         // DENSE-FRAME LABEL STATE (2026-10-05): `always` paints the compact
         // chip outright; `on-demand` keeps the same chip — same markup, same
         // truncation, same full text — and lets globals.css hold it back until
@@ -1481,15 +1492,17 @@ export default function HomeMap({
         // Flipped to `always` by the zoom-aware pass below when this Place
         // earns a painted label at the current camera.
         const labelState = "on-demand";
-        const accent = isCurated
-          ? `<span style="transform:rotate(45deg);color:#fff;font-size:13px;line-height:1;">✦</span>`
-          : "";
+        // PIN FACE (2026-10-22): ordinary = one small white core; Tempat
+        // Pilihan = the gold ✦ on the same silhouette. Presentation only.
+        const pinFace = isCurated
+          ? `<span class="singgah-pin-star" aria-hidden>✦</span>`
+          : `<span class="singgah-pin-core" aria-hidden></span>`;
         const placePin = `
-          <div role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="transform:translate(-50%,-100%);width:28px;height:36px;filter:drop-shadow(0 3px 4px rgb(0 0 0 / 0.34));">
-            <div style="position:absolute;left:50%;top:0;transform:translateX(-50%) rotate(-45deg);width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:9999px 9999px 9999px 0;border:2px solid #fff;background:${pinColor};">
-              ${accent}
-            </div>
-            <div style="position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:5px;height:5px;border-radius:9999px;background:${pinColor};box-shadow:0 0 0 2px rgb(255 255 255 / 0.9);"></div>
+          <div class="singgah-pin singgah-pin--${pinTone}" role="img" aria-label="Lihat ${escapeHtml(place.name)}" style="--pin-color:${pinColor};">
+            <span class="singgah-pin-art">
+              <span class="singgah-pin-head">${pinFace}</span>
+            </span>
+            <span class="singgah-pin-hit" aria-hidden></span>
             <span class="singgah-pin-label" ${PIN_LABEL_ON_DEMAND_ATTRIBUTE}="${labelState}" style="${PIN_LABEL_ANCHOR_STYLE}">${escapeHtml(place.name)}</span>
           </div>`;
         const marker = L.marker(position, {

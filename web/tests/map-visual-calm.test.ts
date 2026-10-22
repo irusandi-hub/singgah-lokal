@@ -113,11 +113,17 @@ test("5. Place pins use the deep accent brown and clear 4.5:1 on the map surface
   const oldRatio = contrast(accent!, cream!);
   assert.ok(oldRatio < 3, `the previous tan was the low-contrast case (got ${oldRatio.toFixed(2)}:1)`);
 
-  // One pin colour source, the same shape/size/anchor, and the curated green
-  // and LIVE red treatments are untouched.
+  // One pin colour source, the same shape/anchor, and the curated green and
+  // LIVE red treatments are untouched (2026-10-22: the curated treatment moved
+  // from the pale sage to the DARK brand green so the selection reads).
   assert.match(homeMap, /const BRAND_BROWN = "var\(--brand-pin\)";/);
-  assert.match(homeMap, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN;/);
-  assert.match(homeMap, /width:28px;height:36px/);
+  assert.match(homeMap, /const pinColor = isCurated \? BRAND_CURATED : BRAND_BROWN;/);
+  assert.match(homeMap, /BRAND_CURATED = "var\(--brand-primary\)"/);
+  const pinCss = /\.singgah-pin \{([\s\S]*?)\}/.exec(globals)?.[1];
+  assert.ok(pinCss);
+  assert.match(pinCss!, /width: 24px;/);
+  assert.match(pinCss!, /height: 31px;/);
+  assert.match(globals, /\.singgah-pin--curated \.singgah-pin-head \{[\s\S]*?box-shadow: 0 0 0 1px #cfae58;/);
   assert.match(homeMap, /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500/);
 });
 
@@ -125,7 +131,9 @@ test("6. the name chip stays a compact chip, not an information card", () => {
   const chip = /\.singgah-pin-label \{([\s\S]*?)\}/.exec(globals)?.[1];
   assert.ok(chip);
   assert.match(chip!, /max-width: 124px;/);
-  assert.match(chip!, /font-size: 10\.5px;/);
+  assert.match(chip!, /font-size: 11\.5px;/);
+  assert.match(chip!, /background: #fff;/);
+  assert.match(chip!, /box-shadow: 0 1px 2px rgb\(32 35 31 \/ 0\.16\);/);
   assert.match(chip!, /text-overflow: ellipsis;/);
   assert.match(chip!, /pointer-events: none;/);
 });

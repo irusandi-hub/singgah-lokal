@@ -198,12 +198,152 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   }
 }
 
-/* CARD ↔ PIN SELECTION (2026-10-18): the pin belonging to the pressed or
-   map-selected card gets one crisp brand-green halo and rises above its
-   neighbours. No size, coordinate, or marker model changes. */
+/* CARD ↔ PIN SELECTION (2026-10-18; art-scale pass 2026-10-22): the pin
+   belonging to the pressed or map-selected card gets one crisp brand-green
+   halo and rises above its neighbours. No size, coordinate, or marker model
+   changes — the PIN ART alone grows and lands with one short bounce. */
 .singgah-map-marker.is-highlighted {
   z-index: 1100 !important;
   filter: drop-shadow(0 0 6px rgb(14 107 79 / 0.85)) drop-shadow(0 0 2px rgb(255 255 255 / 0.9));
+}
+
+/* PLACE PIN ART (visual pass 2026-10-22). Presentation only: the divIcon
+   markup, the canonical coordinates, the click target, the aria-label, the
+   marker ladder, and the zoom-aware label rules are unchanged. The pin is
+   ONE slim teardrop in two Place treatments plus the LIVE treatment:
+     · ordinary — warm brown gradient, white core;
+     · Tempat Pilihan — the same silhouette in dark brand green with a gold
+       ✦ core and a thin gold ring;
+     · LIVE — the same silhouette in live red with the LIVE chip and a small
+       pulsing red dot on its corner (rendered only from a real live session).
+   The transparent `.singgah-pin-hit` widens the TAP area to 40×44 px without
+   growing the artwork, so a dense mobile map stays calm yet every pin is
+   still comfortably tappable. No layout reads, no per-frame work: everything
+   here is static paint plus one bounded animation on selection. */
+.singgah-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 24px;
+  height: 31px;
+  transform: translate(-50%, -100%);
+  filter: drop-shadow(0 2px 3px rgb(58 36 18 / 0.3));
+}
+
+.singgah-pin-art {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+}
+
+.singgah-pin-head {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid #fff;
+  border-radius: 9999px 9999px 9999px 0;
+  background: linear-gradient(
+    158deg,
+    var(--pin-top, #b47c48) 0%,
+    var(--pin-color) 56%,
+    var(--pin-bottom, #6b4325) 100%
+  );
+  transform: translateX(-50%) rotate(-45deg);
+}
+
+.singgah-pin--curated .singgah-pin-head {
+  --pin-top: #1c8365;
+  --pin-bottom: #084b38;
+  /* Thin gold ring around the same silhouette. */
+  box-shadow: 0 0 0 1px #cfae58;
+}
+
+.singgah-pin--live .singgah-pin-head {
+  --pin-top: #d04036;
+  --pin-bottom: #8c1c15;
+}
+
+.singgah-pin-core {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #fff;
+}
+
+.singgah-pin-star {
+  color: #f2d072;
+  font-size: 12px;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.3);
+  /* Counter-rotate inside the rotated teardrop. */
+  transform: rotate(45deg);
+}
+
+/* Transparent tap pad: 40×44 px around the 24×31 artwork. */
+.singgah-pin-hit {
+  position: absolute;
+  inset: -9px -8px -4px;
+}
+
+.singgah-pin-live-dot {
+  position: absolute;
+  top: -1px;
+  right: 0;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid #fff;
+  border-radius: 9999px;
+  background: var(--live);
+}
+
+.singgah-pin-badge {
+  position: absolute;
+  left: 50%;
+  top: -13px;
+  transform: translateX(-50%);
+  padding: 3px 6px;
+  border-radius: 9999px;
+  background: var(--live);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Selected pin: one bounce into a 1.15 scale, anchored at the map coordinate
+   (transform-origin 50% 100%), so the tip never moves off its Place. */
+@keyframes singgah-pin-bounce {
+  0% {
+    transform: scale(1);
+  }
+  55% {
+    transform: scale(1.19);
+  }
+  80% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1.15);
+  }
+}
+
+.singgah-map-marker.is-highlighted .singgah-pin-art {
+  transform: scale(1.15);
+  animation: singgah-pin-bounce 420ms cubic-bezier(0.22, 0.68, 0.3, 1) 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .singgah-map-marker.is-highlighted .singgah-pin-art {
+    animation: none;
+    transform: scale(1.15);
+  }
 }
 
 /* Home map marker system (PO, 2026-09-29; always-on name label 2026-10-04):
@@ -236,15 +376,15 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  padding: 2px 6px;
+  padding: 2px 7px;
   border-radius: 9999px;
-  background: rgb(255 255 255 / 0.94);
+  background: #fff;
   color: var(--brand-ink);
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
   letter-spacing: 0.01em;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.16);
+  box-shadow: 0 1px 2px rgb(32 35 31 / 0.16);
   pointer-events: none;
 }
 
@@ -281,15 +421,63 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   filter: brightness(1.08);
 }
 
+/* FLOATING "TEMPAT PILIHAN" TAB (visual pass 2026-10-22). One whole
+   capsule — no divider, no ≡ glyph — with the same 44px height, the same
+   drag/tap/keyboard gestures, and the same placement maths. Only the surface,
+   the grip dots, and a small drag lift are new. */
+.singgah-curated-tab {
+  /* Tailwind's scale-[1.04] writes the `scale` property, not `transform`, so
+     the lift is listed explicitly. */
+  transition-property: transform, scale, box-shadow;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Drag: a 1.04 lift with a deeper, softer shadow (never a colour change). */
+.singgah-curated-tab.is-dragging {
+  box-shadow: 0 2px 4px rgb(32 35 31 / 0.12), 0 12px 26px rgb(32 35 31 / 0.2),
+    0 22px 44px rgb(32 35 31 / 0.14);
+}
+
+.singgah-curated-tab.is-active.is-dragging {
+  box-shadow: 0 1px 1px rgb(10 86 64 / 0.2), 0 10px 22px rgb(10 86 64 / 0.34),
+    0 22px 44px rgb(10 86 64 / 0.22);
+}
+
+/* Gold ✦ — a deeper gold on the white pill (≈2.9:1), a brighter one on the
+   green gradient (≈4.6:1) so the ornament stays visible in both states. */
+.singgah-curated-tab-star {
+  color: #b8912f;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.singgah-curated-tab.is-active .singgah-curated-tab-star {
+  color: #f6d77f;
+}
+
+.singgah-curated-tab-grip {
+  color: currentColor;
+  opacity: 0.38;
+}
+
+.singgah-curated-tab.is-active .singgah-curated-tab-grip {
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .singgah-curated-tab {
+    transition: none;
+  }
+}
+
 @keyframes singgah-live-pulse {
   0%,
   100% {
-    transform: scale(1);
-    opacity: 0.55;
+    box-shadow: 0 0 0 0 rgb(179 38 30 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3);
   }
   50% {
-    transform: scale(1.35);
-    opacity: 0.15;
+    box-shadow: 0 0 0 4px rgb(179 38 30 / 0), 0 1px 3px rgb(0 0 0 / 0.3);
   }
 }
 

@@ -180,17 +180,25 @@ test("the curated tab is ONE floating, draggable control over the map", () => {
   assert.equal((tabCode.match(/data-curated-map-tab/g) ?? []).length, 1, "one instance");
   assert.match(tabCode, /aria-pressed=\{pressed\}/);
   // 44px touch height, own pointer gestures, no page/map gesture leak.
-  assert.match(tabCode, /min-h-11/);
+  assert.match(tabCode, /\bh-11\b/);
   assert.match(tabCode, /touch-none/);
   assert.match(tabCode, /setPointerCapture/);
   assert.match(tabCode, /onPointerMove=\{moveDrag\}/);
   assert.match(tabCode, /CURATED_TAB_DRAG_THRESHOLD_PX/);
-  // Inactive: opaque white + thin border + ink text. Active: dark brand green
-  // with pure white text. Both carry a strong shadow.
-  assert.match(tabCode, /border-brand-primary bg-brand-primary text-white/);
-  assert.match(tabCode, /border-black\/10 bg-white text-brand-ink/);
-  assert.match(tabCode, /shadow-\[0_8px_18px_rgb\(0_0_0\/0\.22\)\]/);
-  assert.match(tabCode, /<span aria-hidden>✦<\/span>/);
+  // PRESENTATION (2026-10-22): ONE capsule — no divider, no ≡ glyph — with
+  // opaque white + dark-green text when idle and a dark-green gradient +
+  // white text when active. Both carry a soft LAYERED shadow, and the drag
+  // lift is a 1.04 scale.
+  assert.match(tabCode, /rounded-full/);
+  assert.doesNotMatch(tabCode, /M1 2h6M1 7h6M1 12h6/, "the ≡ grip glyph is gone");
+  assert.doesNotMatch(tabCode, /border-r\b/, "no divider inside the capsule");
+  assert.match(tabCode, /is-active bg-\[linear-gradient\(135deg,#127a5a_0%,var\(--brand-primary\)_52%,var\(--brand-primary-deep\)_100%\)\] text-white/);
+  assert.match(tabCode, /bg-white text-brand-primary shadow-\[0_1px_2px_rgb\(32_35_31\/0\.06\),0_5px_12px_rgb\(32_35_31\/0\.10\),0_12px_24px_rgb\(32_35_31\/0\.06\)\]/);
+  assert.match(tabCode, /is-dragging scale-\[1\.04\]/);
+  assert.match(tabCode, /<span aria-hidden className="singgah-curated-tab-star">/);
+  // The grip is six faint dots inside the same surface, still the handle.
+  assert.match(tabCode, /data-curated-tab-handle/);
+  assert.equal((tabCode.match(/<circle /g) ?? []).length, 6);
   // Position is persisted per viewport and snapped/clamped; it is hidden at
   // `full` and the help panel can reset it.
   assert.match(tabCode, /CURATED_TAB_STORAGE_KEY/);

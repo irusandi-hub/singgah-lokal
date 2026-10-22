@@ -179,7 +179,13 @@ test("4.3 the selected label is guaranteed visible in CSS too", () => {
 
 test("5.1 a decluttered label is held back by CSS, never removed", () => {
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?max-width: 124px;/);
-  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?font-size: 10\.5px;/);
+  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?font-size: 11\.5px;/);
+  // The projected box must describe the chip it measures: 19px tall, and the
+  // width estimate follows the 11.5px/600 advance + the 7px side padding.
+  assert.equal(PIN_LABEL_HEIGHT_PX, 19);
+  assert.match(globals, /\.singgah-pin-label \{[\s\S]*?padding: 2px 7px;/);
+  assert.match(mapCode, /PIN_LABEL_CHAR_WIDTH_PX = 6\.7/);
+  assert.match(mapCode, /Math\.round\(place\.name\.length \* PIN_LABEL_CHAR_WIDTH_PX\) \+ 16/);
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?text-overflow: ellipsis;/);
   assert.match(globals, /\.singgah-pin-label \{[\s\S]*?pointer-events: none;/);
   assert.match(
@@ -248,7 +254,7 @@ test("6.2 no layout measurement is introduced anywhere in the map", () => {
 
 test("6.3 the marker ladder, artwork, coordinates, and LIVE chip are untouched", () => {
   assert.match(mapCode, /zIndexOffset: isHighlighted \? 2500 : isCurated \? 900 : live \? 0 : 500,/);
-  assert.match(mapCode, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN;/);
+  assert.match(mapCode, /const pinColor = isCurated \? BRAND_CURATED : BRAND_BROWN;/);
   assert.match(mapCode, /zIndexOffset: isHighlighted \? 2600 : 1000,\s*\n\s*keyboard: true,/);
   assert.doesNotMatch(mapCode, /markerCluster|removeLayer\(marker\)|L\.circleMarker\(position, \{ radius/);
   // Same coordinates → same projected geometry: the declutter reads canonical

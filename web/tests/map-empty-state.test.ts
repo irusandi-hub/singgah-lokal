@@ -168,7 +168,7 @@ test("The callback does not touch dataset, camera presets, or marker design", ()
   assert.doesNotMatch(mapDataset, /onViewportHasPlaces/);
   // Marker design untouched (same base pin, per-Place CURATED/NORMAL
   // treatments on that one shape).
-  assert.match(mapCode, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN/);
+  assert.match(mapCode, /const pinColor = isCurated \? BRAND_CURATED : BRAND_BROWN/);
 });
 
 // --- C. Final copy (verbatim) ---

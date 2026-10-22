@@ -940,7 +940,7 @@ export function pinLabelBudgetForZoom(zoom: number): number {
  * These boxes are computed from `map.project(latlng, zoom)` — pure projected
  * geometry, never `getBoundingClientRect`, never a layout read. The caller
  * supplies the width it estimates from the same typography the chip uses
- * (max 124px, 10.5px/600) so this function stays free of DOM and CSS.
+ * (max 124px, 11.5px/600) so this function stays free of DOM and CSS.
  */
 export type PinLabelBox = {
   id: string;
@@ -954,8 +954,8 @@ export type PinLabelBox = {
   tier: number;
 };
 
-/** Chip height including its 2px vertical padding + 10.5px line box. */
-export const PIN_LABEL_HEIGHT_PX = 18;
+/** Chip height including its 2px vertical padding + 11.5px line box. */
+export const PIN_LABEL_HEIGHT_PX = 19;
 /** Breathing room kept between two chips that may both stay painted. */
 export const PIN_LABEL_COLLISION_GAP_PX = 2;
 

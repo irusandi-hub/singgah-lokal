@@ -439,10 +439,12 @@ test("13.2 the order survives refresh, viewport changes and re-render", () => {
 });
 
 test("13.3 artwork, coordinates, interactions and the user marker are untouched", () => {
-  // Same teardrop, same colours, same size, same tooltip — only the stacking
-  // offset differs.
-  assert.match(mapCode, /const pinColor = isCurated \? BRAND_SECONDARY : BRAND_BROWN;/);
-  assert.match(mapCode, /width:28px;height:36px/);
+  // Same teardrop class, same anchors, same tooltip — only the stacking
+  // offset differs. The artwork itself is the shared `.singgah-pin` system.
+  assert.match(mapCode, /const pinColor = isCurated \? BRAND_CURATED : BRAND_BROWN;/);
+  assert.match(mapCode, /class="singgah-pin singgah-pin--\$\{pinTone\}"/);
+  const globals = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(globals, /\.singgah-pin \{[\s\S]*?width: 24px;[\s\S]*?height: 31px;/);
   assert.match(mapCode, /marker\.bindTooltip\(escapeHtml\(place\.name\)/);
   // Coordinates are still the canonical Place coordinates, fail-closed.
   assert.match(mapCode, /if \(!Number\.isFinite\(place\.latitude\) \|\| !Number\.isFinite\(place\.longitude\)\) continue;/);
