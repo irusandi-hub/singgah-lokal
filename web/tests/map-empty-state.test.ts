@@ -55,11 +55,15 @@ test("HomeMap exposes the viewport-status callback and never derives it from dat
 });
 
 test("Status is evaluated on moveend + zoomend only — never per-frame during a gesture", () => {
-  // moveend fires once per FINISHED move/pan/zoom (two-finger pan, pinch,
-  // zoom control, or programmatic preset flight); zoomend right after it for
-  // zooms. No move/movestart/zoom listener is registered.
-  assert.match(mapCode, /map\.on\("moveend", \(\) => \{[\s\S]*?evaluateViewportStatus\(\);/);
-  assert.match(mapCode, /map\.on\("zoomend", evaluateViewportStatus\);/);
+  // moveend fires once per FINISHED move/pan/zoom (two-finger pan, pinch, or
+  // programmatic preset flight); zoomend right after it for zooms. Both feed
+  // the ONE trailing settler (2026-10-23), which runs the status + bounds pass
+  // once per burst instead of twice. No move/movestart/zoom listener exists.
+  assert.match(mapCode, /const settleViewport = \(\) => \{[\s\S]*?evaluateViewportStatus\(\);[\s\S]*?reportViewportBounds\(\);/);
+  assert.match(mapCode, /map\.on\("moveend", \(\) => \{[\s\S]*?settleViewport\(\);/);
+  assert.match(mapCode, /map\.on\("zoomend", settleViewport\);/);
+  assert.match(mapCode, /setTimeout\(\(\) => \{\s*viewportSettleTimer = null;/, "the burst is coalesced on a timer");
+  assert.match(mapCode, /if \(viewportSettleTimer !== null\) clearTimeout\(viewportSettleTimer\)/, "the timer is cleared on unmount");
   assert.equal(/map\.on\("move"/.test(mapCode), false, "no continuous move listener");
   assert.equal(/map\.on\("zoom"/.test(mapCode), false, "no zoom-start listener");
   assert.equal(/map\.on\("movestart"/.test(mapCode), false);

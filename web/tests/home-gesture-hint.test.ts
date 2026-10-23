@@ -191,7 +191,9 @@ test("the header \"?\" keeps a 44px target and the old map column is gone", () =
   assert.match(nav, /onShowGestureHint\?: \(\) => void;/);
   assert.match(nav, /onShowGestureHint,\n\}: SiteNavProps\)/);
   assert.match(nav, /className="relative inline-flex h-10 w-10 shrink-0 touch-manipulation/);
-  assert.match(nav, /<span aria-hidden className="pointer-events-auto absolute -inset-0\.5" \/>/);
+  // 40px visual tile + a 4px out-of-flow ring on each side = the required
+  // 48px hit area (measured at 360 and 390).
+  assert.match(nav, /<span aria-hidden className="pointer-events-auto absolute -inset-1" \/>/);
   assert.match(nav, /<span aria-hidden className="text-\[15px\] font-bold leading-none">\?<\/span>/);
   // Exactly one "?" control and no resurrected map column.
   assert.equal((nav.match(/data-gesture-hint-recall/g) ?? []).length, 1);

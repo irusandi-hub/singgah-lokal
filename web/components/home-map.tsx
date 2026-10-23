@@ -832,6 +832,7 @@ export default function HomeMap({
   useEffect(() => {
     let cancelled = false;
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
+    let viewportSettleTimer: ReturnType<typeof setTimeout> | null = null;
 
     const invalidate = (map: LeafletMap) => {
       map.invalidateSize();
@@ -936,25 +937,35 @@ export default function HomeMap({
       // (TouchZoom), and pointer devices keep the scroll wheel. There is no
       // button zoom control left to offset in the right-hand column.
 
+      // VIEWPORT SETTLE (2026-10-23). moveend and zoomend both fire for one
+      // zoom (in that order), so the old wiring ran the whole viewport pass
+      // twice per gesture and re-rendered the Home rows twice. They are now
+      // coalesced into ONE trailing update 80 ms after the last event of the
+      // burst — still once per gesture, never per frame, and never during a
+      // drag. The public callbacks, the emptiness rule, and the reported
+      // bounds are unchanged; only the duplicate work between events is gone.
+      const settleViewport = () => {
+        if (viewportSettleTimer !== null) clearTimeout(viewportSettleTimer);
+        viewportSettleTimer = setTimeout(() => {
+          viewportSettleTimer = null;
+          // Viewport-aware empty state (PO, 2026-09-30): every FINISHED move —
+          // two-finger pan, pinch zoom, or a programmatic preset flight —
+          // re-evaluates whether a Place sits in the viewport.
+          evaluateViewportStatus();
+          // The visible area itself is the coverage source for the Home rows
+          // (product decision, 2026-10-01), so it is reported on exactly the
+          // same settled events — never per frame.
+          reportViewportBounds();
+          // A settled pan can move a labelled pin to the viewport edge; slide
+          // its anchor back inside without recomputing the density budget.
+          refreshPinLabelAnchors();
+        }, 80);
+      };
       map.on("moveend", () => {
         programmaticMoveRef.current = false;
-        // Viewport-aware empty state (PO, 2026-09-30): every FINISHED move —
-        // two-finger pan, pinch zoom, zoom control, or a programmatic preset
-        // flight — re-evaluates whether a Place sits in the viewport.
-        // Leaflet fires moveend once per gesture, never continuously during
-        // it, so updates stay cheap. zoomend arrives right after moveend for
-        // zooms (idempotent: it reports only on change).
-        evaluateViewportStatus();
-        // The visible area itself is the coverage source for the Home rows
-        // (product decision, 2026-10-01), so it is reported on exactly the
-        // same finished-move events — never per frame.
-        reportViewportBounds();
-        // A settled pan can move a labelled pin to the viewport edge; slide its
-        // anchor back inside without recomputing the density budget.
-        refreshPinLabelAnchors();
+        settleViewport();
       });
-      map.on("zoomend", evaluateViewportStatus);
-      map.on("zoomend", reportViewportBounds);
+      map.on("zoomend", settleViewport);
       // Label declutter is a ZOOM decision: pins spread out in pixels as the
       // camera gets closer, so the same deterministic pass admits more chips.
       map.on("zoomend", refreshPinLabelsAtCurrentZoom);
@@ -1046,6 +1057,7 @@ export default function HomeMap({
       cancelled = true;
       setReady(false);
       if (invalidateTimer !== null) clearTimeout(invalidateTimer);
+      if (viewportSettleTimer !== null) clearTimeout(viewportSettleTimer);
       if (locatePulseTimerRef.current !== null) clearTimeout(locatePulseTimerRef.current);
       locatePulseTimerRef.current = null;
       window.removeEventListener("resize", onWindowResize);

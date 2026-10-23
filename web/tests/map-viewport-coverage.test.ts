@@ -115,9 +115,12 @@ test("3. The viewport is reported on finished move/zoom only — never per frame
   assert.match(mapCode, /onViewportChangeRef\.current = onViewportChange \?\? null;/);
   // moveend + zoomend (once per gesture), readiness, and resize — and NO
   // continuous move/zoom listener anywhere.
+  // 2026-10-23: the pass is coalesced once per move/zoom burst (80 ms trailing)
+  // instead of running twice for a single zoom's moveend + zoomend.
   assert.match(mapCode, /evaluateViewportStatus\(\);\n\s*reportViewportBounds\(\);/);
-  assert.match(mapCode, /map\.on\("zoomend", evaluateViewportStatus\);/);
-  assert.match(mapCode, /map\.on\("zoomend", reportViewportBounds\);/);
+  assert.match(mapCode, /map\.on\("moveend", \(\) => \{[\s\S]*?settleViewport\(\);/);
+  assert.match(mapCode, /map\.on\("zoomend", settleViewport\);/);
+  assert.match(mapCode, /const settleViewport = \(\) => \{/);
   assert.equal(/map\.on\("move"/.test(mapCode), false, "no continuous move listener");
   assert.equal(/map\.on\("zoom"/.test(mapCode), false, "no continuous zoom listener");
   assert.equal(/map\.on\("movestart"/.test(mapCode), false);
