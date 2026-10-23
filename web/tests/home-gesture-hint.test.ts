@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs";
 
 const home = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
 const map = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
+const nav = readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
 
 const panelStart = home.indexOf("data-gesture-help");
@@ -70,13 +71,16 @@ test("nothing shows the help automatically, and no timer or seen flag survives",
   assert.equal(/useEffect\(\(\) => \{\s*(?:const|window\.setTimeout)[\s\S]{0,80}gestureHelpOpen/.test(home), false);
 });
 
-test("the panel opens from the \"?\" tile and toggles nothing else", () => {
+test("the panel opens from the header \"?\" control and toggles nothing else", () => {
   assert.match(home, /const handleShowGestureHint = useCallback\(\(\) => \{\s*setGestureHelpOpen\(true\);\s*\}, \[\]\);/);
-  assert.match(home, /onShowGestureHint=\{handleShowGestureHint\}/);
-  assert.match(map, /data-gesture-hint-recall/);
-  assert.match(map, /onClick=\{onShowGestureHint\}/);
-  assert.match(map, /aria-label="Tampilkan petunjuk gestur peta"/);
-  assert.match(map, /title="Petunjuk gestur peta"/);
+  assert.match(home, /<SiteNav floating onShowGestureHint=\{handleShowGestureHint\} \/>/);
+  // 2026-10-23: the trigger moved from the map column into the header row,
+  // immediately left of the bell / signed-out auth buttons.
+  assert.match(nav, /data-gesture-hint-recall/);
+  assert.match(nav, /onClick=\{onShowGestureHint\}/);
+  assert.match(nav, /aria-label="Tampilkan petunjuk gestur peta"/);
+  assert.match(nav, /title="Petunjuk gestur peta"/);
+  assert.doesNotMatch(map, /data-gesture-hint-recall|onShowGestureHint/);
 });
 
 // ---------------------------------------------------------------------------
@@ -181,15 +185,22 @@ test("the panel is anchored clear of the OSM attribution", () => {
 // 4. The recall tile keeps its 44px target in the two-control column.
 // ---------------------------------------------------------------------------
 
-test("the \"?\" tile is 44px and sits beside \"Lokasi Saya\" in one row", () => {
-  assert.match(map, /onShowGestureHint\?: \(\) => void;/);
-  assert.match(map, /onShowGestureHint,\n\}: HomeMapProps\)/);
-  assert.match(map, /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2">/);
-  assert.match(map, /<span aria-hidden className="pointer-events-auto absolute -inset-0\.5" \/>/);
-  assert.match(map, /<span aria-hidden className="text-\[15px\] font-bold leading-none">\?<\/span>/);
-  // Two tiles, no third, no wrap.
-  assert.equal((map.match(/h-10 w-10/g) ?? []).length, 2);
-  assert.equal((map.match(/flex-nowrap/g) ?? []).length, 1);
+test("the header \"?\" keeps a 44px target and the old map column is gone", () => {
+  // The control is optional on the reusable header, but Home always provides
+  // it. It renders before the bell (and before signed-out auth), at bell size.
+  assert.match(nav, /onShowGestureHint\?: \(\) => void;/);
+  assert.match(nav, /onShowGestureHint,\n\}: SiteNavProps\)/);
+  assert.match(nav, /className="relative inline-flex h-10 w-10 shrink-0 touch-manipulation/);
+  assert.match(nav, /<span aria-hidden className="pointer-events-auto absolute -inset-0\.5" \/>/);
+  assert.match(nav, /<span aria-hidden className="text-\[15px\] font-bold leading-none">\?<\/span>/);
+  // Exactly one "?" control and no resurrected map column.
+  assert.equal((nav.match(/data-gesture-hint-recall/g) ?? []).length, 1);
+  assert.doesNotMatch(map, /top-\[190px\]|absolute right-3/);
+  // "Lokasi Saya" is the last cell of the one filter row, 44×44.
+  assert.match(home, /data-home-locate/);
+  assert.match(home, /className="relative inline-flex h-11 w-11 touch-manipulation/);
+  assert.match(home, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
+  assert.match(home, /grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)_44px\]/);
 });
 
 test("the panel is information only: the close button is its ONLY control", () => {

@@ -149,7 +149,6 @@ type HomeMapProps = {
   liveByPlaceId: Map<string, HomeMapLive>;
   viewerPosition: HomeMapViewer | null;
   locateNonce: number;
-  onRequestLocate: () => void;
   /**
    * THE camera preset (PO, 2026-09-29; coverage unified 2026-09-30): when
    * set, the frame covers exactly this radius around the real Current
@@ -283,13 +282,6 @@ type HomeMapProps = {
    * this amount so the credit is never covered at the small/mid positions.
    */
   bottomInset?: number;
-  /**
-   * GESTURE HELP (2026-10-21). Renders the small "?" tile at the end of the
-   * two-control column; the caller owns the help panel. This is the ONLY way
-   * the panel appears — there is no automatic pill and no timer. Purely a
-   * control — no map behaviour, gesture, or camera rule is involved.
-   */
-  onShowGestureHint?: () => void;
 };
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -453,7 +445,6 @@ export default function HomeMap({
   liveByPlaceId,
   viewerPosition,
   locateNonce,
-  onRequestLocate,
   cameraRadiusMeters = null,
   cameraCenter = null,
   searchCenter = null,
@@ -467,7 +458,6 @@ export default function HomeMap({
   highlightedPlaceId = null,
   onSelectPlace,
   bottomInset = 0,
-  onShowGestureHint,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -725,6 +715,48 @@ export default function HomeMap({
     viewerPositionRef.current = viewerPosition;
   }, [viewerPosition]);
 
+  // EDGE-SAFE LABEL ANCHORS (2026-10-23). The chip is normally centred under
+  // its pin, but a pin near the viewport edge used to push half the chip into
+  // the clipped map border. This keeps the SAME chip, text, max width, and
+  // density budget; only its anchor slides inward so the full label stays on
+  // screen. Re-applied on every settled move/zoom and marker rebuild.
+  const applyPinLabelAnchors = useCallback(
+    (map: LeafletMap, sourcePlaces: readonly HomeMapPlace[]) => {
+      const size = map.getSize();
+      const edge = 6;
+      for (const place of sourcePlaces) {
+        if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
+        const element = markersByIdRef.current.get(place.id);
+        const label = element?.querySelector<HTMLElement>(".singgah-pin-label");
+        if (!label) continue;
+        const point = map.latLngToContainerPoint([place.latitude, place.longitude]);
+        const width = Math.min(
+          PIN_LABEL_MAX_WIDTH_PX,
+          Math.round(place.name.length * PIN_LABEL_CHAR_WIDTH_PX) + 16,
+        );
+        // The chip's containing block is the 24px-wide `.singgah-pin`, whose
+        // left edge sits 12px left of the pin anchor. `left: 50%` therefore is
+        // 12px; the centre transform is kept only when there is room.
+        const pinLeft = point.x - 12;
+        let left: number;
+        let transform: string;
+        if (pinLeft + width / 2 < edge) {
+          left = edge - pinLeft;
+          transform = "translate(0,1px)";
+        } else if (pinLeft + width / 2 > size.x - edge) {
+          left = size.x - edge - width - pinLeft;
+          transform = "translate(0,1px)";
+        } else {
+          left = 12;
+          transform = "translate(-50%,1px)";
+        }
+        label.style.left = `${left}px`;
+        label.style.transform = transform;
+      }
+    },
+    [],
+  );
+
   // LABEL DECLUTTER AT THE CURRENT ZOOM (2026-10-21). Pure projected geometry:
   // each chip's box is derived from `map.project(latlng, zoom)` and the SAME
   // chip typography (max 124px, 11.5px/600) — no `getBoundingClientRect`, no
@@ -773,8 +805,9 @@ export default function HomeMap({
           label.setAttribute(PIN_LABEL_ON_DEMAND_ATTRIBUTE, visible.has(id) ? "always" : "on-demand");
         }
       }
+      applyPinLabelAnchors(map, sourcePlaces);
     },
-    [],
+    [applyPinLabelAnchors],
   );
 
   // Called by the map's own zoomend, over the mirrors above.
@@ -783,6 +816,12 @@ export default function HomeMap({
     if (!map) return;
     applyPinLabelStates(map, placesRef.current, liveByPlaceIdRef.current, highlightedPlaceIdRef.current);
   }, [applyPinLabelStates]);
+
+  const refreshPinLabelAnchors = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    applyPinLabelAnchors(map, placesRef.current);
+  }, [applyPinLabelAnchors]);
 
   // Create the map once. Leaflet touches window, so it is imported
   // dynamically inside the effect (safe for SSR of this client component).
@@ -910,6 +949,9 @@ export default function HomeMap({
         // (product decision, 2026-10-01), so it is reported on exactly the
         // same finished-move events — never per frame.
         reportViewportBounds();
+        // A settled pan can move a labelled pin to the viewport edge; slide its
+        // anchor back inside without recomputing the density budget.
+        refreshPinLabelAnchors();
       });
       map.on("zoomend", evaluateViewportStatus);
       map.on("zoomend", reportViewportBounds);
@@ -1591,65 +1633,6 @@ export default function HomeMap({
         className="relative z-0 h-full w-full touch-none singgah-home-map"
         aria-label="Peta Tempat"
       />
-      {/* Map UI overlays ride ABOVE Leaflet's documented z-index ceiling
-          (max control z-index = 1000): 1100+ keeps the React layer strictly
-          on top in any drag/zoom state.
-
-          CONTROL COLUMN (2026-10-21): TWO 40×40 tiles in ONE row, 8px apart,
-          right-aligned, no wrapping — "Lokasi Saya" then the gesture-help "?".
-          The compass that used to sit above them was REMOVED by product
-          decision on 2026-10-21 (it was a passive, non-interactive ornament
-          that only restated the always-north-up orientation) together with its
-          SVG, its UI test, and its CSS commentary. Nothing else read it.
-
-          190px is where the floating header/search/filter chrome ends; the row
-          then runs 190..230, which is the column bottom lib/live/ui.ts
-          publishes and the number the sheet's mid snap is capped against.
-          Both tiles keep the shared white surface, 14px radius, hairline ring,
-          and soft shadow; functions are untouched (`onRequestLocate`, and the
-          "?" which opens the caller-owned help panel). */}
-      <div className="absolute right-3 top-[190px] z-[1100] flex flex-nowrap items-center gap-2">
-        {/* "LOKASI SAYA" — the one locate control, on the SAME handler. It is
-            an icon tile (crosshair + the existing blue user dot); `title` and
-            the aria-label keep the control named for sighted-hover and
-            screen-reader use alike. */}
-        <button
-          type="button"
-          onClick={onRequestLocate}
-          title="Lokasi Saya"
-          aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
-          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
-        >
-          <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
-            <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.6" />
-            <circle cx="12" cy="12" r="2.4" fill="#2563eb" />
-            <path
-              d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
-        {/* GESTURE HELP (2026-10-21): the "?" is the ONLY way the help panel
-            appears — there is no automatic pill, no timer, and no "already
-            seen" flag any more. The 40px tile keeps the column rhythm and
-            extends its touch target to 44px with an out-of-flow span, so the
-            documented minimum is met without growing the column. */}
-        {onShowGestureHint ? (
-          <button
-            type="button"
-            data-gesture-hint-recall
-            onClick={onShowGestureHint}
-            title="Petunjuk gestur peta"
-            aria-label="Tampilkan petunjuk gestur peta"
-            className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-white text-brand-ink/80 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5 transition hover:bg-brand-cream"
-          >
-            <span aria-hidden className="pointer-events-auto absolute -inset-0.5" />
-            <span aria-hidden className="text-[15px] font-bold leading-none">?</span>
-          </button>
-        ) : null}
-      </div>
     </div>
   );
 }

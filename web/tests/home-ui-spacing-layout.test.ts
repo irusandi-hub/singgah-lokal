@@ -80,7 +80,7 @@ test("T1.2 the banner renders ONLY while a search is running or failed", () => {
   // belongs to the "Tempat Pilihan" filter button elsewhere on the page.
   const banner = code.slice(
     code.indexOf("{(searchPending || searchError) && ("),
-    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))_44px]"),
   );
   // The two states that must keep working.
   assert.match(banner, /Mencari lokasi…/);
@@ -120,7 +120,7 @@ test("T1.4 nothing was put in the strip's place", () => {
   );
   const banner = code.slice(
     code.indexOf("{(searchPending || searchError) && ("),
-    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))_44px]"),
   );
   assert.equal((banner.match(/role="status"/g) ?? []).length, 1, "one status region inside the banner");
   assert.doesNotMatch(code, /Mencari area|Search area|canonical coordinate readout/);
@@ -247,19 +247,21 @@ test("T2.6 the sheet edge keeps empty state, hint, and attribution clear", () =>
   assert.doesNotMatch(code, /mapScale/);
   // The search bar keeps the one floating chrome column.
   assert.match(code, /relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4/);
-  // The control column is measured from the TOP of the stage: compass/locate at
-  // 190px, one 40px-tile column. The Leaflet +/- stack is gone (gesture-only
-  // zoom), so no Home-scoped Leaflet offset remains in globals.css.
+  // 2026-10-23: the old right-side control column is gone with no leftover
+  // space; the two controls now live in the one filter row ("Lokasi Saya") and
+  // the header row ("?"). The Leaflet +/- stack is still gone.
   assert.doesNotMatch(globalsCss, /singgah-home-map \.leaflet-top\.leaflet-right/);
-  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
+  assert.doesNotMatch(mapCode, /absolute right-3 top-\[190px\]/);
+  assert.match(code, /data-home-locate/);
+  assert.match(code, /<SiteNav floating onShowGestureHint=\{handleShowGestureHint\} \/>/);
   // The retired bottom-left coverage chip must not come back.
   assert.equal(code.includes("bottom-9 left-4 z-[1100]"), false);
 });
 
 test("T2.6b the moved curated tab fits the smallest supported viewport", () => {
   // 360px is the documented floor. The tab is one compact, non-wrapping chip
-  // (11px bold, px-2, 4px icon gap, 44px tap height) INSIDE the 48px handle
-  // band. Measured at that width: 16 + 96 (label) + 10 (✦) + 4 (gap) + 16
+  // (11px bold, px-2, 4px icon gap, 44px tap height), and the handle band is
+  // now exactly 44px too. Measured at that width: 16 + 96 (label) + 10 (✦) + 4 (gap) + 16
   // (px-2) = 126px, so its right edge is x=142 — 6px clear of the centred
   // 64px drag handle, whose left edge is x=148.
   const VIEWPORT = 360;
@@ -382,7 +384,8 @@ test("T3.4 the stage remains a non-degenerate Leaflet box", () => {
 
 test("T4.1 search, filters, and the marker ladder are unchanged", () => {
   assert.match(code, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(code, /pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
+  assert.match(code, /pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)_44px\] gap-1\.5/);
+  assert.match(code, /data-home-locate/);
   assert.match(code, /toggleLiveFilter\(liveOnly, curatedOnly\)/);
   assert.match(code, /setDistanceFilter\(filter\)/);
   assert.match(

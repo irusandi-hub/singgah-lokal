@@ -485,7 +485,7 @@ test("AC 3: denied geolocation performs NO fit at all", () => {
   assert.match(locateEffect, /locatePendingRef\.current = false;/);
   assert.equal(resolveLocalAreaCoverage({ origin: null, places: WORLD }).places.length, 0);
   assert.equal(resolveLocalAreaCoverage({ origin: { lat: Number.NaN, lng: 1 }, places: WORLD }).places.length, 0);
-  assert.match(pageCode, /\(\) => undefined,\s*\{\s*timeout: 8000\s*\}/);
+  assert.match(pageCode, /\(\) => setLocatePending\(false\),\s*\{\s*timeout: 8000\s*\}/);
 });
 
 test("AC 3: the frame is applied once and then left alone", () => {
@@ -582,7 +582,7 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   assert.equal(SHEET_MID_VISIBLE_RATIO, 0.42);
   // Compact handle band (2026-10-19): 44px drag target + 2px, so the seam no
   // longer reserves 64px of vertical space above the first card on a phone.
-  assert.equal(SHEET_HEADER_PX, 48);
+  assert.equal(SHEET_HEADER_PX, 44);
   const offsets = resolveSheetOffsets(640);
   assert.equal(640 - offsets.mid, Math.round(640 * SHEET_MID_VISIBLE_RATIO));
   assert.match(pageCode, /transform: `translateY\(\$\{sheetOffset\}px\)`/);
@@ -601,7 +601,9 @@ test("AC 8: the panel and the map window above it are more compact", () => {
   assert.doesNotMatch(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
   assert.match(pageCode, /id="place-results-heading"/);
   assert.equal((pageCode.match(/<CuratedMapTab/g) ?? []).length, 1);
-  assert.match(pageCode, />\s*Tempat Pilihan\s*\n\s*<\/p>/);
+  // 2026-10-23: the "Tempat Pilihan" caption repeated the floating tab, so it
+  // was removed; the row itself is unchanged. "Discovery Place" stays.
+  assert.doesNotMatch(pageCode, />\s*Tempat Pilihan\s*\n\s*<\/p>/);
   assert.match(pageCode, />\s*Discovery Place\s*\n\s*<\/p>/);
   // 2026-10-18: the carousel frames are gone — the rows are 2-column grids now.
   assert.equal((pageCode.match(/-mx-4 overflow-hidden border-y border-black\/10 bg-white\/70 py-1\.5"/g) ?? []).length, 0);
@@ -926,22 +928,21 @@ test("10.8 the map is never covered by its own overlays on a phone", () => {
   // it. This is the arithmetic the previous 240px minimum violated: the zoom
   // stack alone ends at 354px, so the "+/-" control was cut off.
   // 2026-10-18: the Leaflet +/- stack was REMOVED (gesture-only zoom).
-  // 2026-10-21: the compass was removed too, so the column is ONE row of two
-  // 40px React tiles at 190..230. No Home-scoped Leaflet control offset
-  // remains, and the 360px floor comfortably clears 230px.
-  const COLUMN_TOP = 190;
-  const COLUMN_BOTTOM = COLUMN_TOP + 40; // 230
+  // 2026-10-23: the whole map control column was removed. "Lokasi Saya" is
+  // now the last 44px cell of the one filter row, and "?" lives in the header
+  // row, so nothing is clipped at 190..230 any more.
   assert.doesNotMatch(globalsCss, /singgah-home-map \.leaflet-top\.leaflet-right/);
-  assert.match(mapCode, /absolute right-3 top-\[190px\]/);
-  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
-  // The locate tile is a real wired button on the shared 40px surface, named
-  // for sighted hover AND screen-reader use.
+  assert.doesNotMatch(mapCode, /absolute right-3 top-\[190px\]/);
+  assert.doesNotMatch(mapCode, /onRequestLocate/);
+  // The locate tile is a real wired button, named for sighted hover AND
+  // screen-reader use, on the shared filter-row 14px surface.
   assert.match(
-    mapCode,
-    /<button[^>]*type="button"[^>]*onClick=\{onRequestLocate\}[^>]*title="Lokasi Saya"[^>]*aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"[^>]*className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-\[14px\] bg-white text-brand-ink\/80[^"]*shadow-\[0_4px_14px_rgb\(0_0_0\/0\.10\)\] ring-1 ring-black\/5[^"]*"/,
+    pageCode,
+    /<button[^>]*type="button"[^>]*data-home-locate[^>]*onClick=\{handleLocatePress\}[^>]*title="Lokasi Saya"[^>]*aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/,
   );
   // The tile's face is the crosshair + user dot, not an emoji or a bare glyph.
-  assert.match(mapCode, /<button[^>]*onClick=\{onRequestLocate\}[^>]*>\s*<svg[^>]*aria-hidden[^>]*viewBox="0 0 24 24"[^>]*width="20"[^>]*height="20"[^>]*>/);
+  assert.match(pageCode, /<svg[^>]*aria-hidden[^>]*viewBox="0 0 24 24"[^>]*width="20"[^>]*height="20"[^>]*>[\s\S]{0,300}?<circle cx="12" cy="12" r="2\.4" fill="#2563eb" \/>/);
+  const COLUMN_BOTTOM = 230;
   // 2026-10-18: the map stage is the whole viewport (the sheet floats over
   // it), so the floor that the control column must clear is the stage minimum.
   assert.match(pageCode, /className="relative h-\[100dvh\] overflow-hidden bg-brand-cream text-brand-ink"/);

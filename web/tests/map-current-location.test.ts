@@ -5,6 +5,7 @@ import { CAMERA_PRESET_RADIUS_M, CURATED_CAMERA_RADIUS_M } from "../lib/live/ui"
 
 const homeMap = readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8");
 const homePage = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
+const siteNav = readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8");
 const locationPicker = readFileSync(
   new URL("../components/place-location-picker.tsx", import.meta.url),
   "utf8",
@@ -42,10 +43,13 @@ test("Home Map shows a user marker from the real fix and centers on it", () => {
   assert.match(mapCode, /focusUser\(map, anchor\)/);
 });
 
-test("Home Map provides a Lokasi Saya button that recenters on the real fix", () => {
+test("Home provides a Lokasi Saya control that recenters on the real fix", () => {
+  // 2026-10-23: the control moved from the map to the end of the filter row.
+  const pageCode = stripComments(homePage);
+  assert.match(pageCode, /Lokasi Saya/);
+  assert.match(pageCode, /onClick=\{handleLocatePress\}/);
+  assert.match(pageCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
   const mapCode = stripComments(homeMap);
-  assert.match(mapCode, /Lokasi Saya/);
-  assert.match(mapCode, /onRequestLocate/);
   assert.match(mapCode, /locatePendingRef\.current = true/);
   assert.match(mapCode, /focusUser\(map, anchor\)/);
 });
@@ -186,7 +190,9 @@ test("Lokasi Saya: immediate recenter on the existing fix + fresh geolocation re
   const pressEnd = pageCode.indexOf("const liveByPlaceId");
   assert.ok(pressStart > 0 && pressEnd > pressStart, "press handler exists");
   const press = pageCode.slice(pressStart, pressEnd);
-  assert.match(press, /setLocateNonce\(\(nonce\) => nonce \+ 1\);\s*requestViewerPosition\(\);/);
+  // 2026-10-23: the pending indicator is set between the nonce and the
+  // request; the nonce still bumps IMMEDIATELY.
+  assert.match(press, /setLocateNonce\(\(nonce\) => nonce \+ 1\);[\s\S]{0,240}?setLocatePending\(true\);[\s\S]{0,80}?requestViewerPosition\(\);/);
   // The fresh refinement commits the newest real coords, THEN bumps the
   // nonce again so the camera follows the newest fix — never a stale one.
   const handlerStart = pageCode.indexOf("const requestViewerPosition");
@@ -198,8 +204,9 @@ test("Lokasi Saya: immediate recenter on the existing fix + fresh geolocation re
   );
   // Exactly one viewer-position write (the fresh fix itself — no fallback).
   assert.equal((handler.match(/setViewerPosition\(/g) ?? []).length, 1);
-  // Denial/failure stays silent: no default location, no camera mutation.
-  assert.match(handler, /=> undefined,\s*\{\s*timeout: 8000\s*\}/);
+  // Denial/failure stays silent: no default location, no camera mutation; it
+  // only clears the new in-flight indicator (2026-10-23).
+  assert.match(handler, /=> setLocatePending\(false\),\s*\{\s*timeout: 8000\s*\}/);
 });
 
 test("Locate failure matrix: existing fix recentres, no fix never invents one", () => {
@@ -827,39 +834,27 @@ test("Current Location marker is visually distinct from every Place pin", () => 
   assert.match(mapCode, /radius: accuracy/);
 });
 
-test("MOCKUP §5 (revised 2026-10-21): right-side control row — Lokasi Saya + ?", () => {
+test("2026-10-23: Lokasi Saya is the filter-row icon, \"?\" is in the header", () => {
   const mapCode = stripComments(homeMap);
-  // The labeled "Lokasi Saya" control is the ONLY entry into the locate flow:
-  // the Re-center arrow became a compass on 2026-10-04, and the compass was
-  // removed on 2026-10-21. Geolocation is untouched — no second system, no new
-  // camera logic, no filter mutation — and there is exactly ONE locate button.
-  const locateButtons = mapCode.match(/onClick=\{onRequestLocate\}/g) ?? [];
-  assert.equal(locateButtons.length, 1, "the labeled Lokasi Saya control, one handler, one entry point");
-  assert.doesNotMatch(mapCode, /Pusatkan peta ke lokasi saya/);
-  // The control is an icon tile (crosshair + the existing blue user dot);
-  // `title` and the aria-label keep it named for pointer and
-  // assistive-technology users alike.
-  assert.match(mapCode, /title="Lokasi Saya"/);
-  assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
-  // NO compass survives: no north indicator, no needle, no role="img" north
-  // label. The removed ornament must not be replaced by another passive tile.
+  const pageCode = stripComments(homePage);
+  const navCode = stripComments(siteNav);
+  // The labeled "Lokasi Saya" control is the ONLY entry into the locate flow.
+  assert.equal((pageCode.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 1);
+  assert.doesNotMatch(mapCode, /onRequestLocate/);
+  // Same icon tile and the same accessible name/title as before.
+  assert.match(pageCode, /title="Lokasi Saya"/);
+  assert.match(pageCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
+  assert.match(pageCode, /<circle cx="12" cy="12" r="2\.4" fill="#2563eb" \/>/);
+  // No compass, no passive decorative tile, no old right-side column.
   assert.equal(mapCode.includes("Arah peta: utara ke atas"), false);
-  assert.equal(mapCode.includes('fill="#dc2626"'), false);
-  // No location arrow or any other decorative glyph takes its place.
+  assert.doesNotMatch(mapCode, /absolute right-3 top-\[190px\]/);
   assert.doesNotMatch(mapCode, /➤/);
-  // The blue user dot sits inside the locate tile's crosshair icon (decorative
-  // — the accessible name stays on the button).
-  assert.match(mapCode, /<circle cx="12" cy="12" r="2\.4" fill="#2563eb" \/>/);
-  // The TWO controls share ONE 40px row at right-3/top-[190px], no wrapping.
-  assert.match(
-    mapCode,
-    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2">/,
+  // The "?" moved to the header row, immediately before the bell/auth block.
+  assert.match(navCode, /data-gesture-hint-recall/);
+  assert.ok(
+    navCode.indexOf("data-gesture-hint-recall") < navCode.indexOf("<NotificationBell"),
+    "the help control renders left of the bell",
   );
-  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 2);
-  // The overlays stay ABOVE the Leaflet control ceiling (z-[1100]).
-  assert.match(mapCode, /z-\[1100\]/);
-  // 2026-10-18: the +/- stack was REMOVED; no Leaflet zoom control is
-  // configured or offset, and the row ends at 230px.
   assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
   assert.match(mapCode, /zoomControl: false/);
 });

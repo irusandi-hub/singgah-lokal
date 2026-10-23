@@ -45,8 +45,9 @@ test("E2E: LIVE cards compute distance only from real viewer position + canonica
   // so denial still renders no label rather than an invented one.
   assert.match(homeSource, /activeCenter && place\?\.latitude != null && place\?\.longitude != null/);
   assert.doesNotMatch(homeSource, /distanceMeters\(viewerPosition/);
-  // Geolocation is optional: denial/absence must never surface as an error.
-  assert.match(homeSource, /\(\) => undefined,/);
+  // Geolocation is optional: denial/absence must never surface as an error;
+  // it only clears the new in-flight indicator (2026-10-23).
+  assert.match(homeSource, /\(\) => setLocatePending\(false\),/);
 });
 
 test("E2E: distance tabs are CAMERA presets — markers and rows follow the REAL viewport", () => {
@@ -77,7 +78,8 @@ test("E2E: distance tabs are CAMERA presets — markers and rows follow the REAL
   // "Lokasi Saya" recentres immediately on the existing fix and refines via
   // a FRESH browser fix through the one shared handler (locate-refresh
   // regression fix, 2026-09-30).
-  assert.match(homeSource, /onRequestLocate=\{handleLocatePress\}/);
+  assert.match(homeSource, /onClick=\{handleLocatePress\}/);
+  assert.match(homeSource, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
   assert.doesNotMatch(homeSource, /mapPositionByPlaceId/);
   // LIVE cards follow the LIST gate (Set membership, O(n)).
   assert.match(homeSource, /const listedIds = new Set\(listedPlaces\.map\(\(place\) => place\.id\)\)/);

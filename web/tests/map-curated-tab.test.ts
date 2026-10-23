@@ -234,7 +234,12 @@ test("4.4 reset lives ONLY on the grip double tap; the help panel has no action"
   assert.match(tabSource, /DOUBLE_TAP_MS = 350/);
   assert.match(tabSource, /if \(now - lastHandleTapRef\.current <= DOUBLE_TAP_MS\)/);
   assert.match(tabSource, /resetPlacement\(\)/);
-  assert.match(tabSource, /localStorage\.removeItem\(CURATED_TAB_STORAGE_KEY\)/);
+  assert.match(tabSource, /sessionStorage\.removeItem\(CURATED_TAB_STORAGE_KEY\)/);
+  // 2026-10-23: placement is session-scoped; an old localStorage value is
+  // never read or written.
+  assert.doesNotMatch(tabSource, /localStorage\.(?:get|set|remove)Item/);
+  assert.match(tabSource, /sessionStorage\.getItem\(CURATED_TAB_STORAGE_KEY\)/);
+  assert.match(tabSource, /sessionStorage\.setItem\(CURATED_TAB_STORAGE_KEY, raw\)/);
   assert.match(tabSource, /export function resetCuratedTabPlacement\(\)/);
   assert.match(tabSource, /notifyPlacementListeners\(\)/);
   // 2026-10-22: the reset BUTTON was removed from the "?" panel. The panel is
@@ -296,10 +301,10 @@ test("5.2 the credit is 9–10px with a translucent, readable surface", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. Compass removed; two-tile control row
+// 6. Compass removed; the old map column is gone too
 // ---------------------------------------------------------------------------
 
-test("6.1 no compass component, style, or surviving dependency", () => {
+test("6.1 no compass and no old map control column survive", () => {
   const mapCode = mapSource
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
@@ -309,11 +314,15 @@ test("6.1 no compass component, style, or surviving dependency", () => {
   assert.equal(mapCode.includes("compass"), false);
   assert.equal(mapCode.includes('role="img"\n'), false);
   assert.equal(css.includes("compass ("), false);
-  // The column is one row of two 40px tiles at 190..230.
-  assert.match(mapSource, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
-  assert.equal((mapSource.match(/h-10 w-10/g) ?? []).length, 2);
-  assert.equal(MAP_CONTROL_COLUMN_BOTTOM_PX, 230);
-  // Nothing else depended on it: the locate handler and zoom config are intact.
-  assert.equal((mapSource.match(/onClick=\{onRequestLocate\}/g) ?? []).length, 1);
+  // 2026-10-23: both tiles left the map. No overlay column, no leftover space.
+  assert.doesNotMatch(mapSource, /absolute right-3 top-\[190px\]/);
+  assert.doesNotMatch(mapSource, /onClick=\{onRequestLocate\}/);
+  assert.doesNotMatch(mapSource, /data-gesture-hint-recall/);
+  assert.equal(MAP_CONTROL_COLUMN_BOTTOM_PX, 230, "legacy geometry constant is unchanged");
+  // The controls still exist on their new surfaces, with the same handlers.
+  const home = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
+  const nav = readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8");
+  assert.equal((home.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 1);
+  assert.equal((nav.match(/onClick=\{onShowGestureHint\}/g) ?? []).length, 1);
   assert.match(mapSource, /zoomControl: false/);
 });

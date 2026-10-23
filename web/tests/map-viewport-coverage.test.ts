@@ -310,13 +310,15 @@ test("10. Lokasi Saya frames the viewer's local Place distribution around the re
   assert.ok(floor >= 14, "the locate fallback focus must be a CLOSE zoom");
   // Failure handling: a denied/timeout fix writes no position and moves no
   // camera; the request simply stays pending.
-  assert.match(pageCode, /\(\) => undefined,\s*\{\s*timeout: 8000\s*\}/);
+  assert.match(pageCode, /\(\) => setLocatePending\(false\),\s*\{\s*timeout: 8000\s*\}/);
   assert.equal((pageCode.match(/setViewerPosition\(/g) ?? []).length, 1, "only the real fix writes a position");
   assert.match(pageCode, /lat: position\.coords\.latitude/);
   // A repeated press re-centres on the newest fix; an older async callback can
   // never overwrite a newer one (the nonce is committed before the request).
   const press = pageCode.slice(pageCode.indexOf("const handleLocatePress"), pageCode.indexOf("const liveByPlaceId"));
-  assert.match(press, /setLocateNonce\(\(nonce\) => nonce \+ 1\);\s*requestViewerPosition\(\);/);
+  // 2026-10-23: the nonce still commits first; the in-flight indicator is
+  // then set (or cleared when geolocation is unavailable) before the request.
+  assert.match(press, /setLocateNonce\(\(nonce\) => nonce \+ 1\);[\s\S]{0,240}?requestViewerPosition\(\);/);
 });
 
 // ---------------------------------------------------------------------------
@@ -356,7 +358,7 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // pinch. It is click-through now; only the real controls opt back in.
   assert.match(pageCode, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
   assert.match(pageCode, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5 rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5"/);
+  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)_44px\] gap-1\.5 rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5"/);
   // The map surface keeps touch-action: none on its own container, so a pinch
   // starting on the map zooms the MAP, never the page — and page scrolling
   // outside the map is untouched.
@@ -372,16 +374,18 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   assert.equal(pageCode.includes("gestureHintLiftPx"), false);
   assert.match(pageCode, /data-gesture-help/);
   assert.match(pageCode, /role="dialog"/);
-  // 2026-10-18: no button zoom control remains (gesture-only zoom). 2026-10-21:
-  // the ONE locate control and the "?" share a two-tile row; the passive
-  // compass is gone.
+  // 2026-10-18: no button zoom control remains (gesture-only zoom). 2026-10-23:
+  // the old map control column is removed; "Lokasi Saya" is the last filter
+  // cell and "?" is in the header row.
   assert.doesNotMatch(mapCode, /L\.control\.zoom\(/);
   assert.match(mapCode, /zoomControl: false/);
   assert.match(mapCode, /scrollWheelZoom: true/);
-  assert.equal((mapCode.match(/onClick=\{onRequestLocate\}/g) ?? []).length, 1);
-  assert.match(mapCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
+  assert.equal((mapCode.match(/onRequestLocate/g) ?? []).length, 0);
+  assert.doesNotMatch(mapCode, /top-\[190px\]/);
+  assert.equal((pageCode.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 1);
+  assert.match(pageCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
+  assert.match(pageCode, /<SiteNav floating onShowGestureHint=\{handleShowGestureHint\} \/>/);
   assert.equal(mapCode.includes("Arah peta: utara ke atas"), false);
-  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 2);
   // The locked one-finger / two-finger gesture decision is unchanged.
   assert.match(mapCode, /dragging: !touchPrimary/);
   assert.match(mapCode, /doubleClickZoom: !touchPrimary/);

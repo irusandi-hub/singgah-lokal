@@ -90,7 +90,7 @@ test("MOCKUP §4: the map is a full-bleed background field, not a standalone box
   // receiving its gestures (root-cause fix, 2026-10-01); the search bar and
   // the filter row opt back in explicitly.
   assert.match(code, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
-  assert.match(code, /<SiteNav floating \/>/);
+  assert.match(code, /<SiteNav floating onShowGestureHint=\{handleShowGestureHint\} \/>/);
 });
 
 test("the retired standalone map-frame geometry is gone", () => {
@@ -177,13 +177,15 @@ test("MOCKUP §3: filter stays a single row with LIVE and the ordered distance t
   // 2026-10-18: "Tempat Pilihan" MOVED to the results transition band, so the
   // top row now holds LIVE plus the three ordered radius presets on a
   // four-column split. Order within the row is unchanged.
-  assert.match(code, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
+  assert.match(code, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)_44px\] gap-1\.5/);
   const liveIndex = code.indexOf("toggleLiveFilter(liveOnly, curatedOnly)");
   const distanceIndex = code.indexOf("DISTANCE_FILTERS.map((filter) =>");
+  const locateIndex = code.indexOf("data-home-locate");
   assert.ok(liveIndex > -1, "LIVE control must exist");
   assert.ok(distanceIndex > liveIndex, "distance tabs must follow LIVE");
+  assert.ok(locateIndex > distanceIndex, "Lokasi Saya is the last control in the row");
   const row = code.slice(
-    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))_44px]"),
     code.indexOf("{/* Viewport-aware map empty state"),
   );
   assert.doesNotMatch(row, /activateCuratedFilter/, "the curated tab left this row");
@@ -219,13 +221,12 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
 
 test("filter controls use a compact 14px radius rather than full pills", () => {
   const filterRow = code.slice(
-    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
-    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]") + 2400,
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))_44px]"),
+    code.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))_44px]") + 3000,
   );
   const roundedControls = filterRow.match(/rounded-\[14px\]/g) ?? [];
-  // LIVE and the shared distance-tab class (the curated tab moved out on
-  // 2026-10-18 and keeps the same 14px radius in its new band).
-  assert.equal(roundedControls.length, 2);
+  // LIVE, the shared distance-tab class, and the locate cell (2026-10-23).
+  assert.equal(roundedControls.length, 3);
   // No pill styling may creep back onto the filter BUTTONS. The only
   // rounded-full left in the row is the tiny LIVE status dot, which is
   // existing LIVE semantics (a dot, not a pill) and stays untouched.
@@ -288,9 +289,9 @@ test("Home section order stays MAP STAGE -> RESULT -> INTRO", () => {
   // then the floating header, search, and filter, then the map window spacer.
   const order = [
     "<HomeMap\n",
-    "<SiteNav floating />",
+    "<SiteNav floating onShowGestureHint={handleShowGestureHint} />",
     'aria-label="Cari tempat, cerita, produksi"',
-    "grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]",
+    "grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))_44px]",
     'aria-labelledby="place-results-heading"',
     "Jangan hanya datang.",
   ].map((needle) => code.indexOf(needle));
@@ -439,13 +440,12 @@ test("MOCKUP §9: zoom is gesture-only — no Leaflet +/- stack is positioned on
   assert.doesNotMatch(map, /L\.control\.zoom\(/);
   assert.doesNotMatch(css, /leaflet-control-zoom-(in|out)/);
   assert.doesNotMatch(css, /singgah-home-map \.leaflet-top\.leaflet-right/);
-  // The two React controls are ONE row of two 40px tiles at 190px, 8px apart
-  // (the compass was removed on 2026-10-21).
-  assert.match(
-    map,
-    /<div className="absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2">/,
-  );
-  assert.equal((map.match(/h-10 w-10/g) ?? []).length, 2);
+  // 2026-10-23: the old right-side map column is removed entirely; the two
+  // controls live in the filter row and the header row respectively.
+  assert.doesNotMatch(map, /absolute right-3 top-\[190px\]/);
+  assert.doesNotMatch(map, /onRequestLocate|data-gesture-hint-recall/);
+  assert.match(code, /data-home-locate/);
+  assert.match(code, /<SiteNav floating onShowGestureHint=\{handleShowGestureHint\} \/>/);
   // Gestures that remain: wheel on pointer devices and touch pinch/pan.
   assert.match(map, /scrollWheelZoom: true/);
   assert.match(map, /dragging: !touchPrimary/);

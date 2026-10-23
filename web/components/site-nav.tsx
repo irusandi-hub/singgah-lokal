@@ -23,6 +23,13 @@ type SiteNavProps = {
    * existing solid header.
    */
   floating?: boolean;
+  /**
+   * Home-only gesture-help entry point. When provided, the "?" control sits in
+   * the header row immediately left of the notification bell (or left of the
+   * signed-out auth buttons); when omitted, no control is rendered. The panel
+   * itself, its copy, and its focus return are owned by the caller.
+   */
+  onShowGestureHint?: () => void;
 };
 
 type SessionPayload = {
@@ -39,6 +46,7 @@ const linkBase = "rounded-full px-3.5 py-1.5 text-xs font-bold transition";
 export default function SiteNav({
   authenticated: authenticatedProp,
   floating = false,
+  onShowGestureHint,
 }: SiteNavProps) {
   const pathname = usePathname();
   const [session, setSession] = useState<SessionPayload | null>(
@@ -110,12 +118,24 @@ export default function SiteNav({
               tagline are untouched. */}
           <Link
             href="/"
-            className={`flex min-h-[40px] items-center ${
+            className={`relative flex min-h-[40px] items-center ${
               floating ? "drop-shadow-[0_1px_3px_rgb(255_255_255/0.95)]" : ""
             }`}
             aria-label="SINGGAH LOKAL — beranda"
           >
-            <BrandLogo height={40} tagline="Temukan cerita di balik tempat" />
+            {/* SOFT WHITE WASH BEHIND THE LOGO (2026-10-23) — a thin gradient
+                layer, not a card: it gives the lockup a calm surface over busy
+                map tiles without changing the logo's size, ratio, colours, or
+                the header's layout. Only the floating Home header needs it. */}
+            {floating ? (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -inset-x-3 -inset-y-1 rounded-full bg-[linear-gradient(90deg,rgb(255_255_255/0.92)_0%,rgb(255_255_255/0.72)_58%,rgb(255_255_255/0)_100%)] blur-[0.5px]"
+              />
+            ) : null}
+            <span className="relative">
+              <BrandLogo height={40} tagline="Temukan cerita di balik tempat" />
+            </span>
           </Link>
         </div>
 
@@ -157,6 +177,25 @@ export default function SiteNav({
               </Link>
             )}
           </nav>
+
+          {/* GESTURE HELP (2026-10-23): moved out of the map's old control
+              column into the header row, immediately left of the bell (or of
+              the signed-out auth buttons). Same 40px visual size as the bell;
+              an out-of-flow span keeps the touch target at 44px. The handler,
+              the label, and the panel are unchanged. */}
+          {onShowGestureHint ? (
+            <button
+              type="button"
+              data-gesture-hint-recall
+              onClick={onShowGestureHint}
+              title="Petunjuk gestur peta"
+              aria-label="Tampilkan petunjuk gestur peta"
+              className="relative inline-flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full border border-black/10 bg-white text-brand-ink shadow-[0_1px_3px_rgb(0_0_0/0.06)] transition hover:bg-brand-cream active:scale-95"
+            >
+              <span aria-hidden className="pointer-events-auto absolute -inset-0.5" />
+              <span aria-hidden className="text-[15px] font-bold leading-none">?</span>
+            </button>
+          ) : null}
 
           {session === null ? null : authenticated ? (
             // Single ☰ entry point after sign in: email, Kelola Akun, and

@@ -142,16 +142,15 @@ test("6. the name chip stays a compact chip, not an information card", () => {
 // 4. Controls — same geometry and function, one brand focus treatment.
 // ---------------------------------------------------------------------------
 
-test("7. the two map controls keep one identical 40px tile", () => {
-  // 2026-10-21: the compass was removed, so the column is one row of TWO
-  // 40px tiles (Lokasi Saya + help "?").
-  assert.equal(
-    (homeMap.match(/inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-\[14px\]/g) ?? []).length,
-    2,
-    "Lokasi Saya and the help tile share one tile style",
-  );
+test("7. the moved controls keep their size and the old column is gone", () => {
+  // 2026-10-23: "Lokasi Saya" is the last 44px cell of the filter row and
+  // "?" is a 40px header tile; the old 40px map column no longer exists.
+  const home = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
+  const nav = readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8");
+  assert.match(home, /inline-flex h-11 w-11 touch-manipulation/);
+  assert.match(nav, /inline-flex h-10 w-10 shrink-0 touch-manipulation/);
   assert.equal(homeMap.includes("Arah peta: utara ke atas"), false, "the compass is gone");
-  assert.match(homeMap, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
+  assert.doesNotMatch(homeMap, /absolute right-3 top-\[190px\]/);
   // Focus feedback is unified, but the controls themselves are not rebuilt.
   assert.match(
     globals,

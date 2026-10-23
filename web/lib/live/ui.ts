@@ -1163,7 +1163,13 @@ export function snapCuratedTabPlacement(input: {
   return { side, ratio };
 }
 
-/** Storage key for the floating tab's placement (side + vertical ratio only). */
+/**
+ * sessionStorage key for the floating tab's placement (side + vertical ratio
+ * only). Session-scoped by product decision (2026-10-23): a dragged position
+ * lasts for the current browsing session and is deliberately not restored on
+ * a later visit. The same key name is retained for continuity, but it is read
+ * and written in sessionStorage only — an old localStorage value is ignored.
+ */
 export const CURATED_TAB_STORAGE_KEY = "singgah.curatedTab";
 
 
@@ -1509,10 +1515,10 @@ export function stopNestedCardAction(event: { preventDefault(): void; stopPropag
  */
 export type SheetPosition = "small" | "mid" | "full";
 
-// Compact handle band (2026-10-19): the header keeps the full 44px drag
-// target with 2px of breathing room above and below, so the seam band no
-// longer reserves 64px of vertical space on a phone before the first card.
-export const SHEET_HEADER_PX = 48;
+// Compact handle band (2026-10-19; tightened 2026-10-23): the seam band is
+// exactly the 44px drag target. The first card then starts 16px below it, so
+// the grip and the card feel like one surface without shrinking the target.
+export const SHEET_HEADER_PX = 44;
 export const SHEET_MID_VISIBLE_RATIO = 0.42;
 /** Top edge of the floating map control column (home-map.tsx). */
 export const MAP_CONTROL_COLUMN_TOP_PX = 190;

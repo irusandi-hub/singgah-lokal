@@ -85,14 +85,11 @@ select {
   overflow: hidden;
 }
 
-/* MAP CONTROL COLUMN (2026-10-21). The Home map's right-hand controls are
-   ONE `flex flex-nowrap items-center gap-2` row at right-3 / top-[190px] in
-   components/home-map.tsx: "Lokasi Saya" (40px) then the gesture-help "?"
-   (40px), 8px apart, right-aligned, never wrapping at 360 or 390px. The
-   compass that used to sit above them was removed by product decision on
-   2026-10-21 with its SVG, UI test, and styling notes — nothing else read it.
-   The generic .leaflet-bar surface above still styles the Producer location
-   picker's own zoom control. */
+/* MOVED MAP CONTROLS (2026-10-23). The old right-hand Home map column is
+   gone with no leftover space: "Lokasi Saya" is the last 44px cell of the one
+   filter row, and the gesture-help "?" is a 40px tile in the header row
+   (immediately left of the bell / signed-out auth). The generic .leaflet-bar
+   surface above still styles the Producer location picker's own zoom control. */
 
 /* MOCKUP §6: Current Location reads as the BLUE user marker with a soft
    glow, clearly above the brown/green Place pins. Visual only — the
@@ -125,11 +122,10 @@ select {
   background-color: var(--brand-cream);
 }
 
-/* CONTROL FOCUS (2026-10-21). The Home map controls already share one 40px
-   tile, 14px radius, white surface, hairline ring, and soft shadow (see
-   components/home-map.tsx). This only unifies their keyboard feedback with
-   the brand token instead of the browser's default ring. Functions and
-   geometry (two 40px tiles in one row, 230px bottom) are untouched. */
+/* CONTROL FOCUS (2026-10-21; moved 2026-10-23). The locate and help controls
+   keep their shared surface and now sit in the filter row / header row. This
+   only unifies their keyboard feedback with the brand token instead of the
+   browser's default ring. Functions, labels, and target sizes are untouched. */
 button[aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"]:focus-visible,
 button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   outline: 2px solid var(--brand-primary);

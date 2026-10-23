@@ -40,7 +40,10 @@ import {
  *    sheet. On release it SNAPS to the nearer edge.
  *  · PERSISTENCE stores only `{ side, ratio }`, never pixels, so a rotation, a
  *    sheet move, or a different phone re-clamps to a legal spot instead of
- *    restoring an off-screen one.
+ *    restoring an off-screen one. It is stored in sessionStorage: a dragged
+ *    position belongs to the current browsing session and is intentionally
+ *    NOT restored on a later visit. Any older localStorage value is ignored
+ *    outright (the key is no longer read from localStorage).
  *  · RESET: double-tap the grip. That is the ONLY reset control — the "?"
  *    panel is information only and carries no reset button.
  *  · PRESENTATION (2026-10-22): ONE whole capsule, no divider and no ≡ icon —
@@ -69,13 +72,16 @@ const DOUBLE_TAP_MS = 350;
 // ---------------------------------------------------------------------------
 // PERSISTED PLACEMENT — an external store, not effect-driven state.
 // ---------------------------------------------------------------------------
-// Reading localStorage in a mount effect and calling setState is both a lint
+// Reading sessionStorage in a mount effect and calling setState is both a lint
 // error (cascading render) and a hydration hazard. `useSyncExternalStore` is
 // the supported way to read browser-only state: the server snapshot is `null`
 // (the default corner), and the client picks the stored value up right after
 // hydration without a mismatch. Writes go through `writePlacement`, which
 // refreshes the cached snapshot and notifies every mounted tab — that is also
-// how the help panel's reset reaches the tab without a nonce or an effect.
+// how a double-tap reset reaches the tab without a nonce or an effect.
+//
+// SESSION-ONLY (2026-10-23): the position is persisted per browsing session.
+// A stale `localStorage` value from the previous behaviour is never read.
 let cachedPlacementRaw: string | null = null;
 const placementListeners = new Set<() => void>();
 
@@ -86,7 +92,7 @@ function notifyPlacementListeners() {
 function readPlacementSnapshot(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(CURATED_TAB_STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(CURATED_TAB_STORAGE_KEY);
     if (raw !== cachedPlacementRaw) cachedPlacementRaw = raw;
     return cachedPlacementRaw;
   } catch {
@@ -96,13 +102,8 @@ function readPlacementSnapshot(): string | null {
 
 function subscribeToPlacement(listener: () => void): () => void {
   placementListeners.add(listener);
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === null || event.key === CURATED_TAB_STORAGE_KEY) listener();
-  };
-  window.addEventListener("storage", onStorage);
   return () => {
     placementListeners.delete(listener);
-    window.removeEventListener("storage", onStorage);
   };
 }
 
@@ -125,7 +126,7 @@ function parsePlacement(raw: string | null): Placement {
 function writePlacement(next: Placement) {
   try {
     const raw = JSON.stringify(next);
-    window.localStorage.setItem(CURATED_TAB_STORAGE_KEY, raw);
+    window.sessionStorage.setItem(CURATED_TAB_STORAGE_KEY, raw);
     cachedPlacementRaw = raw;
   } catch {
     // Storage unavailable: the position simply does not survive a reload.
@@ -133,10 +134,14 @@ function writePlacement(next: Placement) {
   notifyPlacementListeners();
 }
 
-/** Reset the floating tab to its default corner. Safe to call from anywhere. */
+/**
+ * Reset the floating tab to its default bottom-left corner. Safe to call from
+ * anywhere. Symmetric with `writePlacement`: the session copy is the only one
+ * that exists, and the legacy localStorage key is left untouched/ignored.
+ */
 export function resetCuratedTabPlacement() {
   try {
-    window.localStorage.removeItem(CURATED_TAB_STORAGE_KEY);
+    window.sessionStorage.removeItem(CURATED_TAB_STORAGE_KEY);
     cachedPlacementRaw = null;
   } catch {
     // Storage unavailable: nothing to remove.

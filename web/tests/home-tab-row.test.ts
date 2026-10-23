@@ -126,29 +126,31 @@ test("no alternative entry point for the removed mode was invented", () => {
 // 2. The row that remains: five controls, same order, same handlers.
 // ---------------------------------------------------------------------------
 
-test("the tab row is ONE row: LIVE plus the three distance tabs", () => {
-  // MOVED (2026-10-18): "Tempat Pilihan" left this row for the results band,
-  // so the row is LIVE + the three radius tabs on a four-column split — and
-  // no control replaced the curated tab here.
+test("the filter row is ONE row: LIVE, the three distance tabs, then Lokasi Saya", () => {
+  // 2026-10-23: "Lokasi Saya" moved out of the removed map control column and
+  // into the LAST cell of the same one-row group as LIVE and the radii.
   assert.match(
     discoveryCode,
-    /<div className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5 rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5">/,
-    "the single four-control row is the current approved layout",
+    /<div className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)_44px\] gap-1\.5 rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5">/,
+    "the single five-control row is the current approved layout",
   );
   const live = discoveryCode.indexOf("aria-pressed={liveOnly}");
   const distances = discoveryCode.indexOf("DISTANCE_FILTERS.map");
+  const locate = discoveryCode.indexOf("data-home-locate");
   assert.ok(live > -1, "LIVE stays leftmost");
   assert.ok(distances > live, "the distance tabs follow LIVE");
+  assert.ok(locate > distances, "Lokasi Saya is the last control in the row");
   assert.ok(discoveryCode.includes(LIVE_FILTER_LABEL), "LIVE keeps its master label");
   assert.equal((discoveryCode.match(/DISTANCE_FILTERS\.map/g) ?? []).length, 1, "exactly one distance-tab loop");
   assert.deepEqual(DISTANCE_FILTERS, ["1 km", "5 km", "10 km+"]);
-  // The curated tab is NOT in this row and no longer lives in the sheet
-  // header either (2026-10-21): it is the ONE floating CuratedMapTab rendered
-  // over the map. The row itself carries no curated handler.
-  const row = discoveryCode.slice(discoveryCode.indexOf('grid-cols-[auto_repeat(3,minmax(0,1fr))]'));
+  // The curated tab is NOT in this row: it is the ONE floating CuratedMapTab
+  // rendered over the map. The row itself carries no curated handler.
+  const row = discoveryCode.slice(discoveryCode.indexOf('grid-cols-[auto_repeat(3,minmax(0,1fr))_44px]'));
   const rowEnd = row.indexOf("</div>");
-  assert.equal((row.slice(0, rowEnd).match(/<button/g) ?? []).length, 1 + 1);
+  assert.equal((row.slice(0, rowEnd).match(/<button/g) ?? []).length, 1 + 1 + 1);
   assert.equal((row.slice(0, rowEnd).match(/DISTANCE_FILTERS\.map/g) ?? []).length, 1);
+  assert.match(row.slice(0, rowEnd), /onClick=\{handleLocatePress\}/);
+  assert.match(row.slice(0, rowEnd), /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
   assert.doesNotMatch(row.slice(0, rowEnd), /activateCuratedFilter/);
   assert.equal((discoveryCode.match(/<CuratedMapTab/g) ?? []).length, 1);
 });

@@ -323,6 +323,11 @@ export default function HomeDiscovery({
   // Explicit "Lokasi Saya" requests bump this nonce so the map re-centers on
   // the latest fix on demand.
   const [locateNonce, setLocateNonce] = useState(0);
+  // "LOKASI SAYA" IN-FLIGHT feedback (2026-10-23): the press starts a fresh
+  // geolocation request, which can take a moment on a phone. While it runs the
+  // filter-row icon shows a small spinner; the control, its aria-label, and
+  // the request path are unchanged.
+  const [locatePending, setLocatePending] = useState(false);
   // AUTO-FIT REFOCUS TRIGGER (product decision, 2026-10-03): bumped ONLY by
   // the explicit "Tempat Pilihan" tab choice, so the map can re-frame the
   // camera to the Place spread on exactly that action — and on nothing else.
@@ -752,10 +757,11 @@ export default function HomeDiscovery({
         // the locate effect (locateNonce) then flies to the ACTIVE preset
         // radius around this newest fix. Never flies to a stale one.
         setLocateNonce((nonce) => nonce + 1);
+        setLocatePending(false);
       },
       // Denial/failure is silent: the camera stays exactly where it is —
       // no fallback coordinate, no default location, no dataset change.
-      () => undefined,
+      () => setLocatePending(false),
       { timeout: 8000 },
     );
   }, []);
@@ -1024,6 +1030,14 @@ export default function HomeDiscovery({
     // not let a later radius preset take the camera back.
     setCameraRequestNonce((nonce) => nonce + 1);
     setLocateNonce((nonce) => nonce + 1);
+    // A browser without geolocation never fires a callback, so the spinner is
+    // cleared immediately in that case; otherwise the request's own callbacks
+    // clear it on success or honest failure.
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setLocatePending(false);
+    } else {
+      setLocatePending(true);
+    }
     requestViewerPosition();
   }, [requestViewerPosition, resetViewportLatch]);
 
@@ -1622,10 +1636,6 @@ export default function HomeDiscovery({
             liveByPlaceId={liveByPlaceId}
             viewerPosition={viewerPosition}
             locateNonce={locateNonce}
-            onRequestLocate={handleLocatePress}
-            /* GESTURE HINT RECALL (2026-10-20): the "?" tile in the control
-               column re-opens the one hint component. */
-            onShowGestureHint={handleShowGestureHint}
             /* The REAL visible viewport is reported back here: it is the ONE
                geographic coverage source for the markers and for the Discovery
                Place / "Tempat Pilihan" rows. It carries geometry only — it
@@ -1724,8 +1734,10 @@ export default function HomeDiscovery({
 
         {/* Header + auth entry (Masuk / Sign out) + URL-derived active tabs —
             FLOATING over the map (MOCKUP §1/§5). Presentation only: the
-            header keeps its logo, nav, and auth behavior verbatim. */}
-        <SiteNav floating />
+            header keeps its logo, nav, and auth behavior verbatim. The "?"
+            gesture-help control now lives in this header row (2026-10-23),
+            immediately left of the bell; the old map control column is gone. */}
+        <SiteNav floating onShowGestureHint={handleShowGestureHint} />
 
         {/* Search + Filter — floating chrome above the map surface. They stay
             in the normal flow (no fragile absolute offsets), so the stage
@@ -1897,8 +1909,9 @@ export default function HomeDiscovery({
               and LIVE keeps its red dot. Selection logic, handlers, and
               semantics are completely unchanged — only the colors moved.
 
-              The four-column split replaces the old five-column one byte for
-              byte in spirit: `auto` for LIVE, then three equal radius cells. */}
+              2026-10-23: "Lokasi Saya" joins the row as its LAST 44px cell.
+              The split is `auto` for LIVE, three equal radius cells, then the
+              icon cell; every control is 44px tall and nothing wraps at 360. */}
           {/* FILTER ROW SURFACE (bug fix, 2026-10-20): the four chips float on
               the map, so the 6px gaps between them used to show whatever sat
               behind — a Place name chip ("…al") could be read through the row.
@@ -1908,7 +1921,7 @@ export default function HomeDiscovery({
               height are unchanged, so the control column's 190px start still
               matches the chrome. Handlers, order, colours, and semantics are
               untouched. */}
-          <div className="pointer-events-auto mt-2.5 grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))] gap-1.5 rounded-[16px] bg-brand-cream ring-1 ring-black/5">
+          <div className="pointer-events-auto mt-2.5 grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))_44px] gap-1.5 rounded-[16px] bg-brand-cream ring-1 ring-black/5">
             <button
               onClick={() => {
                 // Mutually exclusive modes (lib/live/ui.ts): turning LIVE on
@@ -1924,7 +1937,7 @@ export default function HomeDiscovery({
                 setLiveFeedStatus("loading");
               }}
               aria-pressed={liveOnly}
-              className={`inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-[14px] px-2 py-1.5 text-[11px] font-bold tracking-wide shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:px-3 sm:text-xs ${
+              className={`inline-flex h-11 touch-manipulation items-center justify-center gap-1 whitespace-nowrap rounded-[14px] px-2 text-[11px] font-bold tracking-wide shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 active:scale-95 sm:px-3 sm:text-xs ${
                 liveOnly
                   ? "bg-live text-white"
                   : "border border-live/25 bg-white text-live"
@@ -1946,7 +1959,7 @@ export default function HomeDiscovery({
                   setCameraRequestNonce((nonce) => nonce + 1);
                 }}
                 aria-pressed={distanceFilter === filter && !curatedOnly}
-                className={`whitespace-nowrap rounded-[14px] px-1 py-1.5 text-center text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition sm:px-3 sm:text-xs ${
+                className={`inline-flex h-11 touch-manipulation items-center justify-center whitespace-nowrap rounded-[14px] px-1 text-center text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 active:scale-95 sm:px-3 sm:text-xs ${
                   distanceFilter === filter && !curatedOnly
                     ? "bg-brand-primary text-white"
                     : "border border-black/5 bg-white text-brand-ink/70"
@@ -1955,6 +1968,40 @@ export default function HomeDiscovery({
                 {filter}
               </button>
             ))}
+            {/* "LOKASI SAYA" (2026-10-23): the same handler and the same
+                aria-label as the removed map tile, now the LAST control in the
+                ONE filter row — a 44px icon cell beside LIVE and the radii.
+                It keeps the row's height/surface and never wraps. While the
+                fresh geolocation request runs it shows a small spinner; the
+                press itself is not blocked or re-routed. */}
+            <button
+              type="button"
+              data-home-locate
+              onClick={handleLocatePress}
+              title="Lokasi Saya"
+              aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"
+              aria-busy={locatePending}
+              className="relative inline-flex h-11 w-11 touch-manipulation items-center justify-center justify-self-end rounded-[14px] border border-black/5 bg-white text-brand-ink/80 shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 hover:bg-brand-cream active:scale-95"
+            >
+              <span aria-hidden className="pointer-events-auto absolute -inset-0.5" />
+              {locatePending ? (
+                <span
+                  aria-hidden
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-brand-primary/25 border-t-brand-primary motion-reduce:animate-none"
+                />
+              ) : (
+                <svg aria-hidden viewBox="0 0 24 24" width="20" height="20" fill="none">
+                  <circle cx="12" cy="12" r="6.5" stroke="currentColor" strokeWidth="1.6" />
+                  <circle cx="12" cy="12" r="2.4" fill="#2563eb" />
+                  <path
+                    d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              )}
+            </button>
           </div>
 
           {/* MAP SURFACE (2026-10-18): the map now fills the whole stage, and
@@ -2153,12 +2200,12 @@ export default function HomeDiscovery({
         style={{ transform: `translateY(${sheetOffset}px)` }}
         aria-labelledby="place-results-heading"
       >
-        {/* COMPACT HANDLE BAND (2026-10-19): the seam band is 48px instead of
-            64px — the 44px drag target plus 2px of breathing room — so the map
-            and the first Tempat Pilihan card lose only the space that was
-            genuinely spare. The handle, its keyboard controls, the snap math
-            (`SHEET_HEADER_PX`), and the one drag target are unchanged. */}
-        <div className="relative flex h-12 shrink-0 items-center justify-center">
+        {/* COMPACT HANDLE BAND (2026-10-19; tightened 2026-10-23): 44px —
+            exactly the drag target, so the first card can start 16px below the
+            grip instead of losing a whole extra band. The handle, its keyboard
+            controls, the snap math (`SHEET_HEADER_PX`), and the one drag
+            target are unchanged. */}
+        <div className="relative flex h-11 shrink-0 items-center justify-center">
           {/* The sheet's accessible name. It stays in the DOM so
               `aria-labelledby` always resolves, but it is not a visible
               title. */}
@@ -2204,7 +2251,7 @@ export default function HomeDiscovery({
           className={`mx-auto flex w-full max-w-2xl min-h-0 flex-1 flex-col px-4 ${
             sheetPosition === "full"
               ? "overflow-y-auto overscroll-contain pb-24 pt-4"
-              : "overflow-hidden pb-8"
+              : "overflow-hidden pb-8 pt-4"
           }`}
         >
         {/* "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
@@ -2312,9 +2359,9 @@ export default function HomeDiscovery({
               presentation only. */}
           {curatedOnly && curatedListed.length > 0 && (
             <>
-              <p className="mb-1.5 px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-brand-ink/55">
-                Tempat Pilihan
-              </p>
+              {/* The "Tempat Pilihan" caption is intentionally GONE (2026-10-23):
+                  it repeated the floating tab and pushed the first card down.
+                  The row id, order, cards, and data are unchanged. */}
               <div
                 id={CURATED_RESULTS_ANCHOR_ID}
                 className="-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"

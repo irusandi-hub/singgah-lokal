@@ -79,7 +79,7 @@ test("the sheet drag never becomes a page or list scroll", () => {
   assert.match(code, /className="inline-flex h-11 w-16 touch-none cursor-grab/);
   // The header handle owns the drag; the list is the only scroll surface, and
   // only when the sheet is full.
-  assert.match(code, /sheetPosition === "full"\s*\? "overflow-y-auto overscroll-contain pb-24 pt-4"\s*: "overflow-hidden pb-8"/);
+  assert.match(code, /sheetPosition === "full"\s*\? "overflow-y-auto overscroll-contain pb-24 pt-4"\s*: "overflow-hidden pb-8 pt-4"/);
   // The map keeps its locked gesture split: one finger is not a pan on touch.
   assert.match(mapCode, /dragging: !touchPrimary/);
   assert.match(mapCode, /className="relative z-0 h-full w-full touch-none singgah-home-map"/);
@@ -98,7 +98,7 @@ test("the handle stays focusable, named, and keyboard-operable", () => {
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.singgah-sheet \{\s*transition: none;/);
 });
 
-test("OSM attribution and map controls stay above the visible sheet edge", () => {
+test("OSM attribution stays above the visible sheet edge and the old columns are gone", () => {
   assert.match(code, /bottomInset=\{sheetVisiblePx\}/);
   assert.match(css, /\.singgah-home-map \.leaflet-bottom \{\s*bottom: var\(--singgah-sheet-inset, 0px\);/);
   assert.match(
@@ -106,11 +106,13 @@ test("OSM attribution and map controls stay above the visible sheet edge", () =>
     /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;/,
   );
   assert.match(mapCode, /--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset\)\}px`/);
-  // 2026-10-21: the compass was removed and the "?" now sits BESIDE "Lokasi
-  // Saya" in ONE 40px row ending at 230px; the mid geometry test above proves
-  // the sheet top stays below it on the supported stages.
-  assert.match(mapCode, /absolute right-3 top-\[190px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
-  assert.equal((mapCode.match(/h-10 w-10/g) ?? []).length, 2);
+  // 2026-10-23: the map control column was REMOVED with no leftover space.
+  // "Lokasi Saya" is the last cell of the one filter row; "?" lives in the
+  // header row. Neither may float at right-3/top-190 any more.
+  assert.doesNotMatch(mapCode, /absolute right-3 top-\[190px\]/);
+  assert.doesNotMatch(mapCode, /data-gesture-hint-recall/);
+  assert.match(code, /data-home-locate/);
+  assert.match(code, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
 });
 
 test("the curated tab is one floating instance and keeps LIVE exclusive", () => {

@@ -20,7 +20,7 @@ import {
  * the SAME function the component uses, not a copy of the formula.
  *
  * Supported phone geometry: 360×640 and 390×844 portrait, 360×360/390×390
- * landscape. `small` keeps the 48px header, `mid` keeps the map dominant while
+ * landscape. `small` keeps the 44px header, `mid` keeps the map dominant while
  * staying below the floating map controls, and `full` is always 0.
  */
 
@@ -74,12 +74,12 @@ test("a 360px landscape stage still shows the handle and the panel tab", () => {
   const offsets = resolveSheetOffsets(360);
   // Mid keeps the map's default ratio unless the control column would be
   // covered: 360 · 0.42 = 151 is capped to 360 − (230 + 12) = 118, which is
-  // still well above the 48px header.
+  // still well above the 44px header.
   assert.equal(360 - offsets.mid, 118);
   assert.ok(360 - offsets.mid >= SHEET_HEADER_PX);
   // The floating tab is no longer in the header, so this band only has to fit
   // the 44px drag handle.
-  assert.ok(SHEET_HEADER_PX - 44 >= 0, "the 44px handle fits the 48px header band");
+  assert.equal(SHEET_HEADER_PX, 44, "the header band is exactly the 44px handle");
 });
 
 test("absurdly short stages degrade safely instead of producing negative offsets", () => {
@@ -88,7 +88,7 @@ test("absurdly short stages degrade safely instead of producing negative offsets
     assert.ok(offsets.full === 0 && offsets.mid >= 0 && offsets.small >= 0);
     assert.ok(offsets.mid <= offsets.small, `${height}: mid cannot invert`);
   }
-  // 320px still has room for a mid position that shows the 48px header plus
+  // 320px still has room for a mid position that shows the 44px header plus
   // 30px of map above the controls; below that it collapses onto small (the
   // header), the only honest way to keep the handle reachable.
   const short = resolveSheetOffsets(320);
@@ -142,7 +142,7 @@ test("the measured stage height is used directly, without a hidden floor", () =>
   // A 400px stage must yield a 400px geometry; an extra 320px clamp or 560px
   // minimum would make these differ.
   const offsets = resolveSheetOffsets(400);
-  assert.equal(offsets.small, 352);
+  assert.equal(offsets.small, 356);
   assert.equal(
     400 - offsets.mid,
     Math.min(Math.round(400 * SHEET_MID_VISIBLE_RATIO), 400 - (MAP_CONTROL_COLUMN_BOTTOM_PX + 12)),
