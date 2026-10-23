@@ -85,7 +85,7 @@ A workflow exists at `.github/workflows/qa-playwright-home-smoke.yml` at the
 (`workflow_dispatch`) and asks for the target URL as an input. It does not
 target production automatically on every pull request.
 
-The CI job installs dependencies with `npm ci` in the `web/` directory, caches
+The CI job installs dependencies with Bun in the `web/` directory, caches
 Playwright browsers, installs Chromium, and runs `bunx playwright test` with
 `BASE_URL` set from the input.
 

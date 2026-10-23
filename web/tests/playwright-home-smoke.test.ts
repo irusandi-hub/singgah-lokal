@@ -9,9 +9,10 @@ import { test, expect } from "@playwright/test";
  * files, write data, or touch admin surfaces.
  */
 
-const base = process.env.BASE_URL;
+const rawBase = process.env.BASE_URL;
+const base: string = rawBase ?? "";
 
-if (!base) {
+if (base === "") {
   test.skip(true, "BASE_URL is not set; nothing to smoke against");
 }
 
@@ -28,17 +29,25 @@ test.describe("qplaywright-home-smoke / Home smoke", () => {
     // Singgah Lokal Home uses a `<main>` root authored in
     // `components/home-discovery.tsx`, so assert that exact Home shell
     // instead of a generic `main, [role=main], article` guess.
-    const mainRoot = page.locator("main").first();
-    await expect(mainRoot).toBeVisible({ timeout: 15000 });
+    await expect(page.locator("main").first()).toBeVisible({ timeout: 15000 });
 
-    // Optional resilience signal: the map container should be present on
-    // Home once it renders. Do not treat a missing map as success; if the
-    // map locator exists here it must be visible within a reasonable time.
-    const mapArea = page.locator(
-      '[aria-label="Peta Tempat"], .singgah-home-map, [class*="singgah-home-map"]',
-    );
-    if (await mapArea.count() > 0) {
-      await expect(mapArea.first()).toBeVisible({ timeout: 15000 });
+    // If the project layout does not render the map on the Home route used
+    // by this smoke, the map locator can stay empty and the test should not
+    // become a global false positive. Keep the real Home peta locator in the
+    // list so we still catch a missing map when Home actually renders one.
+    const petaLocator =
+      page.locator('[aria-label="Peta Tempat"], .singgah-home-map, [class*="singgah-home-map"]');
+
+    if ((await petaLocator.count()) === 0) {
+      // Home shell exists but no map locator matched on this build.
+      // That is acceptable only when the target build genuinely does not
+      // render the Home peta on this route; otherwise the preceding shell
+      // check is the real guard.
+      return;
     }
+
+    // At least one map locator matched. The real Home peta must be visible
+    // within a reasonable time, or the smoke should fail.
+    await expect(petaLocator.first()).toBeVisible({ timeout: 15000 });
   });
 });
