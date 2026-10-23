@@ -901,7 +901,54 @@ export default function HomeMap({
         ],
         maxBoundsViscosity: 1.0,
       });
-      map.fitWorld();
+      // NEUTRAL INITIAL FRAME (root-cause fix, 2026-10-23).
+      //
+      // BUG: this used to be `map.fitWorld()` alone. `fitWorld()` asks Leaflet
+      // to fit the WHOLE world, but the fit is then clamped by `minZoom: 2`,
+      // so on a phone (390 px wide) the "world overview" was really a ~137°
+      // slice centred on [0, 0]: longitudes roughly ±68°. That slice covers
+      // the Gulf, so every Indonesian Place of the catalogue sat outside it and
+      // the viewport gate silently removed those Places from the map, the
+      // list, and the count — a map that LOOKS global but serves one region.
+      //
+      // FIX: with no real origin yet (no Current Location fix, no search),
+      // the neutral frame is fitted to the CANONICAL PLACE SPREAD the component
+      // was handed, so the first reported viewport contains every Place and the
+      // markers, the rows, and the count agree from the first report onward.
+      // Nothing is invented: the bounds come from the dataset itself. With no
+      // Place coordinate at all there is nothing to frame, and the neutral
+      // whole-world overview (`fitWorld()`) remains the fallback — the camera is
+      // still never moved to a default city, country, or stand-in coordinate.
+      // The real Current Location / search camera presets below are untouched
+      // and still take the frame over as soon as an origin exists.
+      const initialPoints = collectGeoPoints(placesRef.current);
+      const initialBounds = boundsOfPoints(initialPoints);
+      if (initialPoints.length === 1) {
+        // One Place: a degenerate box would jump to the map's maximum zoom, so
+        // it is framed with the same single-Place zoom every other fit uses.
+        map.setView([initialPoints[0].lat, initialPoints[0].lng], FIT_SINGLE_PLACE_ZOOM, {
+          animate: false,
+        });
+      } else if (initialBounds) {
+        // Same reserved chrome padding as every other camera fit, so the frame
+        // matches the area the user can really see.
+        const initialPadding = resolveCameraFitPadding(map.getSize());
+        map.fitBounds(
+          L.latLngBounds(
+            [initialBounds.south, initialBounds.west],
+            [initialBounds.north, initialBounds.east],
+          ),
+          {
+            paddingTopLeft: initialPadding.paddingTopLeft,
+            paddingBottomRight: initialPadding.paddingBottomRight,
+            // Initial paint: no flight, and no maxZoom cap — a sparse dataset
+            // must not be pushed to a street-level frame.
+            animate: false,
+          },
+        );
+      } else {
+        map.fitWorld();
+      }
       // OSM ATTRIBUTION (2026-10-21): the credit STAYS (ODbL requires it), but
       // Leaflet's decorative "Leaflet" wordmark and its flag are removed — the
       // contributor is what the licence asks us to show, and the credit is

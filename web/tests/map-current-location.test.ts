@@ -114,8 +114,23 @@ test("Marker refresh and filter changes never steal the viewport from the user",
   // reachable from a marker refresh or a filter-driven marker rebuild. The old
   // one-shot MARKER overview (which zoomed to a world view on a spread marker
   // set) still does not exist in any form.
+  // 2026-10-23: EXACTLY TWO fits, and neither of them is a marker fit.
+  //   1. the NEUTRAL INITIAL FRAME — fitted once at map init to the canonical
+  //      Place spread (`placesRef.current`), so the first reported viewport
+  //      covers the whole catalogue instead of a clamped world slice. It runs
+  //      inside the create-once effect, before any report, and cannot be
+  //      re-triggered by a marker refresh or a filter change.
+  //   2. the shared auto-fit mechanism (`candidatePlaces`), reachable ONLY
+  //      through an explicit refocus trigger.
+  // Nothing here reads the narrowed marker set, and the user latch below still
+  // excludes every programmatic move.
   const fitBoundsCalls = mapCode.match(/map\.fitBounds\(/g) ?? [];
-  assert.equal(fitBoundsCalls.length, 1, "one fit, and it is inside the shared auto-fit mechanism");
+  assert.equal(fitBoundsCalls.length, 2, "the initial frame + the shared auto-fit; no marker fit");
+  // The initial frame reads the dataset ref, never the narrowed marker set…
+  assert.match(mapCode, /const initialPoints = collectGeoPoints\(placesRef\.current\)/);
+  assert.doesNotMatch(mapCode, /initialPoints[\s\S]{0,80}visibleMapPlaces/);
+  // …and the auto-fit still reads its own candidate dataset.
+  assert.match(mapCode, /const fitCamera = useCallback\([\s\S]{0,400}collectGeoPoints\(candidatePlaces\)/);
   // The fit's dataset is read from a REF, never from the narrowed `places`
   // prop — that is what keeps viewport/marker/camera from becoming circular.
   assert.match(mapCode, /const points = collectGeoPoints\(candidatePlaces\)/);

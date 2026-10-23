@@ -5,20 +5,26 @@ the target answers without an HTTP 5xx, that Home's `<main>` shell is visible,
 and that the Home map container is present and actually occupies the map stage.
 
 No data is changed, no account is created, no file is uploaded, and no admin
-surface is touched.
+surface is touched.## What is checked
 
-## What is checked
-
-`web/tests/playwright-home-smoke.test.ts` contains exactly two tests:
+`web/tests/playwright-home-smoke.test.ts` contains four tests:
 
 1. **the target is reachable** — `BASE_URL` responds with a status below 500.
 2. **Home renders the shell and the map container** — Home's `<main>` is
    visible, and the map container
    `div.singgah-home-map[aria-label="Peta Tempat"]` (rendered unconditionally by
    `components/home-map.tsx`) is visible with a non-zero box.
+3. **Home keeps the whole catalogue on the map before any location fix** —
+   with geolocation not granted, one Place = one pin, and the first reported
+   map frame does not remove Places the server rendered (the regression that
+   used to drop every non-Gulf Place on a clamped world slice).
+4. **a real fix moves the camera to the user area exactly once** — with a
+   granted fix the user disc appears and the list settles without oscillating.
+   Browsers only honour geolocation in a secure context, so on an `http` target
+   this test is reported as **skipped**, not passed.
 
 The map check is **not optional**. If the container is missing or has no size,
-the smoke fails. The test does **not** require location permission and does
+ the smoke fails. Tests 1–3 do **not** require location permission and do
 **not** require map tiles to finish loading — only the container element itself.
 
 ## Prerequisites
