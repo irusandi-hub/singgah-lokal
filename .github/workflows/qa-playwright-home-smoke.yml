@@ -29,24 +29,21 @@ jobs:
         with:
           bun-version: 1
 
-      - name: Install deps with Bun
-        run: bun install
+      - name: Install deps (frozen lockfile)
+        run: bun install --frozen-lockfile
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
-          path: .playwright-cache
+          path: ~/.cache/ms-playwright
           key: playwright-browsers-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
           restore-keys: |
             playwright-browsers-${{ runner.os }}-
 
       - name: Install Playwright browsers
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: .playwright-cache
-        run: bunx playwright install chromium
+        run: bunx playwright install --with-deps chromium
 
       - name: Run home smoke
         env:
           BASE_URL: ${{ inputs.target_url }}
-          PLAYWRIGHT_BROWSERS_PATH: .playwright-cache
         run: bunx playwright test

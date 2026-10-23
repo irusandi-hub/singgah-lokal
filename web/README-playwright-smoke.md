@@ -1,30 +1,36 @@
 # Playwright home smoke
 
 Read-only browser smoke tests for the Singgah Lokal Home page. They verify that
-the target page loads without an HTTP 5xx or a visible error marker and that the
-Home shell (the `<main>` root authored in `components/home-discovery.tsx`) and,
-where rendered, the map area are present after load.
+the target answers without an HTTP 5xx, that Home's `<main>` shell is visible,
+and that the Home map container is present and actually occupies the map stage.
 
 No data is changed, no account is created, no file is uploaded, and no admin
 surface is touched.
 
+## What is checked
+
+`web/tests/playwright-home-smoke.test.ts` contains exactly two tests:
+
+1. **the target is reachable** — `BASE_URL` responds with a status below 500.
+2. **Home renders the shell and the map container** — Home's `<main>` is
+   visible, and the map container
+   `div.singgah-home-map[aria-label="Peta Tempat"]` (rendered unconditionally by
+   `components/home-map.tsx`) is visible with a non-zero box.
+
+The map check is **not optional**. If the container is missing or has no size,
+the smoke fails. The test does **not** require location permission and does
+**not** require map tiles to finish loading — only the container element itself.
+
 ## Prerequisites
 
-Node 20+ and Bun. Install the project dependencies first from the repo root:
+Node 20+ and Bun. Install the project dependencies from `web/`:
 
 ```bash
 cd web
 bun install
 ```
 
-Then install the browsers once per machine/environment:
-
-```bash
-cd web
-bunx playwright install
-```
-
-If you only want Chromium (enough for these smoke tests and smaller), run:
+Then install the browser once per machine/environment:
 
 ```bash
 cd web
@@ -33,16 +39,14 @@ bunx playwright install chromium
 
 ## Run locally
 
-Set `BASE_URL` to a target that is reachable from this machine. The smoke tests
-do not start a server for you; they only drive a browser against an already-running
-target.
+Set `BASE_URL` to a running target. The smoke does not start a server for you.
 
 ```bash
 cd web
 BASE_URL=http://127.0.0.1:3000 bun run test:playwright
 ```
 
-Or with `bunx` directly:
+Or directly:
 
 ```bash
 cd web
@@ -51,43 +55,45 @@ BASE_URL=http://127.0.0.1:3000 bunx playwright test
 
 ## Read the results
 
-The default reporter is `list`, so each test and its result is printed to stdout:
+The reporter is `list`, so every test and its outcome is printed:
 
 ```text
 Running 2 tests using 1 worker
 
-  ✓  1 [chromium] › playwright-home-smoke.test.ts:19:7 › qplaywright-home-smoke / Home smoke › the target is reachable
-  ✓  2 [chromium] › playwright-home-smoke.test.ts:25:7 › qplaywright-home-smoke / Home smoke › Home renders the expected shell on Home
+  ✓  1 [chromium] › playwright-home-smoke.test.ts:29:7 › qplaywright-home-smoke / Home smoke › the target is reachable
+  ✓  2 [chromium] › playwright-home-smoke.test.ts:35:7 › qplaywright-home-smoke / Home smoke › Home renders the shell and the map container
 
   2 passed
 ```
 
-When a test cannot run because no browser is installed, Playwright prints an
-explicit message asking for `bunx playwright install`. That is a setup problem,
-not a passing test — do not treat it as evidence the smoke passed.
+A failure is a real finding:
 
-When a target is not reachable, the first test fails with the HTTP/status detail
-from the browser. Read that failure output; do not assume success.
+- a target that is unreachable or returns 5xx fails the first test;
+- Home that does not render its shell, or that renders without the map
+  container (or with a zero-size container), fails the second test.
+
+A missing browser is reported by Playwright as a setup error asking for
+`bunx playwright install chromium`; that is a setup problem, not a passing test.
 
 ## Configuration
 
-- Config file: `web/playwright.config.ts`
-- Smoke test file: `web/tests/playwright-home-smoke.test.ts`
-- Browser: Chromium only, with `BASE_URL` read from the environment
-- Trace: on first retry only
-
-The target URL is intentionally not hardcoded. Use `BASE_URL` locally and in CI.
+- Config: `web/playwright.config.ts`
+- Test file: `web/tests/playwright-home-smoke.test.ts`
+- Browser: Chromium only
+- `testMatch` limits the run to the smoke file; the project's real unit suite is
+  `bun run test` (`tsx --test "tests/**/*.test.ts"`) and is not run by Playwright
+- `BASE_URL` is read from the environment and is never hardcoded
 
 ## GitHub Actions
 
-A workflow exists at `.github/workflows/qa-playwright-home-smoke.yml` at the
-**repository root**, not under `web/`. It is triggered manually
-(`workflow_dispatch`) and asks for the target URL as an input. It does not
-target production automatically on every pull request.
+The workflow lives at the repository root, not under `web/`:
+`.github/workflows/qa-playwright-home-smoke.yml`.
 
-The CI job installs dependencies with Bun in the `web/` directory, caches
-Playwright browsers, installs Chromium, and runs `bunx playwright test` with
-`BASE_URL` set from the input.
+It is manual-only (`workflow_dispatch`) and requires a `target_url` input, so it
+never targets production automatically on a pull request. It installs
+dependencies with `bun install --frozen-lockfile` (the repo ships `web/bun.lock`),
+installs Chromium with `bunx playwright install --with-deps chromium`, and runs
+`bunx playwright test` with `BASE_URL` from the input.
 
 To run it:
 
@@ -95,13 +101,14 @@ To run it:
 2. Paste the target URL into `target_url`
 3. Run the workflow
 
+Note: a `workflow_dispatch` workflow only appears in the Actions UI once the
+workflow file exists on the repository's default branch. Until then it cannot be
+triggered through the UI or the API, even though the file is present on a PR
+branch.
+
 ## Scope and limits
 
-These are smoke tests, not coverage tests. They are meant to catch obvious
-render/load regressions on Home, not to validate business logic, auth, payments,
-visits, or admin flows.
-
-If the target build does not render a map on Home, the "map container" check is
-only run when the locator matches, so a missing map locator does not hide a
-broken Home shell. If you change Home so that it renders differently, update the
-locator instead of diluting the check.
+This is a smoke test, not coverage. It catches "Home did not render", "Home
+returned 5xx", and "the map container disappeared or collapsed". It does not
+validate business logic, auth, payments, visit intents, admin flows, or map tile
+correctness.

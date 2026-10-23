@@ -3,51 +3,59 @@ import { test, expect } from "@playwright/test";
 /**
  * Playwright smoke — Singgah Lokal Home (read-only, no data/account/admin side effects).
  *
- * Read-only smoke for the Singgah Lokal Home page. Each test opens BASE_URL
- * explicitly before checking anything, so no test depends on a blank or
- * partially-loaded page. The checks never sign in, create accounts, upload
- * files, write data, or touch admin surfaces.
+ * Each test opens BASE_URL explicitly before asserting anything, so nothing is
+ * checked against a blank page. The checks never sign in, create accounts,
+ * upload files, write data, or touch admin surfaces.
+ *
+ * The Home map is MANDATORY here. `components/home-map.tsx` renders its
+ * container unconditionally as
+ *   <div ref={containerRef} class="relative z-0 h-full w-full touch-none
+ *        singgah-home-map" aria-label="Peta Tempat" />
+ * inside Home's absolute inset-0 map stage, so a missing or collapsed container
+ * is a real Home regression and must fail this smoke. Location permission and
+ * tile completion are NOT required — only the container element itself.
+ *
+ * RUNNER GUARD: this file lives under `tests/`, which the project's unit suite
+ * glob (see the `test` script in package.json) also walks. Node's test runner sets
+ * NODE_TEST_CONTEXT in each test-file child process; when that is present this
+ * module registers no Playwright tests, so the unit suite never tries to run a
+ * browser spec. Under `playwright test` the variable is absent and the two
+ * smoke tests below register normally.
  */
 
-const rawBase = process.env.BASE_URL;
-const base: string = rawBase ?? "";
+const underNodeTestRunner = (process.env.NODE_TEST_CONTEXT ?? "") !== "";
 
-if (base === "") {
-  test.skip(true, "BASE_URL is not set; nothing to smoke against");
+const base = process.env.BASE_URL ?? "";
+
+if (!underNodeTestRunner) {
+  if (base === "") {
+    test.skip(true, "BASE_URL is not set; nothing to smoke against");
+  }
+
+  test.describe("qplaywright-home-smoke / Home smoke", () => {
+    test("the target is reachable", async ({ page }) => {
+      const response = await page.goto(base, { waitUntil: "domcontentloaded" });
+      expect(response).toBeTruthy();
+      expect(response?.status()).toBeLessThan(500);
+    });
+
+    test("Home renders the shell and the map container", async ({ page }) => {
+      await page.goto(base, { waitUntil: "domcontentloaded" });
+
+      // The Home root: `<main>` authored in components/home-discovery.tsx.
+      await expect(page.locator("main").first()).toBeVisible({ timeout: 15000 });
+
+      // The map container is required: HomeMap's own container element, matched
+      // by its real class hook and accessible name. No fallback, no early return.
+      const mapContainer = page.locator('div.singgah-home-map[aria-label="Peta Tempat"]').first();
+      await expect(mapContainer).toBeVisible({ timeout: 15000 });
+
+      // Visible alone is not enough: the container must actually occupy the map
+      // stage. Tiles may still be loading, so only the element's box is checked.
+      const box = await mapContainer.boundingBox();
+      expect(box, "the Home map container must have a measurable box").not.toBeNull();
+      expect(box!.width).toBeGreaterThan(0);
+      expect(box!.height).toBeGreaterThan(0);
+    });
+  });
 }
-
-test.describe("qplaywright-home-smoke / Home smoke", () => {
-  test("the target is reachable", async ({ page }) => {
-    const response = await page.goto(base, { waitUntil: "domcontentloaded" });
-    expect(response).toBeTruthy();
-    expect(response?.status()).toBeLessThan(500);
-  });
-
-  test("Home renders the expected shell on Home", async ({ page }) => {
-    await page.goto(base, { waitUntil: "domcontentloaded" });
-
-    // Singgah Lokal Home uses a `<main>` root authored in
-    // `components/home-discovery.tsx`, so assert that exact Home shell
-    // instead of a generic `main, [role=main], article` guess.
-    await expect(page.locator("main").first()).toBeVisible({ timeout: 15000 });
-
-    // If the project layout does not render the map on the Home route used
-    // by this smoke, the map locator can stay empty and the test should not
-    // become a global false positive. Keep the real Home peta locator in the
-    // list so we still catch a missing map when Home actually renders one.
-    const petaLocator =
-      page.locator('[aria-label="Peta Tempat"], .singgah-home-map, [class*="singgah-home-map"]');
-
-    if ((await petaLocator.count()) === 0) {
-      // Home shell exists but no map locator matched on this build.
-      // That is acceptable only when the target build genuinely does not
-      // render the Home peta on this route; otherwise the preceding shell
-      // check is the real guard.
-      return;
-    }
-
-    // At least one map locator matched. The real Home peta must be visible
-    // within a reasonable time, or the smoke should fail.
-    await expect(petaLocator.first()).toBeVisible({ timeout: 15000 });
-  });
-});
