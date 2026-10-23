@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test \"tests/**/*.test.ts\"",
+    "test:playwright": "playwright test",
     "demo-media:seed": "tsx scripts/seed-dev-demo-media.ts",
     "demo-media:verify": "tsx scripts/verify-dev-demo-media.ts"
   },
@@ -29,9 +30,11 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@playwright/test": "1.49.1",
     "eslint": "^9",
-    "sharp": "^0.35.4",
     "eslint-config-next": "16.3.4",
+    "playwright": "1.49.1",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5"

@@ -1,0 +1,49 @@
+name: qa
+run-name: Playwright home smoke (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: "Target site base URL (no trailing slash)"
+        required: true
+        type: string
+
+jobs:
+  playwright-home-smoke:
+    name: Playwright home smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-bun@v2
+        with:
+          bun-version: 1
+
+      - name: Install deps (frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            playwright-browsers-${{ runner.os }}-
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run home smoke
+        env:
+          BASE_URL: ${{ inputs.target_url }}
+        run: bunx playwright test
