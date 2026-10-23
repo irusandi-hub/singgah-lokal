@@ -85,8 +85,8 @@ test("default mode headings and row are the canonical Discovery layer", () => {
   // never collapse inside the horizontal strip — the wrapper is presentation
   // only and the row still renders exactly one card per canonical entry, in
   // engine order.
-  assert.match(code, /discoveryRowPlaces\.map\(\(place\) => \(/);
-  assert.match(code, /renderPlaceCard\(place, curatedIdSet\.has\(place\.id\)\)/);
+  assert.match(code, /discoveryRowPlaces\.map\(\(place, index\) => \(/);
+  assert.match(code, /renderPlaceCard\(place, curatedIdSet\.has\(place\.id\), index\)/);
   // Home never recomputes the score: no engine scoring import exists here.
   assert.equal(code.includes("computeDiscoveryScore"), false);
   assert.equal(code.includes("discoveryStarsForScore"), false);
@@ -114,8 +114,8 @@ test("curated mode renders TWO ordered rows: Tempat Pilihan (Baris 1) then Disco
   const row1 = code.indexOf("curatedOnly && curatedListed.length > 0");
   const row2 = code.indexOf("discoveryRowPlaces.length > 0");
   assert.ok(row1 >= 0 && row2 > row1, "Baris 1 (Tempat Pilihan) renders before Baris 2 (Discovery Place)");
-  assert.match(code, /discoveryRowPlaces\.map\(\(place\) => \(/);
-  assert.match(code, /renderPlaceCard\(place, curatedIdSet\.has\(place\.id\)\)/);
+  assert.match(code, /discoveryRowPlaces\.map\(\(place, index\) => \(/);
+  assert.match(code, /renderPlaceCard\(place, curatedIdSet\.has\(place\.id\), index\)/);
 });
 
 test("curated membership is published + isCurated only, read through the canonical repository", () => {
@@ -229,7 +229,7 @@ test("LIVE behavior is untouched: poll gate, cards, filter, per-card affordances
   // The 15s poll runs only while the LIVE tab is active.
   assert.match(code, /if \(!liveOnly\) return;/);
   assert.match(code, /window\.setInterval\(load, 15000\)/);
-  assert.match(code, /\}, \[liveOnly\]\);/);
+  assert.match(code, /\}, \[liveOnly, liveRetryNonce\]\);/);
   // LIVE stays a process/status filter on the content pipeline.
   assert.match(code, /liveByPlaceId\.has\(place\.id\)/);
   // LIVE cards stay hidden inside the Tempat Pilihan layer.
@@ -500,7 +500,7 @@ test("P0: ordinary coverage Places never leak into the curated list or its count
   // The removed board's counter is gone (2026-10-18); no count remains that
   // could even be fed the coverage-only Places.
   assert.doesNotMatch(code, /tempat pilihan \$\{nearOrigin\}/);
-  assert.match(code, /\{curatedListed\.map\(\(place\) => \(/);
+  assert.match(code, /\{curatedListed\.map\(\(place, index\) => \(/);
   // The coverage memo is referenced by exactly ONE consumer — the map dataset.
   const uses = code.match(/curatedCoveragePlaces/g) ?? [];
   assert.equal(uses.length, 3, "declaration + the curated dataset union + its dependency list only");

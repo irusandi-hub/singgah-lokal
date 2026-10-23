@@ -294,7 +294,7 @@ test("the curated LIST, both rows and eligibility are untouched", () => {
   assert.match(pageCode, /isCurated: curatedOnly && curatedIdSet\.has\(place\.id\),/);
   // The top filter row holds LIVE + the three radius tabs (four controls);
   // the curated layer control renders once, as the floating map tab.
-  assert.match(pageCode, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
+  assert.match(pageCode, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)_44px\] gap-1\.5/);
   assert.equal((pageCode.match(/<CuratedMapTab/g) ?? []).length, 1);
   assert.equal((pageCode.match(/aria-pressed=\{curatedOnly\}/g) ?? []).length, 0);
   const curatedTab = readFileSync(new URL("../components/curated-map-tab.tsx", import.meta.url), "utf8");

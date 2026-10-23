@@ -774,13 +774,13 @@ test("Tempat Pilihan transition: instant 10 km preset camera + one-shot pin focu
   assert.doesNotMatch(globals, /singgah-locate-pulse[^\n]*infinite/);
   assert.equal(
     (globals.match(/@keyframes/g) ?? []).length,
-    4,
-    "the LIVE pulse + the locate pulse + the locate AREA + the pin selection bounce",
+    5,
+    "the LIVE pulse + the locate pulse + the locate AREA + the pin selection bounce + the card entry",
   );
   assert.equal(
     (globals.match(/prefers-reduced-motion/g) ?? []).length,
-    7,
-    "reduced-motion opt-out: LIVE pulse + locate pulse + locate area + sheet/attribution + pin bounce + curated tab",
+    9,
+    "reduced-motion opt-out: LIVE pulse + locate pulse + locate area + sheet/attribution + pin bounce + curated tab + card entry",
   );
   // SURROUNDING AREA (2026-10-04): the Current Location pin carries a soft disc.
   assert.match(globals, /\.singgah-locate-area \{/);

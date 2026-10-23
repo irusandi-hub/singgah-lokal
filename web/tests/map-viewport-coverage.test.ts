@@ -235,8 +235,8 @@ test("7. Discovery and Tempat Pilihan keep the approved overlap behaviour", () =
   // (2026-10-18), so no rendered number can fold the two layers together. Each
   // row still renders from its own array.
   assert.doesNotMatch(pageCode, /\$\{nearOrigin\} · \$\{coverageScope\}/);
-  assert.match(pageCode, /\{curatedListed\.map\(\(place\) => \(/);
-  assert.match(pageCode, /\{discoveryRowPlaces\.map\(\(place\) => \(/);
+  assert.match(pageCode, /\{curatedListed\.map\(\(place, index\) => \(/);
+  assert.match(pageCode, /\{discoveryRowPlaces\.map\(\(place, index\) => \(/);
 });
 
 // ---------------------------------------------------------------------------
@@ -366,10 +366,13 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // The informational overlays never block a gesture. Since 2026-10-21 only
   // the empty state is click-through; the retired gesture pill is gone and the
   // help panel is a real dialog the visitor opened deliberately.
+  // 2026-10-23: the card's scrim, decorative heart, and on-photo name are
+  // click-through too (they sit ON the card link), and the map empty state is
+  // still the only click-through MAP overlay. No interactive control opts out.
   assert.equal(
     (pageCode.match(/pointer-events-none absolute/g) ?? []).length,
-    1,
-    "only the empty state remains click-through",
+    4,
+    "the card's decorative layers and the map empty state are click-through",
   );
   assert.equal(pageCode.includes("gestureHintLiftPx"), false);
   assert.match(pageCode, /data-gesture-help/);

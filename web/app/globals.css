@@ -588,3 +588,54 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
 .singgah-star-empty {
   color: rgb(0 0 0 / 0.18);
 }
+
+/* PLACE CARD ENTRY + OFFSCREEN DEFERRAL (2026-10-23).
+   · The cell defers layout/paint for cards far outside the viewport, with an
+     intrinsic height close to the real card so scroll height stays stable.
+   · A card fades+rises exactly once, when its frame first enters the
+     viewport (data-card-inview is set by the per-card observer). The stagger
+     is short and capped at six cards.
+   · Transform-only, and removed outright under prefers-reduced-motion. */
+.singgah-place-cell {
+  content-visibility: auto;
+  /* Matches the real compact card height (photo + body) so a card that has
+     never been painted reserves the same space when it enters the viewport. */
+  contain-intrinsic-size: auto 290px;
+}
+
+/* Instant tap response (2026-10-23): the card and its real controls opt out
+   of double-tap zoom delay. The sheet's drag handle keeps its own
+   `touch-none` — it is intentionally NOT targeted here. */
+.singgah-place-card,
+.singgah-place-card a,
+.singgah-place-card button {
+  touch-action: manipulation;
+}
+
+.singgah-card-frame {
+  height: 100%;
+  width: 100%;
+}
+
+@keyframes singgah-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .singgah-card-frame[data-card-inview="true"] > .singgah-place-card {
+    animation: singgah-card-in 300ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+
+  .singgah-card-delay-1 > .singgah-place-card { animation-delay: 40ms; }
+  .singgah-card-delay-2 > .singgah-place-card { animation-delay: 80ms; }
+  .singgah-card-delay-3 > .singgah-place-card { animation-delay: 120ms; }
+  .singgah-card-delay-4 > .singgah-place-card { animation-delay: 160ms; }
+  .singgah-card-delay-5 > .singgah-place-card { animation-delay: 200ms; }
+}

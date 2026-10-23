@@ -70,7 +70,7 @@ test("the only controls in the bar are the existing clear '×' and the real 'Car
   assert.equal(/onClick=\{\(\) => set(ShowFilters|FiltersOpen)/.test(pageCode), false);
   // And the tab row — the one real filter surface — is unchanged in kind
   // (four columns since the curated tab moved below the map on 2026-10-18).
-  assert.match(pageCode, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5/);
+  assert.match(pageCode, /grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)_44px\] gap-1\.5/);
 });
 
 test("search stays submit-only: no search-on-keystroke", () => {

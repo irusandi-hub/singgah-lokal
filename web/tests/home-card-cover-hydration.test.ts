@@ -83,16 +83,24 @@ test("a missing or unloadable cover still falls back to the local placeholder", 
   );
 });
 
-test("the canonical cover keeps loading lazily and never becomes a next/image", () => {
-  // 62 cards x a large photo would otherwise be fetched on every load; lazy
-  // loading is what keeps the sheet cheap, and it is unrelated to the fix.
-  assert.match(coverComponent, /loading="lazy"\s*decoding="async"/);
+test("covers stay native images, eager only for the leading two cards", () => {
+  // 62 cards x a large photo would otherwise be fetched on every load. The
+  // first two cards of a row load eagerly at high priority; every later cover
+  // is mounted lazily by the near-viewport gate and stays a native <img>
+  // (next/image would need a host allowlist producers cannot configure).
+  assert.match(coverComponent, /loading=\{priority \? "eager" : "lazy"\}/);
+  assert.match(coverComponent, /fetchPriority=\{priority \? "high" : "low"\}/);
+  assert.match(coverComponent, /RootMargin|rootMargin: "400px 0px"/);
   assert.doesNotMatch(coverComponent, /from "next\/image"/);
   assert.doesNotMatch(coverComponent, /<Image\b/);
 });
 
 test("the card still renders the canonical cover URL through the one component", () => {
-  assert.equal((home.match(/<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} \/>/g) ?? []).length, 1);
+  assert.equal(
+    (home.match(/<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} priority=\{index < 2\} \/>/g) ?? [])
+      .length,
+    1,
+  );
   // No second, unguarded <img> rendering coverImageUrl anywhere in Home.
   assert.doesNotMatch(home, /<img[^>]*place\.coverImageUrl/);
 });

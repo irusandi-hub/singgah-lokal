@@ -161,8 +161,8 @@ test("T2.2 the removed board's title, count, radius line, and 'Ke hasil' are gon
   // The curated LIST and both strips are intact — only the board is gone.
   assert.match(code, /id=\{CURATED_RESULTS_ANCHOR_ID\}/);
   assert.match(code, /id=\{DISCOVERY_RESULTS_ANCHOR_ID\}/);
-  assert.match(code, /\{curatedListed\.map\(\(place\) => \(/);
-  assert.match(code, /\{discoveryRowPlaces\.map\(\(place\) => \(/);
+  assert.match(code, /\{curatedListed\.map\(\(place, index\) => \(/);
+  assert.match(code, /\{discoveryRowPlaces\.map\(\(place, index\) => \(/);
 });
 
 test("T2.3 the results section is still labelled and still below the map", () => {
@@ -414,7 +414,7 @@ test("T4.2 the grid bands and cards are the 2-column layout", () => {
     "no horizontal carousel tracks remain",
   );
   assert.equal(
-    (code.match(/className=\{\`h-full w-full rounded-\[24px\]/g) ?? []).length,
+    (code.match(/className=\{\`singgah-place-cell h-full w-full rounded-\[22px\]/g) ?? []).length,
     2,
     "card wrappers are equal-height grid items",
   );

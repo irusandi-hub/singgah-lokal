@@ -192,7 +192,7 @@ export default function SiteNav({
               aria-label="Tampilkan petunjuk gestur peta"
               className="relative inline-flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full border border-black/10 bg-white text-brand-ink shadow-[0_1px_3px_rgb(0_0_0/0.06)] transition hover:bg-brand-cream active:scale-95"
             >
-              <span aria-hidden className="pointer-events-auto absolute -inset-0.5" />
+              <span aria-hidden className="pointer-events-auto absolute -inset-1" />
               <span aria-hidden className="text-[15px] font-bold leading-none">?</span>
             </button>
           ) : null}

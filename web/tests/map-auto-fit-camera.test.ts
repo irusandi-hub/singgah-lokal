@@ -410,16 +410,17 @@ test("AC 6: MANY Places are framed with padding that reserves the chrome and the
 // 7. Zoom controls sit BELOW "Lokasi Saya" and still work.
 // ---------------------------------------------------------------------------
 
-test("AC 7: the right-hand column clears the chrome, and zoom is gesture-only", () => {
+test("AC 7: the map control column is gone, and zoom is gesture-only", () => {
   // 2026-10-18: the Leaflet +/- stack was REMOVED from the Home map.
-  // 2026-10-21: the compass was removed too, so the column is ONE row of two
-  // 40px tiles at 190px, 8px apart, ending at 230px — well inside the map.
-  const columnTop = Number(
-    /absolute right-3 top-\[(\d+)px\] z-\[1100\] flex flex-nowrap items-center gap-2/.exec(homeMap)?.[1] ?? "0",
-  );
-  assert.ok(columnTop > 150, "the control column clears the floating chrome");
-  assert.equal(columnTop, 190);
-  assert.ok(columnTop + 40 <= 470, "the column clears the map's bottom band");
+  // 2026-10-21: the compass was removed too.
+  // 2026-10-23: the remaining "Lokasi Saya" control moved into the filter row
+  // and "?" into the header, so the right-hand map column is GONE — nothing
+  // floats over the map's right edge at 190px any more.
+  assert.doesNotMatch(homeMap, /absolute right-3 top-\[\d+px\] z-\[1100\] flex flex-nowrap items-center gap-2/);
+  assert.doesNotMatch(homeMap, /data-home-locate/);
+  assert.doesNotMatch(homeMap, /Tampilkan petunjuk gestur peta/);
+  assert.match(pageCode, /data-home-locate/);
+  assert.match(pageCode, /onShowGestureHint=\{handleShowGestureHint\}/);
   // No Leaflet control offset of our own remains, and the Producer picker is
   // therefore untouched.
   assert.doesNotMatch(globals, /\.singgah-home-map \.leaflet-top\.leaflet-right \{/);
@@ -439,7 +440,7 @@ test("AC 7: the right-hand column clears the chrome, and zoom is gesture-only", 
 test("AC 8: the search info panel spans the screen and is fully opaque", () => {
   const panel = pageCode.slice(
     pageCode.indexOf("{(searchPending || searchError) && ("),
-    pageCode.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))]"),
+    pageCode.indexOf("grid w-full min-w-0 grid-cols-[auto_repeat(3,minmax(0,1fr))_44px]"),
   );
   // It escapes BOTH the horizontal padding and the max-width cap of the
   // content column, and is re-centred on the VIEWPORT.
@@ -479,9 +480,9 @@ test("AC 9: both Place rows are 2-column grids inside the panel", () => {
   assert.equal(tracks.length, 0, "no fixed-width horizontal tracks remain");
   // Cards stay wrapped in an equal-height grid item in BOTH rows (the wrapper
   // keeps the selected-card ring on top of the same h-full/w-full box).
-  assert.equal((pageCode.match(/className={`h-full w-full rounded-\[24px\] /g) ?? []).length, 2);
+  assert.equal((pageCode.match(/className={`singgah-place-cell h-full w-full rounded-\[22px\] /g) ?? []).length, 2);
   const curated = pageCode.slice(pageCode.indexOf("{curatedOnly && curatedListed.length > 0 && ("));
-  assert.match(curated, /\{curatedListed\.map\(\(place\) => \(/);
+  assert.match(curated, /\{curatedListed\.map\(\(place, index\) => \(/);
   // No page-level horizontal overflow is introduced: the list only cancels
   // the section's own padding, it never exceeds it.
   assert.equal(/-mx-4 overflow-hidden border-y[^\n]*w-\[100vw\]/.test(pageCode), false);

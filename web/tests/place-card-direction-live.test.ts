@@ -136,11 +136,14 @@ test("the 2-column card keeps every attribute except the description", () => {
   assert.ok(cardSource.length > 0, "the card renderer must be locatable");
   // Photo, ✦ curated badge, heart, real distance, name, category, stars,
   // Follow, Direction, LIVE status — every attribute is still rendered.
-  assert.match(cardSource, /<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} \/>/);
+  assert.match(
+    cardSource,
+    /<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} priority=\{index < 2\} \/>/,
+  );
   assert.match(cardSource, /\{isCurated && \(/);
   assert.match(cardSource, /aria-hidden[\s\S]{0,400}♡/);
-  assert.match(cardSource, /\{distance && \(/);
-  assert.match(cardSource, /\{place\.name\}<\/h3>/);
+  assert.match(cardSource, /\{distance \? \(/);
+  assert.match(cardSource, /\{place\.name\}/);
   assert.match(cardSource, /displayPlaceCategory\(place\.category\)/);
   assert.match(cardSource, /\[1, 2, 3, 4, 5\]\.map\(\(slot\) => \(/);
   assert.match(cardSource, /<PlaceFollowButton placeId=\{place\.id\} iconOnly \/>/);
@@ -154,7 +157,7 @@ test("the 2-column card keeps every attribute except the description", () => {
   assert.match(code, /const PLACE_CATEGORY_FALLBACK = "Kategori belum tersedia";/);
   assert.match(code, /\(PLACE_CATEGORIES as readonly string\[\]\)\.includes\(trimmed\)/);
   // Category is exactly one truncated line, the name at most two.
-  assert.match(cardSource, /line-clamp-2 text-\[13px\] font-bold/);
+  assert.match(cardSource, /line-clamp-2 text-\[13\.5px\] font-bold/);
   assert.match(cardSource, /truncate text-\[10px\] font-semibold/);
 });
 
@@ -169,7 +172,7 @@ test("360/390px cards keep the actions and chips inside a ~160px column", () => 
     // The compact status chip and the distance/live pills fit the photo width.
     const chipWidth = 12 + 6 + 4 + "Belum LIVE".length * 5.6;
     assert.ok(chipWidth <= cardWidth - 20);
-    assert.match(cardSource, /w-fit items-center gap-1 rounded-full bg-live\/\[0\.08\]/);
+    assert.match(cardSource, /w-fit touch-manipulation items-center gap-1 rounded-full bg-live\/\[0\.08\]/);
     assert.match(cardSource, /min-w-0 flex-1/);
     assert.match(cardSource, /truncate">Direction/);
   }

@@ -212,7 +212,10 @@ test("Home still renders coverImageUrl and never reads place_photos directly", (
   // The canonical column is still the ONE source the card cover is handed:
   // 2026-10-18 moved the <img> into the local `PlaceCardCover` helper (skeleton
   // + fail-closed placeholder), so the contract is the call site's `src`.
-  assert.match(homeCode, /<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} \/>/);
+  assert.match(
+    homeCode,
+    /<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} priority=\{index < 2\} \/>/,
+  );
   // 2026-10-20: the element also carries the ref the load-state reconciliation
   // reads, so the src attribute no longer directly follows the tag name.
   assert.match(homeCode, /<img\s+ref=\{imgRef\}\s+src=\{src\}/);

@@ -110,7 +110,7 @@ test("The 15s Live poll only runs while the LIVE tab is active", () => {
   const code = stripComments(homeDiscovery);
   assert.match(code, /useEffect\(\(\) => \{\s*if \(!liveOnly\) return;/);
   assert.match(code, /window\.setInterval\(load, 15000\)/);
-  assert.match(code, /\}, \[liveOnly\]\);/);
+  assert.match(code, /\}, \[liveOnly, liveRetryNonce\]\);/);
 });
 
 test("A failed Live poll keeps the last good data and never claims the feed is empty", () => {

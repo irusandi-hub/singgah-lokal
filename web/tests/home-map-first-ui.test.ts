@@ -259,10 +259,10 @@ test("result cards use a ~16px radius with a subtle border and light shadow", ()
   // never competes with the map for attention.
   // overflow-hidden is what lets the mockup's cover image sit flush with the
   // card's rounded corners instead of spilling out of them.
-  assert.match(
-    code,
-    /group flex h-full w-full flex-col overflow-hidden rounded-\[22px\] border border-black\/5 bg-white shadow-\[0_1px_2px_rgb\(0_0_0\/0\.04\)\] transition duration-200 hover:shadow-\[0_8px_20px_rgb\(0_0_0\/0\.08\)\] motion-safe:active:scale-\[0\.99\]/,
-  );
+  assert.match(code, /singgah-place-card group relative flex h-full w-full flex-col overflow-hidden rounded-\[22px\] border bg-white/);
+  assert.match(code, /shadow-\[0_1px_1px_rgb\(32_35_31\/0\.04\),0_6px_16px_rgb\(32_35_31\/0\.08\),0_18px_36px_rgb\(32_35_31\/0\.06\)\]/);
+  assert.match(code, /hover:shadow-\[0_2px_3px_rgb\(32_35_31\/0\.05\),0_10px_24px_rgb\(32_35_31\/0\.10\),0_24px_44px_rgb\(32_35_31\/0\.07\)\]/);
+  assert.match(code, /motion-safe:active:scale-\[0\.97\]/);
   // MOCKUP §10, REVISED 2026-10-04: the results keep the cream panel and its
   // rounded top corners, but the `-mt-5` tuck that pulled it under the map is
   // GONE. The title/count/"Ke hasil" block now floats on the map itself (see
@@ -314,17 +314,17 @@ test("polish adds no gradients and no heavy shadow utility", () => {
   assert.doesNotMatch(code, /shadow-2xl/);
 });
 
-test("MOCKUP §16: every 4:5 card cover is filled — canonical cover, else the local placeholder", () => {
+test("MOCKUP §16: every square card cover is filled — canonical cover, else the local placeholder", () => {
   // Canonical cover image (places.cover_image_url, migration 0018) — the
   // same field the Place detail hero already renders. No new query, no data
   // change: the placeholder is VISUAL ONLY and the real cover still wins.
   assert.match(code, /function PlaceCardCover\(/);
-  assert.match(code, /<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} \/>/);
+  assert.match(code, /<PlaceCardCover name=\{place\.name\} src=\{place\.coverImageUrl\} priority=\{index < 2\} \/>/);
   assert.match(code, /src=\{src\}/);
   assert.match(code, /Gambar sampul \$\{name\}/);
-  // The photo area is a full-bleed 4:5 frame, so every card keeps the same
-  // composition whether or not a cover exists.
-  assert.match(code, /relative aspect-\[4\/5\] w-full shrink-0 overflow-hidden bg-\[#ece7db\]/);
+  // The photo area is a full-bleed square frame, so every card keeps the
+  // same composition whether or not a cover exists.
+  assert.match(code, /relative aspect-square w-full shrink-0 overflow-hidden bg-\[#ece7db\]/);
   // Blur-up skeleton on load and a fail-closed placeholder on error/missing.
   assert.match(code, /onLoad=\{\(\) => setLoaded\(true\)\}/);
   assert.match(code, /onError=\{\(\) => setFailed\(true\)\}/);
@@ -357,17 +357,19 @@ test("MOCKUP §14: card overlays are compact and cannot collide at the narrower 
   // of the long text pill, so it can never cover the image. It still renders
   // ONLY from the canonical curated flag.
   assert.match(code, /\{isCurated && \(/);
-  assert.match(code, /absolute left-1\.5 top-1\.5 inline-flex h-\[22px\] w-\[22px\] items-center justify-center rounded-\[11px\] bg-brand-secondary/);
-  // Decorative heart top-right (no favorite feature exists — non-interactive).
-  assert.match(code, /absolute right-1\.5 top-1\.5 inline-flex h-\[22px\] w-\[22px\] items-center justify-center rounded-full bg-white\/90/);
+  assert.match(code, /absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-\[linear-gradient\(135deg,#f0d17e_0%,#c9a45c_55%,#a97a27_100%\)\]/);
+  // Decorative heart top-right (no favorite feature exists — non-interactive,
+  // and drawn as a faint watermark rather than a button surface).
+  assert.match(code, /pointer-events-none absolute right-2 top-2 select-none text-\[17px\]/);
+  assert.match(code, /♡/);
   // Real distance bottom-LEFT on a readable glass pill, still fail-closed
   // (only with the real origin and canonical coordinates — never fabricated).
-  assert.match(code, /\{distance && \(/);
-  assert.match(code, /absolute bottom-1\.5 left-1\.5 inline-flex items-center gap-0\.5 rounded-full bg-brand-ink\/60/);
-  assert.match(code, /ring-1 ring-white\/25 backdrop-blur-md/);
+  assert.match(code, /\{distance \? \(/);
+  assert.match(code, /rounded-full bg-white\/20 px-1\.5 py-1/);
+  assert.match(code, /ring-1 ring-white\/40 backdrop-blur-md/);
   // A live session paints the pulsing red pill on the photo's bottom-right,
   // and reduced-motion stops the pulse rather than the status.
-  assert.match(code, /absolute bottom-1\.5 right-1\.5 z-10 inline-flex items-center gap-1 rounded-full bg-live/);
+  assert.match(code, /singgah-live-pulse inline-flex touch-manipulation items-center gap-1 rounded-full bg-live/);
   assert.match(code, /animate-pulse rounded-full bg-white motion-reduce:animate-none/);
 });
 
@@ -511,7 +513,7 @@ test("MOCKUP §12/§19: every result row is a 2-column grid of equal-height card
   // unchanged, and the row still renders nothing when nothing is curated.
   assert.match(
     code,
-    /\{curatedOnly && curatedListed\.length > 0 && \([\s\S]*?curatedListed\.map\(\(place\) => \(/,
+    /\{curatedOnly && curatedListed\.length > 0 && \([\s\S]*?curatedListed\.map\(\(place, index\) => \(/,
   );
   // Every card in BOTH rows sits in an explicit sized item, never a direct
   // grid child (which is what collapsed cards before).
@@ -521,11 +523,11 @@ test("MOCKUP §12/§19: every result row is a 2-column grid of equal-height card
   assert.equal((code.match(/id=\{`place-card-curated-\$\{place\.id\}`\}/g) ?? []).length, 1);
   assert.equal((code.match(/id=\{`place-card-discovery-\$\{place\.id\}`\}/g) ?? []).length, 1);
   assert.equal((code.match(/\{renderPlaceCard\(/g) ?? []).length, 2);
-  assert.equal((code.match(/className=\{\`h-full w-full rounded-\[24px\]/g) ?? []).length, 2);
+  assert.equal((code.match(/className=\{\`singgah-place-cell h-full w-full rounded-\[22px\]/g) ?? []).length, 2);
   // No card may ever be a direct grid child.
   assert.doesNotMatch(
     code,
-    /\{discoveryRowPlaces\.map\(\(place\) =>\s*\n?\s*renderPlaceCard/,
+    /\{discoveryRowPlaces\.map\(\(place, index\) =>\s*\n?\s*renderPlaceCard/,
     "Discovery cards must be wrapped in a sized item, never direct grid children",
   );
   // The card lists are vertical and the filter row keeps its

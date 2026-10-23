@@ -71,8 +71,11 @@ test("Map container is a closed stacking context that traps every Leaflet pane",
 test("React map overlays sit above Leaflet's documented z-index ceiling (1000)", () => {
   const mapCode = stripComments(homeMap);
   const pageCode = stripComments(homeDiscovery);
-  // Lokasi Saya button (inside the map component).
-  assert.match(mapCode, /z-\[1100\][^"]*"/);
+  // The map's own control column is GONE (2026-10-23): "Lokasi Saya" now
+  // lives in the filter row and "?" in the header, both inside the page
+  // chrome wrapper. Nothing inside the map sits at z-[1100].
+  assert.doesNotMatch(mapCode, /z-\[1100\]/);
+  assert.match(pageCode, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
   // Empty-state card, coverage box and scale (map stage overlays).
   // MOCKUP §4 (2026-10-01): the map is now the full-bleed background of Home,
   // so the empty-state card anchors near the BOTTOM of the stage (clear of the
@@ -192,7 +195,7 @@ test("MOCKUP §4/§5: the floating header, search, and filter stay above the map
   // them again; the search bar and filter row opt back in explicitly.
   assert.match(pageCode, /className="relative z-\[1100\] pointer-events-none mx-auto w-full max-w-6xl px-4"/);
   assert.match(pageCode, /className="pointer-events-auto mt-\[60px\] sm:mt-\[64px\]"/);
-  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)\] gap-1\.5 rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5"/);
+  assert.match(pageCode, /className="pointer-events-auto mt-2\.5 grid w-full min-w-0 grid-cols-\[auto_repeat\(3,minmax\(0,1fr\)\)_44px\] gap-1\.5 rounded-\[16px\] bg-brand-cream ring-1 ring-black\/5"/);
   const nav = stripComments(readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8"));
   assert.match(nav, /"absolute inset-x-0 top-0 z-\[1200\] border-b-0 bg-transparent"/);
 });

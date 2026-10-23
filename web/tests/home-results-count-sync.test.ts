@@ -107,8 +107,8 @@ test("SCENARIO city search: each layer still renders from its own array", () => 
   // exactly `discoveryRowPlaces`, and the two are never summed.
   assert.match(discoveryCode, /curatedOnly && curatedListed\.length > 0/);
   assert.match(discoveryCode, /\{discoveryRowPlaces\.length > 0 \? \(/);
-  assert.match(discoveryCode, /\{curatedListed\.map\(\(place\) =>/);
-  assert.match(discoveryCode, /\{discoveryRowPlaces\.map\(\(place\) =>/);
+  assert.match(discoveryCode, /\{curatedListed\.map\(\(place, index\) =>/);
+  assert.match(discoveryCode, /\{discoveryRowPlaces\.map\(\(place, index\) =>/);
   // The per-layer rule (PO 2026-09-30) is preserved — the counts are never
   // summed, which would double-count a Place present in both rows.
   assert.doesNotMatch(discoveryCode, /curatedListed\.length \+ discoveryRowPlaces\.length/);

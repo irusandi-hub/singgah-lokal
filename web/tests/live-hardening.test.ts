@@ -88,7 +88,7 @@ test("E2E: distance tabs are CAMERA presets — markers and rows follow the REAL
   // card renderer (the row source is discoveryRowPlaces, built from the
   // engine's discovery.discovery; renderPlaceCard only draws — dataset/source
   // separation unchanged).
-  assert.match(homeSource, /discoveryRowPlaces\.map\(\(place\) =>/);
+  assert.match(homeSource, /discoveryRowPlaces\.map\(\(place, index\) =>/);
 });
 
 test("E2E: Leaflet map renders only canonical Place coordinates and keeps the Place/Live links", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import CuratedMapTab from "@/components/curated-map-tab";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
@@ -168,16 +168,100 @@ function displayPlaceCategory(category: string | null | undefined): string {
 }
 
 /**
+ * CARD ENTRY FRAME (2026-10-23). A card animates exactly ONCE, the first time
+ * it enters the viewport — never on a scroll back, and never while hidden.
+ * The observer is per card and disconnects itself, so the results list does
+ * not re-render when a card becomes visible; only that card's frame flips its
+ * `data-inview` flag. The stagger is short and capped, and CSS removes the
+ * animation entirely under prefers-reduced-motion.
+ */
+function PlaceCardFrame({ index, children }: { index: number; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [inView, setInView] = useState(false);
+  // Marks time (ms) so CSS can cap the stagger without a second state value.
+  const staggerClass = index < 6 ? `singgah-card-delay-${index}` : "";
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (typeof IntersectionObserver !== "function") {
+      // Deferred, not synchronous: a setState directly in the effect body is a
+      // cascading render. The fallback still shows the card immediately.
+      queueMicrotask(() => setInView(true));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setInView(true);
+        observer.disconnect();
+      },
+      { threshold: 0.01, rootMargin: "0px 0px -6% 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      data-card-inview={inView ? "true" : "false"}
+      className={`singgah-card-frame h-full w-full ${staggerClass}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
  * CARD COVER (2026-10-18) — a 4:5 photo with a skeleton/blur-up and a
  * fail-closed placeholder. The canonical cover wins whenever it loads; the
  * neutral local placeholder (PRESENTATION ONLY — never a Place photo) covers
  * a missing OR failed image, so a card can never render a broken image. The
  * component holds only local image-loading state; no data changes.
  */
-function PlaceCardCover({ name, src }: { name: string; src: string | null | undefined }) {
+function PlaceCardCover({
+  name,
+  src,
+  priority = false,
+}: {
+  name: string;
+  src: string | null | undefined;
+  priority?: boolean;
+}) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  // NEAR-VIEWPORT GATE (2026-10-23). Every cover used to be a native lazy
+  // <img>, but Chrome's lazy threshold on a slow connection reaches thousands
+  // of pixels: on the Home sheet it fetched dozens of full-size producer PNGs
+  // at once, starving the hydration chunks (measured: hydration at 8.7 s on
+  // mobile 4G / 4x CPU). Only the first two cards of a row load eagerly; every
+  // other cover mounts its <img> once its cell comes within 400px of the
+  // viewport, so scrolling still reveals photos immediately while the first
+  // paint stays cheap. Presentation only — the URL, fallback, skeleton, and
+  // load-state reconciliation are unchanged.
+  const [near, setNear] = useState(priority);
+  const hostRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (priority || near || !src || failed) return;
+    const node = hostRef.current;
+    if (!node || typeof IntersectionObserver !== "function") {
+      queueMicrotask(() => setNear(true));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setNear(true);
+        observer.disconnect();
+      },
+      { rootMargin: "400px 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [priority, near, src, failed]);
 
   // CACHED-IMAGE / HYDRATION RECONCILIATION (bug fix, 2026-10-20). The cover is
   // part of the SERVER-rendered markup, so the browser frequently finishes
@@ -207,30 +291,37 @@ function PlaceCardCover({ name, src }: { name: string; src: string | null | unde
   }
 
   return (
-    <>
+    <span ref={hostRef} className="contents">
       {!loaded && (
         <div
           aria-hidden
           className="absolute inset-0 animate-pulse bg-[#e5dfd1] motion-reduce:animate-none"
         />
       )}
-      {/* External producer-supplied image URL; next/image would require host
-          allowlisting that producers cannot configure. Same rationale and
-          pattern as the Place detail hero. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        ref={imgRef}
-        src={src}
-        alt={`Gambar sampul ${name}`}
-        loading="lazy"
-        decoding="async"
-        onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
-        className={`h-full w-full object-cover transition-[opacity,filter,transform] duration-500 group-hover:scale-[1.03] motion-reduce:transition-none ${
-          loaded ? "scale-100 opacity-100 blur-0" : "scale-105 opacity-0 blur-md"
-        }`}
-      />
-    </>
+      {near ? (
+        /* External producer-supplied image URL; next/image would require host
+           allowlisting that producers cannot configure. Same rationale and
+           pattern as the Place detail hero. The two leading cards load
+           eagerly; every later cover is mounted by the near-viewport gate
+           above and still stays a native lazy image. */
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          ref={imgRef}
+          src={src}
+          alt={`Gambar sampul ${name}`}
+          width={600}
+          height={600}
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : "low"}
+          decoding="async"
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          className={`h-full w-full object-cover transition-[opacity,filter,transform] duration-500 group-hover:scale-[1.03] motion-reduce:transition-none ${
+            loaded ? "scale-100 opacity-100 blur-0" : "scale-105 opacity-0 blur-md"
+          }`}
+        />
+      ) : null}
+    </span>
   );
 }
 
@@ -310,6 +401,10 @@ export default function HomeDiscovery({
   // The status only decides which EMPTY-STATE copy renders when there are no
   // items at all; it never hides loaded data and adds no banner.
   const [liveFeedStatus, setLiveFeedStatus] = useState<"loading" | "ready" | "failed">("loading");
+  // Manual retry for the LIVE feed's explicit failed state (2026-10-23). The
+  // 15 s poll already retries by itself; this lets the user ask immediately.
+  // Bumping the nonce re-runs the existing load effect unchanged.
+  const [liveRetryNonce, setLiveRetryNonce] = useState(0);
   // Viewer position — Current Location. Geolocation is the primary map
   // anchor: when available the Home Map centers on it and shows the user
   // marker. Silently absent when denied; no fallback point is ever invented.
@@ -413,6 +508,7 @@ export default function HomeDiscovery({
     lastY: number;
     lastT: number;
     velocity: number;
+    currentOffset: number;
   } | null>(null);
   const [stageHeight, setStageHeight] = useState(640);
   // The floating "Tempat Pilihan" tab clamps against the REAL stage width (a
@@ -420,7 +516,13 @@ export default function HomeDiscovery({
   // measurement that drives the sheet also publishes the width.
   const [stageWidth, setStageWidth] = useState(0);
   const [sheetPosition, setSheetPosition] = useState<SheetPosition>("mid");
+  // `dragOffset` is the SETTLED drag value (start/release only). The live
+  // translate is written straight to the sheet element's transform during the
+  // gesture, so a drag never re-renders the sheet or its card list per frame
+  // (performance requirement, 2026-10-23).
   const [dragOffset, setDragOffset] = useState<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const sheetRef = useRef<HTMLElement | null>(null);
   // Which card's marker is currently highlighted. `pressedPlaceId` is the
   // transient press feedback from a card; `selectedPlaceId` persists after a
   // marker tap so the chosen pin and its card stay visibly linked.
@@ -524,8 +626,10 @@ export default function HomeDiscovery({
         lastY: event.clientY,
         lastT: performance.now(),
         velocity: 0,
+        currentOffset: settledOffset,
       };
       setDragOffset(settledOffset);
+      setDragging(true);
     },
     [settledOffset],
   );
@@ -541,7 +645,12 @@ export default function HomeDiscovery({
       if (elapsed > 0) drag.velocity = (event.clientY - drag.lastY) / elapsed;
       drag.lastY = event.clientY;
       drag.lastT = now;
-      setDragOffset(next);
+      drag.currentOffset = next;
+      // IMPERATIVE, transform-only: React state stays untouched during the
+      // gesture, so the 58-card list is not re-rendered on every pointermove.
+      // The released snap still goes through React state (endSheetDrag).
+      const sheet = sheetRef.current;
+      if (sheet) sheet.style.transform = `translateY(${next}px)`;
     },
     [sheetOffsets.full, sheetOffsets.small],
   );
@@ -558,10 +667,14 @@ export default function HomeDiscovery({
     // The release point is the authoritative end of a slow drag; the last
     // pointermove can be several pixels behind it.
     const releasedY = event?.clientY ?? drag.lastY;
+    // The final pointermove already resolved against the same range; using it
+    // keeps the release identical to what the user saw, and the release point
+    // still corrects a slow drag whose last move lagged.
     const current = Math.min(
       Math.max(drag.startOffset + (releasedY - drag.startY), sheetOffsets.full),
       sheetOffsets.small,
     );
+    drag.currentOffset = current;
     // A flick is only a flick while the pointer is still moving. If the last
     // move was long before the release (the finger stopped, then lifted), the
     // stale velocity must not advance an extra snap.
@@ -576,7 +689,13 @@ export default function HomeDiscovery({
       velocity,
       flickVelocity: SHEET_FLICK_VELOCITY,
     });
+    // Write the settled transform before clearing the gesture flag: React may
+    // skip rewriting an unchanged inline style, so the element must already
+    // hold the final offset when the drag ends.
+    const sheet = sheetRef.current;
+    if (sheet) sheet.style.transform = `translateY(${sheetOffsets[next]}px)`;
     setDragOffset(null);
+    setDragging(false);
     setSheetPosition(next);
   }, [sheetOffsets, sheetPosition]);
 
@@ -737,7 +856,7 @@ export default function HomeDiscovery({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.clearInterval(interval);
     };
-  }, [liveOnly]);
+  }, [liveOnly, liveRetryNonce]);
 
   // Real viewer position when permission is granted; no fallback point is
   // ever invented — without a position (or Place coordinates) no distance
@@ -1425,7 +1544,7 @@ export default function HomeDiscovery({
   // heart, real distance, name, category, stars, Follow, Direction, LIVE
   // status — except the short description, which now lives only on the
   // Place detail page. No numeric score is ever rendered anywhere.
-  const renderPlaceCard = (place: Place, isCurated: boolean) => {
+  const renderPlaceCard = (place: Place, isCurated: boolean, index = 0) => {
     const live = liveByPlaceId.get(place.id);
     // Star slots (MOCKUP §16): canonical engine stars only (1–4). Anything
     // else renders five empty slots — never a fabricated rating.
@@ -1446,22 +1565,48 @@ export default function HomeDiscovery({
           )
         : null;
 
+    // Tone (2026-10-23): curated = thin gold ring, LIVE = a soft bright-red
+    // edge. Both are DISPLAY only and come from canonical data (is_curated /
+    // the live feed); an ordinary card keeps the neutral hairline.
+    const tone = live
+      ? "border-live/25 ring-1 ring-live/30"
+      : isCurated
+        ? "border-[#d8c08f]/70 ring-1 ring-[#c9a45c]/75"
+        : "border-black/[0.06]";
+
     return (
+      <PlaceCardFrame index={index}>
       <VisitedLink
         key={place.id}
         href={live ? `/live/${live.sessionId}` : `/places/${place.id}`}
-        className="group flex h-full w-full flex-col overflow-hidden rounded-[22px] border border-black/5 bg-white shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-200 hover:shadow-[0_8px_20px_rgb(0_0_0/0.08)] motion-safe:active:scale-[0.99]"
-        visitedClassName={live ? "border-live/50 bg-[#fdf6f2]" : "border-brand-accent/30 bg-[#faf6ee]"}
-        onPointerDown={() => setPressedPlaceId(place.id)}
+        className={`singgah-place-card group relative flex h-full w-full flex-col overflow-hidden rounded-[22px] border bg-white shadow-[0_1px_1px_rgb(32_35_31/0.04),0_6px_16px_rgb(32_35_31/0.08),0_18px_36px_rgb(32_35_31/0.06)] transition-[transform,box-shadow] duration-150 ease-out hover:shadow-[0_2px_3px_rgb(32_35_31/0.05),0_10px_24px_rgb(32_35_31/0.10),0_24px_44px_rgb(32_35_31/0.07)] motion-safe:active:scale-[0.97] ${tone}`}
+        visitedClassName={live ? "ring-2 ring-live/40" : "ring-2 ring-brand-accent/40"}
+        onPointerDown={(event) => {
+          setPressedPlaceId(place.id);
+          // Prefetch on press, not on arrival: the detail route is ready by the
+          // time the tap resolves, without preloading every card's page. The
+          // link's own resolved href is read here, so the destination is
+          // declared in exactly one place.
+          const href = event.currentTarget.getAttribute("href");
+          if (href) router.prefetch(href);
+        }}
         onPointerUp={() => setPressedPlaceId(null)}
         onPointerCancel={() => setPressedPlaceId(null)}
         onPointerLeave={() => setPressedPlaceId(null)}
       >
-        {/* CARD COVER — 4:5 full-bleed (2026-10-18). The canonical cover wins;
-            a missing or failed image falls back to the neutral local
-            placeholder, and a real cover blur-ups from a skeleton. */}
-        <div className="relative aspect-[4/5] w-full shrink-0 overflow-hidden bg-[#ece7db]">
-          <PlaceCardCover name={place.name} src={place.coverImageUrl} />
+        {/* CARD COVER (2026-10-23) — a square photo dominates the card, and
+            the Place name lives ON the photo over a gradient scrim. The
+            bottom pills are kept clear of the name (name stops 32px above
+            the photo edge; pills occupy the last ~24px). The canonical cover
+            wins; a missing/failed image falls back to the neutral placeholder. */}
+        <div className="relative aspect-square w-full shrink-0 overflow-hidden bg-[#ece7db]">
+          <PlaceCardCover name={place.name} src={place.coverImageUrl} priority={index < 2} />
+
+          {/* Legibility scrim — sits under all card UI, never over the text. */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-[linear-gradient(to_top,rgb(15_18_16/0.82)_0%,rgb(15_18_16/0.45)_45%,rgb(15_18_16/0)_100%)]"
+          />
 
           {/* OVERLAYS: ✦ curated badge top-left, decorative heart top-right,
               real distance bottom-left on a glass pill, pulsing LIVE pill
@@ -1470,7 +1615,7 @@ export default function HomeDiscovery({
               Place coordinates both exist — never a fabricated number. */}
           {isCurated && (
             <span
-              className="absolute left-1.5 top-1.5 inline-flex h-[22px] w-[22px] items-center justify-center rounded-[11px] bg-brand-secondary text-[11px] leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.18)] ring-1 ring-white/60"
+              className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[linear-gradient(135deg,#f0d17e_0%,#c9a45c_55%,#a97a27_100%)] text-[14px] leading-none text-white shadow-[0_2px_8px_rgb(0_0_0/0.30)] ring-1 ring-white/85"
               title="Tempat Pilihan"
             >
               <span aria-hidden>✦</span>
@@ -1478,53 +1623,59 @@ export default function HomeDiscovery({
             </span>
           )}
           {/* No favorite feature exists in the MVP — the heart is DECORATIVE
-              (aria-hidden, non-interactive) exactly as drawn in the mockup.
-              It must never read as a saved-state control. */}
+              and deliberately does NOT look like a button: no chip, no
+              surface, no shadow box. It is a faint watermark on the photo
+              (aria-hidden, non-interactive) and must never read as saved state. */}
           <span
             aria-hidden
-            className="absolute right-1.5 top-1.5 inline-flex h-[22px] w-[22px] items-center justify-center rounded-full bg-white/90 text-[11px] leading-none text-brand-ink/70 shadow-[0_1px_3px_rgb(0_0_0/0.12)]"
+            className="pointer-events-none absolute right-2 top-2 select-none text-[17px] leading-none text-white/75 drop-shadow-[0_1px_2px_rgb(0_0_0/0.55)]"
           >
             ♡
           </span>
-          {distance && (
-            <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-0.5 rounded-full bg-brand-ink/60 px-1.5 py-1 text-[10px] font-bold leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.24)] ring-1 ring-white/25 backdrop-blur-md">
-              <span aria-hidden>➤</span>
-              {distance}
-            </span>
-          )}
-          {live && (
-            <button
-              type="button"
-              onClick={(event) => {
-                stopNestedCardAction(event);
-                router.push(`/live/${live.sessionId}`);
-              }}
-              className="absolute bottom-1.5 right-1.5 z-10 inline-flex items-center gap-1 rounded-full bg-live px-2 py-1 text-[10px] font-bold uppercase tracking-wide leading-none text-white shadow-[0_2px_8px_rgb(0_0_0/0.24)] transition hover:opacity-90"
-              aria-label={`Buka Live di ${place.name}`}
-            >
-              <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white motion-reduce:animate-none" />
-              LIVE
-            </button>
-          )}
+
+          {/* NAME ON THE PHOTO (name is max 2 lines; category/stars/actions
+              stay on the white card body below). */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-2.5 pb-9 pt-8">
+            <h3 className="line-clamp-2 text-[13.5px] font-bold leading-snug text-white drop-shadow-[0_1px_2px_rgb(0_0_0/0.55)]">
+              {place.name}
+            </h3>
+          </div>
+
+          <div className="absolute inset-x-2 bottom-2 z-10 flex items-end justify-between gap-1">
+            {distance ? (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-white/20 px-1.5 py-1 text-[10px] font-bold leading-none text-white shadow-[0_1px_3px_rgb(0_0_0/0.30)] ring-1 ring-white/40 backdrop-blur-md">
+                <span aria-hidden>➤</span>
+                {distance}
+              </span>
+            ) : (
+              <span />
+            )}
+            {live && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  stopNestedCardAction(event);
+                  router.push(`/live/${live.sessionId}`);
+                }}
+                className="singgah-live-pulse inline-flex touch-manipulation items-center gap-1 rounded-full bg-live px-2 py-1 text-[10px] font-bold uppercase leading-none tracking-wide text-white transition duration-100 hover:bg-[#c93027] active:scale-95"
+                aria-label={`Buka Live di ${place.name}`}
+              >
+                <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-white motion-reduce:animate-none" />
+                LIVE
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* CARD TEXT — name (max 2 lines), category (1 truncated line), the
-            5-slot star row, then the compact LIVE status chip. Stars come
-            ONLY from the canonical Discovery engine output (stars alone —
-            the numeric score never leaves the server); a Place outside the
-            engine shows five empty slots. NEVER a rating number, NEVER a
-            review count — no such data exists in this product. The short
-            description is NOT rendered on the card any more; it stays on the
-            Place detail page. */}
+        {/* CARD BODY — category, star slots, LIVE status, and the action row.
+            Stars come ONLY from the canonical Discovery engine output (stars
+            alone — the numeric score never leaves the server); a Place outside
+            the engine shows five empty slots. NEVER a rating number or review
+            count. The short description stays on the Place detail page. */}
         <div className="flex flex-1 flex-col p-2.5">
-          <h3 className="line-clamp-2 text-[13px] font-bold leading-snug text-brand-ink">{place.name}</h3>
-          <p className="mt-0.5 truncate text-[10px] font-semibold tracking-wide text-brand-ink/55">
+          <p className="truncate text-[10px] font-semibold tracking-wide text-brand-ink/55">
             {displayPlaceCategory(place.category)}
           </p>
-          {/* MOCKUP §9/§18: five star slots, always. The active slots take the
-              gold tone OF THE ACTUAL rating value (1→4 from the canonical
-              engine), the empty slots stay light gray, and no rating number
-              or review count is ever rendered — neither exists in the data. */}
           <p className="mt-1 flex items-center gap-px" aria-hidden>
             {[1, 2, 3, 4, 5].map((slot) => (
               <span
@@ -1538,13 +1689,12 @@ export default function HomeDiscovery({
             ))}
           </p>
 
-          {/* LIVE STATUS (PO 2026-09-26, compacted 2026-10-18): every card
-              keeps its honest status. With an active session the red pulsing
-              pill sits ON the photo (above); without one this compact chip
-              says "Belum LIVE" and carries the full sentence in its
-              aria-label. Pressing it still shows the honest non-live notice;
-              live state itself is never invented — the canonical
-              liveByPlaceId feed is the only source. */}
+          {/* LIVE STATUS: with an active session the red pulsing pill sits ON
+              the photo (above); without one this compact chip says "Belum
+              LIVE" and carries the full sentence in its aria-label. Pressing
+              it still shows the honest non-live notice; live state itself is
+              never invented — the canonical liveByPlaceId feed is the only
+              source. */}
           {!live && (
             <button
               type="button"
@@ -1553,7 +1703,7 @@ export default function HomeDiscovery({
                 stopNestedCardAction(event);
                 setNonLiveNoticePlaceId((current) => (current === place.id ? null : place.id));
               }}
-              className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-live/[0.08] px-1.5 py-0.5 text-[10px] font-bold leading-none text-live transition hover:bg-live/[0.14]"
+              className="mt-1 inline-flex w-fit touch-manipulation items-center gap-1 rounded-full bg-live/[0.08] px-1.5 py-0.5 text-[10px] font-bold leading-none text-live transition duration-100 hover:bg-live/[0.14] active:scale-95"
               aria-label={`${place.name}: Belum LIVE — belum ada proses Live yang berlangsung. Ketuk untuk keterangan.`}
             >
               <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-live/60" />
@@ -1571,7 +1721,8 @@ export default function HomeDiscovery({
 
           {/* ONE ACTION ROW: Direction is the primary deep-green control
               (flex-1, icon + text); Follow is the outline icon button next
-              to it. Both are at least 40px tall. */}
+              to it. Both are at least 40px tall and give instant press
+              feedback (<100ms). */}
           <div className="mt-auto flex items-center gap-1.5 pt-2">
             {directionsUrl ? (
               <button
@@ -1580,7 +1731,7 @@ export default function HomeDiscovery({
                   stopNestedCardAction(event);
                   window.open(directionsUrl, "_blank", "noopener,noreferrer");
                 }}
-                className="inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-1 rounded-[12px] bg-brand-primary px-2 text-[11px] font-bold text-white shadow-[0_2px_8px_rgb(14_107_79/0.18)] transition hover:bg-brand-primary-deep"
+                className="inline-flex h-10 min-w-0 flex-1 touch-manipulation items-center justify-center gap-1 rounded-[12px] bg-[linear-gradient(135deg,#0a5640_0%,#0e6b4f_100%)] px-2 text-[11px] font-bold text-white shadow-[0_4px_12px_rgb(10_86_64/0.28)] transition duration-100 hover:brightness-110 active:scale-95"
                 aria-label={`Petunjuk arah ke ${place.name} di aplikasi peta`}
               >
                 <span aria-hidden>➤</span>
@@ -1602,6 +1753,7 @@ export default function HomeDiscovery({
           </div>
         </div>
       </VisitedLink>
+      </PlaceCardFrame>
     );
   };
 
@@ -1937,7 +2089,7 @@ export default function HomeDiscovery({
                 setLiveFeedStatus("loading");
               }}
               aria-pressed={liveOnly}
-              className={`inline-flex h-11 touch-manipulation items-center justify-center gap-1 whitespace-nowrap rounded-[14px] px-2 text-[11px] font-bold tracking-wide shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 active:scale-95 sm:px-3 sm:text-xs ${
+              className={`inline-flex h-11 touch-manipulation items-center justify-center gap-1 whitespace-nowrap rounded-[14px] px-1.5 text-[11px] font-bold tracking-wide shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 active:scale-95 sm:px-3 sm:text-xs ${
                 liveOnly
                   ? "bg-live text-white"
                   : "border border-live/25 bg-white text-live"
@@ -2194,8 +2346,9 @@ export default function HomeDiscovery({
           floating "Peta" button is the only exit from `full`. The tab and
           the handle live in the header and therefore travel with the sheet. */}
       <section
+        ref={sheetRef}
         className={`singgah-sheet absolute inset-x-0 bottom-0 z-20 flex h-full flex-col rounded-t-[24px] bg-brand-cream shadow-[0_-8px_24px_rgb(0_0_0/0.08)] ${
-          dragOffset !== null ? "singgah-sheet-dragging" : ""
+          dragging ? "singgah-sheet-dragging" : ""
         }`}
         style={{ transform: `translateY(${sheetOffset}px)` }}
         aria-labelledby="place-results-heading"
@@ -2277,6 +2430,21 @@ export default function HomeDiscovery({
           </div>
         )}
 
+        {/* LIVE feed FIRST LOAD skeleton (2026-10-23): the tab is active and
+            nothing has settled yet. Two neutral card placeholders keep the
+            sheet from flashing empty, and they disappear the moment the real
+            list (or the honest empty/failed state) renders. */}
+        {liveOnly && liveItems.length === 0 && liveFeedStatus === "loading" && (
+          <div aria-hidden className="mt-4 grid grid-cols-2 gap-x-3 gap-y-4">
+            {[0, 1].map((slot) => (
+              <div
+                key={slot}
+                className="h-[290px] animate-pulse rounded-[22px] bg-white/70 ring-1 ring-black/5 motion-reduce:animate-none"
+              />
+            ))}
+          </div>
+        )}
+
         {/* LIVE feed FAILED with NOTHING loaded yet (audit fix, 2026-10-17).
             Before the first successful load there is no data to keep, so this
             is the ONE honest case where the LIVE tab has genuinely nothing to
@@ -2296,6 +2464,18 @@ export default function HomeDiscovery({
             <p className="mt-1 text-xs text-brand-ink/60">
               Periksa koneksi internet Anda. Daftar akan diperbarui otomatis.
             </p>
+            <button
+              type="button"
+              onClick={() => {
+                // Re-run the existing feed effect with one visible retry; the
+                // last good data (if any) is still never discarded.
+                setLiveFeedStatus("loading");
+                setLiveRetryNonce((nonce) => nonce + 1);
+              }}
+              className="mt-4 inline-flex h-10 touch-manipulation items-center justify-center rounded-[12px] border border-live/30 bg-white px-4 text-[12px] font-bold text-live transition duration-100 hover:bg-live/[0.06] active:scale-95"
+            >
+              Coba lagi
+            </button>
           </div>
         )}
 
@@ -2366,7 +2546,7 @@ export default function HomeDiscovery({
                 id={CURATED_RESULTS_ANCHOR_ID}
                 className="-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"
               >
-                {curatedListed.map((place) => (
+                {curatedListed.map((place, index) => (
                   <div
                     key={place.id}
                     id={`place-card-curated-${place.id}`}
@@ -2376,13 +2556,13 @@ export default function HomeDiscovery({
                       if (node) cardRefs.current.set(key, node);
                       else cardRefs.current.delete(key);
                     }}
-                    className={`h-full w-full rounded-[24px] ${
+                    className={`singgah-place-cell h-full w-full rounded-[22px] ${
                       selectedPlaceId === place.id
                         ? "ring-2 ring-brand-primary ring-offset-2 ring-offset-brand-cream"
                         : ""
                     }`}
                   >
-                    {renderPlaceCard(place, place.isCurated)}
+                    {renderPlaceCard(place, place.isCurated, index)}
                   </div>
                 ))}
               </div>
@@ -2407,7 +2587,7 @@ export default function HomeDiscovery({
                 id={DISCOVERY_RESULTS_ANCHOR_ID}
                 className="-mx-4 grid grid-cols-2 items-stretch gap-x-3 gap-y-4 px-4 pb-1"
               >
-                {discoveryRowPlaces.map((place) => (
+                {discoveryRowPlaces.map((place, index) => (
                   <div
                     key={place.id}
                     id={`place-card-discovery-${place.id}`}
@@ -2417,13 +2597,13 @@ export default function HomeDiscovery({
                       if (node) cardRefs.current.set(key, node);
                       else cardRefs.current.delete(key);
                     }}
-                    className={`h-full w-full rounded-[24px] ${
+                    className={`singgah-place-cell h-full w-full rounded-[22px] ${
                       selectedPlaceId === place.id
                         ? "ring-2 ring-brand-primary ring-offset-2 ring-offset-brand-cream"
                         : ""
                     }`}
                   >
-                    {renderPlaceCard(place, curatedIdSet.has(place.id))}
+                    {renderPlaceCard(place, curatedIdSet.has(place.id), index)}
                   </div>
                 ))}
               </div>

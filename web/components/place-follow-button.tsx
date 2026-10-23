@@ -52,9 +52,11 @@ export default function PlaceFollowButton({
   const [followed, setFollowed] = useState(false);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
+  // Every Follow state is a real tappable control: `touch-manipulation` removes
+  // the double-tap delay and the shared press feedback lands under 100ms.
   const baseClass = iconOnly
-    ? "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border transition disabled:opacity-60"
-    : "inline-flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-bold transition disabled:opacity-60";
+    ? "inline-flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-[12px] border transition duration-100 active:scale-95 disabled:opacity-60"
+    : "inline-flex shrink-0 touch-manipulation items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-bold transition duration-100 active:scale-95 disabled:opacity-60";
 
   // Resolve the signed-in user's follow state once from the server. A 401
   // means signed-out; the list endpoint returns the user's own follow rows
