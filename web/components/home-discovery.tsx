@@ -415,6 +415,17 @@ export default function HomeDiscovery({
     lng: number;
     accuracy?: number;
   } | null>(null);
+  // FIRST-FRAME READINESS (root-cause fix, 2026-10-23): the map must not paint
+  // a frame of its own before it knows whether a real location fix is coming.
+  // This turns true as soon as the FIRST geolocation attempt settles —
+  // success (a fix exists) or failure/timeout/unavailable (there is no fix).
+  // It is not a timer: it is the existing request's own callbacks, and the
+  // request itself already carries its 8 s timeout.
+  // Initialised from the platform: a browser without geolocation has nothing
+  // to wait for, so the map may frame the catalogue immediately.
+  const [viewerSettled, setViewerSettled] = useState<boolean>(
+    () => typeof navigator !== "undefined" && !navigator.geolocation,
+  );
   // Explicit "Lokasi Saya" requests bump this nonce so the map re-centers on
   // the latest fix on demand.
   const [locateNonce, setLocateNonce] = useState(0);
@@ -864,6 +875,8 @@ export default function HomeDiscovery({
   // initial mount fix and the explicit "Lokasi Saya" presses: a press always
   // asks the browser for a FRESH position (locate-refresh fix, 2026-09-30).
   const requestViewerPosition = useCallback(() => {
+    // No geolocation at all: nothing to wait for (the state above already says
+    // so), and no coordinate is invented either way.
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -877,10 +890,14 @@ export default function HomeDiscovery({
         // radius around this newest fix. Never flies to a stale one.
         setLocateNonce((nonce) => nonce + 1);
         setLocatePending(false);
+        setViewerSettled(true);
       },
-      // Denial/failure is silent: the camera stays exactly where it is —
+      // Denial/failure is silent: the camera keeps the honest no-origin frame —
       // no fallback coordinate, no default location, no dataset change.
-      () => setLocatePending(false),
+      () => {
+        setLocatePending(false);
+        setViewerSettled(true);
+      },
       { timeout: 8000 },
     );
   }, []);
@@ -1787,6 +1804,7 @@ export default function HomeDiscovery({
             places={visibleMapPlaces}
             liveByPlaceId={liveByPlaceId}
             viewerPosition={viewerPosition}
+            viewerSettled={viewerSettled}
             locateNonce={locateNonce}
             /* The REAL visible viewport is reported back here: it is the ONE
                geographic coverage source for the markers and for the Discovery

@@ -46,8 +46,15 @@ test("E2E: LIVE cards compute distance only from real viewer position + canonica
   assert.match(homeSource, /activeCenter && place\?\.latitude != null && place\?\.longitude != null/);
   assert.doesNotMatch(homeSource, /distanceMeters\(viewerPosition/);
   // Geolocation is optional: denial/absence must never surface as an error;
-  // it only clears the new in-flight indicator (2026-10-23).
-  assert.match(homeSource, /\(\) => setLocatePending\(false\),/);
+  // it only clears the in-flight indicator (2026-10-23) and records that the
+  // first attempt settled — that outcome is what lets the map paint its honest
+  // no-origin frame instead of waiting forever. Nothing else happens: no
+  // camera move, no coordinate.
+  assert.match(
+    homeSource,
+    /\(\) => \{\s*setLocatePending\(false\);\s*setViewerSettled\(true\);\s*\},/,
+  );
+  assert.equal((homeSource.match(/setViewerPosition\(/g) ?? []).length, 1, "only the real fix writes a position");
 });
 
 test("E2E: distance tabs are CAMERA presets — markers and rows follow the REAL viewport", () => {

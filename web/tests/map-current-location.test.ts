@@ -114,18 +114,20 @@ test("Marker refresh and filter changes never steal the viewport from the user",
   // reachable from a marker refresh or a filter-driven marker rebuild. The old
   // one-shot MARKER overview (which zoomed to a world view on a spread marker
   // set) still does not exist in any form.
-  // 2026-10-23: EXACTLY TWO fits, and neither of them is a marker fit.
-  //   1. the NEUTRAL INITIAL FRAME — fitted once at map init to the canonical
-  //      Place spread (`placesRef.current`), so the first reported viewport
-  //      covers the whole catalogue instead of a clamped world slice. It runs
-  //      inside the create-once effect, before any report, and cannot be
-  //      re-triggered by a marker refresh or a filter change.
-  //   2. the shared auto-fit mechanism (`candidatePlaces`), reachable ONLY
+  // 2026-10-23: EXACTLY THREE fits, and none of them is a marker fit.
+  //   1. the NO-ORIGIN INITIAL FRAME — fitted once, only when the first
+  //      location attempt has settled without a fix, to the canonical Place
+  //      spread (`placesRef.current`). It runs inside the create-once effect,
+  //      before any report, and cannot be re-triggered by a marker refresh or
+  //      a filter change.
+  //   2. the ORIGIN INITIAL FRAME — the local-area dataset around the real
+  //      fix (no radius preset active), the SAME rule "Lokasi Saya" uses.
+  //   3. the shared auto-fit mechanism (`candidatePlaces`), reachable ONLY
   //      through an explicit refocus trigger.
   // Nothing here reads the narrowed marker set, and the user latch below still
   // excludes every programmatic move.
   const fitBoundsCalls = mapCode.match(/map\.fitBounds\(/g) ?? [];
-  assert.equal(fitBoundsCalls.length, 2, "the initial frame + the shared auto-fit; no marker fit");
+  assert.equal(fitBoundsCalls.length, 3, "both initial frames + the shared auto-fit; no marker fit");
   // The initial frame reads the dataset ref, never the narrowed marker set…
   assert.match(mapCode, /const initialPoints = collectGeoPoints\(placesRef\.current\)/);
   assert.doesNotMatch(mapCode, /initialPoints[\s\S]{0,80}visibleMapPlaces/);
@@ -220,8 +222,12 @@ test("Lokasi Saya: immediate recenter on the existing fix + fresh geolocation re
   // Exactly one viewer-position write (the fresh fix itself — no fallback).
   assert.equal((handler.match(/setViewerPosition\(/g) ?? []).length, 1);
   // Denial/failure stays silent: no default location, no camera mutation; it
-  // only clears the new in-flight indicator (2026-10-23).
-  assert.match(handler, /=> setLocatePending\(false\),\s*\{\s*timeout: 8000\s*\}/);
+  // only clears the new in-flight indicator and records that the first attempt
+  // settled (2026-10-23 — the map's first frame waits on that outcome).
+  assert.match(
+    handler,
+    /=> \{\s*setLocatePending\(false\);\s*setViewerSettled\(true\);\s*\},\s*\{\s*timeout: 8000\s*\}/,
+  );
 });
 
 test("Locate failure matrix: existing fix recentres, no fix never invents one", () => {
@@ -441,9 +447,11 @@ test("Bounded radius focuses the camera on the real Current Location, never on m
   assert.match(mapCode, /cameraRadiusMeters/);
   // ...centers on the REAL geolocation fix — INSTANTLY...
   assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\]/);
-  // ...derives zoom from the radius itself (radius-sized bounds box)...
-  assert.match(mapCode, /getBoundsZoom\(bounds\)/);
+  // ...derives zoom from the radius itself (radius-sized bounds box), through
+  // ONE helper shared with the initial frame...
+  assert.match(mapCode, /getBoundsZoom\(corners, false\) - 0\.5/);
   assert.match(mapCode, /latDelta = radiusMeters \/ 111_320/);
+  assert.match(mapCode, /presetZoomForRadius\(map, position, radiusMeters\)/);
   // ...never steals the camera from the user (interactions latch; the latch
   // re-arms on a NEW preset choice so the next tab can refocus).
   assert.match(mapCode, /userInteractedRef\.current\) return/);
@@ -515,7 +523,9 @@ test("Exactly one tile layer exists for the map's whole lifetime", () => {
   // no orphaned OSM layer can survive a remount, refresh, or drag.
   const tileLayerCalls = mapCode.match(/L\.tileLayer\(/g) ?? [];
   assert.equal(tileLayerCalls.length, 1, "exactly one L.tileLayer call");
-  assert.match(mapCode, /tileLayerRef\.current = tileLayer/);
+  // 2026-10-23: the layer is created WITH the first frame (never before it), so
+  // it is stored straight into the ref at that point.
+  assert.match(mapCode, /tileLayerRef\.current = L\.tileLayer\(OSM_TILE_URL/);
   assert.match(mapCode, /tileLayerRef\.current\?\.remove\(\)/);
   assert.match(mapCode, /tileLayerRef\.current = null/);
 });
@@ -550,7 +560,7 @@ test("A new preset refocuses deterministically; manual pan/zoom wins between cho
   // ...and still centers on the REAL geolocation fix with preset-derived
   // zoom, applied instantly (setView).
   assert.match(mapCode, /map\.setView\(\[anchor\.lat, anchor\.lng\]/);
-  assert.match(mapCode, /getBoundsZoom\(bounds\)/);
+  assert.match(mapCode, /getBoundsZoom\(corners, false\) - 0\.5/);
   // Home passes the ONE preset mapping (curated 50 km or the tab preset).
   const pageCode = stripComments(homePage);
   assert.match(pageCode, /CAMERA_PRESET_RADIUS_M\[distanceFilter\]/);
