@@ -485,7 +485,12 @@ test("AC 3: denied geolocation performs NO fit at all", () => {
   assert.match(locateEffect, /locatePendingRef\.current = false;/);
   assert.equal(resolveLocalAreaCoverage({ origin: null, places: WORLD }).places.length, 0);
   assert.equal(resolveLocalAreaCoverage({ origin: { lat: Number.NaN, lng: 1 }, places: WORLD }).places.length, 0);
-  assert.match(pageCode, /\(\) => setLocatePending\(false\),\s*\{\s*timeout: 8000\s*\}/);
+  // The failure callback records that the FIRST attempt settled (2026-10-23:
+  // the map's first frame waits on that outcome) and still invents nothing.
+  assert.match(
+    pageCode,
+    /\(\) => \{\s*setLocatePending\(false\);\s*setViewerSettled\(true\);\s*\},\s*\{\s*timeout: 8000\s*\}/,
+  );
 });
 
 test("AC 3: the frame is applied once and then left alone", () => {

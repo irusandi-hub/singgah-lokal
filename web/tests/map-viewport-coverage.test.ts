@@ -312,8 +312,12 @@ test("10. Lokasi Saya frames the viewer's local Place distribution around the re
   const floor = Number(/const LOCATE_MIN_ZOOM = (\d+)/.exec(homeMap)?.[1] ?? "0");
   assert.ok(floor >= 14, "the locate fallback focus must be a CLOSE zoom");
   // Failure handling: a denied/timeout fix writes no position and moves no
-  // camera; the request simply stays pending.
-  assert.match(pageCode, /\(\) => setLocatePending\(false\),\s*\{\s*timeout: 8000\s*\}/);
+  // camera; the request simply settles (which is what lets the map paint its
+  // honest no-origin frame — 2026-10-23).
+  assert.match(
+    pageCode,
+    /\(\) => \{\s*setLocatePending\(false\);\s*setViewerSettled\(true\);\s*\},\s*\{\s*timeout: 8000\s*\}/,
+  );
   assert.equal((pageCode.match(/setViewerPosition\(/g) ?? []).length, 1, "only the real fix writes a position");
   assert.match(pageCode, /lat: position\.coords\.latitude/);
   // A repeated press re-centres on the newest fix; an older async callback can

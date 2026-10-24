@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { CircleMarker, LayerGroup, Map as LeafletMap, TileLayer } from "leaflet";
+import type {
+  CircleMarker,
+  LayerGroup,
+  LatLngTuple,
+  Map as LeafletMap,
+  TileLayer,
+} from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   FIT_SINGLE_PLACE_ZOOM,
@@ -30,8 +36,11 @@ import {
  *   coordinates never receives a marker (fail-closed, no invented position).
  * - Current Location is the map's anchor: the real browser geolocation fix
  *   becomes the camera center. There is NO fallback viewport and NO invented
- *   user position — before the first real fix the map starts on the neutral
- *   world overview (fitWorld), never on a stand-in country view.
+ *   user position. The FIRST frame is decided before anything is painted: a
+ *   known origin (searched city, else the real fix) frames the local area; with
+ *   no origin the map frames the canonical Place spread once the first location
+ *   attempt has settled, so a world-scale frame is never painted and then
+ *   replaced by the local one. Never a stand-in country or default city.
  * - Camera authority (PO, 2026-09-29 + 2026-09-30 map-coverage fix and
  *   coverage decision): ONE deterministic radius mechanism — every distance
  *   preset (1 km / 5 km / 10 km+) frames exactly that radius around the real
@@ -148,6 +157,16 @@ type HomeMapProps = {
   places: HomeMapPlace[];
   liveByPlaceId: Map<string, HomeMapLive>;
   viewerPosition: HomeMapViewer | null;
+  /**
+   * FIRST-FRAME READINESS (root-cause fix, 2026-10-23): true once the FIRST
+   * geolocation attempt has settled — success (a fix exists) or failure /
+   * timeout / unavailable (there is no fix). The map's initial frame waits for
+   * this ONLY while it has no origin of its own, so a real fix can never be
+   * preceded by a world-scale frame that the fix then replaces. Defaults to
+   * `true`, which is the correct, non-blocking behaviour for a caller that
+   * never asks for a position.
+   */
+  viewerSettled?: boolean;
   locateNonce: number;
   /**
    * THE camera preset (PO, 2026-09-29; coverage unified 2026-09-30): when
@@ -368,6 +387,28 @@ const VIEWER_FIT_POINT_ID = "__viewer_position__";
  */
 const SEARCH_MIN_ZOOM = 13;
 /**
+ * THE PRESET ZOOM FOR A RADIUS (PO, 2026-09-29) — one pure function, used by
+ * BOTH the distance-tab preset effect and the initial frame. The zoom is a
+ * function of the radius alone (never of the marker set, never of the current
+ * zoom), so 1 km < 5 km < 10 km+ stay strictly ordered. The `- 0.5` keeps the
+ * radius circle inside the frame; `getBoundsZoom` is Leaflet's own projection
+ * math, so no coordinate is invented here.
+ */
+function presetZoomForRadius(
+  map: LeafletMap,
+  position: { lat: number; lng: number },
+  radiusMeters: number,
+): number {
+  const latDelta = radiusMeters / 111_320;
+  const lngDelta =
+    radiusMeters / (111_320 * Math.max(0.1, Math.cos((position.lat * Math.PI) / 180)));
+  const corners: LatLngTuple[] = [
+    [position.lat - latDelta, position.lng - lngDelta],
+    [position.lat + latDelta, position.lng + lngDelta],
+  ];
+  return map.getBoundsZoom(corners, false) - 0.5;
+}
+/**
  * SMOOTH VIEW-DISTANCE TRANSITION (product decision, 2026-10-04). Switching
  * between view distances — the 1/5/10 km tabs, "Tempat Pilihan", "Lokasi
  * Saya", and a new search answer — eases the camera instead of snapping, so
@@ -444,6 +485,7 @@ export default function HomeMap({
   places,
   liveByPlaceId,
   viewerPosition,
+  viewerSettled = true,
   locateNonce,
   cameraRadiusMeters = null,
   cameraCenter = null,
@@ -521,6 +563,16 @@ export default function HomeMap({
   // always reads the CURRENT dataset — never the one from a previous fix or a
   // previous search.
   const locateFitPlacesRef = useRef<HomeMapPlace[]>(locateFitPlaces);
+  // FIRST FRAME (root-cause fix, 2026-10-23). The initial frame is decided from
+  // the ACTIVE ORIGIN (searched city first, else the real fix — the same
+  // `cameraCenter` value every preset reads) and from the FIRST location
+  // attempt's own outcome. All four are mirrored into refs so the mount-once
+  // map lifecycle reads the CURRENT values instead of a stale closure.
+  const initialOriginRef = useRef<{ lat: number; lng: number } | null>(null);
+  const viewerSettledRef = useRef(viewerSettled);
+  const cameraRadiusRef = useRef<number | null>(cameraRadiusMeters ?? null);
+  const initialFrameDoneRef = useRef(false);
+  const finalizeInitialFrameRef = useRef<(() => Promise<boolean>) | null>(null);
 
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -567,6 +619,23 @@ export default function HomeMap({
   useEffect(() => {
     locateFitPlacesRef.current = locateFitPlaces;
   }, [locateFitPlaces]);
+
+  // FIRST-FRAME SOURCES (declared BEFORE the map lifecycle effect, so the very
+  // first mount already sees them). `cameraCenter` is Home's ONE resolved
+  // anchor (searched city first, else the real fix); the raw values are read
+  // only as a safety net for a caller that passes one without the other.
+  useEffect(() => {
+    const origin = cameraCenter ?? viewerPosition ?? searchCenter ?? null;
+    initialOriginRef.current = origin ? { lat: origin.lat, lng: origin.lng } : null;
+  }, [cameraCenter, viewerPosition, searchCenter]);
+
+  useEffect(() => {
+    viewerSettledRef.current = viewerSettled;
+  }, [viewerSettled]);
+
+  useEffect(() => {
+    cameraRadiusRef.current = cameraRadiusMeters ?? null;
+  }, [cameraRadiusMeters]);
 
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
@@ -686,18 +755,10 @@ export default function HomeMap({
   // radius (never of the current zoom) — strictly ordered radii produce
   // strictly ordered, deterministic zoom levels for every tab.
   const radiusZoom = useCallback(
-    async (map: LeafletMap, position: { lat: number; lng: number }, radiusMeters: number) => {
-      const L = (await import("leaflet")).default;
-      // getBoundsZoom needs a non-degenerate box; project the radius into
-      // degrees (lat degrees are exact, lng degrees widen toward the poles).
-      const latDelta = radiusMeters / 111_320;
-      const lngDelta = radiusMeters / (111_320 * Math.max(0.1, Math.cos((position.lat * Math.PI) / 180)));
-      const bounds = L.latLngBounds(
-        [position.lat - latDelta, position.lng - lngDelta],
-        [position.lat + latDelta, position.lng + lngDelta],
-      );
-      return map.getBoundsZoom(bounds) - 0.5; // keep the radius ring inside the frame
-    },
+    async (map: LeafletMap, position: { lat: number; lng: number }, radiusMeters: number) =>
+      // ONE implementation, shared with the initial frame — the preset zoom can
+      // never differ between the first paint and a later tab choice.
+      presetZoomForRadius(map, position, radiusMeters),
     [],
   );
 
@@ -901,83 +962,12 @@ export default function HomeMap({
         ],
         maxBoundsViscosity: 1.0,
       });
-      // NEUTRAL INITIAL FRAME (root-cause fix, 2026-10-23).
-      //
-      // BUG: this used to be `map.fitWorld()` alone. `fitWorld()` asks Leaflet
-      // to fit the WHOLE world, but the fit is then clamped by `minZoom: 2`,
-      // so on a phone (390 px wide) the "world overview" was really a ~137°
-      // slice centred on [0, 0]: longitudes roughly ±68°. That slice covers
-      // the Gulf, so every Indonesian Place of the catalogue sat outside it and
-      // the viewport gate silently removed those Places from the map, the
-      // list, and the count — a map that LOOKS global but serves one region.
-      //
-      // FIX: with no real origin yet (no Current Location fix, no search),
-      // the neutral frame is fitted to the CANONICAL PLACE SPREAD the component
-      // was handed, so the first reported viewport contains every Place and the
-      // markers, the rows, and the count agree from the first report onward.
-      // Nothing is invented: the bounds come from the dataset itself. With no
-      // Place coordinate at all there is nothing to frame, and the neutral
-      // whole-world overview (`fitWorld()`) remains the fallback — the camera is
-      // still never moved to a default city, country, or stand-in coordinate.
-      // The real Current Location / search camera presets below are untouched
-      // and still take the frame over as soon as an origin exists.
-      const initialPoints = collectGeoPoints(placesRef.current);
-      const initialBounds = boundsOfPoints(initialPoints);
-      if (initialPoints.length === 1) {
-        // One Place: a degenerate box would jump to the map's maximum zoom, so
-        // it is framed with the same single-Place zoom every other fit uses.
-        map.setView([initialPoints[0].lat, initialPoints[0].lng], FIT_SINGLE_PLACE_ZOOM, {
-          animate: false,
-        });
-      } else if (initialBounds) {
-        // Same reserved chrome padding as every other camera fit, so the frame
-        // matches the area the user can really see.
-        const initialPadding = resolveCameraFitPadding(map.getSize());
-        map.fitBounds(
-          L.latLngBounds(
-            [initialBounds.south, initialBounds.west],
-            [initialBounds.north, initialBounds.east],
-          ),
-          {
-            paddingTopLeft: initialPadding.paddingTopLeft,
-            paddingBottomRight: initialPadding.paddingBottomRight,
-            // Initial paint: no flight, and no maxZoom cap — a sparse dataset
-            // must not be pushed to a street-level frame.
-            animate: false,
-          },
-        );
-      } else {
-        map.fitWorld();
-      }
       // OSM ATTRIBUTION (2026-10-21): the credit STAYS (ODbL requires it), but
       // Leaflet's decorative "Leaflet" wordmark and its flag are removed — the
       // contributor is what the licence asks us to show, and the credit is
       // styled to 9.5px with a translucent surface in globals.css. No link,
       // target, or rel is touched.
       map.attributionControl.setPrefix(false);
-      // EXACTLY ONE tile layer for the map's whole lifetime — a removed
-      // instance can never leave an orphaned OSM layer (stale/repeated tiles
-      // after remount, refresh, or drag on Android Chrome).
-      const tileLayer = L.tileLayer(OSM_TILE_URL, {
-        attribution: OSM_ATTRIBUTION,
-        // CALM BASEMAP (2026-10-21): OSM standard tiles are a single rendered
-        // PNG per tile — there is no vector style, no layer list, and no
-        // label switch to configure. This class is therefore the ONLY styling
-        // hook the source offers: globals.css applies one gentle, whole-raster
-        // tonal adjustment (less saturation, slightly flatter contrast, a warm
-        // tint). It changes no tile URL, provider, zoom, attribution, or
-        // interaction.
-        className: "singgah-basemap",
-        maxZoom: 19,
-        noWrap: true,
-        // Match the map's FINITE maxBounds: tiles stop at the ±180 world
-        // edge instead of requesting wrapped/empty tiles outside it.
-        bounds: [
-          [-85, -180],
-          [85, 180],
-        ],
-      }).addTo(map);
-      tileLayerRef.current = tileLayer;
 
       // GESTURE-ONLY ZOOM (2026-10-18): the Leaflet +/- buttons were removed
       // from the Home map. Pinch and two-finger pan remain fully functional
@@ -1045,25 +1035,176 @@ export default function HomeMap({
       userPane.style.zIndex = "640";
       markerLayerRef.current = L.layerGroup().addTo(map);
       userLayerRef.current = L.layerGroup().addTo(map);
-      container.dataset.singgahMap = "ready";
-      setReady(true);
 
-      // Mobile layout timing: panes can measure before the section settles.
-      // invalidateSize() after init (and on every window resize) prevents
-      // visually stacked tiles/layers on phones.
-      invalidateTimer = setTimeout(() => {
-        if (mapRef.current === map) {
-          invalidate(map);
-          // INITIAL STATE (PO, 2026-09-30): the first status is computed as
-          // soon as the map is ready — the user never has to move the map
-          // first. invalidateSize settled the real viewport size; any marker
-          // set built before readiness is re-evaluated here too.
-          evaluateViewportStatus();
-          // ...and the FIRST real viewport is reported here as well, so the
-          // rows follow the visible area without waiting for a gesture.
-          reportViewportBounds();
+      // THE ONE INITIAL FRAME (root-cause fix, 2026-10-23).
+      //
+      // BUG THIS REPLACES: the map always painted a frame of its own first —
+      // the whole-catalogue fit (added 2026-10-23 in PR #53 so the viewport
+      // gate could not disagree with the first paint). Because the catalogue
+      // spans the Gulf, Riyadh AND West Java, that fit is a WORLD-scale frame
+      // (`minZoom: 2`, ~137° of longitude): every Place on screen is a couple
+      // of pixels wide, the Gulf Places collapse into one blob, and the frame
+      // is shifted north-east by the fit's asymmetric chrome padding. The
+      // location camera then replaced it a moment later — so Home always went
+      // "global overview → local area" during loading, and the narrowed local
+      // marker set was drawn on top of the still-loading world basemap. That
+      // is the reported "global map with only two places, then it changes".
+      // PR #53 did not remove it because it only made the DATASET agree with
+      // that first world frame; the world frame itself stayed the first paint.
+      //
+      // THE RULE NOW: one frame, decided before any tile or marker is painted.
+      //   · a real origin is already known (search center, else the device
+      //     fix) → frame the LOCAL AREA exactly like the existing camera
+      //     presets do (radius preset around that origin; the local-area
+      //     dataset when no radius is active; the origin itself as the last
+      //     resort). No world frame is ever painted first;
+      //   · no origin, and the FIRST location attempt already settled as
+      //     failed/unavailable → frame the canonical Place spread, so markers,
+      //     rows, and count agree with the frame (the documented, permitted
+      //     no-origin view: no coordinate is invented);
+      //   · no origin, and that attempt is still running → paint nothing yet.
+      //     The basemap, the markers, and `ready` are held until the request's
+      //     OWN callbacks settle it (the request already carries its 8 s
+      //     timeout), so the first visible frame is the correct one. This is a
+      //     data decision, not a delay: nothing here hides a wrong frame with a
+      //     timer.
+      const applyCatalogueFrame = () => {
+        const initialPoints = collectGeoPoints(placesRef.current);
+        const initialBounds = boundsOfPoints(initialPoints);
+        if (initialPoints.length === 1) {
+          // One Place: a degenerate box would jump to the map's maximum zoom,
+          // so it is framed with the same single-Place zoom every other fit
+          // uses.
+          map.setView([initialPoints[0].lat, initialPoints[0].lng], FIT_SINGLE_PLACE_ZOOM, {
+            animate: false,
+          });
+        } else if (initialBounds) {
+          const initialPadding = resolveCameraFitPadding(map.getSize());
+          map.fitBounds(
+            L.latLngBounds(
+              [initialBounds.south, initialBounds.west],
+              [initialBounds.north, initialBounds.east],
+            ),
+            {
+              paddingTopLeft: initialPadding.paddingTopLeft,
+              paddingBottomRight: initialPadding.paddingBottomRight,
+              animate: false,
+            },
+          );
+        } else {
+          // No Place coordinate at all: the world overview is the only honest
+          // frame. Never a default city, country, or stand-in coordinate.
+          map.fitWorld();
         }
-      }, 150);
+      };
+
+      const applyOriginFrame = (origin: { lat: number; lng: number }) => {
+        const radius = cameraRadiusRef.current;
+        if (typeof radius === "number" && Number.isFinite(radius) && radius > 0) {
+          map.setView(
+            [origin.lat, origin.lng],
+            Math.max(2, presetZoomForRadius(map, origin, radius)),
+            { animate: false },
+          );
+          return;
+        }
+        const points = collectGeoPoints(locateFitPlacesRef.current);
+        const bounds = boundsOfPoints(points);
+        if (points.length === 1) {
+          map.setView([points[0].lat, points[0].lng], FIT_SINGLE_PLACE_ZOOM, { animate: false });
+          return;
+        }
+        if (bounds) {
+          const padding = resolveCameraFitPadding(map.getSize());
+          map.fitBounds(
+            L.latLngBounds([bounds.south, bounds.west], [bounds.north, bounds.east]),
+            {
+              paddingTopLeft: padding.paddingTopLeft,
+              paddingBottomRight: padding.paddingBottomRight,
+              animate: false,
+            },
+          );
+          return;
+        }
+        map.setView([origin.lat, origin.lng], Math.max(map.getZoom(), SEARCH_MIN_ZOOM), {
+          animate: false,
+        });
+      };
+
+      // EXACTLY ONE tile layer for the map's whole lifetime — a removed
+      // instance can never leave an orphaned OSM layer (stale/repeated tiles
+      // after remount, refresh, or drag on Android Chrome). It is created with
+      // the FIRST FRAME, never before it, so no wrong basemap is ever
+      // requested.
+      const finalizeInitialFrame = async (): Promise<boolean> => {
+        if (cancelled || mapRef.current !== map || initialFrameDoneRef.current) return false;
+        // An unmeasured container cannot choose an honest frame — a 0-sized fit
+        // is meaningless. The ResizeObserver finishes the frame as soon as the
+        // real box exists (never a timer of its own).
+        const size = map.getSize();
+        if (size.x === 0 || size.y === 0) return false;
+        const origin = initialOriginRef.current;
+        if (origin) {
+          applyOriginFrame(origin);
+        } else if (viewerSettledRef.current) {
+          applyCatalogueFrame();
+        } else {
+          // The first location attempt is still in flight — wait for its own
+          // callback (success → local frame, failure → catalogue frame).
+          return false;
+        }
+        if (cancelled || mapRef.current !== map) return false;
+        if (!tileLayerRef.current) {
+          tileLayerRef.current = L.tileLayer(OSM_TILE_URL, {
+            attribution: OSM_ATTRIBUTION,
+            // CALM BASEMAP (2026-10-21): OSM standard tiles are a single
+            // rendered PNG per tile — there is no vector style, no layer list,
+            // and no label switch to configure. This class is therefore the
+            // ONLY styling hook the source offers: globals.css applies one
+            // gentle, whole-raster tonal adjustment (less saturation, slightly
+            // flatter contrast, a warm tint). It changes no tile URL, provider,
+            // zoom, attribution, or interaction.
+            className: "singgah-basemap",
+            maxZoom: 19,
+            noWrap: true,
+            // Match the map's FINITE maxBounds: tiles stop at the ±180 world
+            // edge instead of requesting wrapped/empty tiles outside it.
+            bounds: [
+              [-85, -180],
+              [85, 180],
+            ],
+          }).addTo(map);
+        }
+        container.dataset.singgahMap = "ready";
+        // WHICH frame the map opened on (presentation hook beside the existing
+        // `data-singgah-map`): `origin` = the viewer's local area / searched
+        // city, `catalogue` = the settled no-origin spread. It records the ONE
+        // first-frame decision, so a regression back to "world frame first,
+        // local frame a moment later" is observable instead of timing-dependent.
+        container.dataset.singgahMapFrame = origin ? "origin" : "catalogue";
+        initialFrameDoneRef.current = true;
+        setReady(true);
+
+        // Mobile layout timing: panes can measure before the section settles.
+        // invalidateSize() after init (and on every window resize) prevents
+        // visually stacked tiles/layers on phones.
+        invalidateTimer = setTimeout(() => {
+          if (mapRef.current === map) {
+            invalidate(map);
+            // INITIAL STATE (PO, 2026-09-30): the first status is computed as
+            // soon as the map is ready — the user never has to move the map
+            // first. invalidateSize settled the real viewport size; any marker
+            // set built before readiness is re-evaluated here too.
+            evaluateViewportStatus();
+            // ...and the FIRST real viewport is reported here as well, so the
+            // rows follow the visible area without waiting for a gesture.
+            reportViewportBounds();
+          }
+        }, 150);
+        return true;
+      };
+      finalizeInitialFrameRef.current = finalizeInitialFrame;
+      await finalizeInitialFrame();
     })();
 
     const onWindowResize = () => {
@@ -1093,6 +1234,9 @@ export default function HomeMap({
             if (previous && previous.x === size.x && previous.y === size.y) return;
             measuredSizeRef.current = { x: size.x, y: size.y };
             invalidate(map);
+            // A first frame held for an unmeasured container (or for the first
+            // location outcome) is finished here, once the box is real.
+            if (!initialFrameDoneRef.current) void finalizeInitialFrameRef.current?.();
             evaluateViewportStatus();
             reportViewportBounds();
           })
@@ -1102,6 +1246,8 @@ export default function HomeMap({
 
     return () => {
       cancelled = true;
+      initialFrameDoneRef.current = false;
+      finalizeInitialFrameRef.current = null;
       setReady(false);
       if (invalidateTimer !== null) clearTimeout(invalidateTimer);
       if (viewportSettleTimer !== null) clearTimeout(viewportSettleTimer);
@@ -1112,6 +1258,7 @@ export default function HomeMap({
       const container = containerRef.current;
       if (container) {
         container.dataset.singgahMap = "";
+        container.dataset.singgahMapFrame = "";
         const observer = touchMoveObserverRef.current;
         if (observer) container.removeEventListener("touchmove", observer);
       }
@@ -1133,6 +1280,22 @@ export default function HomeMap({
     // and every dependency it reads lives in refs — no re-init is wanted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // HELD FIRST FRAME (root-cause fix, 2026-10-23). When the map was created
+  // before the first location attempt settled AND no origin was known yet, the
+  // lifecycle effect painted nothing (`finalizeInitialFrame` returns false) so
+  // that a world-scale catalogue frame could never be replaced by the local one
+  // afterwards. That frame is finished HERE, on the location outcome itself:
+  // the fix → the local-area frame; a denial / timeout / unavailable → the
+  // catalogue frame. It re-runs on the values the decision reads, so it can
+  // never miss the transition, and once the frame is painted the ref makes
+  // every later run a no-op.
+  useEffect(() => {
+    if (initialFrameDoneRef.current) return;
+    const finalize = finalizeInitialFrameRef.current;
+    if (!finalize) return;
+    void finalize();
+  }, [viewerSettled, viewerPosition, cameraCenter, searchCenter]);
 
   // AUTO-FIT MECHANISM (product decision, 2026-10-03) — ONE function, shared by
   // the curated refocus and the location search, so both obey the same three
