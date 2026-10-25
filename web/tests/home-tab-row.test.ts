@@ -250,7 +250,14 @@ test("selected state is unchanged: one active control, brand green or LIVE red",
   assert.match(discoveryCode, /<CuratedMapTab\s+pressed=\{curatedOnly\}/);
   assert.match(tabCode, /aria-pressed=\{pressed\}/);
   assert.equal((tabCode.match(/aria-pressed=/g) ?? []).length, 1);
-  assert.match(discoveryCode, /aria-pressed=\{distanceFilter === filter && !curatedOnly\}/);
+  // Still exactly one pressed distance tab — and since 2026-10-25 it is only
+  // pressed while the radius has an anchor to centre on (or while the first
+  // location attempt is still settling, so it never blinks).
+  assert.match(discoveryCode, /aria-pressed=\{selected\}/);
+  assert.match(
+    discoveryCode,
+    /distanceFilter === filter && !curatedOnly && \(activeCenter !== null \|\| !viewerSettled\)/,
+  );
 });
 
 // ---------------------------------------------------------------------------

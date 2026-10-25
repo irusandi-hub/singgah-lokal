@@ -207,12 +207,14 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
   assert.match(curatedTab, /is-active bg-\[linear-gradient\(135deg,#127a5a_0%,var\(--brand-primary\)_52%,var\(--brand-primary-deep\)_100%\)\] text-white/);
   assert.doesNotMatch(curatedTab, /bg-brand-ink text-white/);
   assert.doesNotMatch(code, /allPlacesOnly/);
-  // The radius preset is selected only when NO place-set layer owns the map,
-  // so choosing "Tempat Pilihan" deselects it exactly as it always did.
+  // The radius preset is selected only when NO place-set layer owns the map
+  // (and, since 2026-10-25, only while the radius has an anchor), so choosing
+  // "Tempat Pilihan" deselects it exactly as it always did.
   assert.match(
     code,
-    /distanceFilter === filter && !curatedOnly\n\s*\? "bg-brand-primary text-white"/,
+    /distanceFilter === filter && !curatedOnly && \(activeCenter !== null \|\| !viewerSettled\)/,
   );
+  assert.match(code, /selected\n\s*\? "bg-brand-primary text-white"/);
   // The unselected distance tabs keep their white surface (mockup).
   assert.match(code, /: "border border-black\/5 bg-white text-brand-ink\/70"/);
   // LIVE keeps its red dot and its red selected fill.

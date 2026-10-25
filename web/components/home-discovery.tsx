@@ -423,8 +423,14 @@ export default function HomeDiscovery({
   // request itself already carries its 8 s timeout.
   // Initialised from the platform: a browser without geolocation has nothing
   // to wait for, so the map may frame the catalogue immediately.
+  // The guard is `window`, not `navigator` (2026-10-25): Node also exposes a
+  // partial `navigator` (without `geolocation`), so the old check answered
+  // "settled" during SSR while the browser's own first render answered "still
+  // settling". Nothing rendered that value until the distance tab started
+  // reading it, and a differing server/client first render is a hydration
+  // mismatch — so the platform test now names the platform.
   const [viewerSettled, setViewerSettled] = useState<boolean>(
-    () => typeof navigator !== "undefined" && !navigator.geolocation,
+    () => typeof window !== "undefined" && !navigator.geolocation,
   );
   // Explicit "Lokasi Saya" requests bump this nonce so the map re-centers on
   // the latest fix on demand.
@@ -2116,28 +2122,43 @@ export default function HomeDiscovery({
               <span className={`h-1.5 w-1.5 rounded-full ${liveOnly ? "bg-white" : "bg-live"}`} />
               LIVE
             </button>
-            {DISTANCE_FILTERS.map((filter) => (
-              <button
-                key={filter}
-                onClick={() => {
-                  setDistanceFilter(filter);
-                  // A radius preset owns the map on its own, so it leaves the
-                  // curated place-set tab — the rule it has always had. A
-                  // distance tab is also an explicit camera request, which
-                  // releases the map's interaction latch.
-                  setCuratedOnly(false);
-                  setCameraRequestNonce((nonce) => nonce + 1);
-                }}
-                aria-pressed={distanceFilter === filter && !curatedOnly}
-                className={`inline-flex h-11 touch-manipulation items-center justify-center whitespace-nowrap rounded-[14px] px-1 text-center text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 active:scale-95 sm:px-3 sm:text-xs ${
-                  distanceFilter === filter && !curatedOnly
-                    ? "bg-brand-primary text-white"
-                    : "border border-black/5 bg-white text-brand-ink/70"
-                }`}
-              >
-                {filter}
-              </button>
-            ))}
+            {DISTANCE_FILTERS.map((filter) => {
+              // PRESSED STATE (bug fix 2026-10-25): a distance tab is a claim
+              // about an ANCHORED radius, so it may only read as selected when
+              // the preset can actually be framed. With no search center and
+              // no device fix `activeCenter` is null and the map keeps the
+              // honest catalogue spread (no invented coordinate) — the "1 km"
+              // tab used to stay dark-pressed in exactly that state and
+              // described a local frame the map was not showing. While the
+              // FIRST fix is still in flight (`!viewerSettled`) the tab stays
+              // selected, so it never blinks off and back on. The radius,
+              // the default, and the camera preset are unchanged.
+              const selected =
+                distanceFilter === filter && !curatedOnly && (activeCenter !== null || !viewerSettled);
+              return (
+                <button
+                  key={filter}
+                  onClick={() => {
+                    setDistanceFilter(filter);
+                    // A radius preset owns the map on its own, so it leaves the
+                    // curated place-set tab — the rule it has always had. A
+                    // distance tab is also an explicit camera request, which
+                    // releases the map's interaction latch.
+                    setCuratedOnly(false);
+                    setCameraRequestNonce((nonce) => nonce + 1);
+                  }}
+                  aria-pressed={selected}
+                  className={`inline-flex h-11 touch-manipulation items-center justify-center whitespace-nowrap rounded-[14px] px-1 text-center text-[11px] font-bold shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 active:scale-95 sm:px-3 sm:text-xs ${
+                    selected
+                      ? "bg-brand-primary text-white"
+                      : "border border-black/5 bg-white text-brand-ink/70"
+                  }`}
+                >
+                  {filter}
+                </button>
+              );
+            })}
+
             {/* "LOKASI SAYA" (2026-10-23): the same handler and the same
                 aria-label as the removed map tile, now the LAST control in the
                 ONE filter row — a 44px icon cell beside LIVE and the radii.
