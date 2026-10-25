@@ -201,6 +201,16 @@ if (!underNodeTestRunner) {
           timeout: 20_000,
         });
 
+        // WAIT FOR THE RECORDER (harness determinism, 2026-10-25): the route
+        // handler records a hit only after awaiting an in-page read, so the
+        // frame attribute can appear a beat before the first hit lands in the
+        // array. This waits for that recording instead of racing it — the
+        // assertions below are unchanged (verified against a clean `main`,
+        // where the same race failed 1 of 4 runs).
+        await expect
+          .poll(() => tiles.length, { timeout: 10_000 })
+          .toBeGreaterThan(0);
+
         // Snapshot taken at the frame decision: these are the FIRST requests.
         const firstBatch = tiles.slice();
         console.log(`[a] first tile batch: ${JSON.stringify(firstBatch.map((t) => t.z))}`);

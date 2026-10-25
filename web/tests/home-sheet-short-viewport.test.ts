@@ -99,13 +99,16 @@ test("the handle stays focusable, named, and keyboard-operable", () => {
 });
 
 test("OSM attribution stays above the visible sheet edge and the old columns are gone", () => {
-  assert.match(code, /bottomInset=\{sheetVisiblePx\}/);
+  // 2026-10-25: the map receives the MEASURED panel height only — `null` until
+  // Home's stage measurement has run, so a first frame is never fitted with a
+  // guessed inset.
+  assert.match(code, /bottomInset=\{stageMeasured \? sheetVisiblePx : null\}/);
   assert.match(css, /\.singgah-home-map \.leaflet-bottom \{\s*bottom: var\(--singgah-sheet-inset, 0px\);/);
   assert.match(
     css,
     /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;/,
   );
-  assert.match(mapCode, /--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset\)\}px`/);
+  assert.match(mapCode, /--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset \?\? 0\)\}px`/);
   // 2026-10-23: the map control column was REMOVED with no leftover space.
   // "Lokasi Saya" is the last cell of the one filter row; "?" lives in the
   // header row. Neither may float at right-3/top-190 any more.

@@ -71,8 +71,13 @@ test("2. the first frame follows the origin, and the catalogue only once the loc
 
   // A known origin frames the LOCAL AREA (the same rule the locate path uses)…
   assert.match(decide, /const origin = initialOriginRef\.current;[\s\S]{0,120}?applyOriginFrame\(origin\);/);
-  // …with no origin, the catalogue frame is ONLY the settled outcome…
-  assert.match(decide, /\} else if \(viewerSettledRef\.current\) \{[\s\S]{0,80}?applyCatalogueFrame\(\);/);
+  // …with no origin, the catalogue frame is ONLY the settled outcome, and only
+  // once the results-panel height it reserves has really been measured
+  // (2026-10-25: a first frame may never be fitted with a guessed inset)…
+  assert.match(
+    decide,
+    /\} else if \(viewerSettledRef\.current\) \{[\s\S]{0,600}?if \(bottomInsetRef\.current === null\) return false;[\s\S]{0,80}?applyCatalogueFrame\(\);/,
+  );
   // …and while the first request is running, NOTHING is painted.
   assert.match(decide, /\} else \{[\s\S]{0,260}?return false;/);
 
@@ -122,7 +127,7 @@ test("3. the origin frame is the SAME radius/local-area rule every other camera 
 test("4. no tile, marker, or viewport report happens before that frame is decided", () => {
   // The basemap is created INSIDE the finalizer, i.e. after the frame choice…
   const decideStart = homeMap.indexOf("const finalizeInitialFrame = async (): Promise<boolean> => {");
-  const decide = homeMap.slice(decideStart, decideStart + 2600);
+  const decide = homeMap.slice(decideStart, decideStart + 3400);
   assert.match(decide, /if \(!tileLayerRef\.current\) \{[\s\S]{0,700}?tileLayerRef\.current = L\.tileLayer\(OSM_TILE_URL/);
   // …and readiness (which gates the marker rebuild and every camera effect)
   // flips only after it, together with the container claim, and the frame kind
@@ -147,7 +152,13 @@ test("5. the held frame is finished by the location OUTCOME, never by a timer", 
   // …and the held frame is resumed on that value / the origin itself.
   const resumeStart = homeMap.indexOf("if (initialFrameDoneRef.current) return;\n    const finalize = finalizeInitialFrameRef.current;");
   assert.notEqual(resumeStart, -1, "the held frame must have a resume path");
-  assert.match(homeMap, /\}, \[viewerSettled, viewerPosition, cameraCenter, searchCenter\]\);/);
+  // 2026-10-25: the measured panel inset is part of the same decision, so it
+  // resumes a catalogue frame that was held for it — still an effect, still
+  // driven by real values, never a timer.
+  assert.match(
+    homeMap,
+    /\}, \[viewerSettled, viewerPosition, cameraCenter, searchCenter, bottomInset\]\);/,
+  );
   // No timer is introduced for the wait: the ONLY setTimeout in the whole
   // finalizer is the pre-existing 150 ms destroy-safe invalidate/report pass.
   const decideStart = homeMap.indexOf("const finalizeInitialFrame = async (): Promise<boolean> => {");
