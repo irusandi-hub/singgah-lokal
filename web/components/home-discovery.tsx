@@ -2334,8 +2334,8 @@ export default function HomeDiscovery({
             the first client render, which is also why this whole chip is
             absent from the server HTML: `viewerSettled` starts false).
 
-            `role="status"` announces the state once, politely; nothing here
-            is a dialog and nothing steals focus. */}
+            The polite status role announces the state once; nothing here is a
+            dialog and nothing steals focus. */}
         {noLocationHintVisible && (
           <div
             data-home-no-location-hint
