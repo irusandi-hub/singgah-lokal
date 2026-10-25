@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import CuratedMapTab from "@/components/curated-map-tab";
 import HomeMap, { type HomeMapPlace } from "@/components/home-map";
@@ -40,6 +48,18 @@ import {
   type MapViewport,
   type SheetPosition,
 } from "@/lib/live/ui";
+
+/**
+ * GEOLOCATION CAPABILITY — the hydration-safe read (2026-10-25). Whether the
+ * browser HAS geolocation never changes at runtime, so there is nothing to
+ * subscribe to. The server snapshot is `false` ("a fix may still be coming"),
+ * which is also what the client's first render uses, so the server HTML and the
+ * first client render agree on every value derived from it. React then reads
+ * the client answer and re-renders — never during hydration.
+ */
+const subscribeToNothing = () => () => {};
+const hasNoGeolocation = () => typeof navigator !== "undefined" && !navigator.geolocation;
+const hasNoGeolocationOnServer = () => false;
 
 /**
  * GESTURE HELP PANEL (2026-10-21). The automatic pill, its ~3 s timer, and the
@@ -421,17 +441,29 @@ export default function HomeDiscovery({
   // success (a fix exists) or failure/timeout/unavailable (there is no fix).
   // It is not a timer: it is the existing request's own callbacks, and the
   // request itself already carries its 8 s timeout.
-  // Initialised from the platform: a browser without geolocation has nothing
-  // to wait for, so the map may frame the catalogue immediately.
-  // The guard is `window`, not `navigator` (2026-10-25): Node also exposes a
-  // partial `navigator` (without `geolocation`), so the old check answered
-  // "settled" during SSR while the browser's own first render answered "still
-  // settling". Nothing rendered that value until the distance tab started
-  // reading it, and a differing server/client first render is a hydration
-  // mismatch — so the platform test now names the platform.
-  const [viewerSettled, setViewerSettled] = useState<boolean>(
-    () => typeof window !== "undefined" && !navigator.geolocation,
+  // START VALUE IS `false` ON BOTH SIDES (hydration fix, 2026-10-25). The
+  // server cannot know whether a fix is coming, so it assumes "still settling"
+  // — and the FIRST client render must say the same thing, or the distance
+  // tab is rendered pressed in the server HTML and unpressed by the client.
+  // React warns about such an attribute mismatch only in development and in
+  // production does NOT repair it, so the tab stayed green for good while its
+  // own state said otherwise (tests/home-initial-camera.e2e.test.ts scenario
+  // (e), a browser with no geolocation at all).
+  // (The setter keeps its long-standing name: it is what the geolocation
+  // callbacks call once the FIRST attempt has an outcome.)
+  const [viewerSettledByFix, setViewerSettled] = useState<boolean>(false);
+  // A browser with NO geolocation has nothing to wait for, and that answer is
+  // read through useSyncExternalStore: its SERVER snapshot (and therefore the
+  // first client render) is `false`, so hydration sees identical markup, and
+  // the real answer is applied one commit later. No coordinate is involved and
+  // nothing is invented — a browser WITH geolocation keeps waiting for the
+  // first real fix exactly as before.
+  const noGeolocation = useSyncExternalStore(
+    subscribeToNothing,
+    hasNoGeolocation,
+    hasNoGeolocationOnServer,
   );
+  const viewerSettled = viewerSettledByFix || noGeolocation;
   // Explicit "Lokasi Saya" requests bump this nonce so the map re-centers on
   // the latest fix on demand.
   const [locateNonce, setLocateNonce] = useState(0);

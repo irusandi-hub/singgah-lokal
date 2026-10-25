@@ -127,6 +127,16 @@ test("Home wires both filter buttons to the exclusive transitions, not to raw se
     homeSource,
     /const selected =\s*distanceFilter === filter && !curatedOnly && \(activeCenter !== null \|\| !viewerSettled\);/,
   );
+  // STRENGTHENED (2026-10-25): the attribute must read THAT value (computed
+  // first, in the same file) and the old inline expression must be gone, so
+  // there is exactly one place in Home that can claim a pressed radius.
+  const selectedRuleAt = homeSource.indexOf("const selected =");
+  assert.ok(
+    selectedRuleAt > 0 &&
+      homeSource.indexOf("aria-pressed={selected}", selectedRuleAt) > selectedRuleAt,
+    "the distance tab's aria-pressed reads the anchored rule, in that order",
+  );
+  assert.doesNotMatch(homeSource, /aria-pressed=\{distanceFilter === filter/);
 });
 
 test("Haversine distance is sane and formatted for the Indonesian UI", () => {

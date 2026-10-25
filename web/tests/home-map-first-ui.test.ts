@@ -210,11 +210,31 @@ test("MOCKUP §3: the selected state is BRAND GREEN, not black", () => {
   // The radius preset is selected only when NO place-set layer owns the map
   // (and, since 2026-10-25, only while the radius has an anchor), so choosing
   // "Tempat Pilihan" deselects it exactly as it always did.
-  assert.match(
-    code,
-    /distanceFilter === filter && !curatedOnly && \(activeCenter !== null \|\| !viewerSettled\)/,
+  // STRENGTHENED (2026-10-25): the rule lives in one `selected` value, and the
+  // pressed attribute AND the green surface must both read it, in that order,
+  // inside the same distance-tab block. The earlier version tied the colour to
+  // a bare `selected ?` and the rule to a free-floating pattern; this version
+  // cannot pass if the button paints itself green while aria-pressed disagrees.
+  const selectedRuleAt = code.indexOf("const selected =");
+  assert.ok(selectedRuleAt > 0, "the distance tab computes one `selected` value");
+  const distanceTabBlock = code.slice(
+    selectedRuleAt,
+    code.indexOf("data-home-locate", selectedRuleAt),
   );
-  assert.match(code, /selected\n\s*\? "bg-brand-primary text-white"/);
+  assert.match(
+    distanceTabBlock,
+    /const selected =\s*distanceFilter === filter && !curatedOnly && \(activeCenter !== null \|\| !viewerSettled\);/,
+  );
+  assert.match(distanceTabBlock, /aria-pressed=\{selected\}/);
+  assert.equal(
+    (distanceTabBlock.match(/aria-pressed=/g) ?? []).length,
+    1,
+    "one pressed distance tab per render",
+  );
+  assert.match(
+    distanceTabBlock,
+    /selected\s*\? "bg-brand-primary text-white"\s*: "border border-black\/5 bg-white text-brand-ink\/70"/,
+  );
   // The unselected distance tabs keep their white surface (mockup).
   assert.match(code, /: "border border-black\/5 bg-white text-brand-ink\/70"/);
   // LIVE keeps its red dot and its red selected fill.

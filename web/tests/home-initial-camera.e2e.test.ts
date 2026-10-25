@@ -376,5 +376,122 @@ if (!underNodeTestRunner) {
         await context.close();
       }
     });
+
+    /**
+     * (e) NO GEOLOCATION AT ALL — the hydration question (2026-10-25).
+     *
+     * `viewerSettled` feeds the distance tab's pressed state, so its starting
+     * value must be the SAME on the server and in the first client render, or
+     * the tab's `aria-pressed` and its green surface differ between the two.
+     * This case is exactly where a platform-derived initialiser broke: the
+     * server has no `window` (it assumed "still settling" and rendered the tab
+     * pressed) while this browser knows at once that there is no geolocation
+     * (it rendered the tab unpressed). React warns about such an attribute
+     * mismatch only in development and in production does NOT repair it, so the
+     * tab stayed green for good. The value now starts `false` on both sides and
+     * the "no geolocation" answer is read through `useSyncExternalStore`, whose
+     * server snapshot is `false` — so the first client render matches the
+     * server and the real answer arrives one commit after hydration.
+     *
+     * What is checked here, with no invented coordinate involved:
+     *   · no hydration complaint reaches the console or the page (the detector
+     *     is proven live: the total message count is printed next to it, and
+     *     `#418–#425` are React's minified hydration codes in production);
+     *   · the SERVER HTML renders the settling state (tab pressed) — the same
+     *     value the client's first render computes, which is what makes
+     *     hydration clean;
+     *   · once the client answer has been applied, the settled DOM agrees: the
+     *     "1 km" tab is NOT pressed, no control claims it, and the map keeps
+     *     the catalogue frame with no user marker and one stable zoom.
+     */
+    test("(e) a browser without geolocation hydrates without a mismatch", async ({ browser }) => {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        isMobile: true,
+        hasTouch: true,
+      });
+      try {
+        const page = await context.newPage();
+        const seen: string[] = [];
+        const hydration: string[] = [];
+        const isHydrationComplaint = (text: string) =>
+          /hydrat|did not match|server[- ]rendered|Minified React error #(418|419|421|422|423|425)/i.test(
+            text,
+          );
+        page.on("console", (message) => {
+          const text = message.text();
+          seen.push(`${message.type()}: ${text}`);
+          if (isHydrationComplaint(text)) hydration.push(`${message.type()}: ${text}`);
+        });
+        page.on("pageerror", (error) => {
+          const text = `${error.name}: ${error.message}`;
+          seen.push(`pageerror: ${text}`);
+          if (isHydrationComplaint(text)) hydration.push(`pageerror: ${text}`);
+        });
+        // The browser reports NO geolocation support at all (not denied —
+        // absent). This is the exact case that used to make the server render
+        // "settling" and the first client render "settled".
+        await page.addInitScript(() => {
+          Object.defineProperty(navigator, "geolocation", {
+            configurable: true,
+            get: () => undefined,
+          });
+        });
+        // The SERVER HTML, fetched without running the app, so the two renders
+        // are compared directly instead of inferred.
+        const ssrHtml = await (await context.request.get(base)).text();
+        const ssrRadius = /aria-pressed="(true|false)"[^<>]*>\s*1 km\s*</.exec(ssrHtml);
+
+        const tiles = await captureTiles(page);
+        await page.goto(base, { waitUntil: "commit" });
+
+        const map = page.locator("div.singgah-home-map").first();
+        await expect(map).toHaveAttribute("data-singgah-map", "ready", { timeout: 20_000 });
+        await expect(map).toHaveAttribute("data-singgah-map-frame", "catalogue", {
+          timeout: 20_000,
+        });
+        // The first viewport report lands ~150 ms after `ready`; then give
+        // React room to finish hydrating and flush any warning.
+        await page.waitForTimeout(600);
+        await page.waitForTimeout(600);
+
+        const state = {
+          hasGeolocation: await page.evaluate(
+            () => navigator.geolocation !== undefined && navigator.geolocation !== null,
+          ),
+          radiusPressed: await radiusTab(page).getAttribute("aria-pressed"),
+          radiusClass: (await radiusTab(page).getAttribute("class")) ?? "",
+          pressedButtons: await page.locator('button[aria-pressed="true"]').count(),
+          frame: await map.getAttribute("data-singgah-map-frame"),
+          cards: await page.locator("[data-place-card-id]").count(),
+          pins: await page.locator(".singgah-home-map .singgah-pin").count(),
+          userMarkers: await page.locator(".singgah-home-map .singgah-user-pane path").count(),
+          tileZooms: Array.from(new Set(tiles.map((t) => t.z))),
+          requested: tiles.length,
+        };
+        console.log(`[e] console messages seen: ${seen.length}`);
+        console.log(`[e] ssr 1 km aria-pressed: ${JSON.stringify(ssrRadius?.[1] ?? null)}`);
+        console.log(`[e] console sample: ${JSON.stringify(seen.slice(0, 6))}`);
+        console.log(`[e] hydration complaints: ${JSON.stringify(hydration)}`);
+        console.log(`[e] state: ${JSON.stringify(state)}`);
+
+        expect(hydration, "server HTML and the first client render must agree").toEqual([]);
+        expect(state.hasGeolocation, "the mock must really remove geolocation").toBe(false);
+        // The server starts from the same "still settling" state the client's
+        // first render computes: pressed, so the two renders agree.
+        expect(ssrRadius?.[1], "the server renders the settling state").toBe("true");
+        // A settled browser with no geolocation claims NO anchored radius.
+        expect(state.radiusPressed).toBe("false");
+        expect(state.radiusClass).not.toContain("bg-brand-primary");
+        expect(state.pressedButtons, "no control claims the 1 km preset here").toBe(0);
+        expect(state.frame).toBe("catalogue");
+        expect(state.userMarkers, "no coordinate may be synthesised").toBe(0);
+        expect(state.pins).toBe(state.cards);
+        // The frame is chosen once and never re-zoomed.
+        expect(state.tileZooms).toHaveLength(1);
+      } finally {
+        await context.close();
+      }
+    });
   });
 }
