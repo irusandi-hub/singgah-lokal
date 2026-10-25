@@ -159,6 +159,29 @@ if (!underNodeTestRunner) {
         await page.goto(base, { waitUntil: "commit" });
 
         const map = page.locator("div.singgah-home-map").first();
+
+        // RULE LOCK (perf, 2026-10-25): the ONE tile layer is still created
+        // WITH the first frame, so no tile may be requested while
+        // `data-singgah-map-frame` is undecided. Loading the Leaflet chunk
+        // earlier (during hydration) changes the REQUEST timing of the chunk,
+        // never this order. Sampled from navigation onwards, not at the end.
+        const beforeFrame: { frame: string | null; tiles: number }[] = [];
+        for (let i = 0; i < 240; i += 1) {
+          const frame = await map.getAttribute("data-singgah-map-frame");
+          beforeFrame.push({ frame, tiles: tiles.length });
+          if (frame !== null) break;
+          await page.waitForTimeout(50);
+        }
+        console.log(`[a] samples before the frame: ${JSON.stringify(beforeFrame)}`);
+        expect(
+          beforeFrame.some((sample) => sample.frame === null),
+          "the undecided window must have been observed (else this lock proves nothing)",
+        ).toBe(true);
+        expect(
+          beforeFrame.filter((sample) => sample.frame === null && sample.tiles > 0),
+          "no tile may be requested before the first frame is decided",
+        ).toEqual([]);
+
         await expect(map).toHaveAttribute("data-singgah-map-frame", "origin", {
           timeout: 20_000,
         });
