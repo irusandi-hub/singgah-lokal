@@ -17,6 +17,56 @@ import { requestFollowPlace, requestUnfollowPlace } from "@/lib/place-follows-cl
  * Navigation/design scope lock: the card's link, layout, and LIVE/Direction
  * controls are untouched — this adds one compact meta-row control only.
  */
+/**
+ * ONE follow-state read per page load (2026-10-25, Home hydration budget).
+ *
+ * Every Place Card mounts this control, so a per-card fetch turned a 70-card
+ * Home into 70 identical `/api/place-follows` requests, 70 JSON parses and 70
+ * state commits during hydration — all competing with the map's first tile for
+ * the same main thread. The snapshot below is resolved once and shared; the
+ * request, its 401 semantics and the server-derived state are unchanged.
+ *
+ * A failed read is not cached, so the next mount retries exactly as before.
+ */
+type FollowSnapshot = {
+  sessionState: "out" | "in";
+  followedPlaceIds: Set<string>;
+};
+
+let followSnapshot: Promise<FollowSnapshot> | null = null;
+
+function loadFollowSnapshot(): Promise<FollowSnapshot> {
+  if (!followSnapshot) {
+    followSnapshot = fetch("/api/place-follows", { cache: "no-store" })
+      .then(async (response) => {
+        if (response.status === 401) {
+          return { sessionState: "out" as const, followedPlaceIds: new Set<string>() };
+        }
+        if (!response.ok) throw new Error("Follow state unavailable");
+        const payload = (await response.json()) as { followedPlaceIds?: string[] };
+        return {
+          sessionState: "in" as const,
+          followedPlaceIds: new Set(payload.followedPlaceIds ?? []),
+        };
+      })
+      .catch(() => {
+        // Same fallback as a per-card failure (signed-out UI), but no caching:
+        // the next mount asks the server again.
+        followSnapshot = null;
+        return { sessionState: "out" as const, followedPlaceIds: new Set<string>() };
+      });
+  }
+  return followSnapshot;
+}
+
+/** Keep the shared snapshot truthful after a confirmed follow/unfollow. */
+function rememberFollow(placeId: string, followed: boolean): void {
+  void followSnapshot?.then((snapshot) => {
+    if (followed) snapshot.followedPlaceIds.add(placeId);
+    else snapshot.followedPlaceIds.delete(placeId);
+  });
+}
+
 const FOLLOW_ICON = (
   <svg aria-hidden viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7">
     <path d="M6.5 4.5h11a1 1 0 0 1 1 1v14l-6.5-4-6.5 4v-14a1 1 0 0 1 1-1Z" strokeLinejoin="round" />
@@ -58,29 +108,19 @@ export default function PlaceFollowButton({
     ? "inline-flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-[12px] border transition duration-100 active:scale-95 disabled:opacity-60"
     : "inline-flex shrink-0 touch-manipulation items-center gap-1 rounded-full border px-3 py-1.5 text-[11px] font-bold transition duration-100 active:scale-95 disabled:opacity-60";
 
-  // Resolve the signed-in user's follow state once from the server. A 401
-  // means signed-out; the list endpoint returns the user's own follow rows
-  // only (RLS), so nothing about other users' follows can leak in here.
+  // Resolve the signed-in user's follow state once from the server — shared by
+  // every card on the page. A 401 means signed-out; the list endpoint returns
+  // the user's own follow rows only (RLS), so nothing about other users'
+  // follows can leak in here.
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/place-follows", { cache: "no-store" })
-      .then((response) => {
-        if (cancelled) return null;
-        if (response.status === 401) {
-          setSessionState("out");
-          return null;
-        }
-        if (!response.ok) throw new Error("Follow state unavailable");
-        return response.json() as Promise<{ followedPlaceIds?: string[] }>;
-      })
-      .then((payload) => {
-        if (cancelled || !payload) return;
-        setSessionState("in");
-        setFollowed((payload.followedPlaceIds ?? []).includes(placeId));
-      })
-      .catch(() => {
-        if (!cancelled) setSessionState("out");
-      });
+    loadFollowSnapshot().then((snapshot) => {
+      if (cancelled) return;
+      setSessionState(snapshot.sessionState);
+      setFollowed(
+        snapshot.sessionState === "in" && snapshot.followedPlaceIds.has(placeId),
+      );
+    });
     return () => {
       cancelled = true;
     };
@@ -126,7 +166,10 @@ export default function PlaceFollowButton({
     try {
       const result = followed ? await requestUnfollowPlace(placeId) : await requestFollowPlace(placeId);
       // State flips only on server confirmation — never optimistically.
-      if (result) setFollowed(result.followed);
+      if (result) {
+        setFollowed(result.followed);
+        rememberFollow(placeId, result.followed);
+      }
     } finally {
       setBusy(false);
     }

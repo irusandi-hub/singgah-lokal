@@ -60,7 +60,9 @@ const RADIUS_1KM_M = 1_000;
 /** Mock fix: Bandung, inside the Indonesian catalogue (real coordinates). */
 const MOCK_FIX = { latitude: -6.9175, longitude: 107.6191 };
 
-type TileHit = { z: number; x: number; y: number };
+/** `frame` is the frame attribute at the moment the tile was requested (null
+ *  when the first frame has not been decided yet). */
+type TileHit = { z: number; x: number; y: number; frame: string | null };
 
 /** Record every tile requested from navigation onwards; serve a blank PNG. */
 async function captureTiles(page: Page): Promise<TileHit[]> {
@@ -68,7 +70,20 @@ async function captureTiles(page: Page): Promise<TileHit[]> {
   await page.route(TILE_ROUTE, async (route) => {
     const url = route.request().url();
     const match = /tile\.openstreetmap\.org\/(\d+)\/(\d+)\/(\d+)\.png/.exec(url);
-    if (match) hits.push({ z: Number(match[1]), x: Number(match[2]), y: Number(match[3]) });
+    if (match) {
+      // The rule this spec locks: a tile may not be requested before
+      // `finalizeInitialFrame` has written the frame. Recorded at request time,
+      // so a later frame cannot hide an early tile.
+      const frame = await page
+        .evaluate(
+          () =>
+            document
+              .querySelector("div.singgah-home-map")
+              ?.getAttribute("data-singgah-map-frame") ?? null,
+        )
+        .catch(() => null);
+      hits.push({ z: Number(match[1]), x: Number(match[2]), y: Number(match[3]), frame });
+    }
     await route.fulfill({ status: 200, contentType: "image/png", body: TILE_PNG });
   });
   return hits;
@@ -168,6 +183,10 @@ if (!underNodeTestRunner) {
         console.log(`[a] first tile batch: ${JSON.stringify(firstBatch.map((t) => t.z))}`);
 
         expect(firstBatch.length, "the 1 km frame must request tiles").toBeGreaterThan(0);
+        expect(
+          firstBatch.filter((t) => t.frame === null).map((t) => `z${t.z}`),
+          "no tile may be requested before data-singgah-map-frame is decided",
+        ).toEqual([]);
         const box = await mapBox(page);
         const expected = expectedPresetTileZoom(MOCK_FIX, RADIUS_1KM_M, box);
         console.log(`[a] map ${box.width}x${box.height}, expected tile z=${expected}`);
@@ -314,6 +333,10 @@ if (!underNodeTestRunner) {
         const zooms = Array.from(new Set(tiles.map((t) => t.z)));
         console.log(`[c] tile zooms requested: ${JSON.stringify(zooms)}`);
         expect(zooms, "the catalogue frame must not re-zoom").toHaveLength(1);
+        expect(
+          tiles.filter((t) => t.frame === null).map((t) => `z${t.z}`),
+          "no tile may be requested before data-singgah-map-frame is decided",
+        ).toEqual([]);
 
         // THE FIX (this is the red-before assertion): no anchor ⇒ no pressed
         // radius. Without a fix the 1 km preset has nothing to centre on.
