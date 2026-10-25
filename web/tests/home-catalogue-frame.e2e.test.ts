@@ -125,7 +125,9 @@ async function auditMap(page: Page): Promise<MapAudit> {
     const tab = document.querySelector("[data-curated-map-tab]");
     const tabRect = rect(tab);
     const hintEl = document.querySelector("[data-home-no-location-hint]");
-    const hintRect = rect(hintEl);
+    // The wrapper spans the full row (it is a centring flex line); the CARD is
+    // what can actually cover something, so that is what gets measured.
+    const hintRect = rect(hintEl?.firstElementChild ?? hintEl);
     return {
       frame: mapEl?.getAttribute("data-singgah-map-frame") ?? null,
       ready: mapEl?.getAttribute("data-singgah-map") ?? null,
