@@ -147,6 +147,7 @@ async function runHome(browser) {
 
     // Main-thread scripting per URL, and long tasks.
     const scriptingByUrl = new Map();
+    const callsByUrl = new Map();
     const longTasks = [];
     let firstEvalEnd = null;
     const mainThreads = new Set();
@@ -182,6 +183,13 @@ async function runHome(browser) {
       if (event.name === "RunTask" && event.dur > 50_000) {
         longTasks.push({ start: Math.round(event.ts / 1000), ms: Math.round(event.dur / 1000) });
       }
+      if (event.name === "FunctionCall" || event.name === "v8.callFunction") {
+        const url = event.args?.data?.url;
+        if (url && url.startsWith("http")) {
+          const key = short(url);
+          callsByUrl.set(key, (callsByUrl.get(key) ?? 0) + event.dur / 1000);
+        }
+      }
       if (event.name === "EvaluateScript" || event.name === "CompileScript") {
         const url = event.args?.data?.url;
         if (!url || !url.startsWith("http")) continue;
@@ -193,6 +201,26 @@ async function runHome(browser) {
         }
       }
     }
+
+    // What the largest long tasks are made of (JS vs layout vs style).
+    const topTasks = [...longTasks].sort((a, b) => b.ms - a.ms).slice(0, 3).map((task) => {
+      const startUs = task.start * 1000;
+      const endUs = startUs + task.ms * 1000;
+      const parts = new Map();
+      for (const event of traceEvents) {
+        if (`${event.pid}:${event.tid}` !== mainThread || event.ph !== "X" || !event.dur) continue;
+        if (event.ts < startUs || event.ts + event.dur > endUs) continue;
+        if (event.name === "RunTask" || event.name === "ThreadControllerImpl::RunTask") continue;
+        parts.set(event.name, (parts.get(event.name) ?? 0) + event.dur / 1000);
+      }
+      return {
+        ms: task.ms,
+        at: task.start,
+        parts: [...parts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(
+          ([name, ms]) => `${name}=${Math.round(ms)}ms`,
+        ),
+      };
+    });
 
     const byUrl = new Map(scriptsMeta.map((entry) => [short(entry.url), entry]));
     const coverageByUrl = new Map();
@@ -228,6 +256,7 @@ async function runHome(browser) {
           chunk: key,
           decodedKiB: Math.round(entry.decoded / 1024),
           scriptingMs: Math.round(scriptingByUrl.get(key) ?? 0),
+          calledMs: Math.round(callsByUrl.get(key) ?? 0),
           unusedPct: coverageByUrl.has(key) ? coverageByUrl.get(key).unusedPct : null,
           start: Math.round(entry.start),
           end: Math.round(entry.end),
@@ -260,6 +289,7 @@ async function runHome(browser) {
       rows,
       longTasks: longTasks.sort((a, b) => b.ms - a.ms).slice(0, 12),
       longTaskTotalMs: longTasks.reduce((total, task) => total + task.ms, 0),
+      topTasks,
       firstEvalEndMs,
       initAt,
       totalDecodedKiB: rows.reduce((total, row) => total + row.decodedKiB, 0),
@@ -268,9 +298,10 @@ async function runHome(browser) {
       traceSample,
       evalDebug,
       mainThread,
+      allRequests: [...(page.__requests ?? new Map()).entries()],
       requests: [...(page.__requests ?? new Map()).entries()]
         .sort((a, b) => b[1] - a[1])
-        .slice(0, 8),
+        .slice(0, 14),
     };
   } finally {
     await context.close();
@@ -295,6 +326,7 @@ try {
   for (const row of home.rows) {
     console.log(
       `${String(row.decodedKiB).padStart(4)} KiB  ${String(row.scriptingMs).padStart(5)} ms  ` +
+        `calls ${String(row.calledMs).padStart(5)} ms  ` +
         `unused ${row.unusedPct === null ? "  n/a" : String(row.unusedPct).padStart(3) + "%"}  ` +
         `[${row.start}-${row.end}]  ${row.chunk}`,
     );
@@ -306,11 +338,17 @@ try {
   );
   console.log("=== REQUESTS (top) ===");
   for (const [path, count] of home.requests) console.log(`  ${String(count).padStart(4)}  ${path}`);
+  const follow = home.allRequests.find(([path]) => path === "/api/place-follows");
+  console.log(`REQUESTS /api/place-follows = ${follow ? follow[1] : 0}`);
   console.log("=== LONG TASKS (>50ms) ===");
   for (const task of home.longTasks) {
     console.log(`  at ${task.start} ms  ${task.ms} ms`);
   }
   console.log(`LONG TASK total=${home.longTaskTotalMs} ms count=${home.longTasks.length}`);
+  console.log("=== TOP TASK PARTS ===");
+  for (const task of home.topTasks) {
+    console.log(`  ${task.ms} ms @${task.at}: ${task.parts.join(" ")}`);
+  }
 
   const other = await runOtherRoute(browser);
   console.log("=== /policy scripts ===");
