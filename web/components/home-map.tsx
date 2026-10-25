@@ -24,6 +24,36 @@ import {
 } from "@/lib/live/ui";
 
 /**
+ * ONE shared Leaflet load (perf, 2026-10-25).
+ *
+ * Leaflet touches `window` at import time, so it stays a LAZY module and never
+ * enters the server graph (`typeof window` guard below). What changes is
+ * WHEN the chunk is requested: it used to start only after hydration, from
+ * inside the map effect — leaving a ~1 s download (Slow 4G) between "Home is
+ * interactive" and "the first frame can be decided", which in turn delayed
+ * the very first OSM tile (the mobile LCP element). The request now starts as
+ * soon as this chunk is evaluated, i.e. while the rest of Home is still
+ * hydrating.
+ *
+ * NOTHING is created early: no map instance, no tile layer, no marker, no
+ * camera. `finalizeInitialFrame` still decides the first frame and still
+ * creates the ONE tile layer after it — the loading order there is untouched.
+ * The single promise is shared by every former `import("leaflet")` call site,
+ * so the module is fetched and parsed exactly once.
+ */
+function importLeaflet() {
+  return import("leaflet");
+}
+let leafletModulePromise: ReturnType<typeof importLeaflet> | null = null;
+
+function loadLeaflet() {
+  if (!leafletModulePromise) leafletModulePromise = importLeaflet();
+  return leafletModulePromise;
+}
+
+if (typeof window !== "undefined") void loadLeaflet();
+
+/**
  * Real interactive map for Home discovery.
  * - Tiles: OpenStreetMap (attribution required). ONE basemap — no
  *   terrain/satellite/layer selector. Zoom is gesture-only since 2026-10-18
@@ -912,7 +942,7 @@ export default function HomeMap({
       if (!container || container.dataset.singgahMap === "ready") return;
       container.dataset.singgahMap = "initializing";
 
-      const L = (await import("leaflet")).default;
+      const L = (await loadLeaflet()).default;
       if (cancelled) return;
       if (!containerRef.current || mapRef.current) return;
 
@@ -1324,7 +1354,7 @@ export default function HomeMap({
   // candidate Place out of it.
   const fitCamera = useCallback(
     async (map: LeafletMap, candidatePlaces: HomeMapPlace[], maxZoom?: number) => {
-      const L = (await import("leaflet")).default;
+      const L = (await loadLeaflet()).default;
       if (mapRef.current !== map) return false;
       const points = collectGeoPoints(candidatePlaces);
       const bounds = boundsOfPoints(points);
@@ -1459,7 +1489,7 @@ export default function HomeMap({
     let cancelled = false;
 
     (async () => {
-      const L = (await import("leaflet")).default;
+      const L = (await loadLeaflet()).default;
       const layer = userLayerRef.current;
       if (cancelled || mapRef.current !== map || !layer) return;
 
@@ -1664,7 +1694,7 @@ export default function HomeMap({
     let cancelled = false;
 
     (async () => {
-      const L = (await import("leaflet")).default;
+      const L = (await loadLeaflet()).default;
       const map = mapRef.current;
       const layer = markerLayerRef.current;
       if (cancelled || !map || !layer) return;
