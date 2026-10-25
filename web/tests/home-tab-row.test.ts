@@ -250,7 +250,35 @@ test("selected state is unchanged: one active control, brand green or LIVE red",
   assert.match(discoveryCode, /<CuratedMapTab\s+pressed=\{curatedOnly\}/);
   assert.match(tabCode, /aria-pressed=\{pressed\}/);
   assert.equal((tabCode.match(/aria-pressed=/g) ?? []).length, 1);
-  assert.match(discoveryCode, /aria-pressed=\{distanceFilter === filter && !curatedOnly\}/);
+  // Still exactly one pressed distance tab — and since 2026-10-25 it is only
+  // pressed while the radius has an anchor to centre on (or while the first
+  // location attempt is still settling, so it never blinks).
+  assert.match(discoveryCode, /aria-pressed=\{selected\}/);
+  // STRENGTHENED (2026-10-25): with the condition moved into a named value the
+  // old single-line assertion could pass while the attribute read some other
+  // boolean. Bind the pieces explicitly: ONE rule, computed before the tab and
+  // read by that tab's aria-pressed, with no second inline copy of the old
+  // expression anywhere in Home.
+  assert.match(
+    discoveryCode,
+    /const selected =\s*distanceFilter === filter && !curatedOnly && \(activeCenter !== null \|\| !viewerSettled\);/,
+  );
+  const selectedRuleAt = discoveryCode.indexOf("const selected =");
+  const pressedReadAt = discoveryCode.indexOf("aria-pressed={selected}", selectedRuleAt);
+  assert.ok(
+    selectedRuleAt > 0 && pressedReadAt > selectedRuleAt,
+    "the distance tab's aria-pressed reads the anchored rule, in that order",
+  );
+  assert.doesNotMatch(discoveryCode, /aria-pressed=\{distanceFilter === filter/);
+  const distanceTab = discoveryCode.slice(
+    selectedRuleAt,
+    discoveryCode.indexOf("data-home-locate", selectedRuleAt),
+  );
+  assert.equal(
+    (distanceTab.match(/aria-pressed=/g) ?? []).length,
+    1,
+    "exactly one distance tab can claim the pressed state",
+  );
 });
 
 // ---------------------------------------------------------------------------

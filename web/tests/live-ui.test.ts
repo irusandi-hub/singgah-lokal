@@ -119,7 +119,24 @@ test("Home wires both filter buttons to the exclusive transitions, not to raw se
   // into it as a prop and comes back out as its own aria-pressed.
   assert.match(homeSource, /aria-pressed=\{liveOnly\}/);
   assert.match(homeSource, /pressed=\{curatedOnly\}/);
-  assert.match(homeSource, /aria-pressed=\{distanceFilter === filter && !curatedOnly\}/);
+  // A distance tab is one pressed control at a time AND only while its radius
+  // is anchored (2026-10-25): with no center and a settled location attempt
+  // there is no local frame to describe, so the tab must not read as selected.
+  assert.match(homeSource, /aria-pressed=\{selected\}/);
+  assert.match(
+    homeSource,
+    /const selected =\s*distanceFilter === filter && !curatedOnly && \(activeCenter !== null \|\| !viewerSettled\);/,
+  );
+  // STRENGTHENED (2026-10-25): the attribute must read THAT value (computed
+  // first, in the same file) and the old inline expression must be gone, so
+  // there is exactly one place in Home that can claim a pressed radius.
+  const selectedRuleAt = homeSource.indexOf("const selected =");
+  assert.ok(
+    selectedRuleAt > 0 &&
+      homeSource.indexOf("aria-pressed={selected}", selectedRuleAt) > selectedRuleAt,
+    "the distance tab's aria-pressed reads the anchored rule, in that order",
+  );
+  assert.doesNotMatch(homeSource, /aria-pressed=\{distanceFilter === filter/);
 });
 
 test("Haversine distance is sane and formatted for the Indonesian UI", () => {

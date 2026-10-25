@@ -11,7 +11,7 @@ const baseUrl = process.env.BASE_URL ?? "http://127.0.0.1:3000";
  */
 export default defineConfig({
   testDir: "tests",
-  testMatch: "playwright-home-smoke.test.ts",
+  testMatch: ["playwright-home-smoke.test.ts", "home-initial-camera.e2e.test.ts"],
   timeout: 30_000,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
