@@ -560,9 +560,17 @@ export default function HomeDiscovery({
     currentOffset: number;
   } | null>(null);
   const [stageHeight, setStageHeight] = useState(640);
+  // HAS THE STAGE BEEN MEASURED? (2026-10-25). `stageHeight` starts from a
+  // paint-safe fallback, so `sheetVisiblePx` derived from it is NOT the panel's
+  // real height on the first render. The map's catalogue frame reserves that
+  // panel, and a first frame may never be decided from a guessed inset (it can
+  // only be decided once), so the map is told `null` until the measurement
+  // below has run. False on the server and in the first client render, so it
+  // introduces no server/client difference.
   // The floating "Tempat Pilihan" tab clamps against the REAL stage width (a
   // window resize or rotation changes where its edges are), so the same
   // measurement that drives the sheet also publishes the width.
+  const [stageMeasured, setStageMeasured] = useState(false);
   const [stageWidth, setStageWidth] = useState(0);
   const [sheetPosition, setSheetPosition] = useState<SheetPosition>("mid");
   // `dragOffset` is the SETTLED drag value (start/release only). The live
@@ -596,6 +604,9 @@ export default function HomeDiscovery({
     const measure = () => {
       setStageHeight(Math.max(0, node.clientHeight));
       setStageWidth(Math.max(0, node.clientWidth));
+      // The panel height derived from THIS height is the real one; the map may
+      // now use it to reserve the results panel in its first frame.
+      setStageMeasured(true);
     };
     measure();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
@@ -1913,8 +1924,11 @@ export default function HomeDiscovery({
             highlightedPlaceId={pressedPlaceId ?? selectedPlaceId}
             onSelectPlace={selectPlaceFromMap}
             /* The OSM attribution is lifted above the visible sheet edge, so
-               the credit is never covered at any snap position. */
-            bottomInset={sheetVisiblePx}
+               the credit is never covered at any snap position — and the
+               catalogue frame reserves the same band so no pin is fitted
+               underneath the panel. `null` = not measured yet: the frame is
+               held rather than decided from the 640px fallback stage. */
+            bottomInset={stageMeasured ? sheetVisiblePx : null}
             /* EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): the three
                hand-driven camera actions bump this nonce, which releases the
                map's interaction latch so the frame THEY produce stays. Nothing

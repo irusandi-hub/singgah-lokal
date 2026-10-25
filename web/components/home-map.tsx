@@ -328,10 +328,26 @@ type HomeMapProps = {
   onSelectPlace?: (placeId: string) => void;
   /**
    * Visible sheet height in px (2026-10-18): the OSM attribution is lifted by
-   * this amount so the credit is never covered at the small/mid positions.
+   * this amount so the credit is never covered at the small/mid positions,
+   * and (2026-10-25) the CATALOGUE frame reserves the same band so no pin is
+   * fitted underneath the results panel.
+   *
+   * `null` means "the caller has not measured the panel yet". That is a real
+   * state on the first render (Home's stage height starts from a paint-safe
+   * fallback), and the catalogue frame must not be decided from a guessed
+   * inset — it is held until the measured value arrives. An absent prop is a
+   * measured 0 (a caller with no panel at all).
    */
-  bottomInset?: number;
+  bottomInset?: number | null;
 };
+
+/**
+ * Smallest usable vertical box the CATALOGUE fit may leave itself once the
+ * results panel is reserved. The reserve is clamped against it, so a very short
+ * stage degrades to "some pins behind the panel" instead of a fit with no room
+ * at all.
+ */
+const CATALOGUE_FIT_MIN_VISIBLE_PX = 96;
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const OSM_ATTRIBUTION =
@@ -601,6 +617,11 @@ export default function HomeMap({
   const initialOriginRef = useRef<{ lat: number; lng: number } | null>(null);
   const viewerSettledRef = useRef(viewerSettled);
   const cameraRadiusRef = useRef<number | null>(cameraRadiusMeters ?? null);
+  // The results panel's visible height, mirrored for the SAME reason as the
+  // radius above: `applyCatalogueFrame` runs inside the mount-once map
+  // lifecycle and must read the CURRENT inset, never a stale closure value.
+  // `null` = not measured yet (see HomeMapProps.bottomInset).
+  const bottomInsetRef = useRef<number | null>(bottomInset);
   const initialFrameDoneRef = useRef(false);
   const finalizeInitialFrameRef = useRef<(() => Promise<boolean>) | null>(null);
 
@@ -666,6 +687,10 @@ export default function HomeMap({
   useEffect(() => {
     cameraRadiusRef.current = cameraRadiusMeters ?? null;
   }, [cameraRadiusMeters]);
+
+  useEffect(() => {
+    bottomInsetRef.current = bottomInset;
+  }, [bottomInset]);
 
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
@@ -1109,7 +1134,33 @@ export default function HomeMap({
             animate: false,
           });
         } else if (initialBounds) {
-          const initialPadding = resolveCameraFitPadding(map.getSize());
+          const size = map.getSize();
+          const initialPadding = resolveCameraFitPadding(size);
+          // THE RESULTS PANEL IS PART OF THE FRAME (2026-10-25).
+          //
+          // BUG THIS FIXES: the catalogue spread was fitted into the map's
+          // FULL box, whose chrome padding reserves the header/search/filter
+          // band and the control column but NOT the results sheet. The sheet
+          // floats over the lower part of the map, so the fit centred the
+          // catalogue around the sheet's own top edge and every southern pin
+          // (the Indonesian Places) was painted UNDER the panel. The map was
+          // correct — 70 pins existed — but the visible band showed only a few
+          // Gulf pins, which read as "the whole world has two places".
+          //
+          // The reserve is the SAME measured inset the OSM credit is lifted by
+          // (one source of truth), added ON TOP of the chrome padding and never
+          // replacing it. It is clamped so the fit always keeps a usable box on
+          // a very short stage. No other frame, radius, dataset, or tile rule
+          // changes: the SAME canonical bounds are fitted into the area a person
+          // can really see.
+          const sheetInset = Math.max(0, Math.round(bottomInsetRef.current ?? 0));
+          const reservedBelow =
+            initialPadding.paddingTopLeft[1] + initialPadding.paddingBottomRight[1];
+          const maxExtraBottom = Math.max(
+            0,
+            size.y - reservedBelow - CATALOGUE_FIT_MIN_VISIBLE_PX,
+          );
+          const extraBottom = Math.min(sheetInset, maxExtraBottom);
           map.fitBounds(
             L.latLngBounds(
               [initialBounds.south, initialBounds.west],
@@ -1117,7 +1168,10 @@ export default function HomeMap({
             ),
             {
               paddingTopLeft: initialPadding.paddingTopLeft,
-              paddingBottomRight: initialPadding.paddingBottomRight,
+              paddingBottomRight: [
+                initialPadding.paddingBottomRight[0],
+                initialPadding.paddingBottomRight[1] + extraBottom,
+              ],
               animate: false,
             },
           );
@@ -1177,6 +1231,13 @@ export default function HomeMap({
         if (origin) {
           applyOriginFrame(origin);
         } else if (viewerSettledRef.current) {
+          // The catalogue frame reserves the results panel, so it may not be
+          // decided from a guessed inset: Home passes `null` until its stage
+          // measurement has run. This is the same "return false and wait for
+          // the real measurement" rule as an unmeasured container above — the
+          // frame is finished by the effect that watches this prop, never by a
+          // timer, and it is still the ONE first frame.
+          if (bottomInsetRef.current === null) return false;
           applyCatalogueFrame();
         } else {
           // The first location attempt is still in flight — wait for its own
@@ -1325,7 +1386,11 @@ export default function HomeMap({
     const finalize = finalizeInitialFrameRef.current;
     if (!finalize) return;
     void finalize();
-  }, [viewerSettled, viewerPosition, cameraCenter, searchCenter]);
+    // `bottomInset` is part of the decision too: the catalogue frame reserves
+    // the results panel, and Home only publishes its MEASURED height (null
+    // until then), so this effect is what finishes a held catalogue frame the
+    // moment that measurement exists.
+  }, [viewerSettled, viewerPosition, cameraCenter, searchCenter, bottomInset]);
 
   // AUTO-FIT MECHANISM (product decision, 2026-10-03) — ONE function, shared by
   // the curated refocus and the location search, so both obey the same three
@@ -1866,7 +1931,7 @@ export default function HomeMap({
     <div
       className="relative h-full w-full"
       style={
-        { "--singgah-sheet-inset": `${Math.max(0, bottomInset)}px` } as React.CSSProperties
+        { "--singgah-sheet-inset": `${Math.max(0, bottomInset ?? 0)}px` } as React.CSSProperties
       }
     >
       {/* touch-none keeps drag/pinch inside the map container so page
