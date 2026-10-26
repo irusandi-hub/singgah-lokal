@@ -498,6 +498,34 @@ const LOCATE_AREA_RADIUS_M = 350;
  * compete for the same pixels or the same priority.
  */
 const PIN_LABEL_ON_DEMAND_ATTRIBUTE = "data-label-state";
+
+/**
+ * PIN SCALE AT WIDE ZOOMS (2026-10-26) — the ONE number that decides when the
+ * pins paint compact. It is written to the map CONTAINER as
+ * `data-pin-scale="compact"|"normal"` (see `applyPinScale`), never per marker.
+ *
+ * WHY 10 (measured at 390×844 in tests/home-world-pins.e2e.test.ts; zoom read
+ * from the tile requests the frame itself makes):
+ *   z 2  — the no-location CATALOGUE frame: the world fit puts all 70 pins in
+ *          a ~130px band (two latitude clusters) where the 24×31 artwork and
+ *          its chips stack on top of each other → compact.
+ *   z 6  — country / Gulf scale (one wheel step ≈ 2 levels from z 2): still a
+ *          region view, a full-size pin with a name chip reads as a label
+ *          pile → compact.
+ *   z 9  — the last compact level (≈ 120 km across this viewport).
+ *   z 10 — the first NORMAL level (≈ 60 km across this viewport): a city /
+ *          metro frame where a full-size pin and its chip are readable.
+ * The camera presets sit safely on the normal side because
+ * `presetZoomForRadius` yields z 11 for "10 km+", z 12 for "5 km" and z 13–14
+ * for "1 km" (the tile zooms asserted by home-initial-camera.e2e.test.ts), and
+ * a hand pinch into a city is ≥ 11.
+ *
+ * The trigger is the LEAFLET ZOOM ONLY — never the frame, the viewport, or the
+ * dataset — so a single wheel step across this line flips the whole map without
+ * rebuilding a marker. Frame rules (`finalizeInitialFrame`, `applyOriginFrame`,
+ * `applyCatalogueFrame`, the 1 km radius) are untouched by it.
+ */
+const PIN_COMPACT_BELOW_ZOOM = 10;
 /** Chip max width from globals.css (`.singgah-pin-label`). */
 const PIN_LABEL_MAX_WIDTH_PX = 124;
 /** Approximate advance per character at 11.5px/600, plus the 7px side padding. */
@@ -873,6 +901,22 @@ export default function HomeMap({
     [],
   );
 
+  // PIN SCALE AT WIDE ZOOMS (2026-10-26). ONE attribute on the CONTAINER —
+  // `data-pin-scale="compact"|"normal"` — switches every pin's paint at once.
+  // Nothing per marker is touched: identity, coordinates, z-offset ladder,
+  // colours (NORMAL brown / CURATED green+gold / LIVE red), aria-labels,
+  // tooltips, and click behaviour are all unchanged, and the transparent
+  // 40×44 tap pad stays exactly as it is because only the ARTWORK is scaled
+  // (globals.css, `.singgah-home-map[data-pin-scale="compact"] .singgah-pin-art`).
+  // Recomputed by the ONE label pass below (marker rebuild + zoomend) and once
+  // right after the first frame is decided — the same two places the chips are
+  // decided, so scale and chips can never disagree.
+  const applyPinScale = useCallback((map: LeafletMap) => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.dataset.pinScale = map.getZoom() < PIN_COMPACT_BELOW_ZOOM ? "compact" : "normal";
+  }, []);
+
   // LABEL DECLUTTER AT THE CURRENT ZOOM (2026-10-21). Pure projected geometry:
   // each chip's box is derived from `map.project(latlng, zoom)` and the SAME
   // chip typography (max 124px, 11.5px/600) — no `getBoundingClientRect`, no
@@ -890,6 +934,9 @@ export default function HomeMap({
       selectedId: string | null,
     ) => {
       const zoom = map.getZoom();
+      // PIN SCALE (2026-10-26): the container attribute is refreshed by this
+      // same pass, so the compact paint always matches the chips below.
+      applyPinScale(map);
       const boxes: PinLabelBox[] = [];
       for (const place of sourcePlaces) {
         if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
@@ -915,6 +962,15 @@ export default function HomeMap({
         });
       }
       const visible = selectVisiblePinLabelIds({ boxes, zoom, pinnedId: selectedId });
+      // WIDE-ZOOM COMPACT (2026-10-26): below `PIN_COMPACT_BELOW_ZOOM` the pins
+      // paint small, so no chip is painted by default — the SELECTED Place is
+      // the one exception and stays labelled at every zoom. Chips keep their
+      // DOM node, their full text, and the hover / keyboard-focus reveal: only
+      // the paint flag changes, exactly like the density budget above.
+      if (zoom < PIN_COMPACT_BELOW_ZOOM) {
+        visible.clear();
+        if (selectedId) visible.add(selectedId);
+      }
       for (const [id, element] of markersByIdRef.current) {
         const label = element.querySelector<HTMLElement>(".singgah-pin-label");
         if (label) {
@@ -923,7 +979,7 @@ export default function HomeMap({
       }
       applyPinLabelAnchors(map, sourcePlaces);
     },
-    [applyPinLabelAnchors],
+    [applyPinLabelAnchors, applyPinScale],
   );
 
   // Called by the map's own zoomend, over the mirrors above.
@@ -1275,6 +1331,11 @@ export default function HomeMap({
         container.dataset.singgahMapFrame = origin ? "origin" : "catalogue";
         initialFrameDoneRef.current = true;
         setReady(true);
+        // PIN SCALE (2026-10-26): the ONE first application of the wide-zoom
+        // attribute, in the same breath as the frame it describes. The marker
+        // rebuild that `ready` triggers runs the same `applyPinScale` through
+        // the label pass, so the two can never disagree.
+        applyPinScale(map);
 
         // Mobile layout timing: panes can measure before the section settles.
         // invalidateSize() after init (and on every window resize) prevents
@@ -1350,6 +1411,7 @@ export default function HomeMap({
       if (container) {
         container.dataset.singgahMap = "";
         container.dataset.singgahMapFrame = "";
+        container.dataset.pinScale = "";
         const observer = touchMoveObserverRef.current;
         if (observer) container.removeEventListener("touchmove", observer);
       }

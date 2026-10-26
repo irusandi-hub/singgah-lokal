@@ -313,6 +313,39 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   white-space: nowrap;
 }
 
+/* WIDE-ZOOM PIN SCALE (2026-10-26). Below PIN_COMPACT_BELOW_ZOOM (10) the map
+   container carries `data-pin-scale="compact"` and EVERY pin paints at 55 % of
+   its 24×31 artwork — one attribute, no marker rebuild. Only the ARTWORK is
+   scaled: `.singgah-pin-hit` keeps its 40×44 tap pad, the label keeps its
+   chip typography (it simply stays unpainted — see the data-label-state pass),
+   and the marker box/coordinates/z-ladder are untouched.
+   The LIVE badge rides with the shrunken pin so the LIVE status stays attached
+   and readable instead of floating above a smaller head. The SELECTED pin has
+   its own rules below so a highlighted Place always paints normal (and
+   labelled) at any zoom. */
+.singgah-home-map[data-pin-scale="compact"] .singgah-pin-art {
+  transform: scale(0.55);
+}
+
+.singgah-home-map[data-pin-scale="compact"] .singgah-pin-badge {
+  top: 2px;
+  transform: translateX(-50%) scale(0.8);
+}
+
+/* SELECTED PIN WINS OVER THE COMPACT SCALE (same declarations as the
+   highlighted rules below, re-stated at the compact selector's specificity so
+   the reduced-motion branch cannot lose to it). */
+.singgah-home-map[data-pin-scale="compact"] .singgah-map-marker.is-highlighted .singgah-pin-art {
+  transform: scale(1.15);
+}
+
+.singgah-home-map[data-pin-scale="compact"]
+  .singgah-map-marker.is-highlighted
+  .singgah-pin-badge {
+  top: -13px;
+  transform: translateX(-50%);
+}
+
 /* Selected pin: one bounce into a 1.15 scale, anchored at the map coordinate
    (transform-origin 50% 100%), so the tip never moves off its Place. */
 @keyframes singgah-pin-bounce {
