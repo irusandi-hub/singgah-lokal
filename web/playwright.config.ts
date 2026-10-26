@@ -15,6 +15,7 @@ export default defineConfig({
     "playwright-home-smoke.test.ts",
     "home-initial-camera.e2e.test.ts",
     "home-catalogue-frame.e2e.test.ts",
+    "home-world-pins.e2e.test.ts",
   ],
   timeout: 30_000,
   fullyParallel: false,
