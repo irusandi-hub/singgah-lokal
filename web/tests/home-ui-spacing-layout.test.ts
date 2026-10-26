@@ -111,8 +111,12 @@ test("T1.4 nothing was put in the strip's place", () => {
   // THREE live regions: the per-Place "not live" notice inside a card, the
   // search banner, and (2026-10-17) the LIVE-feed FAILED card — an honest
   // "could not load" surface so a failed first poll can no longer masquerade
-  // as "no Live exists". Nothing else was added.
-  assert.equal((code.match(/role="status"/g) ?? []).length, 3);
+  // as "no Live exists".
+  // 2026-10-25: a FOURTH was added, and it is not a banner in the strip's
+  // place — it is the no-location explainer, which only exists once the first
+  // location attempt has settled with no location and is absent from the
+  // server HTML. The count stays EXACT so a fifth region cannot slip in.
+  assert.equal((code.match(/role="status"/g) ?? []).length, 4);
   assert.equal(
     (code.match(/Live belum dapat dimuat/g) ?? []).length,
     1,

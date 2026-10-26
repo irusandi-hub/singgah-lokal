@@ -322,7 +322,11 @@ test("6.1 no compass and no old map control column survive", () => {
   // The controls still exist on their new surfaces, with the same handlers.
   const home = readFileSync(new URL("../components/home-discovery.tsx", import.meta.url), "utf8");
   const nav = readFileSync(new URL("../components/site-nav.tsx", import.meta.url), "utf8");
-  assert.equal((home.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 1);
+  // 2026-10-25: TWO surfaces now carry the SAME handler — the filter row's
+  // 44px cell and the no-location explainer's action. Both are the existing
+  // path; no second locate implementation was introduced, which is what this
+  // exact count keeps honest (a third would be a new path).
+  assert.equal((home.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 2);
   assert.equal((nav.match(/onClick=\{onShowGestureHint\}/g) ?? []).length, 1);
   assert.match(mapSource, /zoomControl: false/);
 });

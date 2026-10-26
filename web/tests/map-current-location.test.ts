@@ -864,7 +864,10 @@ test("2026-10-23: Lokasi Saya is the filter-row icon, \"?\" is in the header", (
   const pageCode = stripComments(homePage);
   const navCode = stripComments(siteNav);
   // The labeled "Lokasi Saya" control is the ONLY entry into the locate flow.
-  assert.equal((pageCode.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 1);
+  // 2026-10-25: TWO surfaces call that SAME handler (the filter-row icon and
+  // the no-location explainer's action) — no second locate flow exists, which
+  // this exact count keeps true.
+  assert.equal((pageCode.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 2);
   assert.doesNotMatch(mapCode, /onRequestLocate/);
   // Same icon tile and the same accessible name/title as before.
   assert.match(pageCode, /title="Lokasi Saya"/);

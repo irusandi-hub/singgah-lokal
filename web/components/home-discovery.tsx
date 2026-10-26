@@ -560,9 +560,17 @@ export default function HomeDiscovery({
     currentOffset: number;
   } | null>(null);
   const [stageHeight, setStageHeight] = useState(640);
+  // HAS THE STAGE BEEN MEASURED? (2026-10-25). `stageHeight` starts from a
+  // paint-safe fallback, so `sheetVisiblePx` derived from it is NOT the panel's
+  // real height on the first render. The map's catalogue frame reserves that
+  // panel, and a first frame may never be decided from a guessed inset (it can
+  // only be decided once), so the map is told `null` until the measurement
+  // below has run. False on the server and in the first client render, so it
+  // introduces no server/client difference.
   // The floating "Tempat Pilihan" tab clamps against the REAL stage width (a
   // window resize or rotation changes where its edges are), so the same
   // measurement that drives the sheet also publishes the width.
+  const [stageMeasured, setStageMeasured] = useState(false);
   const [stageWidth, setStageWidth] = useState(0);
   const [sheetPosition, setSheetPosition] = useState<SheetPosition>("mid");
   // `dragOffset` is the SETTLED drag value (start/release only). The live
@@ -596,6 +604,9 @@ export default function HomeDiscovery({
     const measure = () => {
       setStageHeight(Math.max(0, node.clientHeight));
       setStageWidth(Math.max(0, node.clientWidth));
+      // The panel height derived from THIS height is the real one; the map may
+      // now use it to reserve the results panel in its first frame.
+      setStageMeasured(true);
     };
     measure();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
@@ -1586,6 +1597,29 @@ export default function HomeDiscovery({
   const mapEmptyStateVisible =
     mapPlaces.length === 0 || (viewportReported && !viewportHasPlaces);
 
+  // NO-LOCATION EXPLAINER (2026-10-25). Without a location the map frames the
+  // WHOLE catalogue (the documented, permitted no-origin view) and the radius
+  // tabs are correctly unpressed — but nothing in words said so, and a
+  // world-scale frame with clustered pins reads as "there are only two places".
+  // The chip states the rule that is really on screen and offers the EXISTING
+  // "Lokasi Saya" action. It never invents a coordinate, never moves the
+  // camera, and never changes a filter or the catalogue.
+  //
+  // It appears only once the FIRST location attempt has really settled with no
+  // location, and only in the plain discovery view (no search in flight or
+  // resolved, no curated/LIVE layer). It disappears the moment a fix exists.
+  // It is mutually exclusive with the empty-state overlay: both float in the
+  // same band above the panel and stacking two notices there would cover the
+  // map for nothing.
+  const noLocationHintVisible =
+    viewerSettled &&
+    activeCenter === null &&
+    !searchPending &&
+    searchCenter === null &&
+    !curatedOnly &&
+    !liveOnly &&
+    !mapEmptyStateVisible;
+
   // The floating "Tempat Pilihan" information board was REMOVED (2026-10-18).
   // It restated the layer name, a per-layer count, the camera radius, and a
   // "Ke hasil" scroll action in a card that permanently covered the map's
@@ -1913,8 +1947,11 @@ export default function HomeDiscovery({
             highlightedPlaceId={pressedPlaceId ?? selectedPlaceId}
             onSelectPlace={selectPlaceFromMap}
             /* The OSM attribution is lifted above the visible sheet edge, so
-               the credit is never covered at any snap position. */
-            bottomInset={sheetVisiblePx}
+               the credit is never covered at any snap position — and the
+               catalogue frame reserves the same band so no pin is fitted
+               underneath the panel. `null` = not measured yet: the frame is
+               held rather than decided from the 640px fallback stage. */
+            bottomInset={stageMeasured ? sheetVisiblePx : null}
             /* EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): the three
                hand-driven camera actions bump this nonce, which releases the
                map's interaction latch so the frame THEY produce stays. Nothing
@@ -2276,6 +2313,58 @@ export default function HomeDiscovery({
               <p className="mt-0.5 text-[10px] leading-3.5 text-brand-ink/55">
                 Geser peta dengan dua jari untuk melihat area lain.
               </p>
+            </div>
+          </div>
+        )}
+
+        {/* NO-LOCATION EXPLAINER (2026-10-25). Same floating layer as the
+            empty-state card above (z-[1100], above every Leaflet pane), but a
+            HIGHER slot: `sheetVisiblePx + 100` puts it just above the floating
+            "Tempat Pilihan" tab, which parks ~92px above the panel seam, so the
+            chip can never cover the tab that owns that corner. The empty-state
+            card keeps its own `+128` slot, and the two are mutually exclusive
+            (`noLocationHintVisible` requires no empty state), so they cannot
+            stack on top of each other. It never touches the filter row, the
+            header, the search bar, or the sheet's own geometry.
+
+            The action is the SAME `handleLocatePress` control the filter row
+            uses — no second location path — and it is only rendered when the
+            browser has geolocation at all (`noGeolocation` is a client-only,
+            hydration-safe answer, and it is `false` on the server exactly like
+            the first client render, which is also why this whole chip is
+            absent from the server HTML: `viewerSettled` starts false).
+
+            The polite status role announces the state once; nothing here is a
+            dialog and nothing steals focus. */}
+        {noLocationHintVisible && (
+          <div
+            data-home-no-location-hint
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute inset-x-0 z-[1100] flex justify-center px-4 transition-[bottom] duration-300 motion-reduce:transition-none"
+            style={{ bottom: sheetVisiblePx + 100 }}
+          >
+            <div className="pointer-events-auto flex w-fit max-w-[min(22rem,100%)] flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-[14px] bg-white/95 px-3 py-1.5 text-center shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5">
+              <p className="text-[11px] font-semibold leading-4 text-brand-ink/85">
+                Menampilkan semua tempat. Aktifkan lokasi untuk melihat yang dekat Anda.
+              </p>
+              {noGeolocation ? null : (
+                <button
+                  type="button"
+                  data-home-hint-locate
+                  onClick={handleLocatePress}
+                  aria-busy={locatePending}
+                  className="inline-flex h-11 touch-manipulation items-center justify-center gap-1 rounded-[12px] border border-black/5 bg-brand-cream px-3 text-[11px] font-bold text-brand-primary shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 hover:bg-white active:scale-95"
+                >
+                  {locatePending ? (
+                    <span
+                      aria-hidden
+                      className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-primary/25 border-t-brand-primary motion-reduce:animate-none"
+                    />
+                  ) : null}
+                  Lokasi Saya
+                </button>
+              )}
             </div>
           </div>
         )}

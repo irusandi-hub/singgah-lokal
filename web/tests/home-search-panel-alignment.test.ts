@@ -237,14 +237,16 @@ test("the OSM attribution stays visible above the sheet edge", () => {
     /\.singgah-home-map \.leaflet-bottom \.leaflet-control-attribution \{\s*margin-bottom: 22px;\s*\}/,
   );
   assert.match(css, /\.singgah-home-map \.leaflet-bottom \{\s*bottom: var\(--singgah-sheet-inset, 0px\);/);
-  assert.match(pageCode, /bottomInset=\{sheetVisiblePx\}/);
+  // 2026-10-25: the measured height only — `null` until Home measured the
+  // stage, so the catalogue frame is never fitted with a guessed inset.
+  assert.match(pageCode, /bottomInset=\{stageMeasured \? sheetVisiblePx : null\}/);
   assert.doesNotMatch(pageCode, /--singgah-sheet-inset/);
   // ...and the MAP publishes that height as the CSS inset its own bottom
   // band (controls + attribution) reads back.
   const mapCode = stripComments(
     readFileSync(new URL("../components/home-map.tsx", import.meta.url), "utf8"),
   );
-  assert.match(mapCode, /\{ "--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset\)\}px` \}/);
+  assert.match(mapCode, /\{ "--singgah-sheet-inset": `\$\{Math\.max\(0, bottomInset \?\? 0\)\}px` \}/);
   assert.doesNotMatch(css, /--singgah-results-panel-height/);
   assert.doesNotMatch(pageCode, /--singgah-results-panel-height/);
   assert.doesNotMatch(pageCode, /new ResizeObserver\(apply\)/);

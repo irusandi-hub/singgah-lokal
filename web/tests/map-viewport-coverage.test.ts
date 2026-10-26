@@ -374,12 +374,14 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   // the empty state is click-through; the retired gesture pill is gone and the
   // help panel is a real dialog the visitor opened deliberately.
   // 2026-10-23: the card's scrim, decorative heart, and on-photo name are
-  // click-through too (they sit ON the card link), and the map empty state is
-  // still the only click-through MAP overlay. No interactive control opts out.
+  // click-through too (they sit ON the card link).
+  // 2026-10-25: the no-location explainer joins them — the same wrapper pattern
+  // as the search/filter band: the ROW is click-through, only its real
+  // "Lokasi Saya" button opts back in, so the map under the chip still pans.
   assert.equal(
     (pageCode.match(/pointer-events-none absolute/g) ?? []).length,
-    4,
-    "the card's decorative layers and the map empty state are click-through",
+    5,
+    "the card's decorative layers, the map empty state, and the no-location chip row are click-through",
   );
   assert.equal(pageCode.includes("gestureHintLiftPx"), false);
   assert.match(pageCode, /data-gesture-help/);
@@ -392,7 +394,9 @@ test("12. Map gestures and controls are reachable — the chrome never swallows 
   assert.match(mapCode, /scrollWheelZoom: true/);
   assert.equal((mapCode.match(/onRequestLocate/g) ?? []).length, 0);
   assert.doesNotMatch(mapCode, /top-\[190px\]/);
-  assert.equal((pageCode.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 1);
+  // 2026-10-25: the filter-row icon and the no-location explainer both call
+  // the SAME handler; no second locate implementation exists.
+  assert.equal((pageCode.match(/onClick=\{handleLocatePress\}/g) ?? []).length, 2);
   assert.match(pageCode, /aria-label="Lokasi saya — pusatkan peta ke lokasi aktual"/);
   assert.match(pageCode, /<SiteNav floating onShowGestureHint=\{handleShowGestureHint\} \/>/);
   assert.equal(mapCode.includes("Arah peta: utara ke atas"), false);
