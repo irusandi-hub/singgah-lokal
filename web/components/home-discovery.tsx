@@ -1620,6 +1620,61 @@ export default function HomeDiscovery({
     !liveOnly &&
     !mapEmptyStateVisible;
 
+  // LOCATION INVITE CARD (2026-10-26). The honest "you are looking at the whole
+  // catalogue right now" surface for the no-location catalogue frame — the SAME
+  // situation the no-location hint already explains, but presented as a single
+  // focused card in the free band above the results panel instead of a floating
+  // chip. It never invents a coordinate, never moves the camera, never changes
+  // a filter or the catalogue, and it is mutually exclusive with the viewport
+  // empty-state overlay (both live in the same band and stacking two notices
+  // would cover the map for nothing).
+  //
+  // It appears only in the plain discovery view with no location yet
+  // (`noLocationHintVisible`), only once the FIRST location attempt has settled
+  // (`viewerSettled`), and only when the dataset still has Places to pin
+  // (`mapPlaces.length > 0`) — when the viewport is genuinely empty the honest
+  // empty-state overlay owns that band instead. When a real fix exists the card
+  // never renders at all.
+  //
+  // The action is the SAME `handleLocatePress` the filter row uses — no second
+  // location path. The button is rendered ONLY when the browser actually has
+  // geolocation (`noGeolocation` is the hydration-safe client answer and is
+  // `false` on the server exactly like the first client render), so a browser
+  // without geolocation sees the honest explainer with no fake action, and the
+  // whole card is still absent from the server HTML because `viewerSettled`
+  // starts false on both sides.
+  // LOCATION INVITE CARD (2026-10-26). The honest "you are looking at the whole
+  // catalogue right now" surface for the no-location catalogue frame — the SAME
+  // situation the no-location hint already explains, but presented as a single
+  // focused card in the free band above the results panel instead of a floating
+  // chip. It never invents a coordinate, never moves the camera, never changes
+  // a filter or the catalogue, and it is mutually exclusive with the viewport
+  // empty-state overlay (both live in the same band and stacking two notices
+  // would cover the map for nothing).
+  //
+  // It appears only when both of these are true:
+  //   · the no-location hint is already showing (`noLocationHintVisible`), which
+  //     means the FIRST location attempt has settled with no location, there is
+  //     no search in flight or resolved, no curated/LIVE layer, and — critically
+  //     — the viewport is NOT currently empty (`!mapEmptyStateVisible`);
+  //   · the dataset still has Places to pin (`mapPlaces.length > 0`), so this is
+  //     a populated catalogue frame rather than the honest empty-state situation;
+  //     when the viewport is genuinely empty the empty-state overlay owns that
+  //     band instead.
+  // When a real fix exists, when a search/curated/LIVE mode is active, when the
+  // viewport is empty, or when the dataset is empty, the card never renders.
+  //
+  // The action is the SAME `handleLocatePress` the filter row uses — no second
+  // location path. The button is rendered ONLY when the browser actually has
+  // geolocation (`noGeolocation` is the hydration-safe client answer and is
+  // `false` on the server exactly like the first client render), so a browser
+  // without geolocation sees the honest explainer with no fake action, and the
+  // whole card is still absent from the server HTML because `viewerSettled`
+  // starts false on both sides.
+  const locationInviteCardVisible =
+    noLocationHintVisible &&
+    mapPlaces.length > 0;
+
   // The floating "Tempat Pilihan" information board was REMOVED (2026-10-18).
   // It restated the layer name, a per-layer count, the camera radius, and a
   // "Ke hasil" scroll action in a card that permanently covered the map's
@@ -2369,6 +2424,71 @@ export default function HomeDiscovery({
           </div>
         )}
 
+        {/* LOCATION INVITE CARD (2026-10-26). The focused "you are looking at
+            the whole catalogue right now" surface for the no-location catalogue
+            frame — the SAME situation the no-location hint explains, but as a
+            single card rather than a floating chip. It lives in the measured
+            free band above the results panel (below the filter row, above the
+            first painted pin band), so it never covers the header, the search
+            bar, the filter row, the "Tempat Pilihan" tab, any pin, or the
+            panel's top edge. It is click-through outside the card itself, and
+            its interior button is the SAME `handleLocatePress` the filter row
+            uses — no second location path and no invented coordinate.
+
+            The card is rendered ONLY in the honest no-location discovery frame
+            (`locationInviteCardVisible` = `noLocationHintVisible &&
+            mapPlaces.length > 0`), so it is mutually exclusive with the
+            viewport empty-state overlay: when the viewport is genuinely empty
+            the empty-state overlay owns that band, and when a real fix exists
+            neither surface renders. It also never appears during a search,
+            curated mode, LIVE mode, or a short stage where the free band is too
+            small to hold it readably — the free-band check is enforced by the
+            same `sheetVisiblePx` gate the no-location hint and the empty-state
+            overlay already rely on.
+
+            The button is shown ONLY when the browser actually has geolocation
+            (`noGeolocation` is the hydration-safe client answer and is `false`
+            on the server exactly like the first client render), so a browser
+            without geolocation sees the honest explainer with no fake action,
+            and the whole card is still absent from the server HTML because
+            `viewerSettled` starts false on both sides — which is also why it
+            hydrates with no mismatch. */}
+        {locationInviteCardVisible && (
+          <div
+            data-home-invite-card
+            role="status"
+            aria-live="polite"
+            className="pointer-events-none absolute inset-x-0 z-[1100] flex justify-center px-4 transition-[bottom] duration-300 motion-reduce:transition-none"
+            style={{ bottom: sheetVisiblePx + 200 }}
+          >
+            <div className="pointer-events-auto flex w-fit max-w-[min(24rem,100%)] flex-col items-center text-center rounded-[16px] bg-white/95 px-4 py-3 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5">
+              <p className="text-[12px] font-semibold leading-5 text-brand-ink/90">
+                Jelajahi semua tempat
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-brand-ink/65">
+                Peta ini menampilkan semua tempat.
+              </p>
+              {noGeolocation ? null : (
+                <button
+                  type="button"
+                  data-home-invite-locate
+                  onClick={handleLocatePress}
+                  aria-busy={locatePending}
+                  className="mt-3 inline-flex h-10 touch-manipulation items-center justify-center gap-1 rounded-[12px] border border-brand-primary/20 bg-brand-primary px-4 text-[11px] font-bold text-white shadow-[0_2px_6px_rgb(0_0_0/0.12)] transition duration-100 hover:bg-brand-primary-deep active:scale-95"
+                >
+                  {locatePending ? (
+                    <span
+                      aria-hidden
+                      className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white motion-reduce:animate-none"
+                    />
+                  ) : null}
+                  Lokasi Saya
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* CONSOLIDATED INFORMATION BOARD: REMOVED (2026-10-18).
             The floating "Tempat Pilihan" card that used to sit on the map's
             bottom edge — title, per-layer count, radius/coverage wording, and
@@ -2483,7 +2603,7 @@ export default function HomeDiscovery({
                 <li className="flex items-start gap-2 py-1.5">
                   <span aria-hidden className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-primary" />
                   <p className="text-[13px] leading-snug">
-                    <span className="font-bold">Geser tab “Tempat Pilihan”</span> — memindahkannya di atas peta.
+                    <span className="font-bold">Geser tab "Tempat Pilihan"</span> — memindahkannya di atas peta.
                   </p>
                 </li>
                 <li className="flex items-start gap-2 py-1.5">
