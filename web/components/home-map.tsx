@@ -339,6 +339,21 @@ type HomeMapProps = {
    * measured 0 (a caller with no panel at all).
    */
   bottomInset?: number | null;
+
+  /**
+   * The no-location invite pill's band, in map pixels from the container's TOP
+   * edge (2026-10-29). The pill floats under the filter row and therefore owns
+   * pixels the CATALOGUE frame used to treat as free; this is the bottom edge
+   * of that pill, measured by Home in the same pass as `bottomInset`.
+   *
+   * Only `applyCatalogueFrame` reads it — the origin frame (a real fix, a
+   * search center) has no pill at all, and no other camera rule changes.
+   *
+   * `null` means "the pill is on the map but not measured yet": the one first
+   * frame is HELD until the real number arrives, exactly like `bottomInset`.
+   * An absent prop is 0 (no pill, nothing reserved).
+   */
+  catalogueTopInset?: number | null;
 };
 
 /**
@@ -348,6 +363,22 @@ type HomeMapProps = {
  * at all.
  */
 const CATALOGUE_FIT_MIN_VISIBLE_PX = 96;
+
+/**
+ * THE INVITE PILL'S STRIP IN THE CATALOGUE FRAME (2026-10-29).
+ *
+ * The pill floats under the filter row, so its band belongs to the map's own
+ * chrome budget. Everything a pin paints — the artwork AND its 44px tap pad —
+ * rides ABOVE the marker's coordinate: the pad is anchored 40px above it (the
+ * compact artwork is only the top 17px of that pad). `ABOVE_ANCHOR_PX` is that
+ * overhang, so clearing it guarantees the pill covers NOTHING a visitor can
+ * see or tap, and `CLEARANCE_PX` is the air kept between the pill's lower edge
+ * and the northernmost pad. The box floor is the pre-existing
+ * `CATALOGUE_FIT_MIN_VISIBLE_PX` — the same number the panel reserve already
+ * respects, so the two rules can never disagree about what is "too small".
+ */
+const CATALOGUE_PIN_BAND_ABOVE_ANCHOR_PX = 40;
+const CATALOGUE_PIN_BAND_CLEARANCE_PX = 8;
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const OSM_ATTRIBUTION =
@@ -574,6 +605,7 @@ export default function HomeMap({
   highlightedPlaceId = null,
   onSelectPlace,
   bottomInset = 0,
+  catalogueTopInset = 0,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -650,6 +682,8 @@ export default function HomeMap({
   // lifecycle and must read the CURRENT inset, never a stale closure value.
   // `null` = not measured yet (see HomeMapProps.bottomInset).
   const bottomInsetRef = useRef<number | null>(bottomInset);
+  // Same contract for the invite pill's band (see HomeMapProps.catalogueTopInset).
+  const catalogueTopInsetRef = useRef<number | null>(catalogueTopInset);
   const initialFrameDoneRef = useRef(false);
   const finalizeInitialFrameRef = useRef<(() => Promise<boolean>) | null>(null);
 
@@ -719,6 +753,10 @@ export default function HomeMap({
   useEffect(() => {
     bottomInsetRef.current = bottomInset;
   }, [bottomInset]);
+
+  useEffect(() => {
+    catalogueTopInsetRef.current = catalogueTopInset;
+  }, [catalogueTopInset]);
 
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
@@ -1217,20 +1255,88 @@ export default function HomeMap({
             size.y - reservedBelow - CATALOGUE_FIT_MIN_VISIBLE_PX,
           );
           const extraBottom = Math.min(sheetInset, maxExtraBottom);
-          map.fitBounds(
-            L.latLngBounds(
-              [initialBounds.south, initialBounds.west],
-              [initialBounds.north, initialBounds.east],
-            ),
-            {
-              paddingTopLeft: initialPadding.paddingTopLeft,
-              paddingBottomRight: [
-                initialPadding.paddingBottomRight[0],
-                initialPadding.paddingBottomRight[1] + extraBottom,
-              ],
-              animate: false,
-            },
+          let paddingTopLeft: [number, number] = [
+            initialPadding.paddingTopLeft[0],
+            initialPadding.paddingTopLeft[1],
+          ];
+          const paddingBottomRight: [number, number] = [
+            initialPadding.paddingBottomRight[0],
+            initialPadding.paddingBottomRight[1] + extraBottom,
+          ];
+          const fittedBounds = L.latLngBounds(
+            [initialBounds.south, initialBounds.west],
+            [initialBounds.north, initialBounds.east],
           );
+          map.fitBounds(fittedBounds, {
+            paddingTopLeft,
+            paddingBottomRight,
+            animate: false,
+          });
+
+          // THE INVITE PILL BAND IS PART OF THE FRAME TOO (2026-10-29).
+          //
+          // BUG THIS FIXES: the no-location invite pill floats under the filter
+          // row, i.e. inside the band the catalogue fit used to treat as free.
+          // At 390×844 and 412×915 the fitted spread already starts below the
+          // pill, but at 360×640 the northern pins land at y≈158 while the pill
+          // spans 166–218 — 58 of 70 pins were painted under a map control.
+          //
+          // The reserve is MEASURED, never a chosen number: Home publishes the
+          // pill's real lower edge (`catalogueTopInset`), and the fit grows its
+          // TOP padding until the northernmost coordinate — plus the compact
+          // artwork that rides above it — clears that edge by
+          // `CATALOGUE_PIN_BAND_CLEARANCE_PX`. It re-measures rather than assume
+          // the amount, because `fitBounds` centres the content in the PADDED
+          // box: on a world frame the zoom is already clamped at `minZoom`, so
+          // padding is the only lever and a top reserve of 2Δ moves the content
+          // down by Δ.
+          //
+          // ON A SHORT STAGE THE BAND IS PAID FOR OUT OF THE BOTTOM (bug this
+          // fixes at 360×640): the chrome padding (190) plus the panel reserve
+          // (sheet 269 + 84 breathing room) already exceeded the 640px map, so
+          // the fit box was inverted and a larger top padding had nowhere to
+          // go — the loop could only give up and the pins stayed under the
+          // pill. The chrome's spare bottom room is therefore released before
+          // the reserve is abandoned, and the PANEL FLOOR is never crossed: the
+          // fit still ends at or above the sheet's top edge, so a pin can never
+          // be traded from "under the pill" to "under the panel". At most
+          // three extra passes, all inside the SAME one first-frame decision:
+          // nothing is painted yet, there is no timer, and no
+          // `setView`/`fitBounds` ever follows the frame.
+          const inviteBand = Math.max(0, Math.round(catalogueTopInsetRef.current ?? 0));
+          if (inviteBand > 0) {
+            const targetTop =
+              inviteBand + CATALOGUE_PIN_BAND_ABOVE_ANCHOR_PX + CATALOGUE_PIN_BAND_CLEARANCE_PX;
+            // The panel's own inset is the hard floor: everything above it may
+            // be spent, nothing below it may be used.
+            const floorBottom = Math.min(sheetInset, paddingBottomRight[1]);
+            const maxTop = Math.max(
+              paddingTopLeft[1],
+              size.y - floorBottom - CATALOGUE_FIT_MIN_VISIBLE_PX,
+            );
+            for (let pass = 0; pass < 3; pass += 1) {
+              const northY = map.latLngToContainerPoint(
+                L.latLng(initialBounds.north, initialBounds.west),
+              ).y;
+              const deficit = targetTop - northY;
+              if (deficit <= 0.5) break;
+              const nextTop = Math.min(maxTop, Math.ceil(paddingTopLeft[1] + deficit * 2));
+              if (nextTop <= paddingTopLeft[1]) break;
+              paddingTopLeft = [paddingTopLeft[0], nextTop];
+              paddingBottomRight[1] = Math.max(
+                floorBottom,
+                Math.min(
+                  paddingBottomRight[1],
+                  size.y - nextTop - CATALOGUE_FIT_MIN_VISIBLE_PX,
+                ),
+              );
+              map.fitBounds(fittedBounds, {
+                paddingTopLeft,
+                paddingBottomRight,
+                animate: false,
+              });
+            }
+          }
         } else {
           // No Place coordinate at all: the world overview is the only honest
           // frame. Never a default city, country, or stand-in coordinate.
@@ -1293,6 +1399,10 @@ export default function HomeMap({
           // the real measurement" rule as an unmeasured container above — the
           // frame is finished by the effect that watches this prop, never by a
           // timer, and it is still the ONE first frame.
+          // The no-location invite pill's band is part of the frame as well
+          // (2026-10-29): Home passes `null` until it has measured the pill's
+          // real lower edge, so the frame waits for it instead of guessing.
+          if (catalogueTopInsetRef.current === null) return false;
           if (bottomInsetRef.current === null) return false;
           applyCatalogueFrame();
         } else {
@@ -1452,7 +1562,7 @@ export default function HomeMap({
     // the results panel, and Home only publishes its MEASURED height (null
     // until then), so this effect is what finishes a held catalogue frame the
     // moment that measurement exists.
-  }, [viewerSettled, viewerPosition, cameraCenter, searchCenter, bottomInset]);
+  }, [viewerSettled, viewerPosition, cameraCenter, searchCenter, bottomInset, catalogueTopInset]);
 
   // AUTO-FIT MECHANISM (product decision, 2026-10-03) — ONE function, shared by
   // the curated refocus and the location search, so both obey the same three

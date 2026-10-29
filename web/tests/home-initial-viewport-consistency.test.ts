@@ -67,16 +67,24 @@ test("1. the no-origin catalogue frame is derived from the Place spread, never a
 test("2. the first frame follows the origin, and the catalogue only once the location attempt settled", () => {
   const decideStart = homeMap.indexOf("const finalizeInitialFrame = async (): Promise<boolean> => {");
   assert.notEqual(decideStart, -1, "the initial frame must be decided in ONE place");
-  const decide = homeMap.slice(decideStart, decideStart + 1400);
+  // 2600 characters: the branch keeps its long "why this frame is held"
+  // explanation, and the WHOLE decision (both guards plus the one fit) must
+  // still be found inside this window.
+  const decide = homeMap.slice(decideStart, decideStart + 2600);
 
   // A known origin frames the LOCAL AREA (the same rule the locate path uses)…
   assert.match(decide, /const origin = initialOriginRef\.current;[\s\S]{0,120}?applyOriginFrame\(origin\);/);
   // …with no origin, the catalogue frame is ONLY the settled outcome, and only
-  // once the results-panel height it reserves has really been measured
-  // (2026-10-25: a first frame may never be fitted with a guessed inset)…
+  // once the insets it reserves have really been measured (2026-10-25: a first
+  // frame may never be fitted with a guessed inset). Two insets now: the
+  // results panel, and — since 2026-10-29 — the no-location invite pill's band,
+  // which the catalogue fit must keep its pins clear of. The window grew from
+  // 600 to 1000 characters because the branch documents that second reserve;
+  // the ORDER is asserted harder than before (pill guard first, panel guard
+  // second, the ONE fit last).
   assert.match(
     decide,
-    /\} else if \(viewerSettledRef\.current\) \{[\s\S]{0,600}?if \(bottomInsetRef\.current === null\) return false;[\s\S]{0,80}?applyCatalogueFrame\(\);/,
+    /\} else if \(viewerSettledRef\.current\) \{[\s\S]{0,1000}?if \(catalogueTopInsetRef\.current === null\) return false;[\s\S]{0,120}?if \(bottomInsetRef\.current === null\) return false;[\s\S]{0,80}?applyCatalogueFrame\(\);/,
   );
   // …and while the first request is running, NOTHING is painted.
   assert.match(decide, /\} else \{[\s\S]{0,260}?return false;/);
@@ -155,9 +163,12 @@ test("5. the held frame is finished by the location OUTCOME, never by a timer", 
   // 2026-10-25: the measured panel inset is part of the same decision, so it
   // resumes a catalogue frame that was held for it — still an effect, still
   // driven by real values, never a timer.
+  // 2026-10-29: the invite pill's measured band is part of the same catalogue
+  // decision, so it resumes the same held frame — still an effect driven by a
+  // real measurement, never a timer.
   assert.match(
     homeMap,
-    /\}, \[viewerSettled, viewerPosition, cameraCenter, searchCenter, bottomInset\]\);/,
+    /\}, \[viewerSettled, viewerPosition, cameraCenter, searchCenter, bottomInset, catalogueTopInset\]\);/,
   );
   // No timer is introduced for the wait: the ONLY setTimeout in the whole
   // finalizer is the pre-existing 150 ms destroy-safe invalidate/report pass.

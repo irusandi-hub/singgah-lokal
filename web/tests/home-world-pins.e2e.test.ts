@@ -62,6 +62,8 @@ const MOCK_FIX = { latitude: -6.9175, longitude: 107.6191 };
  */
 const RIYADH_FIX = { latitude: 24.7136, longitude: 46.6753 };
 
+const INVITE_PILL = "[data-home-invite-pill]";
+/** The REMOVED in-panel card — asserted to be absent everywhere now. */
 const INVITE_CARD = "[data-home-invite-card]";
 const INVITE_LOCATE = "[data-home-invite-locate]";
 const INVITE_HELP_TOGGLE = "[data-home-invite-help-toggle]";
@@ -193,9 +195,23 @@ const readPins = (page: Page): Promise<PinProbe> =>
     };
   });
 
-/** Geometry of the invite card against every surface it may never cover. */
-const readCardGeometry = (page: Page) =>
-  page.evaluate(() => {
+/**
+ * Geometry of the location invite board against every surface it may never
+ * cover. Since 2026-10-29 the board is the PILL over the map, so `card` below
+ * is the pill's box, `insidePanel` must be FALSE, and the surfaces it must
+ * clear are the map's own (pins, filter row, header, search bar, OSM credit,
+ * "Tempat Pilihan" tab, panel top edge).
+ */
+const readCardGeometry = async (page: Page) => {
+  // The pill enters with a 250 ms fade + 7px rise (transform only). Geometry is
+  // only meaningful once that transform has settled, otherwise the measured
+  // gap to the filter row is "8px + however far the rise got" (11.5px was read
+  // mid-animation before this wait existed).
+  await page.evaluate(async () => {
+    const pill = document.querySelector("[data-home-invite-pill]");
+    await Promise.all((pill?.getAnimations() ?? []).map((a) => a.finished.catch(() => {})));
+  });
+  return page.evaluate(() => {
     const box = (el: Element | null) => {
       if (!el) return null;
       const b = el.getBoundingClientRect();
@@ -210,9 +226,18 @@ const readCardGeometry = (page: Page) =>
     };
     const hits = (a: ReturnType<typeof box>, b: ReturnType<typeof box>) =>
       !!a && !!b && a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-    const card = document.querySelector("[data-home-invite-card]");
+    const card = document.querySelector("[data-home-invite-pill]");
     const cardBox = box(card);
-    const pinBoxes = [...document.querySelectorAll(".singgah-home-map .singgah-pin")].map(box);
+    // WHAT COUNTS AS "A PIN" HERE (2026-10-29): the artwork, the name chip,
+    // AND the transparent 40×44 `.singgah-pin-hit` tap pad — the pad is what a
+    // finger actually hits, and it floats up to 40px above the coordinate, so
+    // clearing it is the strictest reading of "the pill covers no pin". The
+    // catalogue frame reserves that full band (`CATALOGUE_PIN_BAND_ABOVE_ANCHOR_PX`).
+    const pinBoxes = [...document.querySelectorAll(".singgah-home-map .singgah-pin-art")].map(box);
+    const labelBoxes = [
+      ...document.querySelectorAll('.singgah-home-map .singgah-pin-label[data-label-state="always"]'),
+    ].map(box);
+    const padBoxes = [...document.querySelectorAll(".singgah-home-map .singgah-pin-hit")].map(box);
     const tab = box(document.querySelector("[data-curated-map-tab]"));
     const sheet = box(document.querySelector("section.singgah-sheet"));
     const filter = box(document.querySelector("[data-home-locate]")?.parentElement ?? null);
@@ -249,6 +274,8 @@ const readCardGeometry = (page: Page) =>
       panelTopEdgeCovered: !!cardBox && !!sheet ? cardBox.top < sheet.top : null,
       pins: pinBoxes.length,
       pinOverlaps: cardBox ? pinBoxes.filter((b) => hits(cardBox, b)).length : null,
+      labelOverlaps: cardBox ? labelBoxes.filter((b) => hits(cardBox, b)).length : null,
+      padOverlaps: cardBox ? padBoxes.filter((b) => hits(cardBox, b)).length : null,
       tabOverlap: hits(cardBox, tab),
       filterOverlap: hits(cardBox, filter),
       headerOverlap: hits(cardBox, header),
@@ -282,7 +309,124 @@ const readCardGeometry = (page: Page) =>
           card?.querySelector("[data-home-invite-help-toggle]")) ?? null,
       ),
       textOverlapsAction:
-        !!action && (!!title && title.right > action.left || !!subtitle && subtitle.right > action.left),
+        !!action && (!!title && title.right > action.left + 0.5 || !!subtitle && subtitle.right > action.left + 0.5),
+      // MAP-OVERLAY CONTRACT (2026-10-29).
+      cardInPanel: document.querySelectorAll("[data-home-invite-card]").length,
+      searchOverlap: hits(
+        cardBox,
+        box(document.querySelector('input[placeholder="Cari tempat, cerita, produksi..."]')),
+      ),
+      attributionOverlap: hits(cardBox, box(document.querySelector(".leaflet-control-attribution"))),
+      panelOverlap: cardBox && sheet ? cardBox.bottom > sheet.top : null,
+      gapToFilter: cardBox && filter ? Math.round((cardBox.top - filter.bottom) * 10) / 10 : null,
+      alignedWithFilter:
+        cardBox && filter
+          ? Math.abs(cardBox.left - filter.left) <= 1 && Math.abs(cardBox.right - filter.right) <= 1
+          : null,
+      firstCardOffsetFromPanelTop:
+        firstCard && sheet ? Math.round((firstCard.top - sheet.top) * 10) / 10 : null,
+      help: (() => {
+        const el = document.querySelector("[data-home-invite-help]") as HTMLElement | null;
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        const close = el.querySelector("button[aria-label]") as HTMLElement | null;
+        return {
+          role: el.getAttribute("role"),
+          ariaLabel: el.getAttribute("aria-label"),
+          top: b.top,
+          bottom: b.bottom,
+          left: b.left,
+          right: b.right,
+          h: Math.round(b.height),
+          closeHeight: close ? Math.round(close.getBoundingClientRect().height) : null,
+          closeFocused: close ? document.activeElement === close : null,
+        };
+      })(),
+      activeElementLabel:
+        (document.activeElement as HTMLElement | null)?.getAttribute?.("aria-label") ?? null,
+      contrast: (() => {
+        // Normalise through a canvas so modern colour syntax resolves to rgba.
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        const toRgba = (value: string): [number, number, number, number] => {
+          if (!ctx) return [0, 0, 0, 1];
+          ctx.fillStyle = "#000";
+          ctx.fillStyle = value;
+          const resolved = String(ctx.fillStyle);
+          if (resolved.startsWith("#")) {
+            const hex = resolved.slice(1);
+            const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+            return [
+              parseInt(full.slice(0, 2), 16),
+              parseInt(full.slice(2, 4), 16),
+              parseInt(full.slice(4, 6), 16),
+              1,
+            ];
+          }
+          const nums = (resolved.match(/[\d.]+/g) ?? ["0", "0", "0", "1"]).map(Number);
+          return [nums[0] ?? 0, nums[1] ?? 0, nums[2] ?? 0, nums[3] ?? 1];
+        };
+        const lum = ([r, g, b]: [number, number, number, number]) => {
+          const ch = (v: number) => {
+            const s = v / 255;
+            return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+          };
+          return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+        };
+        const ratio = (fgValue: string, bgValue: string) => {
+          const bg = toRgba(bgValue);
+          const raw = toRgba(fgValue);
+          const a = raw[3];
+          const fg: [number, number, number, number] = [
+            raw[0] * a + bg[0] * (1 - a),
+            raw[1] * a + bg[1] * (1 - a),
+            raw[2] * a + bg[2] * (1 - a),
+            1,
+          ];
+          const l1 = lum(fg);
+          const l2 = lum(bg);
+          const hi = Math.max(l1, l2);
+          const lo = Math.min(l1, l2);
+          return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+        };
+        const pillStyle = card ? getComputedStyle(card) : null;
+        const titleEl = card?.querySelector("[data-home-invite-title]") as HTMLElement | null;
+        const subtitleEl = card?.querySelector("[data-home-invite-subtitle]") as HTMLElement | null;
+        const actionEl = (
+          card?.querySelector("[data-home-invite-locate]") ??
+          card?.querySelector("[data-home-invite-help-toggle]")
+        ) as HTMLElement | null;
+        const actionStyle = actionEl ? getComputedStyle(actionEl) : null;
+        return {
+          titleOnPill:
+            titleEl && pillStyle
+              ? ratio(getComputedStyle(titleEl).color, pillStyle.backgroundColor)
+              : null,
+          subtitleOnPill:
+            subtitleEl && pillStyle
+              ? ratio(getComputedStyle(subtitleEl).color, pillStyle.backgroundColor)
+              : null,
+          labelOnAction:
+            actionEl && actionStyle ? ratio(actionStyle.color, actionStyle.backgroundColor) : null,
+        };
+      })(),
+      motion: (() => {
+        const pillStyle = card ? getComputedStyle(card) : null;
+        const ripple = card?.querySelector(".singgah-locate-pill__ripple") as HTMLElement | null;
+        const rippleStyle = ripple ? getComputedStyle(ripple) : null;
+        const actionEl = (
+          card?.querySelector("[data-home-invite-locate]") ??
+          card?.querySelector("[data-home-invite-help-toggle]")
+        ) as HTMLElement | null;
+        const sheenStyle = actionEl ? getComputedStyle(actionEl, "::after") : null;
+        return {
+          pill: pillStyle?.animationName ?? null,
+          ripple: rippleStyle?.animationName ?? null,
+          rippleIterations: rippleStyle?.animationIterationCount ?? null,
+          sheen: sheenStyle?.animationName ?? null,
+          sheenIterations: sheenStyle?.animationIterationCount ?? null,
+        };
+      })(),
       cardFullyInsideSheet:
         !!cardBox && !!sheet
           ? cardBox.top >= sheet.top && cardBox.bottom <= Math.min(sheet.bottom, window.innerHeight)
@@ -312,45 +456,59 @@ const readCardGeometry = (page: Page) =>
       emptyOverlay,
     };
   });
+};
 
 type CardGeometry = Awaited<ReturnType<typeof readCardGeometry>>;
 
 /**
- * THE SPACING CONTRACT OF THE INVITE CARD (2026-10-29). Every variant —
- * prompt, denied (steps open), and no-geolocation — must keep the same
- * comfortable insets: a real gap to the first Place card, bottom padding under
- * the subtitle, and a text column that never wraps under the action.
+ * THE MAP-OVERLAY CONTRACT OF THE INVITE PILL (2026-10-29). The board is a
+ * map control: it sits over the map (never inside the results panel), it is at
+ * most 52px tall with a ≥44px action, and it clears every surface it could
+ * cover. The first Place card must be back at its baseline offset, i.e. the
+ * panel's own 44px handle band + 16px list padding and nothing else.
  */
-function expectCardSpacing(geo: CardGeometry, variant: string) {
-  expect(geo.card, `${variant}: the card has a real box`).not.toBeNull();
+function expectPillClear(geo: CardGeometry, label: string) {
+  expect(geo.card, `${label}: the pill has a real box`).not.toBeNull();
+  expect(geo.card!.h, `${label}: the pill is at most 52px tall`).toBeLessThanOrEqual(52);
+  expect(geo.card!.h, `${label}: the pill actually renders`).toBeGreaterThan(30);
+  expect(geo.role, `${label}: the pill announces politely`).toBe("status");
+  expect(geo.ariaLive, `${label}: the pill announces politely`).toBe("polite");
+  expect(geo.cardInPanel, `${label}: nothing is left inside the results panel`).toBe(0);
+  expect(geo.insidePanel, `${label}: the pill sits over the map, not in the panel`).toBe(false);
+  expect(geo.panelOverlap, `${label}: the pill never crosses the panel's top edge`).toBe(false);
+  expect(geo.pinOverlaps, `${label}: the pill covers no pin artwork`).toBe(0);
+  expect(geo.labelOverlaps, `${label}: the pill covers no Place name chip`).toBe(0);
+  expect(geo.padOverlaps, `${label}: the pill covers no pin tap pad`).toBe(0);
+  expect(geo.filterOverlap, `${label}: the pill covers no filter control`).toBe(false);
+  expect(geo.tabOverlap, `${label}: the pill covers no 'Tempat Pilihan' tab`).toBe(false);
+  expect(geo.headerOverlap, `${label}: the pill covers no header control`).toBe(false);
+  expect(geo.searchOverlap, `${label}: the pill covers no search bar`).toBe(false);
+  expect(geo.attributionOverlap, `${label}: the pill covers no OSM credit`).toBe(false);
+  expect(geo.alignedWithFilter, `${label}: candidate A aligns with the filter row`).toBe(true);
+  expect(geo.gapToFilter, `${label}: the pill sits ~8px under the filter row`).toBeGreaterThanOrEqual(
+    6,
+  );
+  expect(geo.gapToFilter, `${label}: the pill sits ~8px under the filter row`).toBeLessThanOrEqual(
+    10,
+  );
   expect(
-    geo.cardToFirstCardGap,
-    `${variant}: the card clears the first Place card by ≥12px`,
-  ).toBeGreaterThanOrEqual(12);
-  expect(geo.cardToFirstCardGap, `${variant}: the gap stays tight (≤16px)`).toBeLessThanOrEqual(16);
+    geo.firstCardOffsetFromPanelTop,
+    `${label}: the first Place card is back at its baseline offset`,
+  ).toBeLessThanOrEqual(61);
+  expect(geo.cardPointer, `${label}: the pill opts into pointer events`).toBe("auto");
+  expect(geo.titleClipped, `${label}: the title is never cut off`).toBe(false);
+  expect(geo.subtitleClipped, `${label}: the subtitle is never cut off`).toBe(false);
+  expect(geo.textOverlapsAction, `${label}: no text runs under the button`).toBe(false);
+  // The copy must also stay INSIDE the 52px pill: at 360px a two-line title
+  // pushed the subtitle 1px past the lower edge (measured before the copy was
+  // shortened), which reads as text sitting on the pill's border.
+  expect(geo.title!.top, `${label}: the title starts inside the pill`).toBeGreaterThanOrEqual(
+    geo.card!.top,
+  );
   expect(
-    geo.subtitleToCardBottom,
-    `${variant}: the subtitle keeps ≥12px of bottom padding`,
-  ).toBeGreaterThanOrEqual(12);
-  expect(geo.titleToSubtitle, `${variant}: the subtitle sits on its own row`).toBeGreaterThanOrEqual(3);
-  expect(geo.titleClipped, `${variant}: the title is never cut off`).toBe(false);
-  expect(geo.subtitleClipped, `${variant}: the subtitle may wrap, never truncate`).toBe(false);
-  expect(geo.textOverlapsAction, `${variant}: no text runs under the action`).toBe(false);
-  expect(geo.cardFullyInsideSheet, `${variant}: the card is whole at the mid snap`).toBe(true);
-  expect(geo.pinOverlaps, `${variant}: the card covers no pin`).toBe(0);
-  expect(geo.tabOverlap, `${variant}: the card covers no floating tab`).toBe(false);
-  expect(geo.filterOverlap, `${variant}: the card covers no filter control`).toBe(false);
-  expect(geo.headerOverlap, `${variant}: the card covers no header control`).toBe(false);
-}
-
-/** The action's own insets: 44px tall, ≥12px from the card's top/bottom/right. */
-function expectActionInsets(geo: CardGeometry, variant: string) {
-  expect(geo.action, `${variant}: the variant renders an action`).not.toBeNull();
-  expect(geo.action?.h, `${variant}: the action is a 44px thumb target`).toBeGreaterThanOrEqual(44);
-  expect(geo.actionTopGap, `${variant}: ≥12px above the action`).toBeGreaterThanOrEqual(12);
-  expect(geo.actionBottomGap, `${variant}: ≥12px below the action`).toBeGreaterThanOrEqual(12);
-  expect(geo.actionRightGap, `${variant}: ≥12px right of the action`).toBeGreaterThanOrEqual(12);
-  expect(geo.actionTextClipped, `${variant}: the action label is never cut off`).toBe(false);
+    geo.subtitle!.bottom,
+    `${label}: the subtitle ends inside the pill`,
+  ).toBeLessThanOrEqual(geo.card!.bottom);
 }
 
 /** Count of real getCurrentPosition calls made by the app so far. */
@@ -401,82 +559,80 @@ if (!underNodeTestRunner) {
   }
 
   test.describe("home world pins / invite card (390×844)", () => {
-    /** (a) THE COMPACT FRAME — pin size, chips, and the ONE information board. */
-    test("a) the catalogue frame paints compact pins, no chips, and one non-covering card", async ({
+    /**
+     * (a) THE COMPACT FRAME + THE PILL — at ALL THREE measured phone widths:
+     * the catalogue frame still paints compact pins with no chips, and the ONE
+     * information board is now a ≤52px pill ON THE MAP, with the first Place
+     * card back at its baseline offset and none of the map's own surfaces
+     * covered.
+     */
+    test("a) the catalogue frame paints compact pins and ONE pill over the map at 360/390/412", async ({
       browser,
     }) => {
-      const context = await browser.newContext({
-        viewport: { width: 390, height: 844 },
-        isMobile: true,
-        hasTouch: true,
-      });
-      try {
-        const page = await context.newPage();
-        await blockTiles(page);
-        await denyGeolocation(page);
-        await page.goto(base, { waitUntil: "commit" });
+      for (const viewport of [
+        { width: 360, height: 640 },
+        { width: 390, height: 844 },
+        { width: 412, height: 915 },
+      ]) {
+        const label = `${viewport.width}×${viewport.height}`;
+        const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true });
+        try {
+          const page = await context.newPage();
+          await blockTiles(page);
+          await denyGeolocation(page);
+          await page.goto(base, { waitUntil: "commit" });
 
-        const map = page.locator("div.singgah-home-map").first();
-        await expect(map).toHaveAttribute("data-singgah-map-frame", "catalogue", { timeout: 25_000 });
-        await expect(map).toHaveAttribute("data-singgah-map", "ready", { timeout: 25_000 });
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
-        await page.waitForTimeout(500);
+          const map = page.locator("div.singgah-home-map").first();
+          await expect(map).toHaveAttribute("data-singgah-map-frame", "catalogue", {
+            timeout: 25_000,
+          });
+          await expect(map).toHaveAttribute("data-singgah-map", "ready", { timeout: 25_000 });
+          await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
+          await page.waitForTimeout(500);
 
-        const probe = await readPins(page);
-        console.log(`[a] catalogue probe: ${JSON.stringify(probe)}`);
-        expect(probe.frame).toBe("catalogue");
-        expect(probe.pins, "the whole catalogue must be pinned").toBeGreaterThan(10);
-        expect(probe.scale, "a wide frame must switch the container to compact").toBe("compact");
-        expect(probe.art?.h, "the compact pin is ~55% of the 31px artwork").toBeLessThanOrEqual(20);
-        expect(probe.art?.h, "the compact pin must stay visible").toBeGreaterThanOrEqual(14);
-        expect(probe.paintedLabels, "no name chip may be painted on a wide frame").toBe(0);
-        expect(probe.hit?.w, "the tap pad stays 40px wide").toBeGreaterThanOrEqual(40);
-        expect(probe.hit?.h, "the tap pad stays 44px tall").toBeGreaterThanOrEqual(44);
-        expect(probe.maxTileZoom ?? 99, "the catalogue frame is world scale").toBeLessThanOrEqual(3);
+          const probe = await readPins(page);
+          console.log(`[a ${label}] catalogue probe: ${JSON.stringify(probe)}`);
+          expect(probe.frame).toBe("catalogue");
+          expect(probe.pins, "the whole catalogue must be pinned").toBeGreaterThan(10);
+          expect(probe.scale, "the compact pin scale is unchanged").toBe("compact");
+          expect(probe.art?.h, "the compact pin is ~55% of the 31px artwork").toBeLessThanOrEqual(20);
+          expect(probe.art?.h, "the compact pin must stay visible").toBeGreaterThanOrEqual(14);
+          expect(probe.paintedLabels, "no name chip may be painted on a wide frame").toBe(0);
+          expect(probe.hit?.w, "the tap pad stays 40px wide").toBeGreaterThanOrEqual(40);
+          expect(probe.hit?.h, "the tap pad stays 44px tall").toBeGreaterThanOrEqual(44);
+          expect(probe.maxTileZoom ?? 99, "the catalogue frame is world scale").toBeLessThanOrEqual(3);
 
-        // EXACTLY ONE board: the old floating chip is gone.
-        expect(await page.locator(INVITE_CARD).count(), "one invite card").toBe(1);
-        expect(
-          await page.locator("[data-home-no-location-hint]").count(),
-          "the old hint chip must be gone",
-        ).toBe(0);
+          // ONE board over the map, and NOTHING left in the results panel.
+          expect(await page.locator(INVITE_PILL).count(), "one invite pill").toBe(1);
+          expect(await page.locator(INVITE_CARD).count(), "no in-panel invite card").toBe(0);
+          expect(
+            await page.locator("[data-home-no-location-hint]").count(),
+            "the old hint chip must stay gone",
+          ).toBe(0);
 
-        const geo = await readCardGeometry(page);
-        console.log(`[a] card geometry: ${JSON.stringify(geo)}`);
-        expect(geo.card, "the card has a real box").not.toBeNull();
-        expect(geo.role).toBe("status");
-        expect(geo.ariaLive).toBe("polite");
-        expect(geo.insidePanel, "the measured fallback is inside the results panel").toBe(true);
-        expect(geo.panelTopEdgeCovered, "the card never crosses the panel's top edge").toBe(false);
-        expect(geo.pinOverlaps, "the card covers no pin").toBe(0);
-        expect(geo.tabOverlap, "the card covers no 'Tempat Pilihan' tab").toBe(false);
-        expect(geo.filterOverlap, "the card covers no filter-row control").toBe(false);
-        expect(geo.headerOverlap, "the card covers no header control").toBe(false);
-        // SPACING (2026-10-29): the phone report said the card's bottom edge
-        // touched the first Place card. The gap is now a real 14px, inside the
-        // required 12–16px band, instead of the old 2px.
-        expect(geo.cardToFirstCardGap, "the card clears the first Place card").toBeGreaterThanOrEqual(12);
-        expect(geo.cardToFirstCardGap, "the gap stays tight").toBeLessThanOrEqual(16);
-        expect(geo.card!.h, "the card is in the comfortable 76–88px band").toBeGreaterThanOrEqual(76);
-        expect(geo.card!.h, "the card is in the comfortable 76–88px band").toBeLessThanOrEqual(88);
-        expect(geo.actionTopGap, "the button clears the card's top edge").toBeGreaterThanOrEqual(12);
-        expect(geo.actionBottomGap, "the button clears the card's bottom edge").toBeGreaterThanOrEqual(12);
-        expect(geo.actionRightGap, "the button clears the card's right edge").toBeGreaterThanOrEqual(12);
-        expect(geo.subtitleToCardBottom, "the subtitle keeps its bottom padding").toBeGreaterThanOrEqual(12);
-        expect(geo.titleClipped, "the title is never cut off").toBe(false);
-        expect(geo.subtitleClipped, "the subtitle may wrap to two lines, never truncate").toBe(false);
-        expect(geo.textOverlapsAction, "the text column never runs under the button").toBe(false);
-        expect(geo.cardFullyInsideSheet, "the whole card is visible at the mid snap").toBe(true);
-        expect(geo.cardPointer, "the card itself opts into pointer events").toBe("auto");
-        expect(geo.text ?? "", "warm title").toContain("Jelajahi semua tempat");
-        expect(geo.text ?? "", "the prompt variant offers the nearby places").toContain(
-          "Aktifkan lokasi untuk melihat yang paling dekat denganmu",
-        );
-        expect(geo.locate?.text, "the prompt action is explicit").toBe("Aktifkan lokasi");
-        expect(geo.locate?.height, "the primary action is a thumb target").toBeGreaterThanOrEqual(44);
-        expect(geo.emptyOverlay, "the empty state is not up").toBe(false);
-      } finally {
-        await context.close();
+          const geo = await readCardGeometry(page);
+          console.log(`[a ${label}] pill geometry: ${JSON.stringify(geo)}`);
+          expectPillClear(geo, `a ${label}`);
+          expect(geo.card!.h, "the pill stays within the 52px budget").toBeLessThanOrEqual(52);
+          expect(geo.locate?.text, "the prompt action is explicit").toBe("Aktifkan lokasi");
+          expect(geo.locate?.height, "the primary action is a thumb target").toBeGreaterThanOrEqual(44);
+          expect(geo.emptyOverlay, "the empty state is not up").toBe(false);
+          expect(geo.text ?? "", "warm title").toContain("Temukan terdekat");
+          expect(geo.text ?? "", "the prompt subtitle").toContain(
+            "Aktifkan lokasi, peta berpusat di sekitarmu",
+          );
+
+          // HIDDEN at the FULL sheet (the map is not visible then). `Home` on
+          // the sheet handle is the documented full snap; Enter toggles back.
+          const handle = page.getByRole("button", { name: "Atur tinggi panel hasil" });
+          await handle.focus();
+          await page.keyboard.press("Home");
+          await expect(page.locator(INVITE_PILL)).toHaveCount(0, { timeout: 5_000 });
+          await page.keyboard.press("Enter");
+          await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 5_000 });
+        } finally {
+          await context.close();
+        }
       }
     });
 
@@ -737,7 +893,7 @@ if (!underNodeTestRunner) {
     });
 
     /** (d) NO GEOLOCATION — honest copy, no action, clean hydration. */
-    test("d) without geolocation the card explains the frame, offers no action, and hydrates cleanly", async ({
+    test("d) without geolocation the pill explains the frame, offers no action, and hydrates cleanly", async ({
       browser,
     }) => {
       const context = await browser.newContext({
@@ -775,18 +931,21 @@ if (!underNodeTestRunner) {
         await page.waitForTimeout(1_200);
 
         const state = await readCardGeometry(page);
-        console.log(`[d] no-geolocation card: ${JSON.stringify(state)}`);
+        console.log(`[d] no-geolocation pill: ${JSON.stringify(state)}`);
         console.log(`[d] hydration complaints: ${JSON.stringify(hydration)}`);
-        expect(ssrHtml.includes("data-home-invite-card"), "the server renders no settled card").toBe(
-          false,
-        );
-        expect(state.card, "the card still explains the frame").not.toBeNull();
+        expect(
+          ssrHtml.includes("data-home-invite-pill"),
+          "the server renders no settled pill",
+        ).toBe(false);
+        expect(state.card, "the pill still explains the frame").not.toBeNull();
         expect(state.buttons, "no location action for a browser without geolocation").toBe(0);
-        expect(state.text ?? "").toContain("Jelajahi semua tempat");
+        expect(state.text ?? "").toContain("Temukan terdekat");
         expect(state.text ?? "").toContain("Peta ini menampilkan semua tempat.");
-        expect(state.text ?? "").not.toContain("Aktifkan lokasi untuk");
-        expect(state.pinOverlaps, "the card still covers no pin").toBe(0);
-        expect(state.insidePanel, "the card stays inside the panel").toBe(true);
+        expect(state.text ?? "").not.toContain("Aktifkan lokasi, peta");
+        expectPillClear(state, "d no-geolocation");
+        expect(state.card!.h, "the no-action pill stays inside the 52px budget").toBeLessThanOrEqual(
+          52,
+        );
         expect(hydration, "server HTML and the first client render must agree").toEqual([]);
       } finally {
         await context.close();
@@ -812,7 +971,7 @@ if (!underNodeTestRunner) {
           "catalogue",
           { timeout: 25_000 },
         );
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
         const card = await readCardGeometry(page);
         console.log(`[e1] prompt card: ${JSON.stringify({ locate: card.locate, helpToggle: card.helpToggle })}`);
         expect(card.locate?.text).toBe("Aktifkan lokasi");
@@ -824,14 +983,19 @@ if (!underNodeTestRunner) {
         const after = await geoCallCount(page);
         console.log(`[e1] geolocation calls before=${before} after=${after}`);
         expect(after, "the button must trigger a fresh geolocation request").toBe(before + 1);
-        await expect(page.locator(INVITE_CARD)).toBeVisible();
+        await expect(page.locator(INVITE_PILL)).toBeVisible();
       } finally {
         await context.close();
       }
     });
 
-    /** (e2) DENIED — inform, never call getCurrentPosition, offer a reload. */
-    test("e2) denied offers 'Cara mengaktifkan', shows steps, and never requests a fix", async ({
+    /**
+     * (e2) DENIED — the pill explains instead of promising a dialog that Chrome
+     * will not show: no getCurrentPosition call, a floating popover with the
+     * Android steps, dismissal by ×, outside tap and Esc, focus handoff, and NO
+     * movement of anything else on the screen when it opens.
+     */
+    test("e2) denied opens a dismissible popover and never requests a fix", async ({
       browser,
     }) => {
       const context = await browser.newContext({
@@ -851,31 +1015,82 @@ if (!underNodeTestRunner) {
           "catalogue",
           { timeout: 25_000 },
         );
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
         const before = await geoCallCount(page);
-        const card = await readCardGeometry(page);
-        console.log(`[e2] denied card: ${JSON.stringify({ locate: card.locate, helpToggle: card.helpToggle })}`);
-        expect(card.locate, "a denied permission must not promise a prompt").toBeNull();
-        expect(card.helpToggle?.text).toBe("Cara mengaktifkan");
-        expect(card.helpToggle?.height).toBeGreaterThanOrEqual(44);
-        expect(card.helpVisible).toBe(false);
+        const closed = await readCardGeometry(page);
+        console.log(
+          `[e2] denied pill: ${JSON.stringify({ locate: closed.locate, helpToggle: closed.helpToggle })}`,
+        );
+        expect(closed.locate, "a denied permission must not promise a prompt").toBeNull();
+        expect(closed.helpToggle?.text).toBe("Cara mengaktifkan");
+        expect(closed.helpToggle?.height).toBeGreaterThanOrEqual(44);
+        expect(closed.helpVisible, "the popover starts closed").toBe(false);
+        expectPillClear(closed, "e2 denied-closed");
 
         await page.locator(INVITE_HELP_TOGGLE).click();
         await expect(page.locator(INVITE_HELP)).toBeVisible();
-        const help = await readCardGeometry(page);
+        const open = await readCardGeometry(page);
+        console.log(`[e2] denied popover: ${JSON.stringify(open.help)}`);
         console.log(
-          `[e2] denied help: ${JSON.stringify({ helpVisible: help.helpVisible, reload: help.reload, text: help.text })}`,
+          `[e2] denied copy: ${JSON.stringify({ reload: open.reload, text: open.text?.slice(0, 160) })}`,
         );
-        expect(help.text ?? "").toMatch(/Chrome di Android/);
-        expect(help.text ?? "").toMatch(/gembok/i);
-        expect(help.text ?? "").toMatch(/Izin/);
-        expect(help.text ?? "").toMatch(/Lokasi/);
-        expect(help.text ?? "").toMatch(/Izinkan/);
-        expect(help.reload?.text).toBe("Muat ulang halaman");
-        expect(help.reload?.height).toBeGreaterThanOrEqual(44);
+        // The 2026-10-29 copy is one sentence, the product's own wording: the
+        // address bar's lock/settings icon, then Izin > Lokasi > Izinkan. It no
+        // longer names a browser because the same path exists in every Chrome
+        // build; the steps themselves are still asserted below.
+        expect(open.text ?? "").toMatch(/address bar/i);
+        expect(open.text ?? "").toMatch(/gembok/i);
+        expect(open.text ?? "").toMatch(/Izin/);
+        expect(open.text ?? "").toMatch(/Lokasi/);
+        expect(open.text ?? "").toMatch(/Izinkan/);
+        expect(open.reload?.text).toBe("Muat ulang halaman");
+        expect(open.reload?.height).toBeGreaterThanOrEqual(44);
+        // A floating dialog, announced as one, with a 44px close target and the
+        // focus moved into it.
+        expect(open.help?.role, "the popover is a dialog").toBe("dialog");
+        expect(open.help?.ariaLabel ?? "", "the popover has an accessible name").toContain(
+          "mengaktifkan lokasi",
+        );
+        expect(open.help?.closeHeight, "the close target is 44px").toBeGreaterThanOrEqual(44);
+        expect(open.help?.closeFocused, "focus moves into the popover").toBe(true);
+        // NOTHING MOVES: the pill, its texts, and the first Place card keep the
+        // exact rectangles they had while the popover was closed.
+        expect(open.card, "the pill does not move").toEqual(closed.card);
+        expect(open.title, "the title copy is unchanged").toEqual(closed.title);
+        expect(open.firstCardTop, "the first Place card is never pushed").toBe(closed.firstCardTop);
+        expect(
+          await geoCallCount(page),
+          "opening the steps must not call getCurrentPosition",
+        ).toBe(before);
+
+        // DISMISS with the × button, and focus returns to the toggle.
+        await page.getByRole("button", { name: "Tutup cara mengaktifkan lokasi" }).click();
+        await expect(page.locator(INVITE_HELP)).toHaveCount(0);
+        expect(
+          await page.evaluate(() => document.activeElement?.getAttribute("data-home-invite-help-toggle") !== null),
+          "focus returns to the toggle",
+        ).toBe(true);
+
+        // DISMISS with an outside tap (the open map surface BELOW the popover —
+        // the popover hangs off the pill's lower edge and is nearly full width,
+        // so a point like (30, 300) is inside it, not outside).
+        await page.locator(INVITE_HELP_TOGGLE).click();
+        await expect(page.locator(INVITE_HELP)).toBeVisible();
+        const popoverBox = await page.locator(INVITE_HELP).boundingBox();
+        const emptyMapY = Math.min((popoverBox?.y ?? 0) + (popoverBox?.height ?? 0) + 40, 470);
+        console.log(`[e2] outside tap at y=${Math.round(emptyMapY)} (popover bottom ${Math.round((popoverBox?.y ?? 0) + (popoverBox?.height ?? 0))})`);
+        await page.mouse.click(200, emptyMapY);
+        await expect(page.locator(INVITE_HELP)).toHaveCount(0);
+
+        // DISMISS with Esc.
+        await page.locator(INVITE_HELP_TOGGLE).click();
+        await expect(page.locator(INVITE_HELP)).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(page.locator(INVITE_HELP)).toHaveCount(0);
+
         const after = await geoCallCount(page);
         expect(after, "a denied press must not call getCurrentPosition").toBe(before);
-        await expect(page.locator(INVITE_CARD)).toBeVisible();
+        await expect(page.locator(INVITE_PILL)).toBeVisible();
       } finally {
         await context.close();
       }
@@ -902,7 +1117,7 @@ if (!underNodeTestRunner) {
           "catalogue",
           { timeout: 25_000 },
         );
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
         const before = await geoCallCount(page);
         const worldTilesBefore = tiles.filter((tile) => tile.z <= 5).length;
         console.log(`[e3] before granting: calls=${before} worldTiles=${worldTilesBefore}`);
@@ -912,7 +1127,7 @@ if (!underNodeTestRunner) {
             "granted",
           );
         });
-        await expect(page.locator(INVITE_CARD)).toHaveCount(0, { timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toHaveCount(0, { timeout: 15_000 });
 
         const after = await geoCallCount(page);
         console.log(`[e3] after granting: calls=${after} tiles=${JSON.stringify(tiles.map((tile) => tile.z))}`);
@@ -963,7 +1178,7 @@ if (!underNodeTestRunner) {
           "catalogue",
           { timeout: 25_000 },
         );
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
         const card = await readCardGeometry(page);
         console.log(`[e4] no permissions API: ${JSON.stringify({ locate: card.locate, helpToggle: card.helpToggle })}`);
         expect(card.locate?.text).toBe("Aktifkan lokasi");
@@ -978,11 +1193,12 @@ if (!underNodeTestRunner) {
     });
 
     /**
-     * (f) CARD SPACING — the phone report of 2026-10-29 (card bottom touching
-     * the first Place card, subtitle on the bottom edge, button on the top
-     * edge), measured for all three variants, at the default `mid` snap.
+     * (f1) THE LIVE PILL'S LOOK — contrast, motion, and the promise that the
+     * decoration never moves the layout: the ripple and sheen run exactly three
+     * cycles and stop on their own, and the pill's rectangle is identical one
+     * second later (zero layout shift).
      */
-    test("f1) prompt: the card keeps its insets and its action stays inside the card", async ({
+    test("f1) prompt: contrast ≥4.5, three motion cycles, and a stable rect", async ({
       browser,
     }) => {
       const context = await browser.newContext({
@@ -1002,16 +1218,52 @@ if (!underNodeTestRunner) {
           "catalogue",
           { timeout: 25_000 },
         );
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
         await page.waitForTimeout(400);
 
         const geo = await readCardGeometry(page);
-        console.log(`[f1] prompt spacing: ${JSON.stringify(geo)}`);
-        expectCardSpacing(geo, "prompt");
-        expectActionInsets(geo, "prompt");
+        console.log(`[f1] prompt pill: ${JSON.stringify(geo)}`);
+        expectPillClear(geo, "f1 prompt");
         expect(geo.locate?.text, "the prompt copy is unchanged").toBe("Aktifkan lokasi");
-        expect(geo.card!.h, "the prompt card is in the 76–88px band").toBeGreaterThanOrEqual(76);
-        expect(geo.card!.h, "the prompt card is in the 76–88px band").toBeLessThanOrEqual(88);
+        console.log(`[f1] contrast: ${JSON.stringify(geo.contrast)}`);
+        expect(geo.contrast.titleOnPill ?? 0, "pill title contrast ≥ 4.5").toBeGreaterThanOrEqual(
+          4.5,
+        );
+        expect(
+          geo.contrast.subtitleOnPill ?? 0,
+          "pill subtitle contrast ≥ 4.5",
+        ).toBeGreaterThanOrEqual(4.5);
+        expect(
+          geo.contrast.labelOnAction ?? 0,
+          "action label contrast ≥ 4.5",
+        ).toBeGreaterThanOrEqual(4.5);
+
+        // MOTION: present, bounded to three cycles, never JS-driven.
+        console.log(`[f1] motion: ${JSON.stringify(geo.motion)}`);
+        expect(geo.motion.pill ?? "", "the pill fades and rises in").toContain(
+          "singgah-locate-pill-in",
+        );
+        expect(geo.motion.ripple ?? "", "the pin has a radar ripple").toContain(
+          "singgah-locate-ripple",
+        );
+        expect(geo.motion.rippleIterations, "the ripple stops after 3 cycles").toBe("3");
+        expect(geo.motion.sheen ?? "", "the action has a sheen").toContain("singgah-locate-sheen");
+        expect(geo.motion.sheenIterations, "the sheen stops after 3 cycles").toBe("3");
+
+        // NO LAYOUT SHIFT: the entrance is 250ms, so by now only the decorative
+        // ripple/sheen run — and neither may move the pill or the list.
+        const before = geo.card;
+        await page.waitForTimeout(1000);
+        const after = await readCardGeometry(page);
+        console.log(
+          `[f1] stability: ${JSON.stringify({ before, after: after.card, firstCard: [geo.firstCardTop, after.firstCardTop] })}`,
+        );
+        expect(after.card, "the pill rect is identical 1s later").toEqual(before);
+        expect(after.firstCardTop, "no layout shift in the results list").toBe(geo.firstCardTop);
+        expect(
+          after.firstCardOffsetFromPanelTop,
+          "the first Place card stays at its baseline",
+        ).toBe(geo.firstCardOffsetFromPanelTop);
       } finally {
         await context.close();
       }
@@ -1037,12 +1289,11 @@ if (!underNodeTestRunner) {
           "catalogue",
           { timeout: 25_000 },
         );
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
 
         const closed = await readCardGeometry(page);
         console.log(`[f2] denied closed: ${JSON.stringify(closed)}`);
-        expectCardSpacing(closed, "denied-closed");
-        expectActionInsets(closed, "denied-closed");
+        expectPillClear(closed, "f2 denied-closed");
         expect(closed.helpToggle?.text, "the denied copy is unchanged").toBe("Cara mengaktifkan");
 
         await page.locator(INVITE_HELP_TOGGLE).click();
@@ -1051,41 +1302,37 @@ if (!underNodeTestRunner) {
 
         const open = await readCardGeometry(page);
         console.log(`[f2] denied open: ${JSON.stringify(open)}`);
-        expectCardSpacing(open, "denied-open");
-        expectActionInsets(open, "denied-open");
+        expectPillClear(open, "f2 denied-open");
         expect(open.helpVisible, "the steps really render").toBe(true);
         expect(open.reload?.text, "the reload action is unchanged").toBe("Muat ulang halaman");
+        // A popover FLOATS: the pill keeps its size and the first Place card is
+        // never pushed down by it.
+        expect(open.card!.h, "the popover does not grow the pill").toBe(closed.card!.h);
+        expect(open.help?.role, "the popover is a dialog").toBe("dialog");
         expect(
-          open.card!.h,
-          "opening the steps grows the card instead of squashing the first card",
-        ).toBeGreaterThan(closed.card!.h);
-        expect(open.cardFullyInsideSheet, "the opened steps stay inside the panel").toBe(true);
-        expect(
-          open.cardToFirstCardGap,
-          "the opened steps keep their own gap to the first Place card",
-        ).toBeGreaterThanOrEqual(12);
+          open.firstCardTop,
+          "the opened steps never push the first Place card",
+        ).toBe(closed.firstCardTop);
       } finally {
         await context.close();
       }
     });
 
-    test("f3) without geolocation the card keeps the same padding and gap, with no action", async ({
+    test("f3) prefers-reduced-motion removes the ripple, the sheen, and the entrance", async ({
       browser,
     }) => {
       const context = await browser.newContext({
         viewport: { width: 390, height: 844 },
         isMobile: true,
         hasTouch: true,
+        reducedMotion: "reduce",
       });
       try {
         const page = await context.newPage();
         await blockTiles(page);
-        await page.addInitScript(() => {
-          Object.defineProperty(navigator, "geolocation", {
-            configurable: true,
-            get: () => undefined,
-          });
-        });
+        // The prompt variant, so BOTH decorated elements (ripple and sheen)
+        // exist and can be checked for their disabled animation.
+        await denyGeolocation(page);
         await page.goto(base, { waitUntil: "commit" });
 
         await expect(page.locator("div.singgah-home-map").first()).toHaveAttribute(
@@ -1093,19 +1340,20 @@ if (!underNodeTestRunner) {
           "catalogue",
           { timeout: 25_000 },
         );
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
         await page.waitForTimeout(400);
 
         const geo = await readCardGeometry(page);
-        console.log(`[f3] no-geolocation spacing: ${JSON.stringify(geo)}`);
-        expectCardSpacing(geo, "no-geolocation");
-        expect(geo.buttons, "no action without geolocation").toBe(0);
-        expect(geo.action, "no action box at all").toBeNull();
-        expect(geo.cardPadding?.top, "same top padding as the other variants").toBeGreaterThanOrEqual(12);
-        expect(geo.cardPadding?.bottom, "same bottom padding as the other variants").toBeGreaterThanOrEqual(
-          12,
+        console.log(`[f3] reduced motion: ${JSON.stringify(geo.motion)}`);
+        expect(geo.card, "the pill still renders").not.toBeNull();
+        expect(geo.motion.pill, "no entrance animation").toBe("none");
+        expect(geo.motion.ripple, "no ripple animation").toBe("none");
+        expect(geo.motion.sheen, "no sheen animation").toBe("none");
+        expectPillClear(geo, "f3 reduced-motion");
+        // The static colours stay: the pill is still readable without motion.
+        expect(geo.contrast.titleOnPill ?? 0, "static contrast stays ≥ 4.5").toBeGreaterThanOrEqual(
+          4.5,
         );
-        expect(geo.subtitleClipped, "the honest copy fits").toBe(false);
       } finally {
         await context.close();
       }
@@ -1129,7 +1377,7 @@ if (!underNodeTestRunner) {
           "catalogue",
           { timeout: 25_000 },
         );
-        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await expect(page.locator(INVITE_PILL)).toBeVisible({ timeout: 15_000 });
         const emptyOverlay = page.getByText("Geser peta dengan dua jari untuk melihat area lain.", {
           exact: false,
         });
@@ -1144,7 +1392,7 @@ if (!underNodeTestRunner) {
           if ((await emptyOverlay.count()) > 0) break;
         }
         const emptyCount = await emptyOverlay.count();
-        const cardCount = await page.locator(INVITE_CARD).count();
+        const cardCount = await page.locator(INVITE_PILL).count();
         console.log(`[h] empty viewport: empty=${emptyCount} card=${cardCount}`);
         expect(emptyCount, "the empty state must appear").toBeGreaterThan(0);
         expect(cardCount, "the invite card must leave while the empty state is up").toBe(0);
@@ -1153,9 +1401,9 @@ if (!underNodeTestRunner) {
         for (let step = 0; step < 6; step += 1) {
           await page.mouse.wheel(0, 60);
           await page.waitForTimeout(700);
-          if ((await page.locator(INVITE_CARD).count()) > 0) break;
+          if ((await page.locator(INVITE_PILL).count()) > 0) break;
         }
-        expect(await page.locator(INVITE_CARD).count(), "the card returns").toBe(1);
+        expect(await page.locator(INVITE_PILL).count(), "the pill returns").toBe(1);
         expect(await emptyOverlay.count(), "the empty state left").toBe(0);
       } finally {
         await context.close();
