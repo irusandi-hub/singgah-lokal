@@ -472,6 +472,19 @@ export default function HomeDiscovery({
   // filter-row icon shows a small spinner; the control, its aria-label, and
   // the request path are unchanged.
   const [locatePending, setLocatePending] = useState(false);
+  // GEOLOCATION PERMISSION (2026-10-26). `null` = the Permissions API is
+  // absent, unsupported, or the query failed: the card keeps the previous
+  // "Aktifkan lokasi" behavior in that case. The initial value is the same on
+  // the server and in the first client render, and the card itself only exists
+  // after `viewerSettled`, so this can never cause a hydration mismatch.
+  const [geolocationPermission, setGeolocationPermission] = useState<
+    "prompt" | "denied" | "granted" | null
+  >(null);
+  // The denied help is local, expanded on demand, and never persisted.
+  const [deniedHelpOpen, setDeniedHelpOpen] = useState(false);
+  const grantedRefreshRef = useRef(false);
+  const viewerSettledRef = useRef(false);
+  const viewerPositionKnownRef = useRef(false);
   // AUTO-FIT REFOCUS TRIGGER (product decision, 2026-10-03): bumped ONLY by
   // the explicit "Tempat Pilihan" tab choice, so the map can re-frame the
   // camera to the Place spread on exactly that action — and on nothing else.
@@ -956,6 +969,71 @@ export default function HomeDiscovery({
     requestViewerPosition();
   }, [requestViewerPosition]);
 
+  // Permission state is READ, never assumed (2026-10-26). `getCurrentPosition`
+  // on an already-denied permission does nothing at all in Chrome, so the
+  // card's button must not promise a prompt it cannot show. The query is
+  // client-only (null until it answers), listens for `change`, and cleans the
+  // listener up on unmount.
+  useEffect(() => {
+    viewerSettledRef.current = viewerSettledByFix;
+  }, [viewerSettledByFix]);
+  useEffect(() => {
+    viewerPositionKnownRef.current = viewerPosition !== null;
+  }, [viewerPosition]);
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.permissions?.query) return;
+    let status: PermissionStatus | null = null;
+    let cancelled = false;
+    const applyStatus = (state: PermissionState) => {
+      if (state !== "prompt" && state !== "denied" && state !== "granted") return;
+      setGeolocationPermission(state);
+      // A permission CHANGE closes the denied popover (2026-10-29): its steps
+      // describe a state that no longer holds. The pill's own copy follows the
+      // new state on the next render.
+      setDeniedHelpOpen(false);
+    };
+    const handleChange = () => {
+      if (cancelled || !status) return;
+      applyStatus(status.state);
+      // Reaching `granted` through the browser's own permission UI must centre
+      // the map without a reload. The in-flight mount request already owns the
+      // first attempt, so this fires only after that attempt settled with no
+      // fix, and only once.
+      if (
+        status.state === "granted" &&
+        viewerSettledRef.current &&
+        !viewerPositionKnownRef.current &&
+        !grantedRefreshRef.current
+      ) {
+        grantedRefreshRef.current = true;
+        requestViewerPosition();
+      }
+    };
+    let query: Promise<PermissionStatus>;
+    try {
+      query = navigator.permissions.query({ name: "geolocation" as PermissionName });
+    } catch {
+      // A throwing query is the same as an unsupported one: keep the previous
+      // locate behavior and never fake a status.
+      return;
+    }
+    query
+      .then((result) => {
+        if (cancelled) return;
+        status = result;
+        applyStatus(result.state);
+        result.addEventListener("change", handleChange);
+      })
+      .catch(() => {
+        // Unknown permission support: keep the previous locate behavior and
+        // never fake a status.
+      });
+    return () => {
+      cancelled = true;
+      status?.removeEventListener("change", handleChange);
+    };
+  }, [requestViewerPosition]);
+
   // LOCATION SEARCH — SUBMIT-ONLY (2026-10-04): the geocode must not run on
   // every keystroke. Typing only updates `searchQuery`; the single geocode runs
   // on Enter/submit (`handleSearchSubmit`) and the last SUBMITTED query is
@@ -1225,6 +1303,46 @@ export default function HomeDiscovery({
     }
     requestViewerPosition();
   }, [requestViewerPosition, resetViewportLatch]);
+
+  // DENIED POPOVER CONTROL (2026-10-29). The popover belongs to the no-location
+  // pill on the map. These refs only handle dismissal and focus — no camera,
+  // no permission, and no geolocation call lives here.
+  const inviteHelpToggleRef = useRef<HTMLButtonElement | null>(null);
+  const invitePopoverRef = useRef<HTMLDivElement | null>(null);
+  const invitePopoverCloseRef = useRef<HTMLButtonElement | null>(null);
+  const closeDeniedHelp = useCallback(() => {
+    setDeniedHelpOpen(false);
+    // Focus goes back to the control that opened it, exactly like the gesture
+    // help panel does with its own "?" control.
+    inviteHelpToggleRef.current?.focus();
+  }, []);
+
+  // DISMISSAL (Esc, outside tap) + focus handoff. Pointer listeners are
+  // capture-phase so a tap on the map, the sheet, or any chrome closes the
+  // popover without those surfaces losing their own behaviour.
+  useEffect(() => {
+    if (!deniedHelpOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeDeniedHelp();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (invitePopoverRef.current?.contains(target)) return;
+      if (inviteHelpToggleRef.current?.contains(target)) return;
+      closeDeniedHelp();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    const timer = window.setTimeout(() => invitePopoverCloseRef.current?.focus(), 0);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      window.clearTimeout(timer);
+    };
+  }, [deniedHelpOpen, closeDeniedHelp]);
 
   const liveByPlaceId = useMemo(() => {
     const map = new Map<string, LiveDiscoveryItem>();
@@ -1597,21 +1715,22 @@ export default function HomeDiscovery({
   const mapEmptyStateVisible =
     mapPlaces.length === 0 || (viewportReported && !viewportHasPlaces);
 
-  // NO-LOCATION EXPLAINER (2026-10-25). Without a location the map frames the
-  // WHOLE catalogue (the documented, permitted no-origin view) and the radius
-  // tabs are correctly unpressed — but nothing in words said so, and a
-  // world-scale frame with clustered pins reads as "there are only two places".
-  // The chip states the rule that is really on screen and offers the EXISTING
-  // "Lokasi Saya" action. It never invents a coordinate, never moves the
-  // camera, and never changes a filter or the catalogue.
+  // NO-LOCATION INVITE (2026-10-25; one board since 2026-10-26). Without a
+  // location the map frames the WHOLE catalogue (the documented, permitted
+  // no-origin view) and the radius tabs are correctly unpressed — but nothing
+  // in words said so, and a world-scale frame with clustered pins reads as
+  // "there are only two places". ONE warm card states the rule that is really
+  // on screen and offers the real locate action; the old floating chip is
+  // gone. It never invents a coordinate, never moves the camera, and never
+  // changes a filter or the catalogue.
   //
   // It appears only once the FIRST location attempt has really settled with no
   // location, and only in the plain discovery view (no search in flight or
   // resolved, no curated/LIVE layer). It disappears the moment a fix exists.
-  // It is mutually exclusive with the empty-state overlay: both float in the
-  // same band above the panel and stacking two notices there would cover the
-  // map for nothing.
-  const noLocationHintVisible =
+  // It is mutually exclusive with the empty-state overlay: both live in the
+  // same vertical band, and stacking two notices there would cover the map for
+  // nothing.
+  const noLocationInviteVisible =
     viewerSettled &&
     activeCenter === null &&
     !searchPending &&
@@ -1619,6 +1738,81 @@ export default function HomeDiscovery({
     !curatedOnly &&
     !liveOnly &&
     !mapEmptyStateVisible;
+
+  // LOCATION INVITE CARD (2026-10-26). The honest "you are looking at the whole
+  // catalogue right now" surface for the no-location catalogue frame — a
+  // single, warm card instead of the old floating chip. It never invents a
+  // coordinate, never moves the camera, never changes a filter or the
+  // catalogue, and it is mutually exclusive with the viewport empty-state
+  // overlay (stacking two notices would cover the map for nothing).
+  //
+  // It appears only in the plain discovery view with no location yet
+  // (`noLocationInviteVisible`), only once the FIRST location attempt has settled
+  // (`viewerSettled`), and only when the dataset still has Places to pin
+  // (`mapPlaces.length > 0`) — when the viewport is genuinely empty the honest
+  // empty-state overlay owns that band instead. When a real fix exists the card
+  // never renders at all.
+  //
+  // PLACEMENT (measured 2026-10-26 at 390×844): the pin-free band between the
+  // filter row (bottom 158) and the northernmost pin (top 224) is 65px. The
+  // required title + one-line subtitle + 44px button cannot fit there without
+  // shrinking the copy below a readable size, and every lower band either holds
+  // pins or the "Tempat Pilihan" tab. The card therefore uses the documented
+  // fallback: it is the FIRST row inside the results panel, above the first
+  // Place card. It covers no pin, filter, tab, header, or the panel's top edge,
+  // and it moves the first card down by 60px (58px card + 2px gap), within the
+  // permitted ~60px.
+  //
+  // The action is the SAME `handleLocatePress` the filter row uses — no second
+  // location path. The button is rendered ONLY when the browser actually has
+  // geolocation (`noGeolocation` is the hydration-safe client answer and is
+  // `false` on the server exactly like the first client render), so a browser
+  // without geolocation sees the honest explainer with no fake action, and the
+  // whole card is still absent from the server HTML because `viewerSettled`
+  // starts false on both sides.
+  const locationInvitePillVisible =
+    noLocationInviteVisible &&
+    mapPlaces.length > 0;
+
+  // INVITE PILL BAND (2026-10-29) — the pill's measured bottom edge in STAGE
+  // pixels, published to the map so the CATALOGUE frame can reserve the strip
+  // the pill covers.
+  //
+  // WHY: the pill floats directly under the filter row, inside the band the
+  // catalogue frame previously assumed was free. At 390×844 and 412×915 the
+  // fitted pins happen to start below it, but at 360×640 the world frame's
+  // northern pins sit at y≈158 while the pill spans 166–218 — 58 of 70 pins
+  // then painted underneath a map control. Padding chosen by hand would be a
+  // guess for one viewport and an over-reserve for the others, so Home sends
+  // the REAL number instead: the stage and the map share one box (the map is
+  // `absolute inset-0` of the stage), so `pill.bottom - stage.top` is already
+  // in map pixels.
+  //
+  // `null` = the pill is shown but has not been measured yet. The map then
+  // HOLDS its one first frame rather than decide it from a guessed inset,
+  // exactly like `bottomInset`. `0` = no pill, so nothing is reserved.
+  const invitePillRef = useRef<HTMLDivElement | null>(null);
+  const [invitePillBandPx, setInvitePillBandPx] = useState<number | null>(null);
+  const invitePillShown = locationInvitePillVisible && sheetPosition !== "full";
+
+  useEffect(() => {
+    // No pill on the map: nothing to publish. The prop below already collapses
+    // to 0 in that case, so this effect never needs to write state to say so.
+    if (!invitePillShown) return;
+    const measure = () => {
+      const pill = invitePillRef.current;
+      const stage = stageRef.current;
+      if (!pill || !stage) return;
+      setInvitePillBandPx(
+        Math.max(0, Math.round(pill.getBoundingClientRect().bottom - stage.getBoundingClientRect().top)),
+      );
+    };
+    measure();
+    // The pill's band follows the chrome above it, so it moves with the stage
+    // (browser chrome, rotation) — the same events the sheet already listens to.
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [invitePillShown, stageHeight]);
 
   // The floating "Tempat Pilihan" information board was REMOVED (2026-10-18).
   // It restated the layer name, a per-layer count, the camera radius, and a
@@ -1952,6 +2146,12 @@ export default function HomeDiscovery({
                underneath the panel. `null` = not measured yet: the frame is
                held rather than decided from the 640px fallback stage. */
             bottomInset={stageMeasured ? sheetVisiblePx : null}
+            /* The no-location invite pill's band, measured in the SAME pass
+               and used ONLY by the catalogue frame (`applyCatalogueFrame`)
+               to keep the northern pins out from under it. 0 when no pill is
+               on the map, `null` while it is on the map but unmeasured — the
+               frame is held for that measurement, never guessed. */
+            catalogueTopInset={invitePillShown ? invitePillBandPx : 0}
             /* EXPLICIT CAMERA REQUEST (product decision, 2026-10-03): the three
                hand-driven camera actions bump this nonce, which releases the
                map's interaction latch so the frame THEY produce stays. Nothing
@@ -2264,6 +2464,169 @@ export default function HomeDiscovery({
             </button>
           </div>
 
+          {/* LOCATION INVITE PILL (2026-10-29) — the ONE no-location board,
+              back ON THE MAP where a map control belongs.
+
+              POSITION (candidate A, measured at 360×640, 390×844 and 412×915):
+              8px below the filter row, inside the SAME `px-4` chrome column, so
+              its horizontal margins are the filter row's by construction. The
+              wrapper stays click-through; only the pill and its button opt
+              back into pointer events, exactly like every other floating Home
+              surface.
+
+              THE FRAME RESERVES THIS BAND (2026-10-29). The pill owns pixels
+              the catalogue fit used to consider free, so Home publishes the
+              pill's measured bottom edge (`catalogueTopInset`) and
+              `applyCatalogueFrame` pushes the fitted spread clear of it. That
+              is what keeps the 360×640 frame honest: the same world span, the
+              same 70 pins, none of them painted under the pill.
+
+              SHOWN only in the same no-location state the in-panel card used
+              (`locationInvitePillVisible`), and hidden when the sheet reaches
+              `full` (the map is not visible then). It is also mutually
+              exclusive with the viewport empty-state overlay, which owns the
+              same band when it is up.
+
+              COPY is warm, never a warning: a plain title, one short subtitle,
+              and the real action. The subtitle is allowed to wrap to two 13px
+              lines inside the 44px content box; the title is shortened to
+              "Temukan terdekat" so it stays on ONE line even beside the
+              longer "Cara mengaktifkan" button at 360px (measured: the column
+              is 144px there, and the longer wording wrapped to two lines,
+              pushing the subtitle 1px past the pill's lower edge), and
+              `min-w-0` keeps the text column from ever running under the
+              button. */}
+          {invitePillShown && (
+            <div ref={invitePillRef} className="relative mt-2 flex">
+              <div
+                data-home-invite-pill
+                role="status"
+                aria-live="polite"
+                className="singgah-locate-pill pointer-events-auto relative flex h-[52px] w-full min-w-0 items-center gap-2 rounded-full py-1 pl-1 pr-1"
+              >
+                <span aria-hidden data-home-invite-pill-icon className="singgah-locate-pill__icon">
+                  <span className="singgah-locate-pill__ripple" />
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
+                    <path
+                      d="M12 21s6.5-5.4 6.5-11a6.5 6.5 0 1 0-13 0C5.5 15.6 12 21 12 21Z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                    />
+                    <circle cx="12" cy="10" r="2.3" fill="currentColor" />
+                  </svg>
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p
+                    data-home-invite-title
+                    className="text-[11.5px] font-bold leading-[14px] text-brand-ink"
+                  >
+                    Temukan terdekat
+                  </p>
+                  <p
+                    data-home-invite-subtitle
+                    className="text-[9.5px] leading-[13px] text-brand-ink/75"
+                  >
+                    {noGeolocation
+                      ? "Peta ini menampilkan semua tempat."
+                      : "Aktifkan lokasi, peta berpusat di sekitarmu"}
+                  </p>
+                </div>
+                {noGeolocation ? null : geolocationPermission === "denied" ? (
+                  <button
+                    type="button"
+                    ref={inviteHelpToggleRef}
+                    data-home-invite-help-toggle
+                    onClick={() => setDeniedHelpOpen((open) => !open)}
+                    aria-expanded={deniedHelpOpen}
+                    aria-controls="home-invite-denied-popover"
+                    className="singgah-locate-pill__action h-11 shrink-0 touch-manipulation whitespace-nowrap px-3 text-[10px] font-bold"
+                  >
+                    Cara mengaktifkan
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-home-invite-locate
+                    onClick={handleLocatePress}
+                    aria-busy={locatePending}
+                    className="singgah-locate-pill__action h-11 shrink-0 touch-manipulation whitespace-nowrap px-3 text-[10px] font-bold"
+                  >
+                    {locatePending ? (
+                      <span
+                        aria-hidden
+                        className="mr-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white align-[-1px] motion-reduce:animate-none"
+                      />
+                    ) : (
+                      <svg
+                        aria-hidden
+                        viewBox="0 0 24 24"
+                        width="12"
+                        height="12"
+                        fill="none"
+                        className="mr-1 inline-block align-[-1px]"
+                      >
+                        <path
+                          d="M12 21s6.5-5.4 6.5-11a6.5 6.5 0 1 0-13 0C5.5 15.6 12 21 12 21Z"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                    Aktifkan lokasi
+                  </button>
+                )}
+
+                {/* DENIED POPOVER (2026-10-29): a small floating dialog, NEVER
+                    in the flow, so opening it moves nothing. Chrome shows no
+                    permission dialog once geolocation is denied, so this is
+                    the honest alternative: the Android steps, a reload action,
+                    and a 44px close target. It closes on ×, on an outside tap,
+                    on Esc, and automatically when the permission state
+                    changes. Focus moves to its close button on open and
+                    returns to the toggle on close. */}
+                {geolocationPermission === "denied" && deniedHelpOpen ? (
+                  <div
+                    id="home-invite-denied-popover"
+                    ref={invitePopoverRef}
+                    role="dialog"
+                    aria-label="Cara mengaktifkan lokasi"
+                    data-home-invite-help
+                    className="pointer-events-auto absolute left-0 right-0 top-full z-[1120] mt-2 rounded-[16px] border border-brand-primary/15 bg-white p-3 shadow-[0_14px_34px_rgb(14_107_79/0.18)]"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="pt-2 text-[12px] font-bold leading-4 text-brand-ink">
+                        Cara mengaktifkan lokasi
+                      </p>
+                      <button
+                        type="button"
+                        ref={invitePopoverCloseRef}
+                        onClick={closeDeniedHelp}
+                        aria-label="Tutup cara mengaktifkan lokasi"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-brand-ink/70 transition hover:bg-brand-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/50"
+                      >
+                        <span aria-hidden className="text-[20px] leading-none">×</span>
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-4 text-brand-ink/80">
+                      Ketuk ikon gembok/pengaturan di address bar &gt; Izin &gt; Lokasi &gt;
+                      Izinkan, lalu muat ulang halaman.
+                    </p>
+                    <button
+                      type="button"
+                      data-home-invite-reload
+                      onClick={() => window.location.reload()}
+                      className="mt-2 inline-flex h-11 w-full touch-manipulation items-center justify-center rounded-[12px] border border-brand-primary/25 bg-brand-cream px-3 text-[11px] font-bold text-brand-primary transition duration-100 hover:bg-white active:scale-95"
+                    >
+                      Muat ulang halaman
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
           {/* MAP SURFACE (2026-10-18): the map now fills the whole stage, and
               the bottom sheet floats over its lower half. The old in-flow
               `60vh` spacer is gone with the flow layout; the stage itself is
@@ -2313,58 +2676,6 @@ export default function HomeDiscovery({
               <p className="mt-0.5 text-[10px] leading-3.5 text-brand-ink/55">
                 Geser peta dengan dua jari untuk melihat area lain.
               </p>
-            </div>
-          </div>
-        )}
-
-        {/* NO-LOCATION EXPLAINER (2026-10-25). Same floating layer as the
-            empty-state card above (z-[1100], above every Leaflet pane), but a
-            HIGHER slot: `sheetVisiblePx + 100` puts it just above the floating
-            "Tempat Pilihan" tab, which parks ~92px above the panel seam, so the
-            chip can never cover the tab that owns that corner. The empty-state
-            card keeps its own `+128` slot, and the two are mutually exclusive
-            (`noLocationHintVisible` requires no empty state), so they cannot
-            stack on top of each other. It never touches the filter row, the
-            header, the search bar, or the sheet's own geometry.
-
-            The action is the SAME `handleLocatePress` control the filter row
-            uses — no second location path — and it is only rendered when the
-            browser has geolocation at all (`noGeolocation` is a client-only,
-            hydration-safe answer, and it is `false` on the server exactly like
-            the first client render, which is also why this whole chip is
-            absent from the server HTML: `viewerSettled` starts false).
-
-            The polite status role announces the state once; nothing here is a
-            dialog and nothing steals focus. */}
-        {noLocationHintVisible && (
-          <div
-            data-home-no-location-hint
-            role="status"
-            aria-live="polite"
-            className="pointer-events-none absolute inset-x-0 z-[1100] flex justify-center px-4 transition-[bottom] duration-300 motion-reduce:transition-none"
-            style={{ bottom: sheetVisiblePx + 100 }}
-          >
-            <div className="pointer-events-auto flex w-fit max-w-[min(22rem,100%)] flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-[14px] bg-white/95 px-3 py-1.5 text-center shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5">
-              <p className="text-[11px] font-semibold leading-4 text-brand-ink/85">
-                Menampilkan semua tempat. Aktifkan lokasi untuk melihat yang dekat Anda.
-              </p>
-              {noGeolocation ? null : (
-                <button
-                  type="button"
-                  data-home-hint-locate
-                  onClick={handleLocatePress}
-                  aria-busy={locatePending}
-                  className="inline-flex h-11 touch-manipulation items-center justify-center gap-1 rounded-[12px] border border-black/5 bg-brand-cream px-3 text-[11px] font-bold text-brand-primary shadow-[0_1px_2px_rgb(0_0_0/0.04)] transition duration-100 hover:bg-white active:scale-95"
-                >
-                  {locatePending ? (
-                    <span
-                      aria-hidden
-                      className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-brand-primary/25 border-t-brand-primary motion-reduce:animate-none"
-                    />
-                  ) : null}
-                  Lokasi Saya
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -2567,6 +2878,13 @@ export default function HomeDiscovery({
               : "overflow-hidden pb-8 pt-4"
           }`}
         >
+        {/* LOCATION INVITE BOARD — MOVED ONTO THE MAP (2026-10-29). The
+            in-panel card (`data-home-invite-card`) is GONE: it was a MAP
+            CONTROL rendered inside the results list, so it pushed the first
+            Place card down and read as if it belonged to the list. The board
+            now lives over the map as the compact pill below (see the filter
+            row), and the first Place card is back at its baseline offset. */}
+
         {/* "Tempat Pilihan" is ONE curated discovery layer (PO 2026-09-26):
             no category chips and no secondary category row — Place
             categories stay internal data, never a Home filter UI. */}

@@ -313,6 +313,42 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   white-space: nowrap;
 }
 
+/* WIDE-ZOOM PIN SCALE (2026-10-26). Below PIN_COMPACT_BELOW_ZOOM (10) the map
+   container carries `data-pin-scale="compact"` and EVERY pin paints at 55 % of
+   its 24×31 artwork — one attribute, no marker rebuild. Only the ARTWORK is
+   scaled: `.singgah-pin-hit` keeps its 40×44 tap pad, the label keeps its
+   chip typography (it simply stays unpainted — see the data-label-state pass),
+   and the marker box/coordinates/z-ladder are untouched.
+   The LIVE badge rides with the shrunken pin so the LIVE status stays attached
+   and readable instead of floating above a smaller head. The SELECTED pin has
+   its own rules below so a highlighted Place always paints normal (and
+   labelled) at any zoom. */
+.singgah-home-map[data-pin-scale="compact"] .singgah-pin-art {
+  transform: scale(0.55);
+}
+
+/* The LIVE badge keeps its FULL 9px type at a wide zoom (only its anchor
+   moves with the shrunken head), so a live Place still reads as live instead
+   of shrinking to an unreadable speck. */
+.singgah-home-map[data-pin-scale="compact"] .singgah-pin-badge {
+  top: -5px;
+  transform: translateX(-50%);
+}
+
+/* SELECTED PIN WINS OVER THE COMPACT SCALE (same declarations as the
+   highlighted rules below, re-stated at the compact selector's specificity so
+   the reduced-motion branch cannot lose to it). */
+.singgah-home-map[data-pin-scale="compact"] .singgah-map-marker.is-highlighted .singgah-pin-art {
+  transform: scale(1.15);
+}
+
+.singgah-home-map[data-pin-scale="compact"]
+  .singgah-map-marker.is-highlighted
+  .singgah-pin-badge {
+  top: -13px;
+  transform: translateX(-50%);
+}
+
 /* Selected pin: one bounce into a 1.15 scale, anchored at the map coordinate
    (transform-origin 50% 100%), so the tip never moves off its Place. */
 @keyframes singgah-pin-bounce {
@@ -638,4 +674,165 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   .singgah-card-delay-3 > .singgah-place-card { animation-delay: 120ms; }
   .singgah-card-delay-4 > .singgah-place-card { animation-delay: 160ms; }
   .singgah-card-delay-5 > .singgah-place-card { animation-delay: 200ms; }
+}
+
+/* LOCATION INVITE PILL (2026-10-29) — the no-location board on the map.
+   Presentation only: the pill's position, size, and state live in
+   home-discovery.tsx; this block adds the brand surface and the motion.
+
+   COLOUR RULES (brand tokens only, no new palette): white/cream surface with a
+   thin brand-green tint and border, a brand-green pin, and a brand-green
+   action. Red stays LIVE's, blue stays the user-location marker's, gold stays
+   "Tempat Pilihan"'s, and no warning yellow exists anywhere here. Text is
+   --brand-ink on white (15.2:1) and the action's white label on
+   --brand-primary (6.6:1), both far above 4.5:1.
+
+   MOTION RULES: transform/opacity only (no layout, no reflow), a one-shot
+   250 ms fade-and-rise, and a ripple + sheen that run THREE cycles and stop on
+   their own — no JS timer and no React state. `prefers-reduced-motion: reduce`
+   removes every animation and keeps the static colours. */
+.singgah-locate-pill {
+  background-color: #fff;
+  background-image: linear-gradient(
+    135deg,
+    rgb(246 243 235 / 0.92) 0%,
+    rgb(14 107 79 / 0.08) 55%,
+    rgb(255 255 255 / 0.94) 100%
+  );
+  border: 1px solid rgb(14 107 79 / 0.22);
+  box-shadow:
+    0 6px 18px rgb(14 107 79 / 0.16),
+    0 1px 2px rgb(0 0 0 / 0.05);
+  animation: singgah-locate-pill-in 250ms cubic-bezier(0.2, 0, 0, 1) both;
+  will-change: transform, opacity;
+}
+
+.singgah-locate-pill__icon {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  background-color: var(--brand-primary);
+  background-image: linear-gradient(160deg, #127a5c 0%, var(--brand-primary) 100%);
+  color: #fff;
+  box-shadow: 0 2px 6px rgb(14 107 79 / 0.28);
+}
+
+/* RADAR RIPPLE — two thin expanding rings from behind the pin, three cycles. */
+.singgah-locate-pill__ripple {
+  position: absolute;
+  inset: -1px;
+  border-radius: 9999px;
+  border: 1.5px solid rgb(14 107 79 / 0.45);
+  pointer-events: none;
+  animation: singgah-locate-ripple 2.4s ease-out 3;
+}
+
+.singgah-locate-pill__ripple::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1.5px solid rgb(14 107 79 / 0.3);
+  animation: singgah-locate-ripple 2.4s ease-out 0.8s 3;
+}
+
+.singgah-locate-pill__action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 9999px;
+  color: #fff;
+  background-color: var(--brand-primary);
+  background-image: linear-gradient(
+    135deg,
+    var(--brand-primary-deep) 0%,
+    var(--brand-primary) 58%,
+    #127a5c 100%
+  );
+  box-shadow: 0 3px 10px rgb(14 107 79 / 0.28);
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.singgah-locate-pill__action:active {
+  transform: scale(0.97);
+}
+
+/* SHEEN — a single soft highlight that sweeps across the action, three times. */
+.singgah-locate-pill__action::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgb(255 255 255 / 0.34) 45%,
+    transparent 72%
+  );
+  transform: translateX(-130%);
+  animation: singgah-locate-sheen 3s ease-in-out 0.6s 3;
+}
+
+@keyframes singgah-locate-pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes singgah-locate-ripple {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70% {
+    transform: scale(1.42);
+    opacity: 0.14;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@keyframes singgah-locate-sheen {
+  0% {
+    transform: translateX(-130%);
+  }
+  45%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .singgah-locate-pill,
+  .singgah-locate-pill__ripple,
+  .singgah-locate-pill__ripple::after,
+  .singgah-locate-pill__action::after {
+    animation: none;
+  }
+
+  .singgah-locate-pill {
+    opacity: 1;
+    transform: none;
+  }
+
+  .singgah-locate-pill__ripple,
+  .singgah-locate-pill__ripple::after {
+    opacity: 0.4;
+  }
 }

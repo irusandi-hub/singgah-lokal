@@ -13,7 +13,9 @@ import { test, expect, type Page } from "@playwright/test";
  *   · `header` and the filter row (the parent of `[data-home-locate]`) → the
  *     floating chrome the fitted frame already reserves at the top.
  *   · `[data-curated-map-tab]`                     → the floating "Tempat
- *     Pilihan" tab the explainer chip must not cover.
+ *     Pilihan" tab the invite card must not cover.
+ *   · `[data-home-invite-pill]`                    → the ONE no-location
+ *     information board, inside the results panel above the first card.
  *
  * THE RULE LOCKED HERE (presentation only): a pin whose tip sits BELOW the
  * results panel's top edge, or ABOVE the floating chrome's bottom edge, is not
@@ -72,7 +74,15 @@ async function captureTiles(page: Page): Promise<TileHit[]> {
   return hits;
 }
 
-type PinBox = { label: string; top: number; bottom: number; centerY: number; centerX: number };
+type PinBox = {
+  label: string;
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  centerY: number;
+  centerX: number;
+};
 type Box = { top: number; bottom: number; left: number; right: number } | null;
 
 type MapAudit = {
@@ -83,12 +93,21 @@ type MapAudit = {
   sheetTop: number | null;
   chromeBottom: number | null;
   tab: Box;
-  hint: Box;
+  filter: Box;
+  header: Box;
+  card: Box;
+  firstCardTop: number | null;
   coveredByPanel: number;
   coveredByChrome: number;
-  hintText: string | null;
-  hintButtons: number;
-  hintChipBottom: number | null;
+  cardPinOverlaps: number;
+  cardTabOverlap: boolean;
+  cardFilterOverlap: boolean;
+  cardHeaderOverlap: boolean;
+  cardText: string | null;
+  cardButtons: number;
+  cardBoards: number;
+  inviteCardsInPanel: number;
+  cardAbovePanel: boolean | null;
 };
 
 /** One snapshot of everything the frame decision is judged by. */
@@ -112,6 +131,8 @@ async function auditMap(page: Page): Promise<MapAudit> {
         label,
         top: r.top,
         bottom: r.bottom,
+        left: r.left,
+        right: r.right,
         centerY: r.top + r.height / 2,
         centerX: r.left + r.width / 2,
       };
@@ -124,10 +145,14 @@ async function auditMap(page: Page): Promise<MapAudit> {
     const sheetTop = sheetRect ? sheetRect.top : null;
     const tab = document.querySelector("[data-curated-map-tab]");
     const tabRect = rect(tab);
-    const hintEl = document.querySelector("[data-home-no-location-hint]");
-    // The wrapper spans the full row (it is a centring flex line); the CARD is
-    // what can actually cover something, so that is what gets measured.
-    const hintRect = rect(hintEl?.firstElementChild ?? hintEl);
+    // The board is the MAP PILL since 2026-10-29 (the in-panel card is gone).
+    const cardEl = document.querySelector("[data-home-invite-pill]");
+    const cardRect = rect(cardEl);
+    const filterRect = rect(locate?.parentElement ?? null);
+    const headerRect = rect(header);
+    const firstCard = document.querySelector("[data-place-card-id]");
+    const overlaps = (a: Box, b: Box) =>
+      !!a && !!b && a.top < b.bottom && a.bottom > b.top && a.left < b.right && a.right > b.left;
     return {
       frame: mapEl?.getAttribute("data-singgah-map-frame") ?? null,
       ready: mapEl?.getAttribute("data-singgah-map") ?? null,
@@ -137,13 +162,24 @@ async function auditMap(page: Page): Promise<MapAudit> {
       chromeBottom,
       tab:
         tabRect && getComputedStyle(tab as Element).visibility !== "hidden" ? tabRect : null,
-      hint: hintRect,
-      hintChipBottom: hintRect ? hintRect.bottom : null,
-      hintText: hintEl ? (hintEl.textContent ?? "").replace(/\s+/g, " ").trim() : null,
-      hintButtons: hintEl ? hintEl.querySelectorAll("[data-home-hint-locate]").length : 0,
+      filter: filterRect,
+      header: headerRect,
+      card: cardRect,
+      firstCardTop: firstCard ? firstCard.getBoundingClientRect().top : null,
       coveredByPanel:
         sheetTop === null ? 0 : pins.filter((pin) => pin.bottom > sheetTop).length,
       coveredByChrome: pins.filter((pin) => pin.top < chromeBottom).length,
+      cardPinOverlaps: pins.filter((pin) => overlaps(cardRect, pin)).length,
+      cardTabOverlap: overlaps(cardRect, tabRect),
+      cardFilterOverlap: overlaps(cardRect, filterRect),
+      cardHeaderOverlap: overlaps(cardRect, headerRect),
+      cardText: cardEl ? (cardEl.textContent ?? "").replace(/\s+/g, " ").trim() : null,
+      cardButtons: cardEl ? cardEl.querySelectorAll("button").length : 0,
+      cardBoards: document.querySelectorAll(
+        "[data-home-invite-pill], [data-home-no-location-hint]",
+      ).length,
+      inviteCardsInPanel: document.querySelectorAll("[data-home-invite-card]").length,
+      cardAbovePanel: cardRect && sheetRect ? cardRect.bottom <= sheetRect.top : null,
     };
   });
 }
@@ -234,13 +270,13 @@ if (!underNodeTestRunner) {
     });
 
     /**
-     * THE EXPLAINER CHIP: without a location the map shows the whole catalogue
-     * (not "the nearest 1 km"), so Home says so once, in words, with the real
-     * "Lokasi Saya" action when the browser has geolocation at all.
+     * THE INVITE PILL (2026-10-29): without a location the map shows the whole
+     * catalogue (not "the nearest 1 km"), so Home says so once — in ONE compact
+     * pill ON THE MAP, 8px under the filter row, with the real locate action.
+     * Nothing is left inside the results panel, and the first Place card is
+     * back at its baseline offset.
      */
-    test("the no-location chip explains the catalogue and never covers the tab", async ({
-      browser,
-    }) => {
+    test("the no-location pill explains the catalogue and covers nothing", async ({ browser }) => {
       const context = await browser.newContext({
         viewport: { width: 390, height: 844 },
         isMobile: true,
@@ -249,56 +285,82 @@ if (!underNodeTestRunner) {
       });
       try {
         const page = await context.newPage();
+        // Deterministic permission state: this test measures the card's copy
+        // and layout, not the browser's remembered geolocation decision.
+        await page.addInitScript(() => {
+          Object.defineProperty(navigator, "permissions", {
+            configurable: true,
+            get: () => ({
+              query: async () => ({
+                state: "prompt",
+                addEventListener() {},
+                removeEventListener() {},
+              }),
+            }),
+          });
+        });
         await captureTiles(page);
         await page.goto(base, { waitUntil: "commit" });
         await waitForCatalogueFrame(page);
 
-        const hint = page.locator("[data-home-no-location-hint]");
-        await expect(hint).toBeVisible({ timeout: 15_000 });
+        const card = page.locator("[data-home-invite-pill]");
+        await expect(card).toBeVisible({ timeout: 15_000 });
         const audit = await auditMap(page);
-        console.log(`[chip] ${JSON.stringify({
-          text: audit.hintText,
-          buttons: audit.hintButtons,
-          hint: audit.hint,
+        console.log(`[card] ${JSON.stringify({
+          text: audit.cardText,
+          buttons: audit.cardButtons,
+          card: audit.card,
           sheetTop: audit.sheetTop,
+          firstCardTop: audit.firstCardTop,
           tab: audit.tab,
         })}`);
 
-        expect(audit.hintText ?? "").toContain("Menampilkan semua tempat.");
-        expect(audit.hintText ?? "").toContain(
-          "Aktifkan lokasi untuk melihat yang dekat Anda.",
-        );
-        // No promise that a second permission prompt will appear.
-        expect(audit.hintText ?? "").not.toMatch(/izinkan|minta izin|prompt/i);
+        // EXACTLY ONE board over the map, warm copy, no warning language, and
+        // NOTHING inside the results panel.
+        expect(audit.cardBoards, "the old chip is removed").toBe(1);
+        expect(audit.inviteCardsInPanel, "no in-panel invite card remains").toBe(0);
+        expect(audit.cardText ?? "").toContain("Temukan terdekat");
+        expect(audit.cardText ?? "").toContain("Aktifkan lokasi, peta berpusat di sekitarmu");
+        expect(audit.cardText ?? "").not.toMatch(/peringatan|gagal|error|kesalahan/i);
 
-        // The button is the EXISTING "Lokasi Saya" action, at a thumb target.
-        const locate = hint.locator("[data-home-hint-locate]");
+        // The action is the EXISTING "Lokasi Saya" path, at a thumb target.
+        const locate = card.locator("[data-home-invite-locate]");
         await expect(locate).toHaveCount(1);
-        expect(audit.hintButtons).toBe(1);
+        expect(audit.cardButtons).toBe(1);
         const buttonBox = await locate.boundingBox();
         expect(buttonBox?.height ?? 0).toBeGreaterThanOrEqual(44);
-        expect(buttonBox?.width ?? 0).toBeGreaterThanOrEqual(44);
 
-        // Above the panel, below the chrome, and clear of the floating tab.
-        expect(audit.hint?.bottom ?? 0).toBeLessThanOrEqual(audit.sheetTop ?? 0);
-        expect(audit.hint?.top ?? 0).toBeGreaterThanOrEqual(audit.chromeBottom ?? 0);
-        if (audit.tab && audit.hint) {
-          const overlaps =
-            audit.hint.left < audit.tab.right &&
-            audit.hint.right > audit.tab.left &&
-            audit.hint.top < audit.tab.bottom &&
-            audit.hint.bottom > audit.tab.top;
-          expect(overlaps, "the chip must not cover the floating tab").toBe(false);
-        }
+        // OVER THE MAP: the pill is a map control now, so it must sit ABOVE the
+        // panel's top edge and clear every surface of the map itself.
+        expect(audit.cardAbovePanel, "the pill sits above the results panel").toBe(true);
+        expect(audit.cardPinOverlaps, "the pill covers no pin").toBe(0);
+        expect(audit.cardTabOverlap, "the pill covers no floating tab").toBe(false);
+        expect(audit.cardFilterOverlap, "the pill covers no filter control").toBe(false);
+        expect(audit.cardHeaderOverlap, "the pill covers no header control").toBe(false);
+        expect(
+          (audit.card?.bottom ?? 0) - (audit.card?.top ?? 0),
+          "the pill is at most 52px tall",
+        ).toBeLessThanOrEqual(52);
+        // BASELINE RESTORED (2026-10-29): the board no longer lives in the list,
+        // so the first Place card moves down by nothing again — the panel's own
+        // 44px handle band plus the list's 16px top padding, and no more. The
+        // old ~60px in-panel-card allowance is restored to its original budget.
+        const BASELINE_FIRST_CARD_PX = 44 + 16;
+        expect(
+          (audit.firstCardTop ?? 0) - (audit.sheetTop ?? 0),
+          "the first Place card is back at its baseline offset",
+        ).toBeLessThanOrEqual(BASELINE_FIRST_CARD_PX + 1);
+
         // Announced politely, not as an alert.
-        await expect(hint).toHaveAttribute("aria-live", "polite");
+        await expect(card).toHaveAttribute("aria-live", "polite");
+        await expect(card).toHaveAttribute("role", "status");
       } finally {
         await context.close();
       }
     });
 
-    /** A real fix means the chip has nothing to explain: it is gone. */
-    test("the chip disappears once a location is known", async ({ browser }) => {
+    /** A real fix means the card has nothing to explain: it is gone. */
+    test("the card disappears once a location is known", async ({ browser }) => {
       const context = await browser.newContext({
         viewport: { width: 390, height: 844 },
         isMobile: true,
@@ -313,18 +375,18 @@ if (!underNodeTestRunner) {
         const map = page.locator("div.singgah-home-map").first();
         await expect(map).toHaveAttribute("data-singgah-map-frame", "origin", { timeout: 30_000 });
         await page.waitForTimeout(900);
-        await expect(page.locator("[data-home-no-location-hint]")).toHaveCount(0);
+        await expect(page.locator("[data-home-invite-pill]")).toHaveCount(0);
       } finally {
         await context.close();
       }
     });
 
     /**
-     * NO GEOLOCATION AT ALL: the chip still explains the catalogue but offers
+     * NO GEOLOCATION AT ALL: the card still explains the catalogue but offers
      * no action (there is nothing to press that could work), and it must not
      * introduce a server/client render difference.
      */
-    test("without geolocation the chip has no button and hydrates cleanly", async ({
+    test("without geolocation the card has no button and hydrates cleanly", async ({
       browser,
     }) => {
       const context = await browser.newContext({
@@ -357,7 +419,7 @@ if (!underNodeTestRunner) {
           });
         });
         const ssrHtml = await (await context.request.get(base)).text();
-        const ssrChip = ssrHtml.includes("data-home-no-location-hint");
+        const ssrCard = ssrHtml.includes("data-home-invite-pill");
 
         await captureTiles(page);
         await page.goto(base, { waitUntil: "commit" });
@@ -365,21 +427,21 @@ if (!underNodeTestRunner) {
         await page.waitForTimeout(600);
 
         const audit = await auditMap(page);
-        console.log(`[chip-no-geo] console messages: ${seen.length}`);
-        console.log(`[chip-no-geo] hydration complaints: ${JSON.stringify(hydration)}`);
-        console.log(`[chip-no-geo] ${JSON.stringify({
-          ssrChip,
-          text: audit.hintText,
-          buttons: audit.hintButtons,
+        console.log(`[card-no-geo] console messages: ${seen.length}`);
+        console.log(`[card-no-geo] hydration complaints: ${JSON.stringify(hydration)}`);
+        console.log(`[card-no-geo] ${JSON.stringify({
+          ssrCard,
+          text: audit.cardText,
+          buttons: audit.cardButtons,
           hasGeolocation: await page.evaluate(() => navigator.geolocation != null),
         })}`);
 
         expect(hydration, "server HTML and the first client render must agree").toEqual([]);
-        // The server never claims a settled location, so it renders no chip.
-        expect(ssrChip, "the server must not render the settled chip").toBe(false);
-        await expect(page.locator("[data-home-no-location-hint]")).toBeVisible({ timeout: 15_000 });
-        expect(audit.hintText ?? "").toContain("Menampilkan semua tempat.");
-        expect(audit.hintButtons, "no control that cannot work").toBe(0);
+        // The server never claims a settled location, so it renders no card.
+        expect(ssrCard, "the server must not render the settled card").toBe(false);
+        await expect(page.locator("[data-home-invite-pill]")).toBeVisible({ timeout: 15_000 });
+        expect(audit.cardText ?? "").toContain("Peta ini menampilkan semua tempat.");
+        expect(audit.cardButtons, "no control that cannot work").toBe(0);
       } finally {
         await context.close();
       }

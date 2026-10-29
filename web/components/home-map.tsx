@@ -339,6 +339,21 @@ type HomeMapProps = {
    * measured 0 (a caller with no panel at all).
    */
   bottomInset?: number | null;
+
+  /**
+   * The no-location invite pill's band, in map pixels from the container's TOP
+   * edge (2026-10-29). The pill floats under the filter row and therefore owns
+   * pixels the CATALOGUE frame used to treat as free; this is the bottom edge
+   * of that pill, measured by Home in the same pass as `bottomInset`.
+   *
+   * Only `applyCatalogueFrame` reads it — the origin frame (a real fix, a
+   * search center) has no pill at all, and no other camera rule changes.
+   *
+   * `null` means "the pill is on the map but not measured yet": the one first
+   * frame is HELD until the real number arrives, exactly like `bottomInset`.
+   * An absent prop is 0 (no pill, nothing reserved).
+   */
+  catalogueTopInset?: number | null;
 };
 
 /**
@@ -348,6 +363,22 @@ type HomeMapProps = {
  * at all.
  */
 const CATALOGUE_FIT_MIN_VISIBLE_PX = 96;
+
+/**
+ * THE INVITE PILL'S STRIP IN THE CATALOGUE FRAME (2026-10-29).
+ *
+ * The pill floats under the filter row, so its band belongs to the map's own
+ * chrome budget. Everything a pin paints — the artwork AND its 44px tap pad —
+ * rides ABOVE the marker's coordinate: the pad is anchored 40px above it (the
+ * compact artwork is only the top 17px of that pad). `ABOVE_ANCHOR_PX` is that
+ * overhang, so clearing it guarantees the pill covers NOTHING a visitor can
+ * see or tap, and `CLEARANCE_PX` is the air kept between the pill's lower edge
+ * and the northernmost pad. The box floor is the pre-existing
+ * `CATALOGUE_FIT_MIN_VISIBLE_PX` — the same number the panel reserve already
+ * respects, so the two rules can never disagree about what is "too small".
+ */
+const CATALOGUE_PIN_BAND_ABOVE_ANCHOR_PX = 40;
+const CATALOGUE_PIN_BAND_CLEARANCE_PX = 8;
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const OSM_ATTRIBUTION =
@@ -498,6 +529,34 @@ const LOCATE_AREA_RADIUS_M = 350;
  * compete for the same pixels or the same priority.
  */
 const PIN_LABEL_ON_DEMAND_ATTRIBUTE = "data-label-state";
+
+/**
+ * PIN SCALE AT WIDE ZOOMS (2026-10-26) — the ONE number that decides when the
+ * pins paint compact. It is written to the map CONTAINER as
+ * `data-pin-scale="compact"|"normal"` (see `applyPinScale`), never per marker.
+ *
+ * WHY 10 (measured at 390×844 in tests/home-world-pins.e2e.test.ts; zoom read
+ * from the tile requests the frame itself makes):
+ *   z 2  — the no-location CATALOGUE frame: the world fit puts all 70 pins in
+ *          a ~130px band (two latitude clusters) where the 24×31 artwork and
+ *          its chips stack on top of each other → compact.
+ *   z 6  — country / Gulf scale (one wheel step ≈ 2 levels from z 2): still a
+ *          region view, a full-size pin with a name chip reads as a label
+ *          pile → compact.
+ *   z 9  — the last compact level (≈ 120 km across this viewport).
+ *   z 10 — the first NORMAL level (≈ 60 km across this viewport): a city /
+ *          metro frame where a full-size pin and its chip are readable.
+ * The camera presets sit safely on the normal side because
+ * `presetZoomForRadius` yields z 11 for "10 km+", z 12 for "5 km" and z 13–14
+ * for "1 km" (the tile zooms asserted by home-initial-camera.e2e.test.ts), and
+ * a hand pinch into a city is ≥ 11.
+ *
+ * The trigger is the LEAFLET ZOOM ONLY — never the frame, the viewport, or the
+ * dataset — so a single wheel step across this line flips the whole map without
+ * rebuilding a marker. Frame rules (`finalizeInitialFrame`, `applyOriginFrame`,
+ * `applyCatalogueFrame`, the 1 km radius) are untouched by it.
+ */
+const PIN_COMPACT_BELOW_ZOOM = 10;
 /** Chip max width from globals.css (`.singgah-pin-label`). */
 const PIN_LABEL_MAX_WIDTH_PX = 124;
 /** Approximate advance per character at 11.5px/600, plus the 7px side padding. */
@@ -546,6 +605,7 @@ export default function HomeMap({
   highlightedPlaceId = null,
   onSelectPlace,
   bottomInset = 0,
+  catalogueTopInset = 0,
 }: HomeMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
@@ -622,6 +682,8 @@ export default function HomeMap({
   // lifecycle and must read the CURRENT inset, never a stale closure value.
   // `null` = not measured yet (see HomeMapProps.bottomInset).
   const bottomInsetRef = useRef<number | null>(bottomInset);
+  // Same contract for the invite pill's band (see HomeMapProps.catalogueTopInset).
+  const catalogueTopInsetRef = useRef<number | null>(catalogueTopInset);
   const initialFrameDoneRef = useRef(false);
   const finalizeInitialFrameRef = useRef<(() => Promise<boolean>) | null>(null);
 
@@ -691,6 +753,10 @@ export default function HomeMap({
   useEffect(() => {
     bottomInsetRef.current = bottomInset;
   }, [bottomInset]);
+
+  useEffect(() => {
+    catalogueTopInsetRef.current = catalogueTopInset;
+  }, [catalogueTopInset]);
 
   // Stable signature of the marker set (place ids + live session ids), so
   // the marker effect only re-runs when the set actually changes (the
@@ -873,6 +939,22 @@ export default function HomeMap({
     [],
   );
 
+  // PIN SCALE AT WIDE ZOOMS (2026-10-26). ONE attribute on the CONTAINER —
+  // `data-pin-scale="compact"|"normal"` — switches every pin's paint at once.
+  // Nothing per marker is touched: identity, coordinates, z-offset ladder,
+  // colours (NORMAL brown / CURATED green+gold / LIVE red), aria-labels,
+  // tooltips, and click behaviour are all unchanged, and the transparent
+  // 40×44 tap pad stays exactly as it is because only the ARTWORK is scaled
+  // (globals.css, `.singgah-home-map[data-pin-scale="compact"] .singgah-pin-art`).
+  // Recomputed by the ONE label pass below (marker rebuild + zoomend) and once
+  // right after the first frame is decided — the same two places the chips are
+  // decided, so scale and chips can never disagree.
+  const applyPinScale = useCallback((map: LeafletMap) => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.dataset.pinScale = map.getZoom() < PIN_COMPACT_BELOW_ZOOM ? "compact" : "normal";
+  }, []);
+
   // LABEL DECLUTTER AT THE CURRENT ZOOM (2026-10-21). Pure projected geometry:
   // each chip's box is derived from `map.project(latlng, zoom)` and the SAME
   // chip typography (max 124px, 11.5px/600) — no `getBoundingClientRect`, no
@@ -890,6 +972,9 @@ export default function HomeMap({
       selectedId: string | null,
     ) => {
       const zoom = map.getZoom();
+      // PIN SCALE (2026-10-26): the container attribute is refreshed by this
+      // same pass, so the compact paint always matches the chips below.
+      applyPinScale(map);
       const boxes: PinLabelBox[] = [];
       for (const place of sourcePlaces) {
         if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) continue;
@@ -915,6 +1000,15 @@ export default function HomeMap({
         });
       }
       const visible = selectVisiblePinLabelIds({ boxes, zoom, pinnedId: selectedId });
+      // WIDE-ZOOM COMPACT (2026-10-26): below `PIN_COMPACT_BELOW_ZOOM` the pins
+      // paint small, so no chip is painted by default — the SELECTED Place is
+      // the one exception and stays labelled at every zoom. Chips keep their
+      // DOM node, their full text, and the hover / keyboard-focus reveal: only
+      // the paint flag changes, exactly like the density budget above.
+      if (zoom < PIN_COMPACT_BELOW_ZOOM) {
+        visible.clear();
+        if (selectedId) visible.add(selectedId);
+      }
       for (const [id, element] of markersByIdRef.current) {
         const label = element.querySelector<HTMLElement>(".singgah-pin-label");
         if (label) {
@@ -923,7 +1017,7 @@ export default function HomeMap({
       }
       applyPinLabelAnchors(map, sourcePlaces);
     },
-    [applyPinLabelAnchors],
+    [applyPinLabelAnchors, applyPinScale],
   );
 
   // Called by the map's own zoomend, over the mirrors above.
@@ -1161,20 +1255,88 @@ export default function HomeMap({
             size.y - reservedBelow - CATALOGUE_FIT_MIN_VISIBLE_PX,
           );
           const extraBottom = Math.min(sheetInset, maxExtraBottom);
-          map.fitBounds(
-            L.latLngBounds(
-              [initialBounds.south, initialBounds.west],
-              [initialBounds.north, initialBounds.east],
-            ),
-            {
-              paddingTopLeft: initialPadding.paddingTopLeft,
-              paddingBottomRight: [
-                initialPadding.paddingBottomRight[0],
-                initialPadding.paddingBottomRight[1] + extraBottom,
-              ],
-              animate: false,
-            },
+          let paddingTopLeft: [number, number] = [
+            initialPadding.paddingTopLeft[0],
+            initialPadding.paddingTopLeft[1],
+          ];
+          const paddingBottomRight: [number, number] = [
+            initialPadding.paddingBottomRight[0],
+            initialPadding.paddingBottomRight[1] + extraBottom,
+          ];
+          const fittedBounds = L.latLngBounds(
+            [initialBounds.south, initialBounds.west],
+            [initialBounds.north, initialBounds.east],
           );
+          map.fitBounds(fittedBounds, {
+            paddingTopLeft,
+            paddingBottomRight,
+            animate: false,
+          });
+
+          // THE INVITE PILL BAND IS PART OF THE FRAME TOO (2026-10-29).
+          //
+          // BUG THIS FIXES: the no-location invite pill floats under the filter
+          // row, i.e. inside the band the catalogue fit used to treat as free.
+          // At 390×844 and 412×915 the fitted spread already starts below the
+          // pill, but at 360×640 the northern pins land at y≈158 while the pill
+          // spans 166–218 — 58 of 70 pins were painted under a map control.
+          //
+          // The reserve is MEASURED, never a chosen number: Home publishes the
+          // pill's real lower edge (`catalogueTopInset`), and the fit grows its
+          // TOP padding until the northernmost coordinate — plus the compact
+          // artwork that rides above it — clears that edge by
+          // `CATALOGUE_PIN_BAND_CLEARANCE_PX`. It re-measures rather than assume
+          // the amount, because `fitBounds` centres the content in the PADDED
+          // box: on a world frame the zoom is already clamped at `minZoom`, so
+          // padding is the only lever and a top reserve of 2Δ moves the content
+          // down by Δ.
+          //
+          // ON A SHORT STAGE THE BAND IS PAID FOR OUT OF THE BOTTOM (bug this
+          // fixes at 360×640): the chrome padding (190) plus the panel reserve
+          // (sheet 269 + 84 breathing room) already exceeded the 640px map, so
+          // the fit box was inverted and a larger top padding had nowhere to
+          // go — the loop could only give up and the pins stayed under the
+          // pill. The chrome's spare bottom room is therefore released before
+          // the reserve is abandoned, and the PANEL FLOOR is never crossed: the
+          // fit still ends at or above the sheet's top edge, so a pin can never
+          // be traded from "under the pill" to "under the panel". At most
+          // three extra passes, all inside the SAME one first-frame decision:
+          // nothing is painted yet, there is no timer, and no
+          // `setView`/`fitBounds` ever follows the frame.
+          const inviteBand = Math.max(0, Math.round(catalogueTopInsetRef.current ?? 0));
+          if (inviteBand > 0) {
+            const targetTop =
+              inviteBand + CATALOGUE_PIN_BAND_ABOVE_ANCHOR_PX + CATALOGUE_PIN_BAND_CLEARANCE_PX;
+            // The panel's own inset is the hard floor: everything above it may
+            // be spent, nothing below it may be used.
+            const floorBottom = Math.min(sheetInset, paddingBottomRight[1]);
+            const maxTop = Math.max(
+              paddingTopLeft[1],
+              size.y - floorBottom - CATALOGUE_FIT_MIN_VISIBLE_PX,
+            );
+            for (let pass = 0; pass < 3; pass += 1) {
+              const northY = map.latLngToContainerPoint(
+                L.latLng(initialBounds.north, initialBounds.west),
+              ).y;
+              const deficit = targetTop - northY;
+              if (deficit <= 0.5) break;
+              const nextTop = Math.min(maxTop, Math.ceil(paddingTopLeft[1] + deficit * 2));
+              if (nextTop <= paddingTopLeft[1]) break;
+              paddingTopLeft = [paddingTopLeft[0], nextTop];
+              paddingBottomRight[1] = Math.max(
+                floorBottom,
+                Math.min(
+                  paddingBottomRight[1],
+                  size.y - nextTop - CATALOGUE_FIT_MIN_VISIBLE_PX,
+                ),
+              );
+              map.fitBounds(fittedBounds, {
+                paddingTopLeft,
+                paddingBottomRight,
+                animate: false,
+              });
+            }
+          }
         } else {
           // No Place coordinate at all: the world overview is the only honest
           // frame. Never a default city, country, or stand-in coordinate.
@@ -1237,6 +1399,10 @@ export default function HomeMap({
           // the real measurement" rule as an unmeasured container above — the
           // frame is finished by the effect that watches this prop, never by a
           // timer, and it is still the ONE first frame.
+          // The no-location invite pill's band is part of the frame as well
+          // (2026-10-29): Home passes `null` until it has measured the pill's
+          // real lower edge, so the frame waits for it instead of guessing.
+          if (catalogueTopInsetRef.current === null) return false;
           if (bottomInsetRef.current === null) return false;
           applyCatalogueFrame();
         } else {
@@ -1275,6 +1441,11 @@ export default function HomeMap({
         container.dataset.singgahMapFrame = origin ? "origin" : "catalogue";
         initialFrameDoneRef.current = true;
         setReady(true);
+        // PIN SCALE (2026-10-26): the ONE first application of the wide-zoom
+        // attribute, in the same breath as the frame it describes. The marker
+        // rebuild that `ready` triggers runs the same `applyPinScale` through
+        // the label pass, so the two can never disagree.
+        applyPinScale(map);
 
         // Mobile layout timing: panes can measure before the section settles.
         // invalidateSize() after init (and on every window resize) prevents
@@ -1350,6 +1521,7 @@ export default function HomeMap({
       if (container) {
         container.dataset.singgahMap = "";
         container.dataset.singgahMapFrame = "";
+        container.dataset.pinScale = "";
         const observer = touchMoveObserverRef.current;
         if (observer) container.removeEventListener("touchmove", observer);
       }
@@ -1390,7 +1562,7 @@ export default function HomeMap({
     // the results panel, and Home only publishes its MEASURED height (null
     // until then), so this effect is what finishes a held catalogue frame the
     // moment that measurement exists.
-  }, [viewerSettled, viewerPosition, cameraCenter, searchCenter, bottomInset]);
+  }, [viewerSettled, viewerPosition, cameraCenter, searchCenter, bottomInset, catalogueTopInset]);
 
   // AUTO-FIT MECHANISM (product decision, 2026-10-03) — ONE function, shared by
   // the curated refocus and the location search, so both obey the same three
