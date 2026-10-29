@@ -327,9 +327,12 @@ button[aria-label="Tampilkan petunjuk gestur peta"]:focus-visible {
   transform: scale(0.55);
 }
 
+/* The LIVE badge keeps its FULL 9px type at a wide zoom (only its anchor
+   moves with the shrunken head), so a live Place still reads as live instead
+   of shrinking to an unreadable speck. */
 .singgah-home-map[data-pin-scale="compact"] .singgah-pin-badge {
-  top: 2px;
-  transform: translateX(-50%) scale(0.8);
+  top: -5px;
+  transform: translateX(-50%);
 }
 
 /* SELECTED PIN WINS OVER THE COMPACT SCALE (same declarations as the
