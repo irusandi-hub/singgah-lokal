@@ -331,11 +331,21 @@ if (!underNodeTestRunner) {
         expect(audit.cardTabOverlap, "the card covers no floating tab").toBe(false);
         expect(audit.cardFilterOverlap, "the card covers no filter control").toBe(false);
         expect(audit.cardHeaderOverlap, "the card covers no header control").toBe(false);
-        expect(audit.firstCardTop ?? 0).toBeGreaterThanOrEqual(audit.card?.bottom ?? 0);
+        // SPACING PASS (2026-10-29): the phone report replaced the old 58px
+        // card + 2px gap with a comfortable ~80px card and a real 14px gap, so
+        // the card now moves the first Place card by ~94px instead of ~60px.
+        // The budget below is the permitted ~96px of movement; the 44px handle
+        // band and the list's 16px top padding sit between the sheet's top edge
+        // and the card, so they are subtracted first.
+        const CHROME_ABOVE_CARD_PX = 44 + 16;
         expect(
-          (audit.firstCardTop ?? 0) - (audit.sheetTop ?? 0) - 60,
-          "the card moves the first Place card by at most ~60px",
-        ).toBeLessThanOrEqual(60);
+          (audit.firstCardTop ?? 0) - (audit.card?.bottom ?? 0),
+          "the card clears the first Place card by ≥12px",
+        ).toBeGreaterThanOrEqual(12);
+        expect(
+          (audit.firstCardTop ?? 0) - (audit.sheetTop ?? 0) - CHROME_ABOVE_CARD_PX,
+          "the card moves the first Place card by at most ~96px",
+        ).toBeLessThanOrEqual(96);
 
         // Announced politely, not as an alert.
         await expect(card).toHaveAttribute("aria-live", "polite");

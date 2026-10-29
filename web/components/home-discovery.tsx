@@ -2626,14 +2626,25 @@ export default function HomeDiscovery({
               : "overflow-hidden pb-8 pt-4"
           }`}
         >
-        {/* LOCATION INVITE CARD (2026-10-26). The single no-location
-            information board (the old floating chip is gone). It sits as the
-            first row INSIDE the results panel, above the first Place card:
-            measured at 390×844, the only pin-free map band is 65px, too short
-            for the required title + one-line subtitle + 44px button, so this
-            uses the documented in-panel fallback. It moves the first card down
-            by 60px (58px card + 2px gap) and covers no pin, filter, tab,
-            header, or the panel's top edge.
+        {/* LOCATION INVITE CARD (2026-10-26; spacing pass 2026-10-29). The
+            single no-location information board (the old floating chip is
+            gone). It sits as the first row INSIDE the results panel, above the
+            first Place card: measured at 390×844, the only pin-free map band is
+            65px, too short for the required title + subtitle + 44px button, so
+            this uses the documented in-panel fallback.
+
+            SPACING (phone test 2026-10-29: the card's bottom edge touched the
+            first Place card, the subtitle sat on the card's bottom edge, and
+            the button touched the card's top edge). Reading comfort now beats
+            density: 14px padding on every side, a 4px gap between title and
+            subtitle, a 14px gap to the first Place card, and the 44px action
+            vertically centred in its own right-hand column so it clears the
+            card's top, bottom, and right edges by ≥12px. The card measures
+            ~80px (title row 20 + 4 + two subtitle lines at 14px + 28 of
+            padding) and moves the first card down by ~94px; the subtitle wraps
+            to two lines instead of being truncated, and `min-w-0` keeps the
+            text column from ever running under the button. It covers no pin,
+            filter, tab, header, or the panel's top edge.
 
             Warm, not a warning: the cream/white chrome surface, a brand-green
             pin, a plain title, and NO warning colour or error word. The copy
@@ -2650,26 +2661,41 @@ export default function HomeDiscovery({
             data-home-invite-card
             role="status"
             aria-live="polite"
-            className="mb-0.5 shrink-0 rounded-[16px] bg-white px-2.5 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5"
+            className="mb-3.5 shrink-0 rounded-[16px] bg-white px-3.5 py-3.5 shadow-[0_4px_14px_rgb(0_0_0/0.10)] ring-1 ring-black/5"
           >
-            <div className="flex h-11 items-center gap-2">
-              <span
-                aria-hidden
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
-                  <path
-                    d="M12 21s6.5-5.4 6.5-11a6.5 6.5 0 1 0-13 0C5.5 15.6 12 21 12 21Z"
-                    stroke="currentColor"
-                    strokeWidth="1.7"
-                    strokeLinejoin="round"
-                  />
-                  <circle cx="12" cy="10" r="2.3" fill="currentColor" />
-                </svg>
-              </span>
-              <p className="min-w-0 flex-1 truncate text-[12px] font-bold leading-4 text-brand-ink">
-                Jelajahi semua tempat
-              </p>
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary"
+                  >
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none">
+                      <path
+                        d="M12 21s6.5-5.4 6.5-11a6.5 6.5 0 1 0-13 0C5.5 15.6 12 21 12 21Z"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinejoin="round"
+                      />
+                      <circle cx="12" cy="10" r="2.3" fill="currentColor" />
+                    </svg>
+                  </span>
+                  <p
+                    data-home-invite-title
+                    className="min-w-0 flex-1 text-[12.5px] font-bold leading-4 text-brand-ink"
+                  >
+                    Jelajahi semua tempat
+                  </p>
+                </div>
+                <p
+                  data-home-invite-subtitle
+                  className="mt-1 text-[10.5px] leading-3.5 text-brand-ink/60"
+                >
+                  {noGeolocation
+                    ? "Peta ini menampilkan semua tempat."
+                    : "Aktifkan lokasi untuk melihat yang paling dekat denganmu"}
+                </p>
+              </div>
               {noGeolocation ? null : geolocationPermission === "denied" ? (
                 <button
                   type="button"
@@ -2699,16 +2725,11 @@ export default function HomeDiscovery({
                 </button>
               )}
             </div>
-            <p className="pb-0.5 text-[10px] leading-3 text-brand-ink/60">
-              {noGeolocation
-                ? "Peta ini menampilkan semua tempat."
-                : "Aktifkan lokasi untuk melihat yang paling dekat denganmu"}
-            </p>
             {geolocationPermission === "denied" && deniedHelpOpen ? (
               <div
                 id="home-invite-denied-help"
                 data-home-invite-help
-                className="mb-2 rounded-[12px] bg-brand-cream/80 px-2.5 py-2 ring-1 ring-black/5"
+                className="mt-3 rounded-[12px] bg-brand-cream/80 px-3 py-2.5 ring-1 ring-black/5"
               >
                 <p className="text-[10.5px] leading-4 text-brand-ink/75">
                   <span className="font-bold">Chrome di Android:</span> ketuk ikon gembok/pengaturan di

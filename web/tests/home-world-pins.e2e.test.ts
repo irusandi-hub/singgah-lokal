@@ -22,7 +22,11 @@ import { test, expect, type Page } from "@playwright/test";
  *   5. THE INVITE CARD (`[data-home-invite-card]`) is the ONLY information
  *      board, sits inside the results panel above the first card (the measured
  *      65px map band cannot hold the required copy), and covers no pin, filter
- *      row, tab, header, or panel top edge. It moves the first card by ≤60px.
+ *      row, tab, header, or panel top edge. Since the 2026-10-29 spacing pass
+ *      it measures ~80px and moves the first card by ≤96px (14px gap included),
+ *      with ≥12px of padding under its subtitle and ≥12px between its action
+ *      and the card's top/bottom/right edges — measured for the prompt, denied
+ *      (steps open), and no-geolocation variants in scenario (f).
  *   6. It is permission-aware: prompt offers `Aktifkan lokasi` and really asks;
  *      denied offers `Cara mengaktifkan`, shows steps, and never calls
  *      `getCurrentPosition`; a live change to granted asks exactly once and
@@ -218,6 +222,22 @@ const readCardGeometry = (page: Page) =>
     const locate = card?.querySelector("[data-home-invite-locate]") as HTMLElement | null;
     const helpToggle = card?.querySelector("[data-home-invite-help-toggle]") as HTMLElement | null;
     const reload = card?.querySelector("[data-home-invite-reload]") as HTMLElement | null;
+    // SPACING PASS (2026-10-29): the card's own insets, measured on the real
+    // boxes rather than on Tailwind class names. `action` is whichever button
+    // the live permission state renders; null on the no-geolocation variant.
+    const title = box(card?.querySelector("[data-home-invite-title]") ?? null);
+    const subtitle = box(card?.querySelector("[data-home-invite-subtitle]") ?? null);
+    const action = box(
+      (card?.querySelector("[data-home-invite-locate]") ??
+        card?.querySelector("[data-home-invite-help-toggle]")) as Element | null,
+    );
+    const clipped = (el: Element | null) => {
+      const node = el as HTMLElement | null;
+      if (!node) return null;
+      // scrollHeight > clientHeight means the text is cut off by a
+      // line-clamp/truncate/overflow rule; +1px absorbs sub-pixel rounding.
+      return node.scrollHeight > node.clientHeight + 1;
+    };
     const emptyOverlay = [...document.querySelectorAll("section div")].some((el) =>
       /Geser peta dengan dua jari untuk melihat area lain\./.test(el.textContent ?? ""),
     );
@@ -238,6 +258,35 @@ const readCardGeometry = (page: Page) =>
       cardToFirstCardGap:
         cardBox && firstCard ? Math.round((firstCard.top - cardBox.bottom) * 10) / 10 : null,
       cardPointer: card ? getComputedStyle(card).pointerEvents : null,
+      cardPadding: card
+        ? {
+            top: parseFloat(getComputedStyle(card).paddingTop),
+            bottom: parseFloat(getComputedStyle(card).paddingBottom),
+            left: parseFloat(getComputedStyle(card).paddingLeft),
+            right: parseFloat(getComputedStyle(card).paddingRight),
+          }
+        : null,
+      title,
+      subtitle,
+      action,
+      // Each metric the 2026-10-29 phone report named, in px.
+      subtitleToCardBottom: cardBox && subtitle ? Math.round((cardBox.bottom - subtitle.bottom) * 10) / 10 : null,
+      titleToSubtitle: title && subtitle ? Math.round((subtitle.top - title.bottom) * 10) / 10 : null,
+      actionTopGap: cardBox && action ? Math.round((action.top - cardBox.top) * 10) / 10 : null,
+      actionBottomGap: cardBox && action ? Math.round((cardBox.bottom - action.bottom) * 10) / 10 : null,
+      actionRightGap: cardBox && action ? Math.round((cardBox.right - action.right) * 10) / 10 : null,
+      titleClipped: clipped(card?.querySelector("[data-home-invite-title]") ?? null),
+      subtitleClipped: clipped(card?.querySelector("[data-home-invite-subtitle]") ?? null),
+      actionTextClipped: clipped(
+        (card?.querySelector("[data-home-invite-locate]") ??
+          card?.querySelector("[data-home-invite-help-toggle]")) ?? null,
+      ),
+      textOverlapsAction:
+        !!action && (!!title && title.right > action.left || !!subtitle && subtitle.right > action.left),
+      cardFullyInsideSheet:
+        !!cardBox && !!sheet
+          ? cardBox.top >= sheet.top && cardBox.bottom <= Math.min(sheet.bottom, window.innerHeight)
+          : null,
       text: (card as HTMLElement | null)?.innerText ?? null,
       buttons: card?.querySelectorAll("button").length ?? 0,
       locate: locate
@@ -263,6 +312,46 @@ const readCardGeometry = (page: Page) =>
       emptyOverlay,
     };
   });
+
+type CardGeometry = Awaited<ReturnType<typeof readCardGeometry>>;
+
+/**
+ * THE SPACING CONTRACT OF THE INVITE CARD (2026-10-29). Every variant —
+ * prompt, denied (steps open), and no-geolocation — must keep the same
+ * comfortable insets: a real gap to the first Place card, bottom padding under
+ * the subtitle, and a text column that never wraps under the action.
+ */
+function expectCardSpacing(geo: CardGeometry, variant: string) {
+  expect(geo.card, `${variant}: the card has a real box`).not.toBeNull();
+  expect(
+    geo.cardToFirstCardGap,
+    `${variant}: the card clears the first Place card by ≥12px`,
+  ).toBeGreaterThanOrEqual(12);
+  expect(geo.cardToFirstCardGap, `${variant}: the gap stays tight (≤16px)`).toBeLessThanOrEqual(16);
+  expect(
+    geo.subtitleToCardBottom,
+    `${variant}: the subtitle keeps ≥12px of bottom padding`,
+  ).toBeGreaterThanOrEqual(12);
+  expect(geo.titleToSubtitle, `${variant}: the subtitle sits on its own row`).toBeGreaterThanOrEqual(3);
+  expect(geo.titleClipped, `${variant}: the title is never cut off`).toBe(false);
+  expect(geo.subtitleClipped, `${variant}: the subtitle may wrap, never truncate`).toBe(false);
+  expect(geo.textOverlapsAction, `${variant}: no text runs under the action`).toBe(false);
+  expect(geo.cardFullyInsideSheet, `${variant}: the card is whole at the mid snap`).toBe(true);
+  expect(geo.pinOverlaps, `${variant}: the card covers no pin`).toBe(0);
+  expect(geo.tabOverlap, `${variant}: the card covers no floating tab`).toBe(false);
+  expect(geo.filterOverlap, `${variant}: the card covers no filter control`).toBe(false);
+  expect(geo.headerOverlap, `${variant}: the card covers no header control`).toBe(false);
+}
+
+/** The action's own insets: 44px tall, ≥12px from the card's top/bottom/right. */
+function expectActionInsets(geo: CardGeometry, variant: string) {
+  expect(geo.action, `${variant}: the variant renders an action`).not.toBeNull();
+  expect(geo.action?.h, `${variant}: the action is a 44px thumb target`).toBeGreaterThanOrEqual(44);
+  expect(geo.actionTopGap, `${variant}: ≥12px above the action`).toBeGreaterThanOrEqual(12);
+  expect(geo.actionBottomGap, `${variant}: ≥12px below the action`).toBeGreaterThanOrEqual(12);
+  expect(geo.actionRightGap, `${variant}: ≥12px right of the action`).toBeGreaterThanOrEqual(12);
+  expect(geo.actionTextClipped, `${variant}: the action label is never cut off`).toBe(false);
+}
 
 /** Count of real getCurrentPosition calls made by the app so far. */
 const geoCallCount = (page: Page) =>
@@ -363,9 +452,21 @@ if (!underNodeTestRunner) {
         expect(geo.tabOverlap, "the card covers no 'Tempat Pilihan' tab").toBe(false);
         expect(geo.filterOverlap, "the card covers no filter-row control").toBe(false);
         expect(geo.headerOverlap, "the card covers no header control").toBe(false);
-        expect(geo.cardToFirstCardGap, "the card sits directly above the first card").toBeGreaterThanOrEqual(0);
-        expect(geo.cardToFirstCardGap, "the card sits directly above the first card").toBeLessThanOrEqual(4);
-        expect(geo.card!.h, "the first card moves by ~60px, not more").toBeLessThanOrEqual(60);
+        // SPACING (2026-10-29): the phone report said the card's bottom edge
+        // touched the first Place card. The gap is now a real 14px, inside the
+        // required 12–16px band, instead of the old 2px.
+        expect(geo.cardToFirstCardGap, "the card clears the first Place card").toBeGreaterThanOrEqual(12);
+        expect(geo.cardToFirstCardGap, "the gap stays tight").toBeLessThanOrEqual(16);
+        expect(geo.card!.h, "the card is in the comfortable 76–88px band").toBeGreaterThanOrEqual(76);
+        expect(geo.card!.h, "the card is in the comfortable 76–88px band").toBeLessThanOrEqual(88);
+        expect(geo.actionTopGap, "the button clears the card's top edge").toBeGreaterThanOrEqual(12);
+        expect(geo.actionBottomGap, "the button clears the card's bottom edge").toBeGreaterThanOrEqual(12);
+        expect(geo.actionRightGap, "the button clears the card's right edge").toBeGreaterThanOrEqual(12);
+        expect(geo.subtitleToCardBottom, "the subtitle keeps its bottom padding").toBeGreaterThanOrEqual(12);
+        expect(geo.titleClipped, "the title is never cut off").toBe(false);
+        expect(geo.subtitleClipped, "the subtitle may wrap to two lines, never truncate").toBe(false);
+        expect(geo.textOverlapsAction, "the text column never runs under the button").toBe(false);
+        expect(geo.cardFullyInsideSheet, "the whole card is visible at the mid snap").toBe(true);
         expect(geo.cardPointer, "the card itself opts into pointer events").toBe("auto");
         expect(geo.text ?? "", "warm title").toContain("Jelajahi semua tempat");
         expect(geo.text ?? "", "the prompt variant offers the nearby places").toContain(
@@ -871,6 +972,140 @@ if (!underNodeTestRunner) {
         await page.locator(INVITE_LOCATE).click();
         await page.waitForTimeout(600);
         expect(await geoCallCount(page), "the old locate path still runs").toBe(before + 1);
+      } finally {
+        await context.close();
+      }
+    });
+
+    /**
+     * (f) CARD SPACING — the phone report of 2026-10-29 (card bottom touching
+     * the first Place card, subtitle on the bottom edge, button on the top
+     * edge), measured for all three variants, at the default `mid` snap.
+     */
+    test("f1) prompt: the card keeps its insets and its action stays inside the card", async ({
+      browser,
+    }) => {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        isMobile: true,
+        hasTouch: true,
+      });
+      try {
+        const page = await context.newPage();
+        await blockTiles(page);
+        await stubPermission(page, "prompt");
+        await denyGeolocation(page);
+        await page.goto(base, { waitUntil: "commit" });
+
+        await expect(page.locator("div.singgah-home-map").first()).toHaveAttribute(
+          "data-singgah-map-frame",
+          "catalogue",
+          { timeout: 25_000 },
+        );
+        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await page.waitForTimeout(400);
+
+        const geo = await readCardGeometry(page);
+        console.log(`[f1] prompt spacing: ${JSON.stringify(geo)}`);
+        expectCardSpacing(geo, "prompt");
+        expectActionInsets(geo, "prompt");
+        expect(geo.locate?.text, "the prompt copy is unchanged").toBe("Aktifkan lokasi");
+        expect(geo.card!.h, "the prompt card is in the 76–88px band").toBeGreaterThanOrEqual(76);
+        expect(geo.card!.h, "the prompt card is in the 76–88px band").toBeLessThanOrEqual(88);
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("f2) denied with the steps open keeps the same insets and never presses the first card", async ({
+      browser,
+    }) => {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        isMobile: true,
+        hasTouch: true,
+      });
+      try {
+        const page = await context.newPage();
+        await blockTiles(page);
+        await stubPermission(page, "denied");
+        await denyGeolocation(page);
+        await page.goto(base, { waitUntil: "commit" });
+
+        await expect(page.locator("div.singgah-home-map").first()).toHaveAttribute(
+          "data-singgah-map-frame",
+          "catalogue",
+          { timeout: 25_000 },
+        );
+        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+
+        const closed = await readCardGeometry(page);
+        console.log(`[f2] denied closed: ${JSON.stringify(closed)}`);
+        expectCardSpacing(closed, "denied-closed");
+        expectActionInsets(closed, "denied-closed");
+        expect(closed.helpToggle?.text, "the denied copy is unchanged").toBe("Cara mengaktifkan");
+
+        await page.locator(INVITE_HELP_TOGGLE).click();
+        await expect(page.locator(INVITE_HELP)).toBeVisible();
+        await page.waitForTimeout(300);
+
+        const open = await readCardGeometry(page);
+        console.log(`[f2] denied open: ${JSON.stringify(open)}`);
+        expectCardSpacing(open, "denied-open");
+        expectActionInsets(open, "denied-open");
+        expect(open.helpVisible, "the steps really render").toBe(true);
+        expect(open.reload?.text, "the reload action is unchanged").toBe("Muat ulang halaman");
+        expect(
+          open.card!.h,
+          "opening the steps grows the card instead of squashing the first card",
+        ).toBeGreaterThan(closed.card!.h);
+        expect(open.cardFullyInsideSheet, "the opened steps stay inside the panel").toBe(true);
+        expect(
+          open.cardToFirstCardGap,
+          "the opened steps keep their own gap to the first Place card",
+        ).toBeGreaterThanOrEqual(12);
+      } finally {
+        await context.close();
+      }
+    });
+
+    test("f3) without geolocation the card keeps the same padding and gap, with no action", async ({
+      browser,
+    }) => {
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        isMobile: true,
+        hasTouch: true,
+      });
+      try {
+        const page = await context.newPage();
+        await blockTiles(page);
+        await page.addInitScript(() => {
+          Object.defineProperty(navigator, "geolocation", {
+            configurable: true,
+            get: () => undefined,
+          });
+        });
+        await page.goto(base, { waitUntil: "commit" });
+
+        await expect(page.locator("div.singgah-home-map").first()).toHaveAttribute(
+          "data-singgah-map-frame",
+          "catalogue",
+          { timeout: 25_000 },
+        );
+        await expect(page.locator(INVITE_CARD)).toBeVisible({ timeout: 15_000 });
+        await page.waitForTimeout(400);
+
+        const geo = await readCardGeometry(page);
+        console.log(`[f3] no-geolocation spacing: ${JSON.stringify(geo)}`);
+        expectCardSpacing(geo, "no-geolocation");
+        expect(geo.buttons, "no action without geolocation").toBe(0);
+        expect(geo.action, "no action box at all").toBeNull();
+        expect(geo.cardPadding?.top, "same top padding as the other variants").toBeGreaterThanOrEqual(12);
+        expect(geo.cardPadding?.bottom, "same bottom padding as the other variants").toBeGreaterThanOrEqual(
+          12,
+        );
+        expect(geo.subtitleClipped, "the honest copy fits").toBe(false);
       } finally {
         await context.close();
       }
